@@ -1,7 +1,7 @@
 {
   'variables': {
     'target_arch%': 'ia32',
-    'library%': 'shared_library',     # build spidermonkey as shared library
+    'library%': 'static_library',     # build spidermonkey as static library
     'component%': 'static_library',   # link crt statically or dynamically
     'spidermonkey_dir%': 'spidermonkey',
 
@@ -23,9 +23,8 @@
           '<(spidermonkey_dir)/js/src/jsapi.h',
         ],
         'spidermonkey_binaries': [
-          '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozjs-48a1<(SHARED_LIB_SUFFIX)',
+          '<(spidermonkey_dir)/../build/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
           '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-          '<(spidermonkey_dir)/../build/dist/bin/<(EXECUTABLE_PREFIX)js<(EXECUTABLE_SUFFIX)',
         ],
       },
 
