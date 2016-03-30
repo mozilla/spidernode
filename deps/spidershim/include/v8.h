@@ -46,7 +46,15 @@
     *(static_cast<T* volatile*>(0)) = static_cast<S*>(0);      \
   }
 
-#if 0
+// TODO: The following definitions are stolen from chakracommon.h to get this
+// header to compile.  We need to replace them with SM based stuff.
+typedef void* JsRef;
+typedef JsRef JsValueRef;
+typedef JsRef JsContextRef;
+typedef enum _JsErrorCode : unsigned int {JsNoError} JsErrorCode;
+JsErrorCode JsAddRef(JsRef, unsigned int*);
+JsErrorCode JsFree(JsRef, unsigned int*);
+const JsRef JS_INVALID_REFERENCE = NULL;
 
 namespace v8 {
 
@@ -314,6 +322,33 @@ template <class T>
 using Handle = Local<T>;
 
 
+V8_EXPORT Handle<Primitive> Undefined(Isolate* isolate);
+V8_EXPORT Handle<Primitive> Null(Isolate* isolate);
+V8_EXPORT Handle<Boolean> True(Isolate* isolate);
+V8_EXPORT Handle<Boolean> False(Isolate* isolate);
+V8_EXPORT bool SetResourceConstraints(ResourceConstraints *constraints);
+
+class V8_EXPORT V8 {
+ public:
+#if 0
+  static void SetArrayBufferAllocator(ArrayBuffer::Allocator* allocator);
+#endif
+  static bool IsDead();
+  static void SetFlagsFromString(const char* str, int length);
+  static void SetFlagsFromCommandLine(
+    int *argc, char **argv, bool remove_flags);
+  static const char *GetVersion();
+  static bool Initialize();
+  static void SetEntropySource(EntropySource source);
+  static void TerminateExecution(Isolate* isolate);
+  static bool IsExeuctionDisabled(Isolate* isolate = nullptr);
+  static void CancelTerminateExecution(Isolate* isolate);
+  static bool Dispose();
+  static void InitializePlatform(Platform* platform) {}
+  static void FromJustIsNothing();
+  static void ToLocalEmpty();
+};
+
 template <class T>
 class MaybeLocal {
  public:
@@ -418,6 +453,7 @@ struct WeakReferenceCallbackWrapper {
   };
   bool isWeakCallbackInfo;
 };
+#if 0
 template class V8_EXPORT std::shared_ptr<WeakReferenceCallbackWrapper>;
 
 // A helper method for setting an object with a WeakReferenceCallback. The
@@ -432,6 +468,7 @@ V8_EXPORT void SetObjectWeakReferenceCallback(
   WeakCallbackData<Value, void>::Callback callback,
   void* parameters,
   std::shared_ptr<WeakReferenceCallbackWrapper>* weakWrapper);
+#endif
 // A helper method for turning off the WeakReferenceCallback that was set using
 // the previous method
 V8_EXPORT void ClearObjectWeakReferenceCallback(JsValueRef object, bool revive);
@@ -508,7 +545,9 @@ class PersistentBase {
   void SetWeakCommon(P* parameter, Callback callback);
 
   T* val_;
+#if 0
   std::shared_ptr<chakrashim::WeakReferenceCallbackWrapper> _weakWrapper;
+#endif
 };
 
 
@@ -642,9 +681,11 @@ class Global : public PersistentBase<T> {
   }
 
   V8_INLINE Global(Global&& other) : PersistentBase<T>(other.val_) {
+#if 0
     this._weakWrapper = other._weakWrapper;
     other.val_ = nullptr;
     other._weakWrapper.reset();
+#endif
   }
 
   V8_INLINE ~Global() { this->Reset(); }
@@ -655,9 +696,11 @@ class Global : public PersistentBase<T> {
     if (this != &rhs) {
       this->Reset();
       this->val_ = rhs.val_;
+#if 0
       this->_weakWrapper = rhs._weakWrapper;
       rhs.val_ = nullptr;
       rhs._weakWrapper.reset();
+#endif
     }
     return *this;
   }
@@ -1506,7 +1549,10 @@ class ReturnValue {
   void SetUndefined() { Set(Undefined(nullptr)); }
   void SetEmptyString() { Set(String::Empty(nullptr)); }
   // Convenience getter for Isolate
-  Isolate* GetIsolate() { return Isolate::GetCurrent(); }
+  Isolate* GetIsolate();
+#if 0
+  { return Isolate::GetCurrent(); }
+#endif
 
   Value* Get() const { return *_value; }
  private:
@@ -1532,7 +1578,10 @@ class FunctionCallbackInfo {
   Local<Object> Holder() const { return _holder; }
   bool IsConstructCall() const { return _isConstructorCall; }
   Local<Value> Data() const { return _data; }
-  Isolate* GetIsolate() const { return Isolate::GetCurrent(); }
+  Isolate* GetIsolate() const;
+#if 0
+  { return Isolate::GetCurrent(); }
+#endif
   ReturnValue<T> GetReturnValue() const {
     return ReturnValue<T>(
       &(const_cast<FunctionCallbackInfo<T>*>(this)->_returnValue));
@@ -1571,7 +1620,10 @@ class FunctionCallbackInfo {
 template<typename T>
 class PropertyCallbackInfo {
  public:
-  Isolate* GetIsolate() const { return Isolate::GetCurrent(); }
+  Isolate* GetIsolate() const;
+#if 0
+  { return Isolate::GetCurrent(); }
+#endif
   Local<Value> Data() const { return _data; }
   Local<Object> This() const { return _thisObject; }
   Local<Object> Holder() const { return _holder; }
@@ -1996,12 +2048,6 @@ class V8_EXPORT AccessorSignature : public Data {
 };
 
 
-V8_EXPORT Handle<Primitive> Undefined(Isolate* isolate);
-V8_EXPORT Handle<Primitive> Null(Isolate* isolate);
-V8_EXPORT Handle<Boolean> True(Isolate* isolate);
-V8_EXPORT Handle<Boolean> False(Isolate* isolate);
-V8_EXPORT bool SetResourceConstraints(ResourceConstraints *constraints);
-
 
 class V8_EXPORT ResourceConstraints {
  public:
@@ -2225,25 +2271,6 @@ class V8_EXPORT JitCodeEvent {
 class V8_EXPORT StartupData {
 };
 
-class V8_EXPORT V8 {
- public:
-  static void SetArrayBufferAllocator(ArrayBuffer::Allocator* allocator);
-  static bool IsDead();
-  static void SetFlagsFromString(const char* str, int length);
-  static void SetFlagsFromCommandLine(
-    int *argc, char **argv, bool remove_flags);
-  static const char *GetVersion();
-  static bool Initialize();
-  static void SetEntropySource(EntropySource source);
-  static void TerminateExecution(Isolate* isolate);
-  static bool IsExeuctionDisabled(Isolate* isolate = nullptr);
-  static void CancelTerminateExecution(Isolate* isolate);
-  static bool Dispose();
-  static void InitializePlatform(Platform* platform) {}
-  static void FromJustIsNothing();
-  static void ToLocalEmpty();
-};
-
 template <class T>
 class Maybe {
  public:
@@ -2409,6 +2436,7 @@ T* PersistentBase<T>::New(Isolate* isolate, T* that) {
   return that;
 }
 
+#if 0
 template <class T, class M>
 template <class S, class M2>
 void Persistent<T, M>::Copy(const Persistent<S, M2>& that) {
@@ -2450,6 +2478,7 @@ void PersistentBase<T>::Reset() {
 
   val_ = nullptr;
 }
+#endif
 
 template <class T>
 template <class S>
@@ -2476,8 +2505,10 @@ void PersistentBase<T>::SetWeakCommon(P* parameter, Callback callback) {
   if (this->IsEmpty()) return;
 
   bool wasStrong = !IsWeak();
+#if 0
   chakrashim::SetObjectWeakReferenceCallback(val_, callback, parameter,
                                              &_weakWrapper);
+#endif
   if (wasStrong) {
     JsRelease(val_, nullptr);
   }
@@ -2501,6 +2532,7 @@ void PersistentBase<T>::SetWeak(P* parameter,
   SetWeakCommon(parameter, reinterpret_cast<Callback>(callback));
 }
 
+#if 0
 template <class T>
 template <typename P>
 P* PersistentBase<T>::ClearWeak() {
@@ -2515,6 +2547,7 @@ P* PersistentBase<T>::ClearWeak() {
   JsAddRef(val_, nullptr);
   return parameters;
 }
+#endif
 
 template <class T>
 void PersistentBase<T>::MarkIndependent() {
@@ -2549,5 +2582,3 @@ inline Local<Context> HandleScope::Close(Handle<Context> value) {
 }
 
 }  // namespace v8
-
-#endif
