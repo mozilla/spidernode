@@ -398,6 +398,12 @@
           ],
           'dependencies': [ 'deps/chakrashim/chakrashim.gyp:chakrashim' ],
         }],
+        ['node_engine=="spidermonkey"', {
+          'include_dirs': [
+            'deps/spidermonkey' # include/v8_platform.h
+          ],
+          'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
+        }],
 
         [ 'node_shared_zlib=="false"', {
           'dependencies': [ 'deps/zlib/zlib.gyp:zlib' ],
@@ -718,6 +724,9 @@
         }],
         ['node_engine=="chakracore"', {
           'dependencies': [ 'deps/chakrashim/chakrashim.gyp:chakrashim' ],
+        }],
+        ['node_engine=="spidermonkey"', {
+          'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
         }],
       ],
       'msvs_settings': {

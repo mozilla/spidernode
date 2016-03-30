@@ -80,6 +80,16 @@
         'node_engine_libs': '-lchakracore.lib',
       },
     }],
+    ['node_engine=="spidermonkey"', {
+      'target_defaults': {
+        'defines': [
+          'NODE_ENGINE_SPIDERMONKEY',
+        ],
+      },
+      'variables': {
+        'node_engine_include_dir%': 'deps/spidershim/include',
+      },
+    }],
   ],
 
   'target_defaults': {
