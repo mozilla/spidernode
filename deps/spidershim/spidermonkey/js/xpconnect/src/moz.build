@@ -1,0 +1,74 @@
+# -*- Mode: python; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+EXPORTS += [
+    'BackstagePass.h',
+    'qsObjectHelper.h',
+    'XPCJSMemoryReporter.h',
+    'xpcObjectHelper.h',
+    'xpcpublic.h',
+]
+
+UNIFIED_SOURCES += [
+    'ExportHelpers.cpp',
+    'nsScriptError.cpp',
+    'nsScriptErrorWithStack.cpp',
+    'nsXPConnect.cpp',
+    'Sandbox.cpp',
+    'XPCCallContext.cpp',
+    'XPCContext.cpp',
+    'XPCConvert.cpp',
+    'XPCDebug.cpp',
+    'XPCException.cpp',
+    'XPCJSContextStack.cpp',
+    'XPCJSID.cpp',
+    'XPCJSRuntime.cpp',
+    'XPCJSWeakReference.cpp',
+    'XPCLocale.cpp',
+    'XPCLog.cpp',
+    'XPCMaps.cpp',
+    'XPCModule.cpp',
+    'XPCRuntimeService.cpp',
+    'XPCShellImpl.cpp',
+    'XPCString.cpp',
+    'XPCThrower.cpp',
+    'XPCVariant.cpp',
+    'XPCWrappedJS.cpp',
+    'XPCWrappedJSClass.cpp',
+    'XPCWrappedNative.cpp',
+    'XPCWrappedNativeInfo.cpp',
+    'XPCWrappedNativeJSOps.cpp',
+    'XPCWrappedNativeProto.cpp',
+    'XPCWrappedNativeScope.cpp',
+    'XPCWrapper.cpp',
+]
+
+# XPCComponents.cpp cannot be built in unified mode because it uses plarena.h.
+SOURCES += [
+    'XPCComponents.cpp',
+]
+
+include('/ipc/chromium/chromium-config.mozbuild')
+
+FINAL_LIBRARY = 'xul'
+
+LOCAL_INCLUDES += [
+    '../loader',
+    '../wrappers',
+    '/caps',
+    '/dom/base',
+    '/dom/html',
+    '/dom/svg',
+    '/dom/workers',
+    '/layout/base',
+    '/layout/style',
+    '/xpcom/reflect/xptinfo',
+]
+
+if CONFIG['MOZ_B2G_BT']:
+    LOCAL_INCLUDES += [
+        '/dom/bluetooth/common',
+    ]

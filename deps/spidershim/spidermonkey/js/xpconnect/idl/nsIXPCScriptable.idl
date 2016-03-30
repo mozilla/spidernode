@@ -1,0 +1,152 @@
+/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+#include "nsIClassInfo.idl"
+
+%{C++
+#ifdef XP_WIN
+#undef GetClassName
+#endif
+
+#include "js/TypeDecls.h"
+
+struct JSFreeOp;
+%}
+
+interface nsIXPConnectWrappedNative;
+
+[ptr] native JSContextPtr(JSContext);
+[ptr] native JSObjectPtr(JSObject);
+[ptr] native JSValPtr(JS::Value);
+[ptr] native JSFreeOpPtr(JSFreeOp);
+[ref] native JSCallArgsRef(const JS::CallArgs);
+[ref] native JSAutoIdVector(JS::AutoIdVector);
+
+/**
+ * Note: This is not really an XPCOM interface.  For example, callers must
+ * guarantee that they set the *_retval of the various methods that return a
+ * boolean to PR_TRUE before making the call.  Implementations may skip writing
+ * to *_retval unless they want to return PR_FALSE.
+ */
+[uuid(19b70b26-7c3f-437f-a04a-2a8f9e28b617)]
+interface nsIXPCScriptable : nsISupports
+{
+    /* bitflags used for 'flags' (only 32 bits available!) */
+
+    const uint32_t WANT_PRECREATE                   = 1 <<  0;
+    // unused bit here
+    // unused bit here
+    const uint32_t WANT_ADDPROPERTY                 = 1 <<  3;
+    // unused bit here
+    const uint32_t WANT_GETPROPERTY                 = 1 <<  5;
+    const uint32_t WANT_SETPROPERTY                 = 1 <<  6;
+    const uint32_t WANT_ENUMERATE                   = 1 <<  7;
+    const uint32_t WANT_NEWENUMERATE                = 1 <<  8;
+    const uint32_t WANT_RESOLVE                     = 1 <<  9;
+    // unused bit here
+    const uint32_t WANT_FINALIZE                    = 1 << 11;
+    // unused bit here!
+    const uint32_t WANT_CALL                        = 1 << 13;
+    const uint32_t WANT_CONSTRUCT                   = 1 << 14;
+    const uint32_t WANT_HASINSTANCE                 = 1 << 15;
+    // Unused bit here!
+    const uint32_t USE_JSSTUB_FOR_ADDPROPERTY       = 1 << 17;
+    const uint32_t USE_JSSTUB_FOR_DELPROPERTY       = 1 << 18;
+    const uint32_t USE_JSSTUB_FOR_SETPROPERTY       = 1 << 19;
+    // Unused bit here!
+    const uint32_t DONT_ENUM_QUERY_INTERFACE        = 1 << 21;
+    const uint32_t DONT_ASK_INSTANCE_FOR_SCRIPTABLE = 1 << 22;
+    const uint32_t CLASSINFO_INTERFACES_ONLY        = 1 << 23;
+    const uint32_t ALLOW_PROP_MODS_DURING_RESOLVE   = 1 << 24;
+    const uint32_t ALLOW_PROP_MODS_TO_PROTOTYPE     = 1 << 25;
+    const uint32_t IS_GLOBAL_OBJECT                 = 1 << 26;
+    const uint32_t DONT_REFLECT_INTERFACE_NAMES     = 1 << 27;
+
+    // The high order bit is RESERVED for consumers of these flags. 
+    // No implementor of this interface should ever return flags 
+    // with this bit set.
+    const uint32_t RESERVED                         = 1 << 31;
+
+    readonly attribute string   className;
+    [notxpcom,nostdcall] uint32_t getScriptableFlags();
+
+    void   preCreate(in nsISupports nativeObj, in JSContextPtr cx,
+                     in JSObjectPtr globalObj, out JSObjectPtr parentObj);
+
+    boolean addProperty(in nsIXPConnectWrappedNative wrapper,
+                       in JSContextPtr cx, in JSObjectPtr obj, in jsid id,
+                       in jsval val);
+
+    boolean getProperty(in nsIXPConnectWrappedNative wrapper,
+                       in JSContextPtr cx, in JSObjectPtr obj, in jsid id,
+                       in JSValPtr vp);
+
+    boolean setProperty(in nsIXPConnectWrappedNative wrapper,
+                       in JSContextPtr cx, in JSObjectPtr obj, in jsid id,
+                       in JSValPtr vp);
+
+    boolean enumerate(in nsIXPConnectWrappedNative wrapper,
+                     in JSContextPtr cx, in JSObjectPtr obj);
+
+    boolean newEnumerate(in nsIXPConnectWrappedNative wrapper,
+                        in JSContextPtr cx, in JSObjectPtr obj,
+                        in JSAutoIdVector properties);
+
+    boolean resolve(in nsIXPConnectWrappedNative wrapper,
+                    in JSContextPtr cx, in JSObjectPtr obj, in jsid id,
+                    out boolean resolvedp);
+
+    void   finalize(in nsIXPConnectWrappedNative wrapper,
+                    in JSFreeOpPtr fop, in JSObjectPtr obj);
+
+    boolean call(in nsIXPConnectWrappedNative wrapper,
+                in JSContextPtr cx, in JSObjectPtr obj,
+                in JSCallArgsRef args);
+
+    boolean construct(in nsIXPConnectWrappedNative wrapper,
+                     in JSContextPtr cx, in JSObjectPtr obj,
+                     in JSCallArgsRef args);
+
+    boolean hasInstance(in nsIXPConnectWrappedNative wrapper,
+                       in JSContextPtr cx, in JSObjectPtr obj,
+                       in jsval val, out boolean bp);
+
+    void postCreatePrototype(in JSContextPtr cx, in JSObjectPtr proto);
+};
+
+%{ C++
+
+#include "nsAutoPtr.h"
+
+#define NS_XPCCLASSINFO_IID \
+{ 0x43b67f01, 0xd4ce, 0x4b82, \
+ { 0xb3, 0xf8, 0xeb, 0xf2, 0x13, 0x60, 0xfb, 0x7e } }
+
+class NS_NO_VTABLE nsXPCClassInfo : public nsIClassInfo,
+                                    public nsIXPCScriptable
+{
+public:
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_XPCCLASSINFO_IID)
+
+  NS_IMETHOD_(MozExternalRefCountType) AddRef() override = 0;
+  NS_IMETHOD_(MozExternalRefCountType) Release() override = 0;
+
+  virtual void PreserveWrapper(nsISupports *aNative) = 0;
+};
+
+NS_DEFINE_STATIC_IID_ACCESSOR(nsXPCClassInfo, NS_XPCCLASSINFO_IID)
+
+inline
+nsresult
+CallQueryInterface(nsISupports* aSourcePtr,
+                   RefPtrGetterAddRefs<nsXPCClassInfo> aDestPtr)
+{
+  return CallQueryInterface(aSourcePtr,
+                            static_cast<nsXPCClassInfo**>(aDestPtr));
+}
+
+%}

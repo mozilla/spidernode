@@ -1,0 +1,56 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=4 sw=4 et tw=80:
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+include protocol PContent;
+include protocol PContentBridge;
+include DOMTypes;
+include JavaScriptTypes;
+
+using struct mozilla::void_t from "ipc/IPCMessageUtils.h";
+
+namespace mozilla {
+namespace jsipc {
+
+prio(normal upto high) sync protocol PJavaScript
+{
+    manager PContent or PContentBridge;
+
+both:
+    // Sent when a CPOW has been finalized and table entries can be freed up.
+    async DropObject(uint64_t objId);
+
+    // These roughly map to the ProxyHandler hooks that CPOWs need.
+    prio(high) sync PreventExtensions(uint64_t objId) returns (ReturnStatus rs);
+    prio(high) sync GetPropertyDescriptor(uint64_t objId, JSIDVariant id) returns (ReturnStatus rs, PPropertyDescriptor result);
+    prio(high) sync GetOwnPropertyDescriptor(uint64_t objId, JSIDVariant id) returns (ReturnStatus rs, PPropertyDescriptor result);
+    prio(high) sync DefineProperty(uint64_t objId, JSIDVariant id, PPropertyDescriptor descriptor) returns (ReturnStatus rs);
+    prio(high) sync Delete(uint64_t objId, JSIDVariant id) returns (ReturnStatus rs);
+
+    prio(high) sync Has(uint64_t objId, JSIDVariant id) returns (ReturnStatus rs, bool has);
+    prio(high) sync HasOwn(uint64_t objId, JSIDVariant id) returns (ReturnStatus rs, bool has);
+    prio(high) sync Get(uint64_t objId, JSVariant receiver, JSIDVariant id) returns (ReturnStatus rs, JSVariant result);
+    prio(high) sync Set(uint64_t objId, JSIDVariant id, JSVariant value, JSVariant receiver) returns (ReturnStatus rs);
+
+    prio(high) sync IsExtensible(uint64_t objId) returns (ReturnStatus rs, bool result);
+    prio(high) sync CallOrConstruct(uint64_t objId, JSParam[] argv, bool construct) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
+    prio(high) sync HasInstance(uint64_t objId, JSVariant v) returns (ReturnStatus rs, bool has);
+    prio(high) sync GetBuiltinClass(uint64_t objId) returns (ReturnStatus rs, uint32_t classValue);
+    prio(high) sync IsArray(uint64_t objId) returns (ReturnStatus rs, uint32_t ans);
+    prio(high) sync ClassName(uint64_t objId) returns (nsCString name);
+    prio(high) sync GetPrototype(uint64_t objId) returns (ReturnStatus rs, ObjectOrNullVariant result);
+    prio(high) sync RegExpToShared(uint64_t objId) returns (ReturnStatus rs, nsString source, uint32_t flags);
+
+    prio(high) sync GetPropertyKeys(uint64_t objId, uint32_t flags) returns (ReturnStatus rs, JSIDVariant[] ids);
+    prio(high) sync InstanceOf(uint64_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
+    prio(high) sync DOMInstanceOf(uint64_t objId, int prototypeID, int depth) returns (ReturnStatus rs, bool instanceof);
+
+parent:
+    async __delete__();
+};
+
+}
+}
