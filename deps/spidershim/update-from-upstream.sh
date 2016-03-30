@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -e
+
+if ! test -d "$1"; then
+  >&2 echo 'Please pass in the path to the Mozilla source tree as the first argument.'
+  exit 1
+fi
+
+if test -d spidermonkey; then
+  rm -rf spidermonkey
+fi
+
+SM_DIR="$1"
+
+rsync -av --delete "$SM_DIR"/nsprpub spidermonkey/
+rsync -av --delete "$SM_DIR"/mfbt spidermonkey/
+rsync -av --delete "$SM_DIR"/memory spidermonkey/
+rsync -av --delete "$SM_DIR"/mozglue spidermonkey/
+rsync -av --delete "$SM_DIR"/python spidermonkey/
+rsync -av --delete "$SM_DIR"/moz.configure spidermonkey/
+rsync -av --delete "$SM_DIR"/moz.build spidermonkey/
+rsync -av --delete "$SM_DIR"/Makefile.in spidermonkey/
+rsync -av --delete "$SM_DIR"/configure.py spidermonkey/
+rsync -av --delete "$SM_DIR"/build spidermonkey/
+rsync -av --delete "$SM_DIR"/testing/mozbase spidermonkey/testing/
+rsync -av --delete "$SM_DIR"/testing/moz.build spidermonkey/testing/
+rsync -av --delete "$SM_DIR"/config spidermonkey/
+rsync -av --delete "$SM_DIR"/intl/icu spidermonkey/intl/
+test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
+rsync -av --delete "$SM_DIR"/layout/tools/reftest/reftest spidermonkey/layout/tools/reftest/
+test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
+rsync -av --delete "$SM_DIR"/dom/bindings/mozwebidlcodegen spidermonkey/dom/bindings/
+test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
+rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
+rsync -av --delete "$SM_DIR"/js spidermonkey/
+
+git add spidermonkey
+git rm -r `git ls-files --deleted spidermonkey`
+rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
+git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
