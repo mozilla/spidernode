@@ -351,6 +351,13 @@ class V8_EXPORT V8 {
     // SpiderMonkey links against ICU statically, so there is nothing to do here.
     return true;
   }
+  static void InitializeExternalStartupData(const char* directory_path) {
+    // No data to initialize.
+  }
+  static void InitializeExternalStartupData(const char* natives_blob,
+                                            const char* snapshot_blob) {
+    // No data to initialize.
+  }
 };
 
 template <class T>
