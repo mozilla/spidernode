@@ -64,7 +64,6 @@
         'include/v8-platform.h',
         'include/v8-profiler.h',
         'include/v8-version.h',
-        'src/v8array.cc',
         'src/v8isolate.cc',
         'src/v8v8.cc',
       ],
