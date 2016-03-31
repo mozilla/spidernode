@@ -73,6 +73,8 @@ class EscapableHandleScope;
 class Function;
 class FunctionTemplate;
 class HeapProfiler;
+class HeapSpaceStatistics;
+class HeapStatistics;
 class Int32;
 class Integer;
 class Isolate;
@@ -330,42 +332,6 @@ V8_EXPORT Handle<Boolean> True(Isolate* isolate);
 V8_EXPORT Handle<Boolean> False(Isolate* isolate);
 V8_EXPORT bool SetResourceConstraints(ResourceConstraints *constraints);
 
-class V8_EXPORT V8 {
- public:
-#if 0
-  static void SetArrayBufferAllocator(ArrayBuffer::Allocator* allocator);
-#endif
-  static bool IsDead();
-  static void SetFlagsFromString(const char* str, int length);
-  static void SetFlagsFromCommandLine(
-    int *argc, char **argv, bool remove_flags);
-  static const char *GetVersion();
-  static bool Initialize();
-  static void SetEntropySource(EntropySource source);
-  static void TerminateExecution(Isolate* isolate);
-  static bool IsExeuctionDisabled(Isolate* isolate = nullptr);
-  static void CancelTerminateExecution(Isolate* isolate);
-  static bool Dispose();
-  static void InitializePlatform(Platform* platform) {}
-  static void ShutdownPlatform() {}
-  static void FromJustIsNothing();
-  static void ToLocalEmpty();
-  static bool InitializeICU(const char* icu_data_file = nullptr) {
-    // SpiderMonkey links against ICU statically, so there is nothing to do here.
-    return true;
-  }
-  static void InitializeExternalStartupData(const char* directory_path) {
-    // No data to initialize.
-  }
-  static void InitializeExternalStartupData(const char* natives_blob,
-                                            const char* snapshot_blob) {
-    // No data to initialize.
-  }
-
-private:
-  static JSRuntime* rt_;
-};
-
 template <class T>
 class MaybeLocal {
  public:
@@ -385,7 +351,9 @@ class MaybeLocal {
   }
 
   Local<T> ToLocalChecked() {
+#if 0
     if (V8_UNLIKELY(val_ == nullptr)) V8::ToLocalEmpty();
+#endif
     return Local<T>(val_);
   }
 
@@ -2067,37 +2035,6 @@ class V8_EXPORT AccessorSignature : public Data {
 };
 
 
-
-class V8_EXPORT ResourceConstraints {
- public:
-  void set_stack_limit(uint32_t *value) {}
-};
-
-class V8_EXPORT Exception {
- public:
-  static Local<Value> RangeError(Handle<String> message);
-  static Local<Value> ReferenceError(Handle<String> message);
-  static Local<Value> SyntaxError(Handle<String> message);
-  static Local<Value> TypeError(Handle<String> message);
-  static Local<Value> Error(Handle<String> message);
-};
-
-enum GCType {
-  kGCTypeScavenge = 1 << 0,
-  kGCTypeMarkSweepCompact = 1 << 1,
-  kGCTypeAll = kGCTypeScavenge | kGCTypeMarkSweepCompact
-};
-
-enum GCCallbackFlags {
-  kNoGCCallbackFlags = 0,
-  kGCCallbackFlagCompacted = 1 << 0,
-  kGCCallbackFlagConstructRetainedObjectInfos = 1 << 1,
-  kGCCallbackFlagForced = 1 << 2
-};
-
-typedef void (*GCPrologueCallback)(GCType type, GCCallbackFlags flags);
-typedef void (*GCEpilogueCallback)(GCType type, GCCallbackFlags flags);
-
 // --- Promise Reject Callback ---
 enum PromiseRejectEvent {
   kPromiseRejectWithNoHandler = 0,
@@ -2128,50 +2065,34 @@ class PromiseRejectMessage {
   Handle<StackTrace> stack_trace_;
 };
 
-typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
-
-class V8_EXPORT HeapStatistics {
- private:
-  size_t heapSize;
-
- public:
-  void set_heap_size(size_t heapSize) {
-    this->heapSize = heapSize;
-  }
-
-  size_t total_heap_size() { return this->heapSize; }
-  size_t total_heap_size_executable() { return 0; }
-  size_t total_physical_size() { return 0; }
-  size_t total_available_size() { return 0; }
-  size_t used_heap_size() { return this->heapSize; }
-  size_t heap_size_limit() { return 0; }
-};
-
-class V8_EXPORT HeapSpaceStatistics {
-public:
-  HeapSpaceStatistics() {}
-  const char* space_name() { return ""; }
-  size_t space_size() { return 0; }
-  size_t space_used_size() { return 0; }
-  size_t space_available_size() { return 0; }
-  size_t physical_space_size() { return 0; }
-
-private:
-  const char* space_name_;
-  size_t space_size_;
-  size_t space_used_size_;
-  size_t space_available_size_;
-  size_t physical_space_size_;
-
-  friend class Isolate;
-};
-
 typedef void(*FunctionEntryHook)(uintptr_t function,
                                  uintptr_t return_addr_location);
 typedef int* (*CounterLookupCallback)(const char* name);
 typedef void* (*CreateHistogramCallback)(
   const char* name, int min, int max, size_t buckets);
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
+typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
+
+enum GCType {
+  kGCTypeScavenge = 1 << 0,
+  kGCTypeMarkSweepCompact = 1 << 1,
+  kGCTypeAll = kGCTypeScavenge | kGCTypeMarkSweepCompact
+};
+
+enum GCCallbackFlags {
+  kNoGCCallbackFlags = 0,
+  kGCCallbackFlagCompacted = 1 << 0,
+  kGCCallbackFlagConstructRetainedObjectInfos = 1 << 1,
+  kGCCallbackFlagForced = 1 << 2
+};
+
+typedef void (*GCPrologueCallback)(GCType type, GCCallbackFlags flags);
+typedef void (*GCEpilogueCallback)(GCType type, GCCallbackFlags flags);
+
+class V8_EXPORT ResourceConstraints {
+ public:
+  void set_stack_limit(uint32_t *value) {}
+};
 
 class V8_EXPORT Isolate {
  public:
@@ -2265,6 +2186,88 @@ class V8_EXPORT Isolate {
 
   void LowMemoryNotification();
   int ContextDisposedNotification();
+
+private:
+  static Isolate* current_;
+};
+
+class V8_EXPORT V8 {
+ public:
+  static void SetArrayBufferAllocator(ArrayBuffer::Allocator* allocator) {}
+  static bool IsDead();
+  static void SetFlagsFromString(const char* str, int length);
+  static void SetFlagsFromCommandLine(
+    int *argc, char **argv, bool remove_flags);
+  static const char *GetVersion();
+  static bool Initialize();
+  static void SetEntropySource(EntropySource source);
+  static void TerminateExecution(Isolate* isolate);
+  static bool IsExeuctionDisabled(Isolate* isolate = nullptr);
+  static void CancelTerminateExecution(Isolate* isolate);
+  static bool Dispose();
+  static void InitializePlatform(Platform* platform) {}
+  static void ShutdownPlatform() {}
+  static void FromJustIsNothing();
+  static void ToLocalEmpty();
+  static bool InitializeICU(const char* icu_data_file = nullptr) {
+    // SpiderMonkey links against ICU statically, so there is nothing to do here.
+    return true;
+  }
+  static void InitializeExternalStartupData(const char* directory_path) {
+    // No data to initialize.
+  }
+  static void InitializeExternalStartupData(const char* natives_blob,
+                                            const char* snapshot_blob) {
+    // No data to initialize.
+  }
+
+private:
+  static JSRuntime* rt_;
+};
+
+class V8_EXPORT Exception {
+ public:
+  static Local<Value> RangeError(Handle<String> message);
+  static Local<Value> ReferenceError(Handle<String> message);
+  static Local<Value> SyntaxError(Handle<String> message);
+  static Local<Value> TypeError(Handle<String> message);
+  static Local<Value> Error(Handle<String> message);
+};
+
+class V8_EXPORT HeapStatistics {
+ private:
+  size_t heapSize;
+
+ public:
+  void set_heap_size(size_t heapSize) {
+    this->heapSize = heapSize;
+  }
+
+  size_t total_heap_size() { return this->heapSize; }
+  size_t total_heap_size_executable() { return 0; }
+  size_t total_physical_size() { return 0; }
+  size_t total_available_size() { return 0; }
+  size_t used_heap_size() { return this->heapSize; }
+  size_t heap_size_limit() { return 0; }
+};
+
+class V8_EXPORT HeapSpaceStatistics {
+public:
+  HeapSpaceStatistics() {}
+  const char* space_name() { return ""; }
+  size_t space_size() { return 0; }
+  size_t space_used_size() { return 0; }
+  size_t space_available_size() { return 0; }
+  size_t physical_space_size() { return 0; }
+
+private:
+  const char* space_name_;
+  size_t space_size_;
+  size_t space_used_size_;
+  size_t space_available_size_;
+  size_t physical_space_size_;
+
+  friend class Isolate;
 };
 
 class V8_EXPORT JitCodeEvent {
