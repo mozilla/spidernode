@@ -345,6 +345,7 @@ class V8_EXPORT V8 {
   static void CancelTerminateExecution(Isolate* isolate);
   static bool Dispose();
   static void InitializePlatform(Platform* platform) {}
+  static void ShutdownPlatform() {}
   static void FromJustIsNothing();
   static void ToLocalEmpty();
   static bool InitializeICU(const char* icu_data_file = nullptr) {
