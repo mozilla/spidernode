@@ -13,6 +13,7 @@
       'type': 'executable',
       'include_dirs': [ '.' ],
       'dependencies': [
+        #'spidershim', # XXX correct
         '../gtest/gtest.gyp:gtest',
       ],
       'sources': [ 'test/hello-world.cpp' ],
@@ -22,7 +23,7 @@
       'target_name': 'spidershim',
       'type': '<(library)',
       'dependencies': [
-        'test-spidershim-hello-world'
+        'test-spidershim-hello-world', # XXX incorrect
       ],
 
       'include_dirs': [
