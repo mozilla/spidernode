@@ -347,6 +347,10 @@ class V8_EXPORT V8 {
   static void InitializePlatform(Platform* platform) {}
   static void FromJustIsNothing();
   static void ToLocalEmpty();
+  static bool InitializeICU(const char* icu_data_file = nullptr) {
+    // SpiderMonkey links against ICU statically, so there is nothing to do here.
+    return true;
+  }
 };
 
 template <class T>
