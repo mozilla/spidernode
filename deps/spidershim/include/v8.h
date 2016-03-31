@@ -53,7 +53,7 @@ typedef JsRef JsValueRef;
 typedef JsRef JsContextRef;
 typedef enum _JsErrorCode : unsigned int {JsNoError} JsErrorCode;
 JsErrorCode JsAddRef(JsRef, unsigned int*);
-JsErrorCode JsFree(JsRef, unsigned int*);
+JsErrorCode JsRelease(JsRef, unsigned int*);
 const JsRef JS_INVALID_REFERENCE = NULL;
 
 namespace v8 {
@@ -728,7 +728,9 @@ class Eternal : private Persistent<T> {
   }
 
   template<class S> void Set(Isolate* isolate, Local<S> handle) {
+#if 0
     Reset(isolate, handle);
+#endif
   }
 };
 
