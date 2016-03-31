@@ -56,6 +56,8 @@ JsErrorCode JsAddRef(JsRef, unsigned int*);
 JsErrorCode JsRelease(JsRef, unsigned int*);
 const JsRef JS_INVALID_REFERENCE = NULL;
 
+struct JSRuntime;
+
 namespace v8 {
 
 class AccessorSignature;
@@ -359,6 +361,9 @@ class V8_EXPORT V8 {
                                             const char* snapshot_blob) {
     // No data to initialize.
   }
+
+private:
+  static JSRuntime* rt_;
 };
 
 template <class T>

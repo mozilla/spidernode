@@ -1,4 +1,8 @@
 {
+  'variables': {
+    'spidermonkey_dir%': 'spidermonkey',
+  },
+
   'targets': [
 
     # TODO: The dependencies for the tests are backwards, we need to fix this.
@@ -23,7 +27,8 @@
 
       'include_dirs': [
         'include',
-        '<(SHARED_INTERMEDIATE_DIR)'
+        '<(SHARED_INTERMEDIATE_DIR)',
+        '<(spidermonkey_dir)/../build/dist/include',
       ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],
@@ -59,6 +64,7 @@
         'include/v8-profiler.h',
         'include/v8-version.h',
         'src/v8array.cc',
+        'src/v8v8.cc',
       ],
     },
   ],
