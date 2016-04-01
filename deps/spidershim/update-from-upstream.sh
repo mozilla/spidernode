@@ -35,9 +35,6 @@ test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
 rsync -av --delete "$SM_DIR"/js spidermonkey/
 
-# Always touch configure which is the dependency to trigger rebuilding of SpiderMonkey.
-echo '' >> "$M_dir"/js/src/configure
-
 git add spidermonkey
 git rm -r `git ls-files --deleted spidermonkey`
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
