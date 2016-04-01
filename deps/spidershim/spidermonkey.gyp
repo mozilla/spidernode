@@ -28,9 +28,7 @@
       'actions': [
         {
           'action_name': 'build_spidermonkey',
-          'inputs': [
-            'spidermonkey/js/src/configure',
-          ],
+          'inputs': [],
           'outputs': [
             '<@(spidermonkey_binaries)',
           ],
