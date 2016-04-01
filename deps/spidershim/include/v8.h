@@ -930,6 +930,21 @@ class V8_EXPORT StackFrame {
   bool IsConstructor() const;
 };
 
+// v8::Value C++ objects in V8 are not created like normal C++ objects.  Instead,
+// the engine itself is in charge of creating them.  In V8, v8::Value inherits
+// from Data which is an empty class of size 1 byte, and is also 1 byte long, but
+// it's really a 32-bit value that's masked as a C++ 1-byte object.  Internally,
+// V8 reinterpret_cast's Values to more useful types before it can do anything
+// with them.
+//
+// This model is vastly incompatible with SpiderMonkey's JS::Value which is a
+// normal C++ class that is 64 bits in size.  The implementation would become much
+// simpler if we implemented v8::Value in terms of JS::Value, but there is no good
+// way to maintain v8::Value inheriting from v8::Data.  In order to maintain the
+// type hierarchy, we add an 8-byte char array to this type to expand the total size
+// to 8 bytes, and we store the JS::Value in-place inside the object.  Note that
+// this relies on the compiler implementing the empty base optimization which in
+// practice all compilers do, and is mandated in C++17 so it's future proof.
 class V8_EXPORT Value : public Data {
  public:
   bool IsUndefined() const;
@@ -1021,7 +1036,11 @@ class V8_EXPORT Value : public Data {
   template <class T> static Value* Cast(T* value) {
     return static_cast<Value*>(value);
   }
+
+private:
+  char spidershim_padding[8]; // see the comment for Value.
 };
+static_assert(sizeof(v8::Value) == 8, "v8::Value must be the same size as JS::Value");
 
 class V8_EXPORT Private : public Data {
 public:
