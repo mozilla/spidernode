@@ -32,6 +32,7 @@
 #define _WINSOCKAPI_
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <memory>
@@ -272,7 +273,6 @@ class Local {
   friend struct FunctionCallbackData;
   friend class FunctionTemplate;
   friend struct FunctionTemplateData;
-  friend class HandleScope;
   friend class Integer;
   friend class Number;
   friend class NumberObject;
@@ -719,46 +719,24 @@ class Eternal : private Persistent<T> {
   }
 };
 
-// CHAKRA: Chakra's GC behavior does not exactly match up with V8's GC behavior.
-// V8 uses a HandleScope to keep Local references alive, which means that as
-// long as the HandleScope is on the stack, the Local references will not be
-// collected. Chakra, on the other hand, directly walks the stack and has no
-// HandleScope mechanism. It requires hosts to keep "local" references on the
-// stack or else turn them into "persistent" references through
-// JsAddRef/JsRelease. To paper over this difference, the bridge HandleScope
-// will create a JS array and will hold that reference on the stack. Any local
-// values created will then be added to that array. So the GC will see the array
-// on the stack and then keep those local references alive.
+// SpiderMonkey uses a per-context global stack for the exact roots, which is
+// managed internally.  Therefore we don't need to do any actual work here.
 class V8_EXPORT HandleScope {
  public:
-  HandleScope(Isolate* isolate);
-  ~HandleScope();
+  HandleScope(Isolate* isolate)
+    : isolate_(isolate) {}
 
-  static int NumberOfHandles(Isolate* isolate);
+  static int NumberOfHandles(Isolate* isolate) {
+    assert(0 && "not implemented");
+    return -1;
+  }
 
- private:
-  friend class EscapableHandleScope;
-  template <class T> friend class Local;
-  static const int kOnStackLocals = 5;  // Arbitrary number of refs on stack
+  V8_INLINE Isolate* GetIsolate() const {
+    return isolate_;
+  }
 
-  JsValueRef _locals[kOnStackLocals];   // Save some refs on stack
-  JsValueRef _refs;                     // More refs go to a JS array
-  int _count;
-  HandleScope *_prev;
-  JsContextRef _contextRef;
-  struct AddRefRecord {
-    JsRef _ref;
-    AddRefRecord *  _next;
-  } *_addRefRecordHead;
-
-  bool AddLocal(JsValueRef value);
-  bool AddLocalContext(JsContextRef value);
-  bool AddLocalAddRef(JsRef value);
-
-  static HandleScope *GetCurrent();
-
-  template <class T>
-  Local<T> Close(Handle<T> value);
+private:
+  Isolate* isolate_;
 };
 
 class V8_EXPORT EscapableHandleScope : public HandleScope {
@@ -766,7 +744,7 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
   EscapableHandleScope(Isolate* isolate) : HandleScope(isolate) {}
 
   template <class T>
-  Local<T> Escape(Handle<T> value) { return Close(value); }
+  Local<T> Escape(Handle<T> value);
 };
 
 typedef HandleScope SealHandleScope;
@@ -2449,18 +2427,22 @@ class V8_EXPORT Locker {
 
 template <class T>
 Local<T> Local<T>::New(T* that) {
+#if 0
   if (!HandleScope::GetCurrent()->AddLocal(that)) {
     return Local<T>();
   }
+#endif
   return Local<T>(that);
 }
 
 // Context are not javascript values, so we need to specialize them
 template <>
 Local<Context> Local<Context>::New(Context* that) {
+#if 0
   if (!HandleScope::GetCurrent()->AddLocalContext(that)) {
     return Local<Context>();
   }
+#endif
   return Local<Context>(that);
 }
 
@@ -2605,30 +2587,6 @@ void PersistentBase<T>::MarkIndependent() {
 
 template <class T>
 void PersistentBase<T>::SetWrapperClassId(uint16_t class_id) {
-}
-
-
-//
-// HandleScope template members
-//
-
-template <class T>
-Local<T> HandleScope::Close(Handle<T> value) {
-  if (_prev == nullptr || !_prev->AddLocal(*value)) {
-    return Local<T>();
-  }
-
-  return Local<T>(*value);
-}
-
-// Context are not javascript values, so we need to specialize them
-template <>
-inline Local<Context> HandleScope::Close(Handle<Context> value) {
-  if (_prev == nullptr || !_prev->AddLocalContext(*value)) {
-    return Local<Context>();
-  }
-
-  return Local<Context>(*value);
 }
 
 }  // namespace v8
