@@ -2187,8 +2187,18 @@ class V8_EXPORT Isolate {
   void LowMemoryNotification();
   int ContextDisposedNotification();
 
+  ~Isolate();
+
 private:
   static Isolate* current_;
+
+  Isolate();
+
+  void AddContext(Context* context);
+  friend class Context;
+
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT V8 {
@@ -2223,6 +2233,7 @@ class V8_EXPORT V8 {
 
 private:
   static JSRuntime* rt_;
+  friend class Context;
 };
 
 class V8_EXPORT Exception {
@@ -2381,13 +2392,15 @@ class V8_EXPORT ExtensionConfiguration {
 
 class V8_EXPORT Context {
  public:
-  class V8_EXPORT Scope {
-   private:
-    Scope * previous;
-    void * context;
+  class Scope {
    public:
-    Scope(Handle<Context> context);
-    ~Scope();
+    explicit V8_INLINE Scope(Local<Context> context) : context_(context) {
+      context_->Enter();
+    }
+    V8_INLINE ~Scope() { context_->Exit(); }
+
+   private:
+    Local<Context> context_;
   };
 
   Local<Object> Global();
@@ -2406,6 +2419,21 @@ class V8_EXPORT Context {
   Local<Value> GetEmbedderData(int index);
   void SetSecurityToken(Handle<Value> token);
   Handle<Value> GetSecurityToken();
+
+  void Enter();
+  void Exit();
+
+  ~Context();
+
+private:
+  Context();
+
+  bool CreateGlobal();
+  void Dispose();
+  friend class Isolate;
+
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT Locker {

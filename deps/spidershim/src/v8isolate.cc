@@ -19,13 +19,26 @@
 // IN THE SOFTWARE.
 
 #include <assert.h>
+#include <vector>
 
 #include "v8.h"
 #include "jsapi.h"
 
 namespace v8 {
 
+struct Isolate::Impl {
+  std::vector<Context*> contexts;
+};
+
 Isolate* Isolate::current_ = nullptr;
+
+Isolate::Isolate()
+  : pimpl_(new Impl()) {
+}
+
+Isolate::~Isolate() {
+  delete pimpl_;
+}
 
 Isolate* Isolate::New(const CreateParams& params) {
   Isolate* isolate = new Isolate();
@@ -56,7 +69,15 @@ void Isolate::Exit() {
 }
 
 void Isolate::Dispose() {
+  for (auto context : pimpl_->contexts) {
+    context->Dispose();
+  }
   delete this;
+}
+
+void Isolate::AddContext(Context* context) {
+  assert(pimpl_);
+  pimpl_->contexts.push_back(context);
 }
 
 }
