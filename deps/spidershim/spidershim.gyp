@@ -49,6 +49,10 @@
         'include_dirs': [
           'include',
         ],
+        'libraries': [
+          '-lspidershim',
+          '<@(node_engine_libs)',
+        ],
         'conditions': [
           [ 'target_arch=="arm"', {
             'defines': [ '__arm__=1' ]

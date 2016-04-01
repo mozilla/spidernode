@@ -88,6 +88,7 @@
       },
       'variables': {
         'node_engine_include_dir%': 'deps/spidershim/include',
+        'node_engine_libs': '-ljs_static',
       },
     }],
   ],

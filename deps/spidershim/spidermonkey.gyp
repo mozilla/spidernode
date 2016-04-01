@@ -47,6 +47,10 @@
         },
       ],
 
+      'direct_dependent_settings': {
+        'library_dirs': [ '<(PRODUCT_DIR)' ],
+      },
+
     },
   ],
 }
