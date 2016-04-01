@@ -60,13 +60,6 @@
       },
 
       'sources': [
-        'include/libplatform/libplatform.h',
-        'include/v8.h',
-        'include/v8config.h',
-        'include/v8-debug.h',
-        'include/v8-platform.h',
-        'include/v8-profiler.h',
-        'include/v8-version.h',
         'src/v8isolate.cc',
         'src/v8v8.cc',
       ],
