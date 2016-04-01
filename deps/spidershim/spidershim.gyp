@@ -28,7 +28,6 @@
 
       'include_dirs': [
         'include',
-        '<(SHARED_INTERMEDIATE_DIR)',
         '<(spidermonkey_dir)/../build/dist/include',
       ],
       'conditions': [
