@@ -37,10 +37,10 @@
         [ 'target_arch=="arm"', { 'defines': [ '__arm__=1' ] } ],
         ['node_engine=="spidermonkey"', {
           'dependencies': [
-            'spidermonkey.gyp:spidermonkey#host',
+            'spidermonkey.gyp:spidermonkey',
           ],
           'export_dependent_settings': [
-            'spidermonkey.gyp:spidermonkey#host',
+            'spidermonkey.gyp:spidermonkey',
           ],
         }],
       ],

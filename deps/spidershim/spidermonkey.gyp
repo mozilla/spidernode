@@ -15,7 +15,6 @@
   'targets': [
     {
       'target_name': 'spidermonkey',
-      'toolsets': ['host'],
       'type': 'none',
 
       'variables': {
