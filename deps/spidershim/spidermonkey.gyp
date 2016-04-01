@@ -19,9 +19,6 @@
       'type': 'none',
 
       'variables': {
-        'spidermonkey_header': [
-          '<(spidermonkey_dir)/js/src/jsapi.h',
-        ],
         'spidermonkey_binaries': [
           '<(spidermonkey_dir)/../build/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
           '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
@@ -44,10 +41,6 @@
       ],
 
       'copies': [
-        {
-          'destination': 'include',
-          'files': [ '<@(spidermonkey_header)' ],
-        },
         {
           'destination': '<(PRODUCT_DIR)',
           'files': [ '<@(spidermonkey_binaries)' ],
