@@ -274,6 +274,7 @@ class Local {
   friend class FunctionTemplate;
   friend struct FunctionTemplateData;
   friend class Integer;
+  friend class Isolate;
   friend class Number;
   friend class NumberObject;
   friend class Object;
@@ -2192,6 +2193,8 @@ private:
   Isolate();
 
   void AddContext(Context* context);
+  void PushCurrentContext(Context* context);
+  void PopCurrentContext();
   friend class Context;
 
   struct Impl;

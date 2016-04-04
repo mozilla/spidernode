@@ -104,6 +104,7 @@ void Context::Enter() {
   JS_BeginRequest(pimpl_->cx);
   pimpl_->oldCompartment =
     JS_EnterCompartment(pimpl_->cx, pimpl_->global);
+  GetIsolate()->PushCurrentContext(this);
 }
 
 void Context::Exit() {
@@ -112,6 +113,7 @@ void Context::Exit() {
   // pimpl_->oldCompartment can be nullptr.
   JS_LeaveCompartment(pimpl_->cx, pimpl_->oldCompartment);
   JS_EndRequest(pimpl_->cx);
+  GetIsolate()->PopCurrentContext();
 }
 
 Isolate* Context::GetIsolate() {

@@ -19,6 +19,7 @@
 // IN THE SOFTWARE.
 
 #include <vector>
+#include <stack>
 
 #include "v8.h"
 #include "jsapi.h"
@@ -27,6 +28,7 @@ namespace v8 {
 
 struct Isolate::Impl {
   std::vector<Context*> contexts;
+  std::stack<Context*> currentContexts;
 };
 
 Isolate* Isolate::current_ = nullptr;
@@ -77,6 +79,21 @@ void Isolate::Dispose() {
 void Isolate::AddContext(Context* context) {
   assert(pimpl_);
   pimpl_->contexts.push_back(context);
+}
+
+void Isolate::PushCurrentContext(Context* context) {
+  assert(pimpl_);
+  pimpl_->currentContexts.push(context);
+}
+
+void Isolate::PopCurrentContext() {
+  assert(pimpl_);
+  pimpl_->currentContexts.pop();
+}
+
+Local<Context> Isolate::GetCurrentContext() {
+  assert(pimpl_);
+  return Local<Context>::New(this, pimpl_->currentContexts.top());
 }
 
 }
