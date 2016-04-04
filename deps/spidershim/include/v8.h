@@ -457,6 +457,19 @@ V8_EXPORT void ClearObjectWeakReferenceCallback(JsValueRef object, bool revive);
 
 enum class WeakCallbackType { kParameter, kInternalFields };
 
+namespace detail {
+
+template <class T>
+struct BarrierMethods {
+  template <class U, class V>
+  static void PostWriteBarrier(T** vp, const U& prev, const V& next) {
+    // TODO: Implement this for JSObject and friends.
+    // TODO: Try to call JS::AssertGCThingIsNotAnObjectSubclass().
+  }
+};
+
+}
+
 template <class T>
 class PersistentBase {
  public:
@@ -517,13 +530,22 @@ class PersistentBase {
   template<class F> friend class Local;
   template<class F1, class F2> friend class Persistent;
 
-  explicit V8_INLINE PersistentBase(T* val) : val_(val) {}
+  explicit V8_INLINE PersistentBase(T* val) : val_(val) {
+    PostWriteBarrier(nullptr, val_);
+  }
+  V8_INLINE ~PersistentBase() {
+    PostWriteBarrier(val_, nullptr);
+  }
   PersistentBase(PersistentBase& other) = delete;  // NOLINT
   void operator=(PersistentBase&) = delete;
-  V8_INLINE static T* New(Isolate* isolate, T* that);
 
   template <typename P, typename Callback>
   void SetWeakCommon(P* parameter, Callback callback);
+
+  template <class U, class V>
+  void PostWriteBarrier(const U& prev, const V& next) {
+    detail::BarrierMethods<T>::PostWriteBarrier(&val_, prev, next);
+  }
 
   T* val_;
 #if 0
@@ -567,7 +589,7 @@ class Persistent : public PersistentBase<T> {
 
   template <class S>
   V8_INLINE Persistent(Isolate* isolate, Handle<S> that)
-      : PersistentBase<T>(PersistentBase<T>::New(isolate, *that)) {
+      : PersistentBase<T>(*that) {
     TYPE_CHECK(T, S);
   }
 
@@ -2477,14 +2499,6 @@ Local<T> Local<T>::New(Isolate* isolate, const PersistentBase<T>& that) {
 // Persistent<T> members
 //
 
-template <class T>
-T* PersistentBase<T>::New(Isolate* isolate, T* that) {
-  if (that) {
-    JsAddRef(static_cast<JsRef>(that), nullptr);
-  }
-  return that;
-}
-
 #if 0
 template <class T, class M>
 template <class S, class M2>
@@ -2533,9 +2547,14 @@ template <class T>
 template <class S>
 void PersistentBase<T>::Reset(Isolate* isolate, const Handle<S>& other) {
   TYPE_CHECK(T, S);
-  Reset();
-  if (other.IsEmpty()) return;
-  this->val_ = New(isolate, other.val_);
+  T* prev = val_;
+  this->val_ = nullptr;
+  if (other.IsEmpty()) {
+    PostWriteBarrier(prev, val_);
+    return;
+  }
+  this->val_ = other.val_;
+  PostWriteBarrier(prev, val_);
 }
 
 template <class T>
@@ -2543,9 +2562,14 @@ template <class S>
 void PersistentBase<T>::Reset(Isolate* isolate,
                               const PersistentBase<S>& other) {
   TYPE_CHECK(T, S);
-  Reset();
-  if (other.IsEmpty()) return;
-  this->val_ = New(isolate, other.val_);
+  T* prev = val_;
+  this->val_ = nullptr;
+  if (other.IsEmpty()) {
+    PostWriteBarrier(prev, val_);
+    return;
+  }
+  this->val_ = other.val_;
+  PostWriteBarrier(prev, val_);
 }
 
 template <class T>
