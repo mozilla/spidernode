@@ -308,15 +308,10 @@ class Local {
     return New(that);
   }
 
-  V8_INLINE Local(JsValueRef that)
-    : val_(static_cast<T*>(that)) {}
   V8_INLINE Local(const PersistentBase<T>& that)
     : val_(that.val_) {
   }
   V8_INLINE static Local<T> New(T* that);
-  V8_INLINE static Local<T> New(JsValueRef ref) {
-    return New(static_cast<T*>(ref));
-  }
 
   T* val_;
 };
