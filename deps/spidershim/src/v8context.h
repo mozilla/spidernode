@@ -34,8 +34,6 @@ struct Context::Impl {
   JSCompartment* oldCompartment;
 };
 
-JSContext* JSContextFromContext(Context* context) {
-  return context->pimpl_->cx;
-}
+JSContext* JSContextFromContext(Context* context);
 
 }

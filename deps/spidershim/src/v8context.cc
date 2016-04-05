@@ -111,4 +111,8 @@ Isolate* Context::GetIsolate() {
   return Isolate::GetCurrent();
 }
 
+JSContext* JSContextFromContext(Context* context) {
+  return context->pimpl_->cx;
+}
+
 }
