@@ -2507,6 +2507,7 @@ private:
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
+  friend JSContext* JSContextFromContext(Context* context);
 
   struct Impl;
   Impl* pimpl_;

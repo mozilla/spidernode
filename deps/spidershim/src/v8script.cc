@@ -18,24 +18,37 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
 #include "v8.h"
 #include "jsapi.h"
+#include "js/CharacterEncoding.h"
+#include "v8local.h"
 
 namespace v8 {
 
-struct Context::Impl {
-  explicit Impl()
-    : cx(nullptr),
-      oldCompartment(nullptr) {
+MaybeLocal<Script> Script::Compile(Local<Context> context,
+                                   Local<String> source,
+                                   ScriptOrigin* origin) {
+  // TODO: Add support for origin.
+  assert(!origin && "The origin argument is not supported yet");
+  JSContext* cx = JSContextFromContext(*context);
+  auto sourceJsVal = reinterpret_cast<JS::Value*>(*source);
+  auto sourceStr = sourceJsVal->toString();
+  size_t length = JS_GetStringLength(sourceStr);
+  auto buffer = static_cast<char16_t*>(js_malloc(sizeof(char16_t)*(length + 1)));
+  mozilla::Range<char16_t> dest(buffer, length + 1);
+  if (!JS_CopyStringChars(cx, dest, sourceStr)) {
+    return MaybeLocal<Script>();
   }
-  JSContext* cx;
-  JS::PersistentRootedObject global;
-  JSCompartment* oldCompartment;
-};
-
-JSContext* JSContextFromContext(Context* context) {
-  return context->pimpl_->cx;
+  JS::SourceBufferHolder sbh(buffer, length,
+                             JS::SourceBufferHolder::GiveOwnership);
+  JS::CompileOptions options(cx);
+  options.setVersion(JSVERSION_DEFAULT)
+         .setNoScriptRval(false);
+  JS::RootedScript jsScript(cx);
+  if (!JS::Compile(cx, options, sbh, &jsScript)) {
+    return MaybeLocal<Script>();
+  }
+  return internal::Local<Script>::New(context->GetIsolate(), jsScript);
 }
 
 }
