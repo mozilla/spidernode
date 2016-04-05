@@ -28,12 +28,21 @@
 namespace v8 {
 
 Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
-                                   NewStringType type, int length) {
-  assert(type == kNormalString); // TODO: Add support for interned strings
+                                  NewStringType type, int length) {
+  return NewFromUtf8(isolate, data, static_cast<v8::NewStringType>(type),
+                     length).FromMaybe(Local<String>());
+}
+
+MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
+                                       v8::NewStringType type, int length) {
+  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedString str(cx, length >= 0 ?
                         JS_NewStringCopyN(cx, data, length) :
                         JS_NewStringCopyZ(cx, data));
+  if (!str) {
+    return MaybeLocal<String>();
+  }
   JS::Value strVal;
   strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
