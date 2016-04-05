@@ -44,6 +44,7 @@ Local<Context> Context::New(Isolate* isolate,
   }
   Context* context = new Context();
   context->pimpl_->cx = cx;
+  JSAutoRequest ar(cx);
   if (!context->CreateGlobal()) {
     return Local<Context>();
   }
