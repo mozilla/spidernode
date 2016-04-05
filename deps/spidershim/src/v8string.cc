@@ -31,6 +31,7 @@ namespace v8 {
 
 String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
   : str_(nullptr), length_(0) {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   auto jsVal = reinterpret_cast<const JS::Value*>(*obj);
   // JS_BasicObjectToString doesn't deal with undefined and null :(
   if (jsVal->isUndefined()) {
@@ -42,10 +43,20 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
     str_ = new char[length_ + 1];
     strcpy(str_, "[object Null]");
   } else if (jsVal->isObject()) {
-    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
     JS::RootedObject obj(cx, &jsVal->toObject());
     JS::RootedString str(cx,
                          JS_BasicObjectToString(cx, obj));
+    if (str) {
+      JSFlatString* flat = JS_FlattenString(cx, str);
+      if (flat) {
+        length_ = JS::GetDeflatedUTF8StringLength(flat);
+        str_ = new char[length_ + 1];
+        JS::DeflateStringToUTF8Buffer(flat, mozilla::RangedPtr<char>(str_, length_));
+        str_[length_] = '\0';
+      }
+    }
+  } else if (jsVal->isString()) {
+    JSString* str = jsVal->toString();
     if (str) {
       JSFlatString* flat = JS_FlattenString(cx, str);
       if (flat) {
