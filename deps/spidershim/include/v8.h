@@ -1251,15 +1251,15 @@ class V8_EXPORT String : public Name {
    public:
     explicit Utf8Value(Handle<v8::Value> obj);
     ~Utf8Value();
-    char *operator*() { return _str; }
-    const char *operator*() const { return _str; }
-    int length() const { return static_cast<int>(_length); }
+    char *operator*() { return str_; }
+    const char *operator*() const { return str_; }
+    int length() const { return static_cast<int>(length_); }
    private:
     Utf8Value(const Utf8Value&);
     void operator=(const Utf8Value&);
 
-    char* _str;
-    int _length;
+    char* str_;
+    int length_;
   };
 
   class V8_EXPORT Value {

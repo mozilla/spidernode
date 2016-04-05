@@ -22,10 +22,47 @@
 
 #include "v8.h"
 #include "jsapi.h"
+#include "jsfriendapi.h"
+#include "js/CharacterEncoding.h"
 #include "v8isolate.h"
 #include "v8local.h"
 
 namespace v8 {
+
+String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
+  : str_(nullptr), length_(0) {
+  auto jsVal = reinterpret_cast<const JS::Value*>(*obj);
+  // JS_BasicObjectToString doesn't deal with undefined and null :(
+  if (jsVal->isUndefined()) {
+    length_ = sizeof("[object Undefined]");
+    str_ = new char[length_ + 1];
+    strcpy(str_, "[object Undefined]");
+  } else if (jsVal->isNull()) {
+    length_ = sizeof("[object Null]");
+    str_ = new char[length_ + 1];
+    strcpy(str_, "[object Null]");
+  } else if (jsVal->isObject()) {
+    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+    JS::RootedObject obj(cx, &jsVal->toObject());
+    JS::RootedString str(cx,
+                         JS_BasicObjectToString(cx, obj));
+    if (str) {
+      JSFlatString* flat = JS_FlattenString(cx, str);
+      if (flat) {
+        length_ = JS::GetDeflatedUTF8StringLength(flat);
+        str_ = new char[length_ + 1];
+        JS::DeflateStringToUTF8Buffer(flat, mozilla::RangedPtr<char>(str_, length_));
+        str_[length_] = '\0';
+      }
+    }
+  } else {
+    assert(false && "Not supported yet");
+  }
+}
+
+String::Utf8Value::~Utf8Value() {
+  delete[] str_;
+}
 
 Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                   NewStringType type, int length) {
