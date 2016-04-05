@@ -63,4 +63,12 @@ bool V8::Dispose() {
   return true;
 }
 
+void V8::FromJustIsNothing() {
+  MOZ_CRASH("Maybe value in FromJust() is nothing");
+}
+
+void V8::ToLocalEmpty() {
+  MOZ_CRASH("MaybeLocal value in ToLocalChecked is null");
+}
+
 }
