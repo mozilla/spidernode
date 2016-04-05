@@ -62,7 +62,7 @@ TEST(SpiderShim, HelloWorld) {
 
     // Convert the result to an UTF8 string and print it.
     String::Utf8Value utf8(result);
-    EXPECT_EQ(strcmp(*utf8, "Hello, world"), 0);
+    EXPECT_EQ(strcmp(*utf8, "Hello, World!"), 0);
   }
 
   // Dispose the isolate and tear down V8.
