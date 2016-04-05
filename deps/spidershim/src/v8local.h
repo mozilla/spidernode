@@ -18,25 +18,24 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#include <assert.h>
-
 #include "v8.h"
 #include "jsapi.h"
-#include "v8isolate.h"
-#include "v8local.h"
+#include "v8handlescope.h"
 
 namespace v8 {
+namespace internal {
 
-Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
-                                   NewStringType type, int length) {
-  assert(type == kNormalString); // TODO: Add support for interned strings
-  JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-                        JS_NewStringCopyN(cx, data, length) :
-                        JS_NewStringCopyZ(cx, data));
-  JS::Value strVal;
-  strVal.setString(str);
-  return internal::Local::New<String>(isolate, strVal);
+class Local {
+public:
+  template <class T>
+  static v8::Local<T> New(Isolate* isolate, JS::Value val) {
+    auto result = HandleScope::AddLocal(val);
+    if (!result) {
+      return v8::Local<T>();
+    }
+    return v8::Local<T>(reinterpret_cast<T*>(result));
+  }
+};
+
 }
-
 }

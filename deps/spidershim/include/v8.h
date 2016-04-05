@@ -109,6 +109,11 @@ class JitCodeEvent;
 class RetainedObjectInfo;
 struct ExternalArrayData;
 
+namespace internal {
+class HandleScope;
+class Local;
+}
+
 enum PropertyAttribute {
   None = 0,
   ReadOnly = 1 << 0,
@@ -292,6 +297,7 @@ class Local {
   friend class TryCatch;
   friend class UnboundScript;
   friend class Value;
+  friend class internal::Local;
   template <class F> friend class FunctionCallbackInfo;
   template <class F> friend class MaybeLocal;
   template <class F> friend class PersistentBase;
@@ -306,13 +312,12 @@ class Local {
   V8_INLINE Local(S* that)
       : val_(that) {}
   V8_INLINE static Local<T> New(Isolate* isolate, T* that) {
-    return New(that);
+    return Local(that);
   }
 
   V8_INLINE Local(const PersistentBase<T>& that)
     : val_(that.val_) {
   }
-  V8_INLINE static Local<T> New(T* that);
 
   T* val_;
 };
@@ -738,24 +743,38 @@ class Eternal : private Persistent<T> {
   }
 };
 
-// SpiderMonkey uses a per-context global stack for the exact roots, which is
-// managed internally.  Therefore we don't need to do any actual work here.
+// The SpiderMonkey Rooting API works by creating a bunch of Rooted objects on
+// the stack and obtain Handles from them to pass around.  These Handles can
+// only be obtained from Rooted objects, and are non-copyable, so they can be
+// created efficiently as pointers to the Rooted object because they're
+// guaranteed to have a lifetime shorter than the corresponding Rooted object.
+//
+// V8's Rooting API is different in that the object that contains the stack
+// roots is HandleScope, from which you can obtain a Local object that can be
+// implemented efficiently as a pointer to the root managed by HandleScope.
+// HandleScopes are intended to be allocated on the stack and when they are
+// destroyed, all of the corresponding roots can be collected.
+//
+// We bridge these two worlds by making each HandleScope object manage a vector
+// of Rooted objects, and it hands out Local objects that are essentially
+// pointers to the underlying Rooted object.  Furthermore, to simplify things,
+// we represents everything as JS::Values, so for example instead of needing to
+// worry about rooting things such as JSString*s, we simply rooted a JS::Value
+// and store the string inside it.
 class V8_EXPORT HandleScope {
  public:
-  HandleScope(Isolate* isolate)
-    : isolate_(isolate) {}
+  HandleScope(Isolate* isolate);
+  ~HandleScope();
 
-  static int NumberOfHandles(Isolate* isolate) {
-    assert(0 && "not implemented");
-    return -1;
-  }
+  static int NumberOfHandles(Isolate* isolate);
 
-  V8_INLINE Isolate* GetIsolate() const {
-    return isolate_;
-  }
+  V8_INLINE Isolate* GetIsolate() const;
 
 private:
-  Isolate* isolate_;
+  friend class internal::HandleScope;
+
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT EscapableHandleScope : public HandleScope {
@@ -2466,27 +2485,6 @@ class V8_EXPORT Locker {
 //
 // Local<T> members
 //
-
-template <class T>
-Local<T> Local<T>::New(T* that) {
-#if 0
-  if (!HandleScope::GetCurrent()->AddLocal(that)) {
-    return Local<T>();
-  }
-#endif
-  return Local<T>(that);
-}
-
-// Context are not javascript values, so we need to specialize them
-template <>
-Local<Context> Local<Context>::New(Context* that) {
-#if 0
-  if (!HandleScope::GetCurrent()->AddLocalContext(that)) {
-    return Local<Context>();
-  }
-#endif
-  return Local<Context>(that);
-}
 
 template <class T>
 Local<T> Local<T>::New(Isolate* isolate, Local<T> that) {
