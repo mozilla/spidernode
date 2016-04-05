@@ -20,20 +20,15 @@
 
 #include "v8.h"
 #include "jsapi.h"
-#include "v8handlescope.h"
 
 namespace v8 {
 namespace internal {
 
+template <class T>
 class Local {
 public:
-  template <class T>
   static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    auto result = HandleScope::AddLocal(val);
-    if (!result) {
-      return v8::Local<T>();
-    }
-    return v8::Local<T>(reinterpret_cast<T*>(result));
+    return v8::Local<T>::New(isolate, reinterpret_cast<T*>(&val));
   }
 };
 

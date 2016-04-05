@@ -36,7 +36,7 @@ Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                         JS_NewStringCopyZ(cx, data));
   JS::Value strVal;
   strVal.setString(str);
-  return internal::Local::New<String>(isolate, strVal);
+  return internal::Local<String>::New(isolate, strVal);
 }
 
 }

@@ -21,7 +21,6 @@
 #include <assert.h>
 
 #include "v8.h"
-#include "v8handlescope.h"
 #include "jsapi.h"
 #include "js/GCVector.h"
 
@@ -69,13 +68,12 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
   return int(count);
 }
 
-JS::Value* internal::HandleScope::AddLocal(JS::Value jsVal) {
-  assert(sCurrentScope);
-  assert(sCurrentScope->pimpl_);
-  auto pimpl_ = sCurrentScope->pimpl_;
-  return pimpl_->values.append(jsVal) ?
-         &pimpl_->values.back() :
-         nullptr;
+Value* HandleScope::AddToScope(Value* val) {
+  if (!sCurrentScope ||
+      !sCurrentScope->pimpl_->values.append(reinterpret_cast<JS::Value&>(*val))) {
+    return nullptr;
+  }
+  return reinterpret_cast<Value*>(&sCurrentScope->pimpl_->values.back());
 }
 
 bool EscapableHandleScope::AddToParentScope(const Value* val) {

@@ -86,6 +86,7 @@ class NumberObject;
 class Object;
 class ObjectTemplate;
 class Platform;
+class Private;
 class ResourceConstraints;
 class RegExp;
 class Promise;
@@ -96,6 +97,7 @@ class StackFrame;
 class String;
 class StringObject;
 class Uint32;
+class UnboundScript;
 template <class T> class Local;
 template <class T> class Maybe;
 template <class T> class MaybeLocal;
@@ -111,7 +113,7 @@ struct ExternalArrayData;
 
 namespace internal {
 class HandleScope;
-class Local;
+template <class T> class Local;
 }
 
 enum PropertyAttribute {
@@ -298,27 +300,28 @@ class Local {
   friend class TryCatch;
   friend class UnboundScript;
   friend class Value;
-  friend class internal::Local;
   template <class F> friend class FunctionCallbackInfo;
   template <class F> friend class MaybeLocal;
   template <class F> friend class PersistentBase;
   template <class F, class M> friend class Persistent;
   template <class F> friend class Local;
+  template <class F> friend class internal::Local;
   friend V8_EXPORT Local<Primitive> Undefined(Isolate* isolate);
   friend V8_EXPORT Local<Primitive> Null(Isolate* isolate);
   friend V8_EXPORT Local<Boolean> True(Isolate* isolate);
   friend V8_EXPORT Local<Boolean> False(Isolate* isolate);
 
-  template <class S>
-  V8_INLINE Local(S* that)
-      : val_(that) {}
+  V8_INLINE Local(T* that)
+    : val_(that) {
+  }
   V8_INLINE static Local<T> New(Isolate* isolate, T* that) {
-    return Local(that);
+    return New(that);
   }
 
   V8_INLINE Local(const PersistentBase<T>& that)
     : val_(that.val_) {
   }
+  V8_INLINE static Local<T> New(T* that);
 
   T* val_;
 };
@@ -769,7 +772,21 @@ class V8_EXPORT HandleScope {
 
 private:
   friend class EscapableHandleScope;
-  friend class internal::HandleScope;
+  template <class T> friend class Local;
+
+  static Value* AddToScope(Value* val);
+  static Context* AddToScope(Context* context) {
+    // Contexts are not currently tracked by HandleScopes.
+    return context;
+  }
+  static Private* AddToScope(Private* priv) {
+    // TODO: Add support for Local<Private>
+    return priv;
+  }
+  static UnboundScript* AddToScope(UnboundScript* us) {
+    // TODO: Add support for Local<UnboundScript>
+    return us;
+  }
 
   struct Impl;
   Impl* pimpl_;
@@ -788,8 +805,8 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
   }
 
 private:
-  bool AddToParentScope(const Value* val);
-  bool AddToParentScope(const Context* context) {
+  static bool AddToParentScope(const Value* val);
+  static bool AddToParentScope(const Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return true;
   }
@@ -2495,6 +2512,15 @@ class V8_EXPORT Locker {
 //
 // Local<T> members
 //
+
+template <class T>
+Local<T> Local<T>::New(T* that) {
+  auto result = HandleScope::AddToScope(that);
+  if (!result) {
+    return Local<T>();
+  }
+  return Local<T>(static_cast<T*>(result));
+}
 
 template <class T>
 Local<T> Local<T>::New(Isolate* isolate, Local<T> that) {
