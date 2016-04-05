@@ -22,6 +22,7 @@
 #include <stack>
 
 #include "v8.h"
+#include "v8context.h"
 #include "jsapi.h"
 
 namespace v8 {
@@ -94,6 +95,12 @@ void Isolate::PopCurrentContext() {
 Local<Context> Isolate::GetCurrentContext() {
   assert(pimpl_);
   return Local<Context>::New(this, pimpl_->currentContexts.top());
+}
+
+JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
+  assert(isolate);
+  assert(isolate->pimpl_);
+  return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
 }
 
 }

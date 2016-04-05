@@ -19,19 +19,10 @@
 // IN THE SOFTWARE.
 
 #include "v8.h"
+#include "v8context.h"
 #include "jsapi.h"
 
 namespace v8 {
-
-struct Context::Impl {
-  explicit Impl()
-    : cx(nullptr),
-      oldCompartment(nullptr) {
-  }
-  JSContext* cx;
-  JS::PersistentRootedObject global;
-  JSCompartment* oldCompartment;
-};
 
 Context::Context()
   : pimpl_(new Impl()) {

@@ -58,6 +58,7 @@ JsErrorCode JsRelease(JsRef, unsigned int*);
 const JsRef JS_INVALID_REFERENCE = NULL;
 
 struct JSRuntime;
+struct JSContext;
 
 namespace v8 {
 
@@ -2213,6 +2214,7 @@ private:
   void PushCurrentContext(Context* context);
   void PopCurrentContext();
   friend class Context;
+  friend JSContext* JSContextFromIsolate(Isolate* isolate);
 
   struct Impl;
   Impl* pimpl_;
@@ -2448,6 +2450,7 @@ private:
   bool CreateGlobal();
   void Dispose();
   friend class Isolate;
+  friend JSContext* JSContextFromIsolate(Isolate* isolate);
 
   struct Impl;
   Impl* pimpl_;

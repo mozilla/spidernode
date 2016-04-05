@@ -21,18 +21,16 @@
 #include "v8.h"
 #include "jsapi.h"
 
-static_assert(sizeof(v8::Value) == sizeof(JS::Value),
-              "v8::Value and JS::Value must be binary compatible");
-
 namespace v8 {
 
-#define SIMPLE_VALUE(V8_VAL, SM_VAL)                               \
-  bool Value::Is##V8_VAL() const {                                 \
-    return reinterpret_cast<const JS::Value*>(this)->is##SM_VAL(); \
+struct Context::Impl {
+  explicit Impl()
+    : cx(nullptr),
+      oldCompartment(nullptr) {
   }
-#define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
-#include "valuemap.inc"
-#undef COMMON_VALUE
-#undef SIMPLE_VALUE
+  JSContext* cx;
+  JS::PersistentRootedObject global;
+  JSCompartment* oldCompartment;
+};
 
 }

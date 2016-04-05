@@ -18,21 +18,26 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+#include <assert.h>
+
 #include "v8.h"
 #include "jsapi.h"
-
-static_assert(sizeof(v8::Value) == sizeof(JS::Value),
-              "v8::Value and JS::Value must be binary compatible");
+#include "v8isolate.h"
 
 namespace v8 {
 
-#define SIMPLE_VALUE(V8_VAL, SM_VAL)                               \
-  bool Value::Is##V8_VAL() const {                                 \
-    return reinterpret_cast<const JS::Value*>(this)->is##SM_VAL(); \
-  }
-#define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
-#include "valuemap.inc"
-#undef COMMON_VALUE
-#undef SIMPLE_VALUE
+Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
+                                   NewStringType type, int length) {
+  assert(type == kNormalString); // TODO: Add support for interned strings
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString str(cx, length >= 0 ?
+                        JS_NewStringCopyN(cx, data, length) :
+                        JS_NewStringCopyZ(cx, data));
+  // TODO: This String object is leaking, fix the leak when we have
+  // proper Local support.
+  String* result = new String;
+  reinterpret_cast<JS::Value*>(result)->setString(str);
+  return Local<String>::New(isolate, result);
+}
 
 }
