@@ -274,6 +274,7 @@ class Local {
   friend class Context;
   friend class Date;
   friend class Debug;
+  friend class EscapableHandleScope;
   friend class External;
   friend class Function;
   friend struct FunctionCallbackData;
@@ -771,6 +772,7 @@ class V8_EXPORT HandleScope {
   V8_INLINE Isolate* GetIsolate() const;
 
 private:
+  friend class EscapableHandleScope;
   friend class internal::HandleScope;
 
   struct Impl;
@@ -782,7 +784,19 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
   EscapableHandleScope(Isolate* isolate) : HandleScope(isolate) {}
 
   template <class T>
-  Local<T> Escape(Handle<T> value);
+  Local<T> Escape(Handle<T> value) {
+    if (!AddToParentScope(*value)) {
+      return Local<T>();
+    }
+    return Local<T>(*value);
+  }
+
+private:
+  bool AddToParentScope(const Value* val);
+  bool AddToParentScope(const Context* context) {
+    // Contexts are not currently tracked by HandleScopes.
+    return true;
+  }
 };
 
 typedef HandleScope SealHandleScope;

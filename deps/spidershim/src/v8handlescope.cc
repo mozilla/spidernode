@@ -78,4 +78,11 @@ JS::Value* internal::HandleScope::AddLocal(JS::Value jsVal) {
          nullptr;
 }
 
+bool EscapableHandleScope::AddToParentScope(const Value* val) {
+  return sCurrentScope &&
+         sCurrentScope->pimpl_->prev &&
+         sCurrentScope->pimpl_->prev->pimpl_->
+           values.append(reinterpret_cast<const JS::Value&>(*val));
+}
+
 }
