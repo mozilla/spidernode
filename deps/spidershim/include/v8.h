@@ -353,12 +353,8 @@ class MaybeLocal {
     return !IsEmpty();
   }
 
-  Local<T> ToLocalChecked() {
-#if 0
-    if (V8_UNLIKELY(val_ == nullptr)) V8::ToLocalEmpty();
-#endif
-    return Local<T>(val_);
-  }
+  // Will crash if the MaybeLocal<> is empty.
+  V8_INLINE Local<T> ToLocalChecked();
 
   template <class S>
   Local<S> FromMaybe(Local<S> default_value) const {
@@ -2643,6 +2639,12 @@ void PersistentBase<T>::MarkIndependent() {
 
 template <class T>
 void PersistentBase<T>::SetWrapperClassId(uint16_t class_id) {
+}
+
+template <class T>
+Local<T> MaybeLocal<T>::ToLocalChecked() {
+  if (V8_UNLIKELY(val_ == nullptr)) V8::ToLocalEmpty();
+  return Local<T>(val_);
 }
 
 }  // namespace v8
