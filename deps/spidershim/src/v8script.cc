@@ -51,4 +51,14 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   return internal::Local<Script>::New(context->GetIsolate(), jsScript);
 }
 
+MaybeLocal<Value> Script::Run(Local<Context> context) {
+  assert(script_);
+  JSContext* cx = JSContextFromContext(*context);
+  JS::Rooted<JS::Value> result(cx);
+  if (!JS_ExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_), &result)) {
+    return MaybeLocal<Value>();
+  }
+  return internal::Local<Value>::New(context->GetIsolate(), result);
+}
+
 }
