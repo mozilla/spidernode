@@ -59,6 +59,7 @@ const JsRef JS_INVALID_REFERENCE = NULL;
 
 struct JSRuntime;
 struct JSContext;
+class JSScript;
 
 namespace v8 {
 
@@ -775,6 +776,7 @@ private:
   template <class T> friend class Local;
 
   static Value* AddToScope(Value* val);
+  static Script* AddToScope(Script* script);
   static Context* AddToScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return context;
@@ -865,6 +867,14 @@ class V8_EXPORT Script {
   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Run(Local<Context> context);
 
   Local<UnboundScript> GetUnboundScript();
+
+private:
+  friend class HandleScope;
+
+  Script(JSScript* script)
+    : script_(script) {}
+
+  JSScript* script_;
 };
 
 class V8_EXPORT ScriptCompiler {

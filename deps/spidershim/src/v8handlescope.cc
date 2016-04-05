@@ -27,6 +27,7 @@
 namespace v8 {
 
 using ValueVector = js::GCVector<JS::Value>;
+using ScriptVector = js::GCVector<JSScript*>;
 
 // TODO: This needs to be allocated in TLS.
 static HandleScope* sCurrentScope = nullptr;
@@ -35,10 +36,13 @@ struct HandleScope::Impl {
   Impl(Isolate* iso) :
     values(JSContextFromIsolate(iso),
            ValueVector(JSContextFromIsolate(iso))),
+    scripts(JSContextFromIsolate(iso),
+            ScriptVector(JSContextFromIsolate(iso))),
     isolate(iso)
   {
   }
   JS::Rooted<ValueVector> values;
+  JS::Rooted<ScriptVector> scripts;
   HandleScope* prev;
   Isolate* isolate;
 };
@@ -62,6 +66,7 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
     assert(current->pimpl_);
     if (current->pimpl_->isolate == isolate) {
       count += current->pimpl_->values.length();
+      count += current->pimpl_->scripts.length();
     }
     current = current->pimpl_->prev;
   }
@@ -74,6 +79,15 @@ Value* HandleScope::AddToScope(Value* val) {
     return nullptr;
   }
   return reinterpret_cast<Value*>(&sCurrentScope->pimpl_->values.back());
+}
+
+Script* HandleScope::AddToScope(Script* script) {
+  assert(script->script_);
+  if (!sCurrentScope ||
+      !sCurrentScope->pimpl_->scripts.append(script->script_)) {
+    return nullptr;
+  }
+  return script;
 }
 
 bool EscapableHandleScope::AddToParentScope(const Value* val) {
