@@ -49,8 +49,10 @@ struct HandleScope::Impl {
   Isolate* isolate;
 };
 
-HandleScope::HandleScope(Isolate* isolate)
-  : pimpl_(new Impl(isolate)) {
+HandleScope::HandleScope(Isolate* isolate) {
+  Local<Context> context = Context::New(isolate);
+  Context::Scope scope(context);
+  pimpl_ = new Impl(isolate);
   pimpl_->prev = sCurrentScope;
   sCurrentScope = this;
 }
