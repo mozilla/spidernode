@@ -19,6 +19,7 @@
 // IN THE SOFTWARE.
 
 #include <assert.h>
+#include <vector>
 
 #include "v8.h"
 #include "jsapi.h"
@@ -43,6 +44,7 @@ struct HandleScope::Impl {
   }
   JS::Rooted<ValueVector> values;
   JS::Rooted<ScriptVector> scripts;
+  std::vector<Script*> scriptObjects;
   HandleScope* prev;
   Isolate* isolate;
 };
@@ -56,6 +58,10 @@ HandleScope::HandleScope(Isolate* isolate)
 HandleScope::~HandleScope() {
   assert(pimpl_);
   sCurrentScope = pimpl_->prev;
+  assert(pimpl_->scripts.length() == pimpl_->scriptObjects.size());
+  for (auto script : pimpl_->scriptObjects) {
+    delete script;
+  }
   delete pimpl_;
 }
 
@@ -81,13 +87,15 @@ Value* HandleScope::AddToScope(Value* val) {
   return reinterpret_cast<Value*>(&sCurrentScope->pimpl_->values.back());
 }
 
-Script* HandleScope::AddToScope(Script* script) {
-  assert(script->script_);
+Script* HandleScope::AddToScope(JSScript* script) {
+  assert(sCurrentScope->pimpl_->scripts.length() ==
+         sCurrentScope->pimpl_->scriptObjects.size());
   if (!sCurrentScope ||
-      !sCurrentScope->pimpl_->scripts.append(script->script_)) {
+      !sCurrentScope->pimpl_->scripts.append(script)) {
     return nullptr;
   }
-  return script;
+  sCurrentScope->pimpl_->scriptObjects.push_back(new Script(script));
+  return sCurrentScope->pimpl_->scriptObjects.back();
 }
 
 bool EscapableHandleScope::AddToParentScope(const Value* val) {

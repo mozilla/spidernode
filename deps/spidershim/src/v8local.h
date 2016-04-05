@@ -32,7 +32,7 @@ public:
     return v8::Local<T>::New(isolate, reinterpret_cast<T*>(&val));
   }
   static v8::Local<T> New(Isolate* isolate, JSScript* script) {
-    return v8::Local<T>::New(isolate, reinterpret_cast<T*>(&script));
+    return v8::Local<T>::New(isolate, script);
   }
 };
 

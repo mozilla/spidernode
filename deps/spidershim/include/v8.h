@@ -315,14 +315,16 @@ class Local {
   V8_INLINE Local(T* that)
     : val_(that) {
   }
-  V8_INLINE static Local<T> New(Isolate* isolate, T* that) {
+  template <class S>
+  V8_INLINE static Local<T> New(Isolate* isolate, S* that) {
     return New(that);
   }
 
   V8_INLINE Local(const PersistentBase<T>& that)
     : val_(that.val_) {
   }
-  V8_INLINE static Local<T> New(T* that);
+  template <class S>
+  V8_INLINE static Local<T> New(S* that);
 
   T* val_;
 };
@@ -776,7 +778,7 @@ private:
   template <class T> friend class Local;
 
   static Value* AddToScope(Value* val);
-  static Script* AddToScope(Script* script);
+  static Script* AddToScope(JSScript* script);
   static Context* AddToScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return context;
@@ -2525,7 +2527,8 @@ class V8_EXPORT Locker {
 //
 
 template <class T>
-Local<T> Local<T>::New(T* that) {
+template <class S>
+Local<T> Local<T>::New(S* that) {
   auto result = HandleScope::AddToScope(that);
   if (!result) {
     return Local<T>();
