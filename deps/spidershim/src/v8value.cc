@@ -47,4 +47,14 @@ bool Value::IsUint32() const {
          value == internal::FastUI2D(internal::FastD2UI(value));
 }
 
+bool Value::IsDate() const {
+  if (!IsObject()) {
+    return false;
+  }
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedObject obj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  bool isDate = false;
+  return JS_ObjectIsDate(cx, obj, &isDate) && isDate;
+}
+
 }
