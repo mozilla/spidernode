@@ -21,6 +21,7 @@
 #include "v8.h"
 #include "v8conversions.h"
 #include "jsapi.h"
+#include "jsfriendapi.h"
 
 static_assert(sizeof(v8::Value) == sizeof(JS::Value),
               "v8::Value and JS::Value must be binary compatible");
@@ -32,9 +33,22 @@ namespace v8 {
     return reinterpret_cast<const JS::Value*>(this)->is##SM_VAL(); \
   }
 #define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
+#define ES_BUILTIN(V8_NAME, CLASS_NAME)                            \
+  bool Value::Is##V8_NAME() const {                                \
+    if (!IsObject()) {                                             \
+      return false;                                                \
+    }                                                              \
+    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());   \
+    JS::RootedObject obj(cx,                                       \
+      &reinterpret_cast<const JS::Value*>(this)->toObject());      \
+    js::ESClassValue cls = js::ESClass_Other;                      \
+    return js::GetBuiltinClass(cx, obj, &cls) &&                   \
+           cls == js::ESClass_##CLASS_NAME;                        \
+  }
 #include "valuemap.inc"
 #undef COMMON_VALUE
 #undef SIMPLE_VALUE
+#undef ES_BUILTIN
 
 bool Value::IsUint32() const {
   if (!IsNumber()) {
@@ -45,16 +59,6 @@ bool Value::IsUint32() const {
          value >= 0 &&
          value <= internal::kMaxUInt32 &&
          value == internal::FastUI2D(internal::FastD2UI(value));
-}
-
-bool Value::IsDate() const {
-  if (!IsObject()) {
-    return false;
-  }
-  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS::RootedObject obj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
-  bool isDate = false;
-  return JS_ObjectIsDate(cx, obj, &isDate) && isDate;
 }
 
 }
