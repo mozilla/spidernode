@@ -373,7 +373,7 @@
           'dependencies': [ 'deps/v8/tools/gyp/v8.gyp:postmortem-metadata' ],
           'conditions': [
             # -force_load is not applicable for the static library
-            [ 'node_target_type!="static_library"', {
+            [ 'node_engine=="v8" and node_target_type!="static_library"', {
               'xcode_settings': {
                 'OTHER_LDFLAGS': [
                   '-Wl,-force_load,<(V8_BASE)',
