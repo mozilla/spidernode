@@ -51,10 +51,6 @@
 // header to compile.  We need to replace them with SM based stuff.
 typedef void* JsRef;
 typedef JsRef JsValueRef;
-typedef JsRef JsContextRef;
-typedef enum _JsErrorCode : unsigned int {JsNoError} JsErrorCode;
-JsErrorCode JsAddRef(JsRef, unsigned int*);
-JsErrorCode JsRelease(JsRef, unsigned int*);
 const JsRef JS_INVALID_REFERENCE = NULL;
 
 struct JSRuntime;
@@ -2632,10 +2628,10 @@ void PersistentBase<T>::SetWeakCommon(P* parameter, Callback callback) {
 #if 0
   chakrashim::SetObjectWeakReferenceCallback(val_, callback, parameter,
                                              &_weakWrapper);
-#endif
   if (wasStrong) {
     JsRelease(val_, nullptr);
   }
+#endif
 }
 
 template <class T>
