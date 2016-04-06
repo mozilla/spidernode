@@ -8,7 +8,7 @@
       'type': 'executable',
       'include_dirs': [ '.' ],
       'dependencies': [
-        #'spidershim.gyp:spidershim', # XXX correct
+        'spidershim.gyp:spidershim', # XXX correct
         '../gtest/gtest.gyp:gtest',
       ],
       'sources': [
