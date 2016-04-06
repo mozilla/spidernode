@@ -19,6 +19,7 @@
 // IN THE SOFTWARE.
 
 #include "v8.h"
+#include "v8conversions.h"
 #include "jsapi.h"
 
 static_assert(sizeof(v8::Value) == sizeof(JS::Value),
@@ -34,5 +35,16 @@ namespace v8 {
 #include "valuemap.inc"
 #undef COMMON_VALUE
 #undef SIMPLE_VALUE
+
+bool Value::IsUint32() const {
+  if (!IsNumber()) {
+    return false;
+  }
+  double value = reinterpret_cast<const JS::Value*>(this)->toDouble();
+  return !internal::IsMinusZero(value) &&
+         value >= 0 &&
+         value <= internal::kMaxUInt32 &&
+         value == internal::FastUI2D(internal::FastD2UI(value));
+}
 
 }
