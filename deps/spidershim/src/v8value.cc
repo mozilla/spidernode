@@ -45,10 +45,20 @@ namespace v8 {
     return js::GetBuiltinClass(cx, obj, &cls) &&                   \
            cls == js::ESClass_##CLASS_NAME;                        \
   }
+#define TYPED_ARRAY(NAME)                                          \
+  bool Value::Is##NAME##Array() const {                            \
+    if (!IsObject()) {                                             \
+      return false;                                                \
+    }                                                              \
+    return JS_Is##NAME##Array(                                     \
+             &reinterpret_cast<const JS::Value*>(this)->toObject() \
+           );                                                      \
+  }
 #include "valuemap.inc"
 #undef COMMON_VALUE
 #undef SIMPLE_VALUE
 #undef ES_BUILTIN
+#undef TYPED_ARRAY
 
 bool Value::IsUint32() const {
   if (!IsNumber()) {
@@ -59,6 +69,20 @@ bool Value::IsUint32() const {
          value >= 0 &&
          value <= internal::kMaxUInt32 &&
          value == internal::FastUI2D(internal::FastD2UI(value));
+}
+
+bool Value::IsTypedArray() const {
+  if (!IsObject()) {
+    return false;
+  }
+  return JS_IsTypedArrayObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
+}
+
+bool Value::IsDataView() const {
+  if (!IsObject()) {
+    return false;
+  }
+  return JS_IsDataViewObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
 }
 
 }
