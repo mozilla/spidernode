@@ -82,8 +82,8 @@ def bench(shellpath, filepath, warmup_runs, counted_runs, stfu=False):
     if not stfu:
         print('Runs:', [int(ms) for ms in milliseconds])
         print('Mean:', mean)
-        print('Stddev: {:.2f} ({:.2f}% of mean)'.format(
-            sigma, sigma / mean * 100))
+        print('Stddev: {:.2f} ({:.2%} of mean)'.format(
+            sigma, sigma / mean))
     return mean, sigma
 
 
