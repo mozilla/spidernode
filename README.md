@@ -1,43 +1,32 @@
-Node.js on ChakraCore
+SpiderNode: Node.js on SpiderMonkey
 ===
-This project enables Node.js to optionally use the ChakraCore JavaScript engine. This project is still **work in progress** and not an officially supported Node.js branch. Please refer to the original [PR](https://github.com/nodejs/node/pull/4765).
+This project is a port of Node.js on top of SpiderMonkey, the JavaScript engine in Firefox. We're still in the very early stages of the port, and a lot of work remains to be done before Node works.
+
+### Goals
+Right now we're focused on using this project in the [Positron](https://github.com/mozilla/positron) project.  This means that we will need to finish SpiderShim to the extent necessary for Node.js to work.  In the future, we may look into finishing implementing the features of the V8 API that Node.js does not use, in order to provide a V8 API shim layer out of the box in SpiderMonkey.  The SpiderShim code is being developed with that long term goal in mind.
 
 ### How it works
+To enable building and running Node.js with SpiderMonkey, a V8 API shim (SpiderShim) is created on top of the SpiderMonkey API.  This is based on Microsoft's [node-chakracore](https://github.com/nodejs/node-chakracore), but it doesn't share much code with it besides the build system integration.
 
-To enable building and running Node.js with the ChakraCore JavaScript engine, a V8 API shim (ChakraShim) is created on top of the ChakraCore runtime hosting API ([JSRT]
-(https://msdn.microsoft.com/en-us/library/dn249673(v=vs.94).aspx)). ChakraShim implements the most essential V8 APIs so that the underlying JavaScript engine change is transparent to Node.js and other native addon modules written for V8.
+### Current status
+This is a _work in progress_, and Node cannot be successfully built yet because of the missing V8 APIs causing linker errors when building the Node.js binary.  So far enough of the V8 API has been implemented to enable running a minimal JavaScript program on top of SpiderShim.  More specifically [this test case](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test/hello-world.cpp) currently passes.  Nothing else will work out of the box yet!
 
-A rebuild node.exe and native addon modules with ChakraCore is required for this to work.
+The build system integration can be improved.
 
-### Issues
-Please report all issues related to Node-ChakraCore on this separate [issue page](https://github.com/nodejs/node-chakracore/issues).
-
-### Prebuilt Node binaries
-You can download and install prebuilt Node-ChakraCore from [here](https://github.com/nodejs/node-chakracore/releases).
+We're actively working on this, so if you're interested in the status of this project, please check here again soon.
 
 ### How to build
-If you are looking to build this yourself. Here's what you will need.
+Before building please make sure you have the prerequisites for building Node.js as documented [here](https://github.com/nodejs/node/blob/master/BUILDING.md).
 
-Prerequisites:
-* Windows 7 SP1 or higher (Windows 8.1 or higher for ARM builds)
-* [Python 2.6 or 2.7](https://www.python.org)
-* [Visual
-Studio](https://www.visualstudio.com/en-us/downloads/download-visual-studio-vs.aspx)
+Building on any OS other than Linux or OS X has not been tested.
 
 Build Command:
-```batch
-vcbuild chakracore nosign [x86|x64|arm]
+```bash
+./configure --engine=spidermonkey
+make
 ```
 
-### How to test
+Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the linker command manually.
 
-```batch
-vcbuild chakracore nobuild test [x86|x64|arm]
-```
-
-To test if Node.js was built correctly with ChakraCore:
-
-```batch
-C:\>node -e "console.log('Hello from Node.js ' + process.jsEngine)"
-Hello from Node.js chakracore
-```
+### Repository structure
+The repository is based on [node-chakracore](https://github.com/nodejs/node-chakracore).  The interesting bits can be found in the [deps/spidershim](https://github.com/mozilla/spidernode/tree/master/deps/spidershim) directory.
