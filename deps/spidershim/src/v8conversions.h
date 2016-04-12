@@ -21,6 +21,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdlib.h>
+#include <cstring>
 
 namespace v8 {
 namespace internal {
