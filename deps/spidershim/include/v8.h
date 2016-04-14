@@ -1518,7 +1518,9 @@ class V8_EXPORT Object : public Value {
                           PropertyAttribute attribute,
                           Handle<AccessorSignature> signature);
 
+#if 0
   JsErrorCode GetObjectData(struct ObjectData** objectData);
+#endif
   ObjectTemplate* GetObjectTemplate();
 };
 
