@@ -53,12 +53,14 @@ Local<Context> Context::New(Isolate* isolate,
 }
 
 bool Context::CreateGlobal() {
-  static const JSClass globalClass = {
-    "global", JSCLASS_GLOBAL_FLAGS,
+  static const JSClassOps cOps = {
     nullptr, nullptr, nullptr, nullptr,
     nullptr, nullptr, nullptr, nullptr,
     nullptr, nullptr, nullptr,
-    JS_GlobalObjectTraceHook, {nullptr}
+    JS_GlobalObjectTraceHook
+  };
+  static const JSClass globalClass = {
+    "global", JSCLASS_GLOBAL_FLAGS, &cOps
   };
 
   JS::RootedObject newGlobal(pimpl_->cx);
