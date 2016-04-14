@@ -94,7 +94,7 @@ Enumerate(JSContext* cx, HandleObject pobj, jsid id,
     bool proxyOwnProperty = pobj->is<ProxyObject>() && (flags & JSITER_OWNONLY);
 
     if (!proxyOwnProperty && (!(flags & JSITER_OWNONLY) || pobj->is<ProxyObject>() ||
-        pobj->getOps()->enumerate))
+        pobj->getOpsEnumerate()))
     {
         if (!ht) {
             ht.emplace(cx);
@@ -111,7 +111,7 @@ Enumerate(JSContext* cx, HandleObject pobj, jsid id,
         // It's not necessary to add properties to the hash table at the end of
         // the prototype chain, but custom enumeration behaviors might return
         // duplicated properties, so always add in such cases.
-        if ((pobj->is<ProxyObject>() || pobj->getProto() || pobj->getOps()->enumerate) && !ht->add(p, id))
+        if ((pobj->is<ProxyObject>() || pobj->getProto() || pobj->getOpsEnumerate()) && !ht->add(p, id))
             return false;
     }
 
@@ -130,11 +130,11 @@ static bool
 EnumerateExtraProperties(JSContext* cx, HandleObject obj, unsigned flags, Maybe<IdSet>& ht,
                          AutoIdVector* props)
 {
-    MOZ_ASSERT(obj->getOps()->enumerate);
+    MOZ_ASSERT(obj->getOpsEnumerate());
 
     AutoIdVector properties(cx);
     bool enumerableOnly = !(flags & JSITER_HIDDEN);
-    if (!obj->getOps()->enumerate(cx, obj, properties, enumerableOnly))
+    if (!obj->getOpsEnumerate()(cx, obj, properties, enumerableOnly))
         return false;
 
     RootedId id(cx);
@@ -361,7 +361,7 @@ Snapshot(JSContext* cx, HandleObject pobj_, unsigned flags, AutoIdVector* props)
     RootedObject pobj(cx, pobj_);
 
     do {
-        if (pobj->getOps()->enumerate) {
+        if (pobj->getOpsEnumerate()) {
             if (pobj->is<UnboxedPlainObject>() && pobj->as<UnboxedPlainObject>().maybeExpando()) {
                 // Special case unboxed objects with an expando object.
                 RootedNativeObject expando(cx, pobj->as<UnboxedPlainObject>().maybeExpando());
@@ -381,7 +381,7 @@ Snapshot(JSContext* cx, HandleObject pobj_, unsigned flags, AutoIdVector* props)
             }
         } else if (pobj->isNative()) {
             // Give the object a chance to resolve all lazy properties
-            if (JSEnumerateOp enumerate = pobj->getClass()->enumerate) {
+            if (JSEnumerateOp enumerate = pobj->getClass()->getEnumerate()) {
                 if (!enumerate(cx, pobj.as<NativeObject>()))
                     return false;
             }
@@ -497,9 +497,16 @@ GetCustomIterator(JSContext* cx, HandleObject obj, unsigned flags, MutableHandle
         ++sCustomIteratorCount;
 
     /* Otherwise call it and return that object. */
-    Value arg = BooleanValue((flags & JSITER_FOREACH) == 0);
-    if (!Invoke(cx, ObjectValue(*obj), rval, 1, &arg, &rval))
-        return false;
+    {
+        FixedInvokeArgs<1> args(cx);
+
+        args[0].setBoolean((flags & JSITER_FOREACH) == 0);
+
+        RootedValue thisv(cx, ObjectValue(*obj));
+        if (!js::Call(cx, rval, thisv, args, &rval))
+            return false;
+    }
+
     if (rval.isPrimitive()) {
         // Ignore the stack when throwing. We can't tell whether we were
         // supposed to skip over a new.target or not.
@@ -797,8 +804,8 @@ CanCacheIterableObject(JSContext* cx, JSObject* obj)
     if (obj->isNative()) {
         if (obj->is<TypedArrayObject>() ||
             obj->hasUncacheableProto() ||
-            obj->getOps()->enumerate ||
-            obj->getClass()->enumerate ||
+            obj->getOpsEnumerate() ||
+            obj->getClass()->getEnumerate() ||
             obj->as<NativeObject>().containsPure(cx->names().iteratorIntrinsic))
         {
             return false;
@@ -1084,11 +1091,7 @@ PropertyIteratorObject::finalize(FreeOp* fop, JSObject* obj)
         fop->free_(ni);
 }
 
-const Class PropertyIteratorObject::class_ = {
-    "Iterator",
-    JSCLASS_HAS_CACHED_PROTO(JSProto_Iterator) |
-    JSCLASS_HAS_PRIVATE |
-    JSCLASS_BACKGROUND_FINALIZE,
+const ClassOps PropertyIteratorObject::classOps_ = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
     nullptr, /* getProperty */
@@ -1101,6 +1104,14 @@ const Class PropertyIteratorObject::class_ = {
     nullptr, /* hasInstance */
     nullptr, /* construct   */
     trace
+};
+
+const Class PropertyIteratorObject::class_ = {
+    "Iterator",
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Iterator) |
+    JSCLASS_HAS_PRIVATE |
+    JSCLASS_BACKGROUND_FINALIZE,
+    &PropertyIteratorObject::classOps_
 };
 
 static const Class ArrayIteratorPrototypeClass = {
@@ -1400,7 +1411,12 @@ js::IteratorMore(JSContext* cx, HandleObject iterobj, MutableHandleValue rval)
     if (!GetProperty(cx, iterobj, iterobj, cx->names().next, rval))
         return false;
 
-    if (!Invoke(cx, ObjectValue(*iterobj), rval, 0, nullptr, rval)) {
+    // Call the .next method.  Fall through to the error-handling cases in the
+    // unlikely event that either one of the fallible operations performed
+    // during the call process fails.
+    FixedInvokeArgs<0> args(cx);
+    RootedValue iterval(cx, ObjectValue(*iterobj));
+    if (!js::Call(cx, rval, iterval, args, rval)) {
         // Check for StopIteration.
         if (!cx->isExceptionPending())
             return false;
@@ -1412,7 +1428,6 @@ js::IteratorMore(JSContext* cx, HandleObject iterobj, MutableHandleValue rval)
 
         cx->clearPendingException();
         rval.setMagic(JS_NO_ITER_VALUE);
-        return true;
     }
 
     return true;
@@ -1425,9 +1440,7 @@ stopiter_hasInstance(JSContext* cx, HandleObject obj, MutableHandleValue v, bool
     return true;
 }
 
-const Class StopIterationObject::class_ = {
-    "StopIteration",
-    JSCLASS_HAS_CACHED_PROTO(JSProto_StopIteration),
+static const ClassOps StopIterationObjectClassOps = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
     nullptr, /* getProperty */
@@ -1438,6 +1451,12 @@ const Class StopIterationObject::class_ = {
     nullptr, /* finalize */
     nullptr, /* call */
     stopiter_hasInstance
+};
+
+const Class StopIterationObject::class_ = {
+    "StopIteration",
+    JSCLASS_HAS_CACHED_PROTO(JSProto_StopIteration),
+    &StopIterationObjectClassOps
 };
 
 static const JSFunctionSpec iterator_proto_methods[] = {

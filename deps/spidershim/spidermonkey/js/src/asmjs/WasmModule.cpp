@@ -1421,8 +1421,16 @@ Module::callImport(JSContext* cx, uint32_t importIndex, unsigned argc, const Val
 
     const Import& import = imports()[importIndex];
 
+    InvokeArgs args(cx);
+    if (!args.init(argc))
+        return false;
+
+    for (size_t i = 0; i < argc; i++)
+        args[i].set(argv[i]);
+
     RootedValue fval(cx, ObjectValue(*importToExit(import).fun));
-    if (!Invoke(cx, UndefinedValue(), fval, argc, argv, rval))
+    RootedValue thisv(cx, UndefinedValue());
+    if (!Call(cx, fval, thisv, args, rval))
         return false;
 
     ImportExit& exit = importToExit(import);
@@ -1563,10 +1571,7 @@ Module::profilingLabel(uint32_t funcIndex) const
     return funcLabels_[funcIndex].get();
 }
 
-const Class WasmModuleObject::class_ = {
-    "WasmModuleObject",
-    JSCLASS_IS_ANONYMOUS | JSCLASS_DELAY_METADATA_CALLBACK |
-    JSCLASS_HAS_RESERVED_SLOTS(WasmModuleObject::RESERVED_SLOTS),
+const ClassOps WasmModuleObject::classOps_ = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
     nullptr, /* getProperty */
@@ -1579,6 +1584,13 @@ const Class WasmModuleObject::class_ = {
     nullptr, /* hasInstance */
     nullptr, /* construct */
     WasmModuleObject::trace
+};
+
+const Class WasmModuleObject::class_ = {
+    "WasmModuleObject",
+    JSCLASS_IS_ANONYMOUS | JSCLASS_DELAY_METADATA_BUILDER |
+    JSCLASS_HAS_RESERVED_SLOTS(WasmModuleObject::RESERVED_SLOTS),
+    &WasmModuleObject::classOps_,
 };
 
 bool

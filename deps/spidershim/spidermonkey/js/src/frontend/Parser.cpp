@@ -94,7 +94,9 @@ template <>
 bool
 ParseContext<FullParseHandler>::checkLocalsOverflow(TokenStream& ts)
 {
-    if (vars_.length() + bodyLevelLexicals_.length() >= LOCALNO_LIMIT) {
+    if (vars_.length() + bodyLevelLexicals_.length() >= LOCALNO_LIMIT ||
+        bodyLevelLexicals_.length() >= Bindings::BODY_LEVEL_LEXICAL_LIMIT)
+    {
         ts.reportError(JSMSG_TOO_MANY_LOCALS);
         return false;
     }
@@ -2328,8 +2330,9 @@ Parser<FullParseHandler>::bindBodyLevelFunctionName(HandlePropertyName funName,
         MOZ_ASSERT(!dn->isUsed());
         MOZ_ASSERT(dn->isDefn());
 
-        if (dn->kind() == Definition::CONSTANT || dn->kind() == Definition::LET)
-            return reportRedeclaration(nullptr, Definition::VAR, funName);
+        Definition::Kind kind = dn->kind();
+        if (kind == Definition::CONSTANT || kind == Definition::LET || kind == Definition::IMPORT)
+            return reportRedeclaration(nullptr, kind, funName);
 
         /*
          * Body-level function statements are effectively variable
@@ -2339,7 +2342,7 @@ Parser<FullParseHandler>::bindBodyLevelFunctionName(HandlePropertyName funName,
          * the function's binding (which is mutable), so turn any existing
          * declaration into a use.
          */
-        if (dn->kind() == Definition::ARG) {
+        if (kind == Definition::ARG) {
             // The exception to the above comment is when the function
             // has the same name as an argument. Then the argument node
             // remains a definition. But change the function node pn so
@@ -3209,6 +3212,8 @@ Parser<ParseHandler>::functionArgsAndBodyGeneric(InHandling inHandling,
         if (kind == Statement && !MatchOrInsertSemicolonAfterExpression(tokenStream))
             return false;
     }
+
+    handler.setEndPosition(body, pos().begin);
 
     return finishFunctionDefinition(pn, funbox, body);
 }
@@ -7585,8 +7590,11 @@ Parser<ParseHandler>::expr(InHandling inHandling, YieldHandling yieldHandling,
 
             // We begin by checking for an outer pending error since it would
             // have occurred first.
-            if (possibleError->checkForExprErrors())
-                possibleErrorInner.checkForExprErrors();
+            if (possibleError && !possibleError->checkForExprErrors())
+                return null();
+
+            // Go ahead and report the inner error.
+            possibleErrorInner.checkForExprErrors();
             return null();
         }
         handler.addList(seq, pn);

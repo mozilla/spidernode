@@ -213,15 +213,15 @@ Bindings::initWithTemporaryStorage(ExclusiveContext* cx, MutableHandle<Bindings>
     return true;
 }
 
-bool
-Bindings::initTrivial(ExclusiveContext* cx)
+/* static */ bool
+Bindings::initTrivialForScript(ExclusiveContext* cx, HandleScript script)
 {
     Shape* shape = EmptyShape::getInitialShape(cx, &CallObject::class_, TaggedProto(nullptr),
                                                CallObject::RESERVED_SLOTS,
                                                BaseShape::QUALIFIED_VAROBJ | BaseShape::DELEGATE);
     if (!shape)
         return false;
-    callObjShape_.init(shape);
+    script->bindings.callObjShape_.init(shape);
     return true;
 }
 
@@ -242,7 +242,7 @@ Bindings::clone(JSContext* cx, MutableHandle<Bindings> self,
                 uint8_t* dstScriptData, HandleScript srcScript)
 {
     /* The clone has the same bindingArray_ offset as 'src'. */
-    Handle<Bindings> src = Handle<Bindings>::fromMarkedLocation(&srcScript->bindings);
+    const Bindings& src = srcScript->bindings;
     ptrdiff_t off = (uint8_t*)src.bindingArray() - srcScript->data;
     MOZ_ASSERT(off >= 0);
     MOZ_ASSERT(size_t(off) <= srcScript->dataSize());
@@ -1702,10 +1702,7 @@ ScriptSourceObject::finalize(FreeOp* fop, JSObject* obj)
     sso->setReservedSlot(SOURCE_SLOT, PrivateValue(nullptr));
 }
 
-const Class ScriptSourceObject::class_ = {
-    "ScriptSource",
-    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) |
-    JSCLASS_IS_ANONYMOUS,
+static const ClassOps ScriptSourceObjectClassOps = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
     nullptr, /* getProperty */
@@ -1713,11 +1710,18 @@ const Class ScriptSourceObject::class_ = {
     nullptr, /* enumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
-    finalize,
+    ScriptSourceObject::finalize,
     nullptr, /* call */
     nullptr, /* hasInstance */
     nullptr, /* construct */
-    trace
+    ScriptSourceObject::trace
+};
+
+const Class ScriptSourceObject::class_ = {
+    "ScriptSource",
+    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) |
+    JSCLASS_IS_ANONYMOUS,
+    &ScriptSourceObjectClassOps
 };
 
 ScriptSourceObject*
@@ -2216,6 +2220,7 @@ ScriptSource::~ScriptSource()
         }
     };
 
+    MOZ_ASSERT(refs == 0);
     MOZ_ASSERT_IF(inCompressedSourceSet, data.is<Compressed>());
 
     DestroyMatcher dm(*this);
@@ -2937,7 +2942,7 @@ JSScript::partiallyInit(ExclusiveContext* cx, HandleScript script, uint32_t ncon
 /* static */ bool
 JSScript::fullyInitTrivial(ExclusiveContext* cx, Handle<JSScript*> script)
 {
-    if (!script->bindings.initTrivial(cx))
+    if (!Bindings::initTrivialForScript(cx, script))
         return false;
 
     if (!partiallyInit(cx, script, 0, 0, 0, 0, 0, 0))

@@ -434,10 +434,16 @@ js::WatchHandler(JSContext* cx, JSObject* obj_, jsid id_, JS::Value old,
     if (resolving.alreadyStarted())
         return true;
 
-    JSObject* callable = (JSObject*)closure;
-    Value argv[] = { IdToValue(id), old, *nvp };
+    FixedInvokeArgs<3> args(cx);
+
+    args[0].set(IdToValue(id));
+    args[1].set(old);
+    args[2].set(*nvp);
+
+    RootedValue callable(cx, ObjectValue(*static_cast<JSObject*>(closure)));
+    RootedValue thisv(cx, ObjectValue(*obj));
     RootedValue rv(cx);
-    if (!Invoke(cx, ObjectValue(*obj), ObjectOrNullValue(callable), ArrayLength(argv), argv, &rv))
+    if (!Call(cx, callable, thisv, args, &rv))
         return false;
 
     *nvp = rv;
@@ -1211,30 +1217,21 @@ FinishObjectClassInit(JSContext* cx, JS::HandleObject ctor, JS::HandleObject pro
     return true;
 }
 
+static const ClassSpec PlainObjectClassSpec = {
+    CreateObjectConstructor,
+    CreateObjectPrototype,
+    object_static_methods,
+    nullptr,
+    object_methods,
+    object_properties,
+    FinishObjectClassInit
+};
+
 const Class PlainObject::class_ = {
     js_Object_str,
     JSCLASS_HAS_CACHED_PROTO(JSProto_Object),
-    nullptr,  /* addProperty */
-    nullptr,  /* delProperty */
-    nullptr,  /* getProperty */
-    nullptr,  /* setProperty */
-    nullptr,  /* enumerate */
-    nullptr,  /* resolve */
-    nullptr,  /* mayResolve */
-    nullptr,  /* finalize */
-    nullptr,  /* call */
-    nullptr,  /* hasInstance */
-    nullptr,  /* construct */
-    nullptr,  /* trace */
-    {
-        CreateObjectConstructor,
-        CreateObjectPrototype,
-        object_static_methods,
-        nullptr,
-        object_methods,
-        object_properties,
-        FinishObjectClassInit
-    }
+    JS_NULL_CLASS_OPS,
+    &PlainObjectClassSpec
 };
 
 const Class* const js::ObjectClassPtr = &PlainObject::class_;
