@@ -39,5 +39,7 @@ rsync -av --delete "$SM_DIR"/js spidermonkey/
 git add spidermonkey
 # The following will fail if there are no deleted files, so || with true.
 git rm -r `git ls-files --deleted spidermonkey` || true
+# The following will fail if there are no added files, so || with true.
+git add -f `git ls-files --others spidermonkey` || true
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
 git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
