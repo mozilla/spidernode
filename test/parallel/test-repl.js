@@ -15,7 +15,7 @@ const prompt_npm = 'npm should be run outside of the ' +
                    'node repl, in your normal shell.\n' +
                    '(Press Control-D to exit.)\n';
 const expect_npm = prompt_npm + prompt_unix;
-var server_tcp, server_unix, client_tcp, client_unix, timer, replServer;
+var server_tcp, server_unix, client_tcp, client_unix, replServer;
 
 // absolute path to test/fixtures/a.js
 var moduleFilename = require('path').join(common.fixturesDir, 'a');
@@ -23,7 +23,7 @@ var moduleFilename = require('path').join(common.fixturesDir, 'a');
 console.error('repl test');
 
 // function for REPL to run
-invoke_me = function(arg) {
+global.invoke_me = function(arg) {
   return 'invoked ' + arg;
 };
 
@@ -44,13 +44,15 @@ function send_expect(list) {
 function clean_up() {
   client_tcp.end();
   client_unix.end();
-  clearTimeout(timer);
 }
 
 function strict_mode_error_test() {
   send_expect([
     { client: client_unix, send: 'ref = 1',
-      expect: /^ReferenceError:\sref\sis\snot\sdefined\n\s+at\srepl:1:5/ },
+      expect: common.engineSpecificMessage({
+        v8: /^ReferenceError:\sref\sis\snot\sdefined\n\s+at\srepl:1:5/,
+        chakracore: /^ReferenceError: Variable undefined in strict mode/
+      })},
   ]);
 }
 
@@ -238,11 +240,14 @@ function error_test() {
       expect: '1' },
     // Multiline function call
     { client: client_unix, send: 'function f(){}; f(f(1,',
-      expect: prompt_multiline },
+      expect: prompt_multiline,
+      chakracore: 'https://github.com/Microsoft/ChakraCore/issues/767' },
     { client: client_unix, send: '2)',
-      expect: prompt_multiline },
+      expect: prompt_multiline,
+      chakracore: 'skip' },
     { client: client_unix, send: ')',
-      expect: 'undefined\n' + prompt_unix },
+      expect: 'undefined\n' + prompt_unix,
+      chakracore: 'skip' },
     // npm prompt error message
     { client: client_unix, send: 'npm install foobar',
       expect: expect_npm },
@@ -363,7 +368,7 @@ function error_test() {
             'undefined\n' + prompt_unix },
     { client: client_unix, send: '{ var x = 4; }',
       expect: 'undefined\n' + prompt_unix },
-  ]);
+  ].filter((v) => !common.engineSpecificMessage(v)));
 }
 
 function tcp_test() {
@@ -501,7 +506,3 @@ function unix_test() {
 }
 
 unix_test();
-
-timer = setTimeout(function() {
-  assert.fail(null, null, 'Timeout');
-}, 5000);
