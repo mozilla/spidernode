@@ -33,6 +33,7 @@ test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
 rsync -av --delete "$SM_DIR"/dom/bindings/mozwebidlcodegen spidermonkey/dom/bindings/
 test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
+rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete "$SM_DIR"/js spidermonkey/
 
 git add spidermonkey
