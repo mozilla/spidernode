@@ -36,6 +36,7 @@ rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/moza
 rsync -av --delete "$SM_DIR"/js spidermonkey/
 
 git add spidermonkey
-git rm -r `git ls-files --deleted spidermonkey`
+# The following will fail if there are no deleted files, so || with true.
+git rm -r `git ls-files --deleted spidermonkey` || true
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
 git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
