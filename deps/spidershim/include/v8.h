@@ -478,7 +478,7 @@ struct BarrierMethods {
 template <class T>
 class PersistentBase {
  public:
-  V8_INLINE void Reset();
+  void Reset();
 
   template <class S>
   V8_INLINE void Reset(Isolate* isolate, const Handle<S>& other);
@@ -521,14 +521,14 @@ class PersistentBase {
                          WeakCallbackType type);
 
   template<typename P>
-  V8_INLINE P* ClearWeak();
+  P* ClearWeak();
 
   V8_INLINE void ClearWeak() { ClearWeak<void>(); }
   V8_INLINE void MarkIndependent();
   V8_INLINE void MarkPartiallyDependent();
   V8_INLINE bool IsIndependent() const;
   V8_INLINE bool IsNearDeath() const;
-  V8_INLINE bool IsWeak() const;
+  bool IsWeak() const;
   V8_INLINE void SetWrapperClassId(uint16_t class_id);
 
  private:
