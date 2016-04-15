@@ -65,6 +65,7 @@
         'src/v8context.cc',
         'src/v8handlescope.cc',
         'src/v8isolate.cc',
+        'src/v8number.cc',
         'src/v8script.cc',
         'src/v8string.cc',
         'src/v8v8.cc',
