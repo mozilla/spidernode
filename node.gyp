@@ -401,7 +401,10 @@
           'include_dirs': [
             'deps/spidermonkey' # include/v8_platform.h
           ],
-          'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
+          'dependencies': [
+            'deps/spidershim/spidershim.gyp:spidershim',
+            'deps/spidershim/tests.gyp:*',
+          ],
         }],
 
         [ 'node_shared_zlib=="false"', {

@@ -7,9 +7,6 @@
     {
       'target_name': 'spidershim',
       'type': '<(library)',
-      'dependencies': [
-        #'tests.gyp:test-spidershim-hello-world', # XXX incorrect
-      ],
 
       'include_dirs': [
         'include',
@@ -35,6 +32,8 @@
         ],
         'libraries': [
           '-lspidershim',
+          '-lmozglue',
+          '-lz',
           '<@(node_engine_libs)',
         ],
         'conditions': [
