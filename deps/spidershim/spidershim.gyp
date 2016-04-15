@@ -64,6 +64,7 @@
         'src/v8boolean.cc',
         'src/v8context.cc',
         'src/v8handlescope.cc',
+        'src/v8integer.cc',
         'src/v8isolate.cc',
         'src/v8number.cc',
         'src/v8script.cc',

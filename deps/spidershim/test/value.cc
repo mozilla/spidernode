@@ -54,3 +54,45 @@ TEST(SpiderShim, Number) {
   TestNumber(engine.isolate(), 42);
   TestNumber(engine.isolate(), 42.42);
 }
+
+template<class T>
+class IntegerMaker;
+
+template<>
+class IntegerMaker<int> {
+public:
+  static Local<Integer> New(Isolate* isolate, int value) {
+    return Integer::New(isolate, value);
+  }
+};
+
+template<>
+class IntegerMaker<uint32_t> {
+public:
+  static Local<Integer> New(Isolate* isolate, uint32_t value) {
+    return Integer::NewFromUnsigned(isolate, value);
+  }
+};
+
+template<class T>
+void TestInteger(Isolate* isolate, T value) {
+  Local<Integer> integer = IntegerMaker<T>::New(isolate, value);
+  EXPECT_TRUE(integer->IsNumber());
+  EXPECT_FALSE(integer->IsBoolean());
+  EXPECT_EQ(integer->Value(), int64_t(value));
+}
+
+TEST(SpiderShim, Integer) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  TestInteger(engine.isolate(), 0);
+  TestInteger(engine.isolate(), 42);
+  TestInteger(engine.isolate(), INT32_MAX);
+  TestInteger(engine.isolate(), UINT32_MAX);
+}
