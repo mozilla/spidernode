@@ -368,7 +368,7 @@
         [ 'node_no_browser_globals=="true"', {
           'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
         } ],
-        [ 'v8_postmortem_support=="true"', {
+        [ 'v8_postmortem_support=="true" and node_engine=="v8"', {
           'dependencies': [ 'deps/v8/tools/gyp/v8.gyp:postmortem-metadata' ],
           'conditions': [
             # -force_load is not applicable for the static library
@@ -475,8 +475,10 @@
         }],
         [ 'OS=="freebsd" or OS=="linux"', {
           'ldflags': [ '-Wl,-z,noexecstack',
-                       '-Wl,--whole-archive <(V8_BASE)',
                        '-Wl,--no-whole-archive' ]
+        }],
+        [ '(OS=="freebsd" or OS=="linux") and node_engine == "v8"', {
+          'ldflags': [ '-Wl,--whole-archive <(V8_BASE)' ],
         }],
         [ 'OS=="sunos"', {
           'ldflags': [ '-Wl,-M,/usr/lib/ld/map.noexstk' ],
