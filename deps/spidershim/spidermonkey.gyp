@@ -20,7 +20,18 @@
       'variables': {
         'spidermonkey_binaries': [
           '<(spidermonkey_dir)/../build/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
-          '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
+        ],
+        'conditions': [
+          ['OS == "linux"', {
+            'spidermonkey_binaries+': [
+              '<(spidermonkey_dir)/../build/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+            ],
+          }],
+          ['OS == "mac"', {
+            'spidermonkey_binaries': [
+              '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
+            ],
+          }],
         ],
       },
 
