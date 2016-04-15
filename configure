@@ -823,6 +823,11 @@ def configure_v8(o):
   o['variables']['v8_random_seed'] = 0  # Use a random seed for hash tables.
   o['variables']['v8_use_snapshot'] = 'false' if options.without_snapshot else 'true'
 
+
+def configure_spidermonkey(o):
+  o['variables']['spidermonkey_debug'] = 1 if options.debug else 0
+
+
 def configure_openssl(o):
   o['variables']['node_use_openssl'] = b(not options.without_ssl)
   o['variables']['node_shared_openssl'] = b(options.shared_openssl)
@@ -1138,6 +1143,7 @@ configure_library('zlib', output)
 configure_library('http_parser', output)
 configure_library('libuv', output)
 configure_v8(output)
+configure_spidermonkey(output)
 configure_openssl(output)
 configure_intl(output)
 configure_static(output)

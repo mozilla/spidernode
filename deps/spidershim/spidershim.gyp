@@ -1,6 +1,12 @@
 {
   'variables': {
     'spidermonkey_dir%': 'spidermonkey',
+    'spidermonkey_debug%': 0,
+
+    'conditions': [
+      ['spidermonkey_debug==1', { 'spidermonkey_build_dir': 'build-debug' },
+                                { 'spidermonkey_build_dir': 'build-opt'   }],
+    ],
   },
 
   'targets': [
@@ -10,7 +16,7 @@
 
       'include_dirs': [
         'include',
-        '<(spidermonkey_dir)/../build/dist/include',
+        '<(spidermonkey_build_dir)/dist/include',
       ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],

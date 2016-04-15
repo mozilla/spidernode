@@ -4,11 +4,14 @@
     'library%': 'static_library',     # build spidermonkey as static library
     'component%': 'static_library',   # link crt statically or dynamically
     'spidermonkey_dir%': 'spidermonkey',
+    'spidermonkey_debug%': 0,
 
     'conditions': [
       ['target_arch=="ia32"', { 'Platform': 'x86' }],
       ['target_arch=="x64"', { 'Platform': 'x64' }],
       ['target_arch=="arm"', { 'Platform': 'arm' }],
+      ['spidermonkey_debug==1', { 'spidermonkey_build_dir': 'build-debug' },
+                                { 'spidermonkey_build_dir': 'build-opt'   }],
     ],
   },
 
@@ -19,18 +22,26 @@
 
       'variables': {
         'spidermonkey_binaries': [
-          '<(spidermonkey_dir)/../build/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
+          '<(spidermonkey_build_dir)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
         ],
         'conditions': [
           ['OS == "linux"', {
             'spidermonkey_binaries+': [
-              '<(spidermonkey_dir)/../build/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+              '<(spidermonkey_build_dir)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
             ],
           }],
           ['OS == "mac"', {
             'spidermonkey_binaries': [
-              '<(spidermonkey_dir)/../build/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
+              '<(spidermonkey_build_dir)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
             ],
+          }],
+          ['spidermonkey_debug==1', {
+            'spidermonkey_args': ['--enable-debug'],
+            'spidermonkey_defines': ['DEBUG'],
+          },
+          {
+            'spidermonkey_args': ['--enable-opt'],
+            'spidermonkey_defines': ['NDEBUG'],
           }],
         ],
       },
@@ -44,6 +55,7 @@
           ],
           'action': [
             './build-spidermonkey.sh',
+            '<@(spidermonkey_args)',
           ],
         },
       ],
@@ -57,6 +69,7 @@
 
       'direct_dependent_settings': {
         'library_dirs': [ '<(PRODUCT_DIR)' ],
+        'defines': [ '<@(spidermonkey_defines)' ],
       },
 
     },
