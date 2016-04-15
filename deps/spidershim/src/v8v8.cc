@@ -24,41 +24,11 @@
 
 namespace v8 {
 
-JSRuntime* V8::rt_ = nullptr;
-
-static void ErrorReporter(JSContext* cx, const char* message,
-                          JSErrorReport* report) {
-  fprintf(stderr, "JS error at %s:%u: %s\n",
-          report->filename ? report->filename : "<no filename>",
-          (unsigned int) report->lineno,
-          message);
-}
-
 bool V8::Initialize() {
-  assert(!rt_);
-  if (!JS_Init()) {
-    return false;
-  }
-  const uint32_t defaultHeapSize =
-    sizeof(void*) == 8 ?
-      1024 * 1024 * 1024 : // 1GB
-      512 * 1024 * 1024;   // 512MB
-  rt_ = JS_NewRuntime(defaultHeapSize,
-                      JS::DefaultNurseryBytes,
-                      nullptr);
-  if (!rt_) {
-    return false;
-  }
-  JS_SetErrorReporter(rt_, ErrorReporter);
-  const size_t defaultStackQuota = 128 * sizeof(size_t) * 1024;
-  JS_SetNativeStackQuota(rt_, defaultStackQuota);
-  return true;
+  return JS_Init();
 }
 
 bool V8::Dispose() {
-  assert(rt_);
-  JS_DestroyRuntime(rt_);
-  rt_ = nullptr;
   JS_ShutDown();
   return true;
 }

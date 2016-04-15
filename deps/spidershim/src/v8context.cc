@@ -37,22 +37,22 @@ Local<Context> Context::New(Isolate* isolate,
                             Handle<ObjectTemplate> global_template,
                             Handle<Value> global_object) {
   //TODO: Implement extensions, global_template and global_object.
-  assert(V8::rt_);
-  JSContext* cx = JS_NewContext(V8::rt_, 8192);
+  assert(isolate->Runtime());
+  JSContext* cx = JS_NewContext(isolate->Runtime(), 8192);
   if (!cx) {
     return Local<Context>();
   }
   Context* context = new Context();
   context->pimpl_->cx = cx;
   JSAutoRequest ar(cx);
-  if (!context->CreateGlobal()) {
+  if (!context->CreateGlobal(isolate)) {
     return Local<Context>();
   }
   isolate->AddContext(context);
   return Local<Context>::New(isolate, context);
 }
 
-bool Context::CreateGlobal() {
+bool Context::CreateGlobal(Isolate* isolate) {
   static const JSClassOps cOps = {
     nullptr, nullptr, nullptr, nullptr,
     nullptr, nullptr, nullptr, nullptr,
@@ -78,7 +78,7 @@ bool Context::CreateGlobal() {
     return false;
   }
 
-  pimpl_->global.init(V8::rt_);
+  pimpl_->global.init(isolate->Runtime());
   pimpl_->global = newGlobal;
   return true;
 }

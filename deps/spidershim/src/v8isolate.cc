@@ -28,17 +28,42 @@
 namespace v8 {
 
 struct Isolate::Impl {
+  JSRuntime* rt;
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
+
+  static void ErrorReporter(JSContext* cx, const char* message,
+                            JSErrorReport* report) {
+    fprintf(stderr, "JS error at %s:%u: %s\n",
+            report->filename ? report->filename : "<no filename>",
+            (unsigned int) report->lineno,
+            message);
+  }
 };
 
 Isolate* Isolate::current_ = nullptr;
 
 Isolate::Isolate()
   : pimpl_(new Impl()) {
+  const uint32_t defaultHeapSize =
+    sizeof(void*) == 8 ?
+      1024 * 1024 * 1024 : // 1GB
+      512 * 1024 * 1024;   // 512MB
+  pimpl_->rt = JS_NewRuntime(defaultHeapSize,
+                             JS::DefaultNurseryBytes,
+                             nullptr);
+  // Assert success for now!
+  if (!pimpl_->rt) {
+    MOZ_CRASH("Creating the JS Runtime failed!");
+  }
+  JS_SetErrorReporter(pimpl_->rt, Impl::ErrorReporter);
+  const size_t defaultStackQuota = 128 * sizeof(size_t) * 1024;
+  JS_SetNativeStackQuota(pimpl_->rt, defaultStackQuota);
 }
 
 Isolate::~Isolate() {
+  assert(pimpl_->rt);
+  JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }
 
@@ -101,6 +126,10 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
   return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+}
+
+JSRuntime* Isolate::Runtime() const {
+  return pimpl_->rt;
 }
 
 }

@@ -2272,6 +2272,8 @@ private:
   friend class Context;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
 
+  JSRuntime* Runtime() const;
+
   struct Impl;
   Impl* pimpl_;
 };
@@ -2307,7 +2309,6 @@ class V8_EXPORT V8 {
   }
 
 private:
-  static JSRuntime* rt_;
   friend class Context;
 };
 
@@ -2503,7 +2504,7 @@ class V8_EXPORT Context {
 private:
   Context();
 
-  bool CreateGlobal();
+  bool CreateGlobal(Isolate* isolate);
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);

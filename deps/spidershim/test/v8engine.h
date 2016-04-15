@@ -21,6 +21,8 @@
 #include "include/libplatform/libplatform.h"
 #include "include/v8.h"
 
+#include <memory>
+
 using namespace v8;
 
 class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
@@ -33,15 +35,35 @@ class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
   virtual void Free(void* data, size_t) { free(data); }
 };
 
-class V8Engine {
+class V8Initializer {
 public:
-  V8Engine() {
+  V8Initializer() {
     // Initialize V8.
     V8::InitializeICU();
     V8::InitializeExternalStartupData("");
     platform_ = platform::CreateDefaultPlatform();
     V8::InitializePlatform(platform_);
     V8::Initialize();
+  }
+  ~V8Initializer() {
+    // Tear down V8.
+    V8::Dispose();
+    V8::ShutdownPlatform();
+    delete platform_;
+  }
+
+private:
+  Platform* platform_;
+};
+
+static std::auto_ptr<V8Initializer> v8Initializer;
+
+class V8Engine {
+public:
+  V8Engine() {
+    if (!v8Initializer.get()) {
+      v8Initializer.reset(new V8Initializer());
+    }
 
     // Create a new Isolate and make it the current one.
     ArrayBufferAllocator allocator;
@@ -50,11 +72,8 @@ public:
     isolate_ = Isolate::New(create_params);
   }
   ~V8Engine() {
-    // Dispose the isolate and tear down V8.
+    // Dispose the isolate.
     isolate_->Dispose();
-    V8::Dispose();
-    V8::ShutdownPlatform();
-    delete platform_;
   }
 
   Isolate* isolate() const {
@@ -62,7 +81,6 @@ public:
   }
 
 private:
-  Platform* platform_;
   Isolate* isolate_;
 };
 
