@@ -10,7 +10,7 @@
   'targets': [
     {
       'target_name': 'hello-world',
-      'sources': [ 'test/hello-world.cpp' ],
+      'sources': [ 'test/hello-world.cc' ],
     },
     {
       'target_name': 'value',
