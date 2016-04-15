@@ -104,6 +104,8 @@ template <class T, class M = NonCopyablePersistentTraits<T> > class Persistent;
 template <typename T> class FunctionCallbackInfo;
 template <typename T> class PropertyCallbackInfo;
 
+ enum JsErrorCode : unsigned int;
+ 
 class JitCodeEvent;
 class RetainedObjectInfo;
 struct ExternalArrayData;
@@ -478,13 +480,13 @@ struct BarrierMethods {
 template <class T>
 class PersistentBase {
  public:
-  V8_INLINE void Reset();
+  void Reset();
 
   template <class S>
-  V8_INLINE void Reset(Isolate* isolate, const Handle<S>& other);
+  void Reset(Isolate* isolate, const Handle<S>& other);
 
   template <class S>
-  V8_INLINE void Reset(Isolate* isolate, const PersistentBase<S>& other);
+  void Reset(Isolate* isolate, const PersistentBase<S>& other);
 
   V8_INLINE bool IsEmpty() const { return val_ == NULL; }
   V8_INLINE void Empty() { Reset(); }
@@ -510,26 +512,26 @@ class PersistentBase {
   }
 
   template <typename P>
-  V8_INLINE V8_DEPRECATE_SOON(
+  V8_DEPRECATE_SOON(
       "use WeakCallbackInfo version",
       void SetWeak(P* parameter,
                    typename WeakCallbackData<T, P>::Callback callback));
 
   template <typename P>
-  V8_INLINE void SetWeak(P* parameter,
+ void SetWeak(P* parameter,
                          typename WeakCallbackInfo<P>::Callback callback,
                          WeakCallbackType type);
 
   template<typename P>
-  V8_INLINE P* ClearWeak();
+  P* ClearWeak();
 
   V8_INLINE void ClearWeak() { ClearWeak<void>(); }
-  V8_INLINE void MarkIndependent();
-  V8_INLINE void MarkPartiallyDependent();
-  V8_INLINE bool IsIndependent() const;
-  V8_INLINE bool IsNearDeath() const;
-  V8_INLINE bool IsWeak() const;
-  V8_INLINE void SetWrapperClassId(uint16_t class_id);
+  void MarkIndependent();
+  void MarkPartiallyDependent();
+  bool IsIndependent() const;
+  bool IsNearDeath() const;
+  bool IsWeak() const;
+  void SetWrapperClassId(uint16_t class_id);
 
  private:
   template<class F> friend class Local;
