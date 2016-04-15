@@ -64,6 +64,7 @@ public:
   static Local<Integer> New(Isolate* isolate, int value) {
     return Integer::New(isolate, value);
   }
+  typedef Int32 IntType;
 };
 
 template<>
@@ -72,6 +73,7 @@ public:
   static Local<Integer> New(Isolate* isolate, uint32_t value) {
     return Integer::NewFromUnsigned(isolate, value);
   }
+  typedef Uint32 IntType;
 };
 
 template<class T>
@@ -80,6 +82,9 @@ void TestInteger(Isolate* isolate, T value) {
   EXPECT_TRUE(integer->IsNumber());
   EXPECT_FALSE(integer->IsBoolean());
   EXPECT_EQ(integer->Value(), int64_t(value));
+  typedef typename IntegerMaker<T>::IntType IntType;
+  IntType* intVal = IntType::Cast(*integer);
+  EXPECT_EQ(intVal->Value(), value);
 }
 
 TEST(SpiderShim, Integer) {
