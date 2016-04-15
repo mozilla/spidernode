@@ -13,8 +13,12 @@ if test -z "$AUTOCONF"; then
   exit 1
 fi
 
+if test "$BUILDTYPE" = "Debug"; then
+  DEBUG_FLAGS="--enable-debug --disable-optimize"
+fi
+
 test -d build || mkdir build
 cd build
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make || (cd ../spidermonkey/js/src && $AUTOCONF && cd - && ../spidermonkey/js/src/configure --disable-shared-js --disable-export-js --disable-js-shell --enable-debug --disable-optimize && make)
+make || (cd ../spidermonkey/js/src && $AUTOCONF && cd - && ../spidermonkey/js/src/configure --disable-shared-js --disable-export-js --disable-js-shell $DEBUG_FLAGS && make)
