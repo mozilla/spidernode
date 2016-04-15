@@ -12,5 +12,9 @@
       'target_name': 'hello-world',
       'sources': [ 'test/hello-world.cpp' ],
     },
+    {
+      'target_name': 'value',
+      'sources': [ 'test/value.cc' ],
+    },
   ],
 }

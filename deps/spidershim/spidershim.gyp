@@ -44,6 +44,7 @@
       },
 
       'sources': [
+        'src/v8boolean.cc',
         'src/v8context.cc',
         'src/v8handlescope.cc',
         'src/v8isolate.cc',
