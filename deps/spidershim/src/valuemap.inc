@@ -6,8 +6,7 @@ COMMON_VALUE(String)
 COMMON_VALUE(Object)
 COMMON_VALUE(Boolean)
 COMMON_VALUE(Int32)
-
-SIMPLE_VALUE(Number, Double)
+COMMON_VALUE(Number)
 
 ES_BUILTIN(BooleanObject, Boolean)
 ES_BUILTIN(NumberObject, Number)
