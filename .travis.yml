@@ -7,7 +7,7 @@ os:
   - osx
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; else sudo apt-get update -qq; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213; else sudo apt-get install -y autoconf2.13; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; else sudo apt-get install -y autoconf2.13 yasm; fi
 before_script:
   - ./configure --engine=spidermonkey
 script: make -k || ls out/Release/hello-world out/Release/value

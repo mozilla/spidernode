@@ -19,6 +19,7 @@ Prerequisites:
 * GNU Make 3.81 or newer
 * libexecinfo (FreeBSD and OpenBSD only)
 * Autoconf 2.13
+* Yasm 1.1.0 or newer
 
 ```text
 $ ./configure
