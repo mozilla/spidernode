@@ -1,0 +1,16 @@
+language: cpp
+compiler: clang
+os:
+  - linux
+  - osx
+before_script:
+  - ./configure --engine=spidermonkey
+script: make -k || ls out/Release/hello-world out/Release/value
+branches:
+  only:
+    - master
+notifications:
+  email: true
+env:
+  global:
+    - LANG="en_US.UTF-8"
