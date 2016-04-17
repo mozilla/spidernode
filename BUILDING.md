@@ -18,6 +18,7 @@ Prerequisites:
 * Python 2.6 or 2.7
 * GNU Make 3.81 or newer
 * libexecinfo (FreeBSD and OpenBSD only)
+* Autoconf 2.13
 
 ```text
 $ ./configure
