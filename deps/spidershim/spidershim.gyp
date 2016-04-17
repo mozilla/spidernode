@@ -68,6 +68,7 @@
         'src/v8integer.cc',
         'src/v8isolate.cc',
         'src/v8number.cc',
+        'src/v8object.cc',
         'src/v8script.cc',
         'src/v8string.cc',
         'src/v8uint32.cc',

@@ -22,6 +22,7 @@
 #include "jsapi.h"
 #include "js/CharacterEncoding.h"
 #include "v8local.h"
+#include "v8string.h"
 
 namespace v8 {
 
@@ -31,12 +32,9 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   // TODO: Add support for origin.
   assert(!origin && "The origin argument is not supported yet");
   JSContext* cx = JSContextFromContext(*context);
-  auto sourceJsVal = reinterpret_cast<JS::Value*>(*source);
-  auto sourceStr = sourceJsVal->toString();
-  size_t length = JS_GetStringLength(sourceStr);
-  auto buffer = static_cast<char16_t*>(js_malloc(sizeof(char16_t)*(length + 1)));
-  mozilla::Range<char16_t> dest(buffer, length + 1);
-  if (!JS_CopyStringChars(cx, dest, sourceStr)) {
+  size_t length = 0;
+  auto buffer = internal::GetFlatString(cx, source, &length);
+  if (!buffer) {
     return MaybeLocal<Script>();
   }
   JS::SourceBufferHolder sbh(buffer, length,

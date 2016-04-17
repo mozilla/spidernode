@@ -1508,8 +1508,9 @@ class V8_EXPORT Object : public Value {
   friend class ObjectTemplate;
   friend class Utils;
 
-  Maybe<bool> Set(Handle<Value> key, Handle<Value> value,
-                  PropertyAttribute attribs, bool force);
+  Maybe<bool> Set(Local<Context> context, Handle<Value> key,
+                  Handle<Value> value, PropertyAttribute attribs,
+                  bool force);
   Maybe<bool> SetAccessor(Handle<Name> name,
                           AccessorNameGetterCallback getter,
                           AccessorNameSetterCallback setter,

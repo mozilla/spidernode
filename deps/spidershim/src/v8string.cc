@@ -96,4 +96,24 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   return internal::Local<String>::New(isolate, strVal);
 }
 
+namespace internal {
+
+char16_t* GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {
+  auto sourceJsVal = reinterpret_cast<JS::Value*>(*source);
+  auto sourceStr = sourceJsVal->toString();
+  size_t len = JS_GetStringLength(sourceStr);
+  if (length) {
+    *length = len;
+  }
+  auto buffer = static_cast<char16_t*>(js_malloc(sizeof(char16_t)*(len + 1)));
+  mozilla::Range<char16_t> dest(buffer, len + 1);
+  if (!JS_CopyStringChars(cx, dest, sourceStr)) {
+    js_free(buffer);
+    return nullptr;
+  }
+  return buffer;
+}
+
+}
+
 }
