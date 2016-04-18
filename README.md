@@ -2,6 +2,8 @@ SpiderNode: Node.js on SpiderMonkey
 ===
 This project is a port of Node.js on top of SpiderMonkey, the JavaScript engine in Firefox. We're still in the very early stages of the port, and a lot of work remains to be done before Node works.
 
+[![Build Status](https://travis-ci.org/mozilla/spidernode.svg?branch=master)](https://travis-ci.org/mozilla/spidernode)
+
 ### Goals
 Right now we're focused on using this project in the [Positron](https://github.com/mozilla/positron) project.  This means that we will need to finish SpiderShim to the extent necessary for Node.js to work.  In the future, we may look into finishing implementing the features of the V8 API that Node.js does not use, in order to provide a V8 API shim layer out of the box in SpiderMonkey.  The SpiderShim code is being developed with that long term goal in mind.
 
