@@ -10,7 +10,7 @@ cache:
   - apt
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; else sudo apt-get update -qq; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; else sudo apt-get install -y autoconf2.13 yasm; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; else sudo apt-get install -y autoconf2.13 yasm zlib1g-dev; fi
 before_script:
   - ./configure --debug --engine=spidermonkey
 script:
