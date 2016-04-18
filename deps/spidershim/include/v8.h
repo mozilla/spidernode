@@ -2628,8 +2628,8 @@ template <typename P, typename Callback>
 void PersistentBase<T>::SetWeakCommon(P* parameter, Callback callback) {
   if (this->IsEmpty()) return;
 
-  bool wasStrong = !IsWeak();
 #if 0
+  bool wasStrong = !IsWeak();
   chakrashim::SetObjectWeakReferenceCallback(val_, callback, parameter,
                                              &_weakWrapper);
   if (wasStrong) {
