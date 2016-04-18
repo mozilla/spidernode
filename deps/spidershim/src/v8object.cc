@@ -260,4 +260,29 @@ bool Object::Delete(uint32_t index) {
            FromMaybe(false);
 }
 
+Isolate* Object::GetIsolate() {
+  // TODO: We need to return something useful here when an isolate has not been entered too.
+  // Since JSRuntime is a per-thread singleton, consider using a TLS entry.
+  return Isolate::GetCurrent();
+}
+
+Local<Object> Object::New(Isolate* isolate) {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JSObject* obj = JS_NewObject(cx, nullptr);
+  if (!obj) {
+    return Local<Object>();
+  }
+  JS::Value objVal;
+  objVal.setObject(*obj);
+  return internal::Local<Object>::New(isolate, objVal);
+}
+
+Object* Object::Cast(Value* obj) {
+  assert(reinterpret_cast<JS::Value*>(obj)->isObject());
+  return static_cast<Object*>(obj);
+}
+
 }

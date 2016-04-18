@@ -41,4 +41,9 @@ Local<Boolean> Boolean::From(bool value) {
   return New(Isolate::GetCurrent(), value);
 }
 
+Boolean* Boolean::Cast(v8::Value* obj) {
+  assert(reinterpret_cast<JS::Value*>(obj)->isBoolean());
+  return static_cast<Boolean*>(obj);
+}
+
 }

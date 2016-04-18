@@ -96,6 +96,11 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   return internal::Local<String>::New(isolate, strVal);
 }
 
+String* String::Cast(v8::Value* obj) {
+  assert(reinterpret_cast<JS::Value*>(obj)->isString());
+  return static_cast<String*>(obj);
+}
+
 namespace internal {
 
 char16_t* GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {

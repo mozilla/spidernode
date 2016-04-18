@@ -101,3 +101,222 @@ TEST(SpiderShim, Integer) {
   TestInteger(engine.isolate(), INT32_MAX);
   TestInteger(engine.isolate(), UINT32_MAX);
 }
+
+TEST(SpiderShim, Object) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Object> object = Object::New(engine.isolate());
+  Local<String> foo =
+    String::NewFromUtf8(engine.isolate(), "foo", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> bar =
+    String::NewFromUtf8(engine.isolate(), "bar", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> baz =
+    String::NewFromUtf8(engine.isolate(), "baz", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> value =
+    String::NewFromUtf8(engine.isolate(), "value", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> writable =
+    String::NewFromUtf8(engine.isolate(), "writable", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> get =
+    String::NewFromUtf8(engine.isolate(), "get", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> set =
+    String::NewFromUtf8(engine.isolate(), "set", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> configurable =
+    String::NewFromUtf8(engine.isolate(), "configurable", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<String> enumerable =
+    String::NewFromUtf8(engine.isolate(), "enumerable", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<Integer> zero = Integer::New(engine.isolate(), 0);
+  Local<Integer> one = Integer::New(engine.isolate(), 1);
+  Local<String> two =
+    String::NewFromUtf8(engine.isolate(), "two", NewStringType::kNormal).
+      ToLocalChecked();
+
+  EXPECT_FALSE(object->Has(foo));
+  EXPECT_FALSE(object->Has(context, foo).FromJust());
+  EXPECT_FALSE(object->Has(bar));
+  EXPECT_FALSE(object->Has(context, bar).FromJust());
+  EXPECT_FALSE(object->Has(baz));
+  EXPECT_FALSE(object->Has(context, baz).FromJust());
+
+  EXPECT_TRUE(object->Set(context, foo, zero).FromJust());
+  EXPECT_TRUE(object->DefineOwnProperty(context, bar, one, ReadOnly).FromJust());
+  EXPECT_TRUE(object->DefineOwnProperty(context, baz, two, PropertyAttribute(DontEnum | DontDelete)).FromJust());
+
+  EXPECT_TRUE(object->Has(foo));
+  EXPECT_TRUE(object->Has(context, foo).FromJust());
+  EXPECT_TRUE(object->Has(bar));
+  EXPECT_TRUE(object->Has(context, bar).FromJust());
+  EXPECT_TRUE(object->Has(baz));
+  EXPECT_TRUE(object->Has(context, baz).FromJust());
+
+  {
+    MaybeLocal<Value> fooVal = object->Get(context, foo);
+    EXPECT_FALSE(fooVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*fooVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 0);
+  }
+  {
+    Local<Value> fooVal = object->Get(foo);
+    Integer* intVal = Integer::Cast(*fooVal);
+    EXPECT_EQ(intVal->Value(), 0);
+  }
+
+  {
+    MaybeLocal<Value> barVal = object->Get(context, bar);
+    EXPECT_FALSE(barVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*barVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 1);
+  }
+  {
+    Local<Value> barVal = object->Get(bar);
+    Integer* intVal = Integer::Cast(*barVal);
+    EXPECT_EQ(intVal->Value(), 1);
+  }
+
+  {
+    MaybeLocal<Value> bazVal = object->Get(context, baz);
+    EXPECT_FALSE(bazVal.IsEmpty());
+    String::Utf8Value utf8(bazVal.ToLocalChecked());
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+  }
+  {
+    Local<Value> bazVal = object->Get(baz);
+    String::Utf8Value utf8(bazVal);
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+  }
+
+  {
+    Maybe<PropertyAttribute> attributes =
+      object->GetPropertyAttributes(context, foo);
+    EXPECT_TRUE(attributes.IsJust());
+    EXPECT_EQ(attributes.FromJust(), None);
+  }
+  {
+    PropertyAttribute attributes = object->GetPropertyAttributes(foo);
+    EXPECT_EQ(attributes, None);
+  }
+
+  {
+    Maybe<PropertyAttribute> attributes =
+      object->GetPropertyAttributes(context, bar);
+    EXPECT_TRUE(attributes.IsJust());
+    EXPECT_EQ(attributes.FromJust(), ReadOnly);
+  }
+  {
+    PropertyAttribute attributes = object->GetPropertyAttributes(bar);
+    EXPECT_EQ(attributes, ReadOnly);
+  }
+
+  {
+    Maybe<PropertyAttribute> attributes =
+      object->GetPropertyAttributes(context, baz);
+    EXPECT_TRUE(attributes.IsJust());
+    EXPECT_EQ(attributes.FromJust(), DontEnum | DontDelete);
+  }
+  {
+    PropertyAttribute attributes = object->GetPropertyAttributes(baz);
+    EXPECT_EQ(attributes, DontEnum | DontDelete);
+  }
+
+  auto CheckPropertyDescriptor = [&](Object* desc, bool readonly, bool enum_, bool config) {
+    Local<Value> writableVal = desc->Get(writable);
+    Boolean* boolVal = Boolean::Cast(*writableVal);
+    EXPECT_EQ(boolVal->Value(), !readonly);
+    Local<Value> getVal = desc->Get(get);
+    EXPECT_TRUE(getVal->IsUndefined());
+    Local<Value> setVal = desc->Get(set);
+    EXPECT_TRUE(setVal->IsUndefined());
+    Local<Value> configurableVal = desc->Get(configurable);
+    boolVal = Boolean::Cast(*configurableVal);
+    EXPECT_EQ(boolVal->Value(), config);
+    Local<Value> enumerableVal = desc->Get(enumerable);
+    boolVal = Boolean::Cast(*enumerableVal);
+    EXPECT_EQ(boolVal->Value(), enum_);
+  };
+
+  {
+    MaybeLocal<Value> maybeDesc =
+      object->GetOwnPropertyDescriptor(context, foo);
+    EXPECT_FALSE(maybeDesc.IsEmpty());
+    Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
+    Local<Value> valueVal = desc->Get(value);
+    Integer* intVal = Integer::Cast(*valueVal);
+    EXPECT_EQ(intVal->Value(), 0);
+    CheckPropertyDescriptor(desc, false, true, true);
+  }
+  {
+    Local<Value> descVal = object->GetOwnPropertyDescriptor(foo);
+    EXPECT_TRUE(*descVal);
+    Object* desc = Object::Cast(*descVal);
+    Local<Value> valueVal = desc->Get(value);
+    Integer* intVal = Integer::Cast(*valueVal);
+    EXPECT_EQ(intVal->Value(), 0);
+    CheckPropertyDescriptor(desc, false, true, true);
+  }
+
+  {
+    MaybeLocal<Value> maybeDesc =
+      object->GetOwnPropertyDescriptor(context, bar);
+    EXPECT_FALSE(maybeDesc.IsEmpty());
+    Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
+    Local<Value> valueVal = desc->Get(value);
+    Integer* intVal = Integer::Cast(*valueVal);
+    EXPECT_EQ(intVal->Value(), 1);
+    CheckPropertyDescriptor(desc, true, true, true);
+  }
+  {
+    Local<Value> descVal = object->GetOwnPropertyDescriptor(bar);
+    EXPECT_TRUE(*descVal);
+    Object* desc = Object::Cast(*descVal);
+    Local<Value> valueVal = desc->Get(value);
+    Integer* intVal = Integer::Cast(*valueVal);
+    EXPECT_EQ(intVal->Value(), 1);
+    CheckPropertyDescriptor(desc, true, true, true);
+  }
+
+  {
+    MaybeLocal<Value> maybeDesc =
+      object->GetOwnPropertyDescriptor(context, baz);
+    EXPECT_FALSE(maybeDesc.IsEmpty());
+    Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
+    Local<Value> valueVal = desc->Get(value);
+    String::Utf8Value utf8(valueVal);
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    CheckPropertyDescriptor(desc, false, false, false);
+  }
+  {
+    Local<Value> descVal = object->GetOwnPropertyDescriptor(baz);
+    EXPECT_TRUE(*descVal);
+    Object* desc = Object::Cast(*descVal);
+    Local<Value> valueVal = desc->Get(value);
+    String::Utf8Value utf8(valueVal);
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    CheckPropertyDescriptor(desc, false, false, false);
+  }
+
+  EXPECT_TRUE(object->Delete(foo));
+  EXPECT_TRUE(object->Delete(context, foo).FromJust());
+  EXPECT_TRUE(object->Delete(context, bar).FromJust());
+  EXPECT_TRUE(object->Delete(bar));
+
+  EXPECT_FALSE(object->Has(foo));
+  EXPECT_FALSE(object->Has(context, foo).FromJust());
+  EXPECT_FALSE(object->Has(bar));
+  EXPECT_FALSE(object->Has(context, bar).FromJust());
+  EXPECT_TRUE(object->Has(baz));
+  EXPECT_TRUE(object->Has(context, baz).FromJust());
+}

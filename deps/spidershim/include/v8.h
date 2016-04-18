@@ -1134,6 +1134,7 @@ class V8_EXPORT Boolean : public Primitive {
  public:
   bool Value() const;
   static Handle<Boolean> New(Isolate* isolate, bool value);
+  static Boolean* Cast(v8::Value* obj);
 
  private:
   friend class BooleanObject;
