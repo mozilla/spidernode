@@ -25,9 +25,11 @@
         ['node_engine=="spidermonkey"', {
           'dependencies': [
             'spidermonkey.gyp:spidermonkey',
+            '../zlib/zlib.gyp:zlib',
           ],
           'export_dependent_settings': [
             'spidermonkey.gyp:spidermonkey',
+            '../zlib/zlib.gyp:zlib',
           ],
         }],
       ],
