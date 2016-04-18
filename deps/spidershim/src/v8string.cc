@@ -111,6 +111,7 @@ char16_t* GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length)
     js_free(buffer);
     return nullptr;
   }
+  buffer[len] = '\0';
   return buffer;
 }
 
