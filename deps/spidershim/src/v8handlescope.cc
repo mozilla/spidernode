@@ -23,22 +23,20 @@
 
 #include "v8.h"
 #include "jsapi.h"
-#include "js/GCVector.h"
+#include "gclist.h"
 
 namespace v8 {
 
-using ValueVector = js::GCVector<JS::Value>;
-using ScriptVector = js::GCVector<JSScript*>;
+using ValueVector = internal::GCList<JS::Value>;
+using ScriptVector = internal::GCList<JSScript*>;
 
 // TODO: This needs to be allocated in TLS.
 static HandleScope* sCurrentScope = nullptr;
 
 struct HandleScope::Impl {
   Impl(Isolate* iso) :
-    values(JSContextFromIsolate(iso),
-           ValueVector(JSContextFromIsolate(iso))),
-    scripts(JSContextFromIsolate(iso),
-            ScriptVector(JSContextFromIsolate(iso))),
+    values(JSContextFromIsolate(iso)),
+    scripts(JSContextFromIsolate(iso)),
     isolate(iso)
   {
   }
@@ -60,7 +58,7 @@ HandleScope::HandleScope(Isolate* isolate) {
 HandleScope::~HandleScope() {
   assert(pimpl_);
   sCurrentScope = pimpl_->prev;
-  assert(pimpl_->scripts.length() == pimpl_->scriptObjects.size());
+  assert(pimpl_->scripts.size() == pimpl_->scriptObjects.size());
   for (auto script : pimpl_->scriptObjects) {
     delete script;
   }
@@ -73,8 +71,8 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
   while (current) {
     assert(current->pimpl_);
     if (current->pimpl_->isolate == isolate) {
-      count += current->pimpl_->values.length();
-      count += current->pimpl_->scripts.length();
+      count += current->pimpl_->values.size();
+      count += current->pimpl_->scripts.size();
     }
     current = current->pimpl_->prev;
   }
@@ -82,20 +80,20 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
 }
 
 Value* HandleScope::AddToScope(Value* val) {
-  if (!sCurrentScope ||
-      !sCurrentScope->pimpl_->values.append(reinterpret_cast<JS::Value&>(*val))) {
+  if (!sCurrentScope) {
     return nullptr;
   }
+  sCurrentScope->pimpl_->values.push_back(reinterpret_cast<JS::Value&>(*val));
   return reinterpret_cast<Value*>(&sCurrentScope->pimpl_->values.back());
 }
 
 Script* HandleScope::AddToScope(JSScript* script) {
-  assert(sCurrentScope->pimpl_->scripts.length() ==
+  assert(sCurrentScope->pimpl_->scripts.size() ==
          sCurrentScope->pimpl_->scriptObjects.size());
-  if (!sCurrentScope ||
-      !sCurrentScope->pimpl_->scripts.append(script)) {
+  if (!sCurrentScope) {
     return nullptr;
   }
+  sCurrentScope->pimpl_->scripts.push_back(script);
   sCurrentScope->pimpl_->scriptObjects.push_back(new Script(script));
   return sCurrentScope->pimpl_->scriptObjects.back();
 }
@@ -103,8 +101,8 @@ Script* HandleScope::AddToScope(JSScript* script) {
 bool EscapableHandleScope::AddToParentScope(const Value* val) {
   return sCurrentScope &&
          sCurrentScope->pimpl_->prev &&
-         sCurrentScope->pimpl_->prev->pimpl_->
-           values.append(reinterpret_cast<const JS::Value&>(*val));
+         (sCurrentScope->pimpl_->prev->pimpl_->
+            values.push_back(reinterpret_cast<const JS::Value&>(*val)), true);
 }
 
 }
