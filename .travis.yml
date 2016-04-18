@@ -14,7 +14,7 @@ before_install:
 before_script:
   - ./configure --debug --engine=spidermonkey
 script:
-  - make -k || ls out/Release/hello-world out/Release/value out/Debug/hello-world out/Debug/value
+  - make -k || make -k || true
   - for test in ./out/{Debug,Release}/{hello-world,value}; do "$test"; done
 branches:
   only:
