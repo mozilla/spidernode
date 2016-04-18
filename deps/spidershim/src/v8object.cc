@@ -172,16 +172,13 @@ MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context,
   auto flatKey = internal::GetFlatString(cx, key);
   JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
   JS::Rooted<JS::PropertyDescriptor> desc(cx);
-  if (!JS_GetOwnUCPropertyDescriptor(cx, thisVal, flatKey, &desc)) {
-    js_free(flatKey);
+  if (!JS_GetOwnUCPropertyDescriptor(cx, thisVal, flatKey.get(), &desc)) {
     return MaybeLocal<Value>();
   }
   JS::RootedValue result(cx);
   if (!js::FromPropertyDescriptor(cx, desc, &result)) {
-    js_free(flatKey);
     return MaybeLocal<Value>();
   }
-  js_free(flatKey);
   return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
 }
 

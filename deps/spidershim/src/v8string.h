@@ -26,7 +26,7 @@ struct JSContext;
 namespace v8 {
 namespace internal {
 
-char16_t* GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length = nullptr);
+JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length = nullptr);
 
 }
 }

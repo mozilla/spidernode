@@ -37,7 +37,7 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   if (!buffer) {
     return MaybeLocal<Script>();
   }
-  JS::SourceBufferHolder sbh(buffer, length,
+  JS::SourceBufferHolder sbh(buffer.release(), length,
                              JS::SourceBufferHolder::GiveOwnership);
   JS::CompileOptions options(cx);
   options.setVersion(JSVERSION_DEFAULT)
