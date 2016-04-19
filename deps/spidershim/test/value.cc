@@ -342,6 +342,30 @@ TEST(SpiderShim, Object) {
     CheckPropertyDescriptor(desc, false, false, false);
   }
 
+  // Test ForceSet by attempting to overwrite a readonly property.
+  // Set will succeed without changing the value.
+  EXPECT_TRUE(object->Set(context, bar, two).FromJust());
+  {
+    MaybeLocal<Value> barVal = object->Get(context, bar);
+    EXPECT_FALSE(barVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*barVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 1);
+  }
+  // Now try ForceSet and verify that the value and the PropertyAttribute change.
+  EXPECT_TRUE(object->ForceSet(context, bar, two, DontDelete).FromJust());
+  {
+    MaybeLocal<Value> barVal = object->Get(context, bar);
+    EXPECT_FALSE(barVal.IsEmpty());
+    String::Utf8Value utf8(barVal.ToLocalChecked());
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+  }
+  {
+    Maybe<PropertyAttribute> attributes =
+      object->GetPropertyAttributes(context, bar);
+    EXPECT_TRUE(attributes.IsJust());
+    EXPECT_EQ(attributes.FromJust(), DontDelete);
+  }
+
   EXPECT_TRUE(object->Delete(foo));
   EXPECT_TRUE(object->Delete(context, foo).FromJust());
   EXPECT_TRUE(object->Delete(context, bar).FromJust());
@@ -351,8 +375,8 @@ TEST(SpiderShim, Object) {
 
   EXPECT_FALSE(object->Has(foo));
   EXPECT_FALSE(object->Has(context, foo).FromJust());
-  EXPECT_FALSE(object->Has(bar));
-  EXPECT_FALSE(object->Has(context, bar).FromJust());
+  EXPECT_TRUE(object->Has(bar)); // non-configurable property can't be deleted.
+  EXPECT_TRUE(object->Has(context, bar).FromJust());
   EXPECT_TRUE(object->Has(baz));
   EXPECT_TRUE(object->Has(context, baz).FromJust());
   EXPECT_FALSE(object->Has(1));
