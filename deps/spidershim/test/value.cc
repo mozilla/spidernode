@@ -121,6 +121,9 @@ TEST(SpiderShim, Object) {
   Local<String> baz =
     String::NewFromUtf8(engine.isolate(), "baz", NewStringType::kNormal).
       ToLocalChecked();
+  Local<String> qux =
+    String::NewFromUtf8(engine.isolate(), "qux", NewStringType::kNormal).
+      ToLocalChecked();
   Local<String> value =
     String::NewFromUtf8(engine.isolate(), "value", NewStringType::kNormal).
       ToLocalChecked();
@@ -383,4 +386,29 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(context, 1).FromJust());
   EXPECT_TRUE(object->Has(0));
   EXPECT_TRUE(object->Has(context, 0).FromJust());
+
+  Local<Value> protoVal = object->GetPrototype();
+  Object* proto = Object::Cast(*protoVal);
+
+  EXPECT_FALSE(object->Has(qux));
+  EXPECT_FALSE(proto->Has(qux));
+  EXPECT_TRUE(proto->Set(context, qux, one).FromJust());
+  EXPECT_TRUE(object->Has(qux));
+  {
+    MaybeLocal<Value> quxVal = object->Get(context, qux);
+    EXPECT_FALSE(quxVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*quxVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 1);
+  }
+  Local<Object> newProto = Object::New(engine.isolate());
+  EXPECT_TRUE(newProto->Set(context, foo, one).FromJust());
+  EXPECT_TRUE(object->SetPrototype(context, newProto).FromJust());
+  EXPECT_TRUE(object->Has(context, bar).FromJust()); // bar is an own property!
+  EXPECT_TRUE(object->Has(context, foo).FromJust());
+  {
+    MaybeLocal<Value> fooVal = object->Get(context, foo);
+    EXPECT_FALSE(fooVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*fooVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 1);
+  }
 }

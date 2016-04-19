@@ -282,4 +282,34 @@ Object* Object::Cast(Value* obj) {
   return static_cast<Object*>(obj);
 }
 
+Local<Value> Object::GetPrototype() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject prototype(cx);
+  JS::Value retVal;
+  if (JS_GetPrototype(cx, thisObj, &prototype)) {
+    retVal.setObject(*prototype);
+  } else {
+    // The V8 method is infallible, it's not clear what we should return here.
+    // Return undefined for now, but that's probably wrong.
+    retVal.setUndefined();
+  }
+  return internal::Local<Value>::New(isolate, retVal);
+}
+
+Maybe<bool> Object::SetPrototype(Local<Context> context,
+                                 Local<Value> prototype) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject protoObj(cx, &reinterpret_cast<JS::Value*>(*prototype)->toObject());
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  return Just(JS_SetPrototype(cx, thisObj, protoObj));
+}
+
+bool Object::SetPrototype(Handle<Value> prototype) {
+  return SetPrototype(Isolate::GetCurrent()->GetCurrentContext(), prototype).
+           FromMaybe(false);
+}
+
 }
