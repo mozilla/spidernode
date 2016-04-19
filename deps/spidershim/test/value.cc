@@ -151,10 +151,16 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(context, bar).FromJust());
   EXPECT_FALSE(object->Has(baz));
   EXPECT_FALSE(object->Has(context, baz).FromJust());
+  EXPECT_FALSE(object->Has(1));
+  EXPECT_FALSE(object->Has(context, 1).FromJust());
+  EXPECT_FALSE(object->Has(0));
+  EXPECT_FALSE(object->Has(context, 0).FromJust());
 
   EXPECT_TRUE(object->Set(context, foo, zero).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, bar, one, ReadOnly).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, baz, two, PropertyAttribute(DontEnum | DontDelete)).FromJust());
+  EXPECT_TRUE(object->Set(context, 1, zero).FromJust());
+  EXPECT_TRUE(object->Set(context, 0, two).FromJust());
 
   EXPECT_TRUE(object->Has(foo));
   EXPECT_TRUE(object->Has(context, foo).FromJust());
@@ -162,6 +168,10 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(object->Has(context, bar).FromJust());
   EXPECT_TRUE(object->Has(baz));
   EXPECT_TRUE(object->Has(context, baz).FromJust());
+  EXPECT_TRUE(object->Has(1));
+  EXPECT_TRUE(object->Has(context, 1).FromJust());
+  EXPECT_TRUE(object->Has(0));
+  EXPECT_TRUE(object->Has(context, 0).FromJust());
 
   {
     MaybeLocal<Value> fooVal = object->Get(context, foo);
@@ -196,6 +206,30 @@ TEST(SpiderShim, Object) {
   {
     Local<Value> bazVal = object->Get(baz);
     String::Utf8Value utf8(bazVal);
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+  }
+
+  {
+    MaybeLocal<Value> oneVal = object->Get(context, 1);
+    EXPECT_FALSE(oneVal.IsEmpty());
+    Integer* intVal = Integer::Cast(*oneVal.ToLocalChecked());
+    EXPECT_EQ(intVal->Value(), 0);
+  }
+  {
+    Local<Value> oneVal = object->Get(1);
+    Integer* intVal = Integer::Cast(*oneVal);
+    EXPECT_EQ(intVal->Value(), 0);
+  }
+
+  {
+    MaybeLocal<Value> zeroVal = object->Get(context, 0);
+    EXPECT_FALSE(zeroVal.IsEmpty());
+    String::Utf8Value utf8(zeroVal.ToLocalChecked());
+    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+  }
+  {
+    Local<Value> zeroVal = object->Get(0);
+    String::Utf8Value utf8(zeroVal);
     EXPECT_EQ(strcmp(*utf8, "two"), 0);
   }
 
@@ -312,6 +346,8 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(object->Delete(context, foo).FromJust());
   EXPECT_TRUE(object->Delete(context, bar).FromJust());
   EXPECT_TRUE(object->Delete(bar));
+  EXPECT_TRUE(object->Delete(context, 1).FromJust());
+  EXPECT_TRUE(object->Delete(1));
 
   EXPECT_FALSE(object->Has(foo));
   EXPECT_FALSE(object->Has(context, foo).FromJust());
@@ -319,4 +355,8 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(context, bar).FromJust());
   EXPECT_TRUE(object->Has(baz));
   EXPECT_TRUE(object->Has(context, baz).FromJust());
+  EXPECT_FALSE(object->Has(1));
+  EXPECT_FALSE(object->Has(context, 1).FromJust());
+  EXPECT_TRUE(object->Has(0));
+  EXPECT_TRUE(object->Has(context, 0).FromJust());
 }
