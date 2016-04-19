@@ -11,7 +11,7 @@ Right now we're focused on using this project in the [Positron](https://github.c
 To enable building and running Node.js with SpiderMonkey, a V8 API shim (SpiderShim) is created on top of the SpiderMonkey API.  This is based on Microsoft's [node-chakracore](https://github.com/nodejs/node-chakracore), but it doesn't share much code with it besides the build system integration.
 
 ### Current status
-This is a _work in progress_, and Node cannot be successfully built yet because of the missing V8 APIs causing linker errors when building the Node.js binary.  So far enough of the V8 API has been implemented to enable running a minimal JavaScript program on top of SpiderShim.  More specifically [this test case](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test/hello-world.cpp) currently passes.  Nothing else will work out of the box yet!
+This is a _work in progress_, and Node cannot be successfully built yet because of the missing V8 APIs causing linker errors when building the Node.js binary.  So far enough of the V8 API has been implemented to enable running a minimal JavaScript program on top of SpiderShim.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) currently pass.  Nothing else will work out of the box yet!
 
 The build system integration can be improved.
 
@@ -28,7 +28,7 @@ Build Command:
 make
 ```
 
-Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the linker command manually.
+Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the build system twice.  See [.travis.yml] for example.
 
 ### Repository structure
 The repository is based on [node-chakracore](https://github.com/nodejs/node-chakracore).  The interesting bits can be found in the [deps/spidershim](https://github.com/mozilla/spidernode/tree/master/deps/spidershim) directory.
