@@ -90,6 +90,42 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   return internal::Local<String>::New(isolate, strVal);
 }
 
+MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
+                                          v8::NewStringType type, int length) {
+  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString str(cx, length >= 0 ?
+    JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
+    JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data)));
+  if (!str) {
+    return MaybeLocal<String>();
+  }
+  JS::Value strVal;
+  strVal.setString(str);
+  return internal::Local<String>::New(isolate, strVal);
+}
+
+MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
+                                          v8::NewStringType type, int length) {
+  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString str(cx, length >= 0 ?
+    JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
+    JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data)));
+  if (!str) {
+    return MaybeLocal<String>();
+  }
+  JS::Value strVal;
+  strVal.setString(str);
+  return internal::Local<String>::New(isolate, strVal);
+}
+
+Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
+                                     NewStringType type, int length) {
+  return NewFromTwoByte(isolate, data, static_cast<v8::NewStringType>(type),
+                        length).FromMaybe(Local<String>());
+}
+
 String* String::Cast(v8::Value* obj) {
   assert(reinterpret_cast<JS::Value*>(obj)->isString());
   return static_cast<String*>(obj);
