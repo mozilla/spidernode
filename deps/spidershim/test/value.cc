@@ -411,4 +411,12 @@ TEST(SpiderShim, Object) {
     Integer* intVal = Integer::Cast(*fooVal.ToLocalChecked());
     EXPECT_EQ(intVal->Value(), 1);
   }
+
+  Local<Object> clone = object->Clone();
+  // TODO: The below line should be EXPECT_TRUE once Clone() is fully fixed.
+  EXPECT_FALSE(clone->Has(context, bar).FromJust()); // bar is an own property!
+  EXPECT_TRUE(clone->Has(context, foo).FromJust());
+  Local<Value> cloneProtoVal = clone->GetPrototype();
+  Object* cloneProto = Object::Cast(*cloneProtoVal);
+  EXPECT_TRUE(cloneProto->Has(qux));
 }

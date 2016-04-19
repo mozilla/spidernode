@@ -22,6 +22,7 @@
 
 #include "v8.h"
 #include "jsapi.h"
+#include "jsfriendapi.h"
 #include "v8context.h"
 #include "v8local.h"
 #include "v8string.h"
@@ -310,6 +311,24 @@ Maybe<bool> Object::SetPrototype(Local<Context> context,
 bool Object::SetPrototype(Handle<Value> prototype) {
   return SetPrototype(Isolate::GetCurrent()->GetCurrentContext(), prototype).
            FromMaybe(false);
+}
+
+Local<Object> Object::Clone() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject prototype(cx);
+  JS::Value cloneVal;
+  if (JS_GetPrototype(cx, thisObj, &prototype)) {
+    JS::RootedObject clone(cx, JS_CloneObject(cx, thisObj, prototype));
+    // TODO: Clone the properties, etc.
+    cloneVal.setObject(*clone);
+  } else {
+    // The V8 method is infallible, it's not clear what we should return here.
+    // Return undefined for now, but that's probably wrong.
+    cloneVal.setUndefined();
+  }
+  return internal::Local<Object>::New(isolate, cloneVal);
 }
 
 }
