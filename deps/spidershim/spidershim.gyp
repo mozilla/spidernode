@@ -39,9 +39,9 @@
           'include',
         ],
         'libraries': [
+          '-ljs_static',
           '-lspidershim',
           '-lz',
-          '<@(node_engine_libs)',
         ],
         'conditions': [
           [ 'target_arch=="arm"', {
