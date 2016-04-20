@@ -204,12 +204,12 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> bazVal = object->Get(context, baz);
     EXPECT_FALSE(bazVal.IsEmpty());
     String::Utf8Value utf8(bazVal.ToLocalChecked());
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
   }
   {
     Local<Value> bazVal = object->Get(baz);
     String::Utf8Value utf8(bazVal);
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
   }
 
   {
@@ -228,12 +228,12 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> zeroVal = object->Get(context, 0);
     EXPECT_FALSE(zeroVal.IsEmpty());
     String::Utf8Value utf8(zeroVal.ToLocalChecked());
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
   }
   {
     Local<Value> zeroVal = object->Get(0);
     String::Utf8Value utf8(zeroVal);
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
   }
 
   {
@@ -332,7 +332,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
     Local<Value> valueVal = desc->Get(value);
     String::Utf8Value utf8(valueVal);
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
     CheckPropertyDescriptor(desc, false, false, false);
   }
   {
@@ -341,7 +341,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*descVal);
     Local<Value> valueVal = desc->Get(value);
     String::Utf8Value utf8(valueVal);
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
     CheckPropertyDescriptor(desc, false, false, false);
   }
 
@@ -360,7 +360,7 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> barVal = object->Get(context, bar);
     EXPECT_FALSE(barVal.IsEmpty());
     String::Utf8Value utf8(barVal.ToLocalChecked());
-    EXPECT_EQ(strcmp(*utf8, "two"), 0);
+    EXPECT_STREQ(*utf8, "two");
   }
   {
     Maybe<PropertyAttribute> attributes =
