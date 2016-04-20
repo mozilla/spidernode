@@ -8,9 +8,14 @@ os:
 cache:
   - ccache
   - apt
+addons:
+  apt:
+    packages:
+      - autoconf2.13
+      - yasm
 before_install:
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; else apt-get update -qq; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; else apt-get install -y autoconf2.13 yasm; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; fi
 before_script:
   - ./configure --debug --engine=spidermonkey
 script:
