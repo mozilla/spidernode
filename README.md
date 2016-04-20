@@ -17,6 +17,12 @@ The build system integration can be improved.
 
 We're actively working on this, so if you're interested in the status of this project, please check here again soon.
 
+In order to find what members of a class need to be implemented, run the following command in a built tree (replacing Isolate with the name of the class you are interested in):
+
+```bash
+./deps/spidershim/scripts/find_methods_to_implement.sh Isolate
+```
+
 ### How to build
 Before building please make sure you have the prerequisites for building Node.js as documented [here](https://github.com/nodejs/node/blob/master/BUILDING.md).
 
