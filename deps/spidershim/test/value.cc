@@ -467,3 +467,18 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_TRUE(boolean->IsBooleanObject());
   EXPECT_TRUE(BooleanObject::Cast(*boolean)->ValueOf());
 }
+
+TEST(SpiderShim, NumberObject) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Value> num = NumberObject::New(engine.isolate(), 42);
+  EXPECT_EQ(*num, NumberObject::Cast(*num));
+  EXPECT_TRUE(num->IsNumberObject());
+  EXPECT_EQ(NumberObject::Cast(*num)->ValueOf(), 42);
+}
