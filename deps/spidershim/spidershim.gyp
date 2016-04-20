@@ -77,6 +77,7 @@
         'src/v8object.cc',
         'src/v8script.cc',
         'src/v8string.cc',
+        'src/v8stringobject.cc',
         'src/v8uint32.cc',
         'src/v8v8.cc',
         'src/v8value.cc',

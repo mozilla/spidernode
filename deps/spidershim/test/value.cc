@@ -482,3 +482,22 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_TRUE(num->IsNumberObject());
   EXPECT_EQ(NumberObject::Cast(*num)->ValueOf(), 42);
 }
+
+TEST(SpiderShim, StringObject) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<String> foobar =
+    String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
+      ToLocalChecked();
+  Local<Value> str = StringObject::New(foobar);
+  EXPECT_EQ(*str, StringObject::Cast(*str));
+  EXPECT_TRUE(str->IsStringObject());
+  String::Utf8Value utf8(StringObject::Cast(*str)->ValueOf());
+  EXPECT_STREQ(*utf8, "foobar");
+}
