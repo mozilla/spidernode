@@ -501,3 +501,20 @@ TEST(SpiderShim, StringObject) {
   String::Utf8Value utf8(StringObject::Cast(*str)->ValueOf());
   EXPECT_STREQ(*utf8, "foobar");
 }
+
+TEST(SpiderShim, Date) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  const double time = 1224744689038.0;
+  MaybeLocal<Value> date = Date::New(context, time);
+  EXPECT_FALSE(date.IsEmpty());
+  EXPECT_EQ(*date.ToLocalChecked(), Date::Cast(*date.ToLocalChecked()));
+  EXPECT_TRUE(date.ToLocalChecked()->IsDate());
+  EXPECT_EQ(Date::Cast(*date.ToLocalChecked())->ValueOf(), time);
+}

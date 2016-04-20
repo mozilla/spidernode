@@ -1571,6 +1571,7 @@ class V8_EXPORT Date : public Object {
   static V8_WARN_UNUSED_RESULT MaybeLocal<Value> New(Local<Context> context,
                                                      double time);
 
+  double ValueOf() const;
   static Date *Cast(Value *obj);
 };
 

@@ -67,6 +67,7 @@
         'src/v8boolean.cc',
         'src/v8booleanobject.cc',
         'src/v8context.cc',
+        'src/v8date.cc',
         'src/v8global.cc',
         'src/v8handlescope.cc',
         'src/v8int32.cc',
