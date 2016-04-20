@@ -10,6 +10,6 @@ case `uname` in
     make 2>&1 | grep "\"v8::$1::" | sed 's/\"//g' | sed 's/^  //' | sed 's/, referenced from://g' | sort
     ;;
   Linux)
-    make 2>&1 | grep "undefined reference to \`v8::Isolate::" | sed 's/^.*undefined reference to `//' | sed "s/'\$//" | sort | uniq
+    make 2>&1 | grep "undefined reference to \`v8::$1::" | sed 's/^.*undefined reference to `//' | sed "s/'\$//" | sort | uniq
     ;;
 esac
