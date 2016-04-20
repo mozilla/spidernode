@@ -1530,10 +1530,13 @@ class V8_EXPORT Array : public Object {
  public:
   uint32_t Length() const;
 
+#if 0
+  // Not supported yet, see https://github.com/mozilla/spidernode/issues/33
   V8_DEPRECATE_SOON("Use maybe version",
                     Local<Object> CloneElementAt(uint32_t index));
   V8_WARN_UNUSED_RESULT MaybeLocal<Object> CloneElementAt(
     Local<Context> context, uint32_t index);
+#endif
 
   static Local<Array> New(Isolate* isolate = nullptr, int length = 0);
   static Array *Cast(Value *obj);

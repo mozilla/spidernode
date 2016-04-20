@@ -427,3 +427,28 @@ TEST(SpiderShim, Object) {
   Object* cloneProto = Object::Cast(*cloneProtoVal);
   EXPECT_TRUE(cloneProto->Has(qux));
 }
+
+TEST(SpiderShim, Array) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Array> array = Array::New(engine.isolate(), 10);
+  EXPECT_EQ(*array, Array::Cast(*array));
+  EXPECT_EQ(array->Length(), 10);
+  for (int i = 0; i < 10; ++i) {
+    MaybeLocal<Value> val = array->Get(context, i);
+    EXPECT_TRUE(val.ToLocalChecked()->IsUndefined());
+    EXPECT_TRUE(array->Set(context, i, Integer::New(engine.isolate(), i * i)).FromJust());
+    val = array->Get(context, i);
+    EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), i * i);
+  }
+  EXPECT_TRUE(array->Set(context, 14, Integer::New(engine.isolate(), 42)).FromJust());
+  MaybeLocal<Value> val = array->Get(context, 14);
+  EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), 42);
+  EXPECT_EQ(array->Length(), 15);
+}

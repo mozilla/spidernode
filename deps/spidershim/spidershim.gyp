@@ -63,6 +63,7 @@
       },
 
       'sources': [
+        'src/v8array.cc',
         'src/v8boolean.cc',
         'src/v8context.cc',
         'src/v8global.cc',
