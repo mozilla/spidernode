@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ ! -f Makefile -o ! -f node.gyp ]; then
-  >&2 echo 'Usage: ./deps/spidershim/scripts/find_methods_to_implement.sh CLASSNAME'
+  >&2 echo 'Usage: ./deps/spidershim/scripts/find_all_unimplemented_methods.sh'
   >&2 echo 'Note that this script needs to be run in the root of a built tree'
 fi
 
