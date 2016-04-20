@@ -23,6 +23,12 @@ In order to find what members of a class need to be implemented, run the followi
 ./deps/spidershim/scripts/find_methods_to_implement.sh Isolate
 ```
 
+To find everything that is yet to be implemented, run:
+
+```bash
+./deps/spidershim/scripts/find_all_unimplemented_methods.sh
+```
+
 ### How to build
 Before building please make sure you have the prerequisites for building Node.js as documented [here](https://github.com/nodejs/node/blob/master/BUILDING.md).
 
