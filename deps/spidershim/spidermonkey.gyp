@@ -54,7 +54,7 @@
             '<@(spidermonkey_binaries)',
           ],
           'action': [
-            './build-spidermonkey.sh',
+            'scripts/build-spidermonkey.sh',
             '<@(spidermonkey_args)',
           ],
         },
