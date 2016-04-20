@@ -80,6 +80,14 @@ public:
     return isolate_;
   }
 
+  Local<Value> CompileRun(Local<Context> context, const char* script) {
+    return Script::Compile(context, String::NewFromUtf8(isolate_, script,
+                                                        NewStringType::kNormal)
+                                    .ToLocalChecked())
+           .ToLocalChecked()->Run(context)
+           .ToLocalChecked();
+  }
+
 private:
   Isolate* isolate_;
 };

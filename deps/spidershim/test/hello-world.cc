@@ -25,16 +25,8 @@ TEST(SpiderShim, HelloWorld) {
   // Enter the context for compiling and running the hello world script.
   Context::Scope context_scope(context);
 
-  // Create a string containing the JavaScript source code.
-  Local<String> source =
-      String::NewFromUtf8(isolate, "'Hello' + ', World!'",
-                          NewStringType::kNormal).ToLocalChecked();
-
-  // Compile the source code.
-  Local<Script> script = Script::Compile(context, source).ToLocalChecked();
-
   // Run the script to get the result.
-  Local<Value> result = script->Run(context).ToLocalChecked();
+  Local<Value> result = engine.CompileRun(context, "'Hello' + ', World!'");
 
   // Convert the result to an UTF8 string and print it.
   String::Utf8Value utf8(result);
