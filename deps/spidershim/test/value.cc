@@ -452,3 +452,18 @@ TEST(SpiderShim, Array) {
   EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), 42);
   EXPECT_EQ(array->Length(), 15);
 }
+
+TEST(SpiderShim, BooleanObject) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Value> boolean = BooleanObject::New(true);
+  EXPECT_EQ(*boolean, BooleanObject::Cast(*boolean));
+  EXPECT_TRUE(boolean->IsBooleanObject());
+  EXPECT_TRUE(BooleanObject::Cast(*boolean)->ValueOf());
+}
