@@ -96,8 +96,9 @@ Maybe<bool> Object::ForceSet(Local<Context> context,
 }
 
 bool Object::ForceSet(Handle<Value> key, Handle<Value> value,
-                      PropertyAttribute attribites) {
-  return Set(Isolate::GetCurrent()->GetCurrentContext(), key, value).
+                      PropertyAttribute attributes) {
+  return ForceSet(Isolate::GetCurrent()->GetCurrentContext(),
+                  key, value, attributes).
            FromMaybe(false);
 }
 

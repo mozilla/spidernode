@@ -368,6 +368,13 @@ TEST(SpiderShim, Object) {
     EXPECT_TRUE(attributes.IsJust());
     EXPECT_EQ(attributes.FromJust(), DontDelete);
   }
+  EXPECT_TRUE(object->ForceSet(bar, two, PropertyAttribute(DontDelete | ReadOnly)));
+  {
+    Maybe<PropertyAttribute> attributes =
+      object->GetPropertyAttributes(context, bar);
+    EXPECT_TRUE(attributes.IsJust());
+    EXPECT_EQ(attributes.FromJust(), DontDelete | ReadOnly);
+  }
 
   EXPECT_TRUE(object->Delete(foo));
   EXPECT_TRUE(object->Delete(context, foo).FromJust());
