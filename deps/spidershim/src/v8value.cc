@@ -20,8 +20,10 @@
 
 #include "v8.h"
 #include "v8conversions.h"
+#include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "js/Conversions.h"
 
 static_assert(sizeof(v8::Value) == sizeof(JS::Value),
               "v8::Value and JS::Value must be binary compatible");
@@ -83,6 +85,26 @@ bool Value::IsDataView() const {
     return false;
   }
   return JS_IsDataViewObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
+}
+
+MaybeLocal<String> Value::ToString(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JSString* str = JS::ToString(cx, thisVal);
+  if (!str) {
+    return MaybeLocal<String>();
+  }
+  JS::Value strVal;
+  strVal.setString(str);
+  return internal::Local<String>::New(context->GetIsolate(), strVal);
+}
+
+Local<String> Value::ToString(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToString(isolate->GetCurrentContext()).
+           FromMaybe(Local<String>());
 }
 
 }

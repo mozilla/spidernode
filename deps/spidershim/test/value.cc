@@ -18,6 +18,8 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_EQ(boolean->IsTrue(), value);
   EXPECT_EQ(boolean->IsFalse(), !value);
   EXPECT_EQ(boolean->Value(), value);
+  String::Utf8Value utf8(boolean->ToString());
+  EXPECT_STREQ(*utf8, value ? "true" : "false");
 }
 
 TEST(SpiderShim, Boolean) {
@@ -34,11 +36,13 @@ TEST(SpiderShim, Boolean) {
 }
 
 template<class T>
-void TestNumber(Isolate* isolate, T value) {
+void TestNumber(Isolate* isolate, T value, const char* strValue) {
   Local<Number> number = Number::New(isolate, value);
   EXPECT_TRUE(number->IsNumber());
   EXPECT_FALSE(number->IsBoolean());
   EXPECT_EQ(number->Value(), double(value));
+  String::Utf8Value utf8(number->ToString());
+  EXPECT_STREQ(*utf8, strValue);
 }
 
 TEST(SpiderShim, Number) {
@@ -50,9 +54,9 @@ TEST(SpiderShim, Number) {
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
 
-  TestNumber(engine.isolate(), 0);
-  TestNumber(engine.isolate(), 42);
-  TestNumber(engine.isolate(), 42.42);
+  TestNumber(engine.isolate(), 0, "0");
+  TestNumber(engine.isolate(), 42, "42");
+  TestNumber(engine.isolate(), 42.42, "42.42");
 }
 
 template<class T>
@@ -65,6 +69,7 @@ public:
     return Integer::New(isolate, value);
   }
   typedef Int32 IntType;
+  static constexpr const char* formatString = "%d";
 };
 
 template<>
@@ -74,6 +79,7 @@ public:
     return Integer::NewFromUnsigned(isolate, value);
   }
   typedef Uint32 IntType;
+  static constexpr const char* formatString = "%u";
 };
 
 template<class T>
@@ -85,6 +91,10 @@ void TestInteger(Isolate* isolate, T value) {
   typedef typename IntegerMaker<T>::IntType IntType;
   IntType* intVal = IntType::Cast(*integer);
   EXPECT_EQ(intVal->Value(), value);
+  String::Utf8Value utf8(intVal->ToString());
+  char strValue[1024];
+  sprintf(strValue, IntegerMaker<T>::formatString, value);
+  EXPECT_STREQ(*utf8, strValue);
 }
 
 TEST(SpiderShim, Integer) {
@@ -164,6 +174,10 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(object->DefineOwnProperty(context, baz, two, PropertyAttribute(DontEnum | DontDelete)).FromJust());
   EXPECT_TRUE(object->Set(context, 1, zero).FromJust());
   EXPECT_TRUE(object->Set(context, 0, two).FromJust());
+
+  Local<String> str = object->ToString();
+  String::Utf8Value utf8(str);
+  EXPECT_STREQ(*utf8, "[object Object]");
 
   EXPECT_TRUE(object->Has(foo));
   EXPECT_TRUE(object->Has(context, foo).FromJust());
@@ -451,6 +465,10 @@ TEST(SpiderShim, Array) {
   MaybeLocal<Value> val = array->Get(context, 14);
   EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), 42);
   EXPECT_EQ(array->Length(), 15);
+
+  Local<String> str = array->ToString();
+  String::Utf8Value utf8(str);
+  EXPECT_STREQ(*utf8, "0,1,4,9,16,25,36,49,64,81,,,,,42");
 }
 
 TEST(SpiderShim, BooleanObject) {
@@ -466,6 +484,10 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_EQ(*boolean, BooleanObject::Cast(*boolean));
   EXPECT_TRUE(boolean->IsBooleanObject());
   EXPECT_TRUE(BooleanObject::Cast(*boolean)->ValueOf());
+
+  Local<String> str = boolean->ToString();
+  String::Utf8Value utf8(str);
+  EXPECT_STREQ(*utf8, "true");
 }
 
 TEST(SpiderShim, NumberObject) {
@@ -481,6 +503,10 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_EQ(*num, NumberObject::Cast(*num));
   EXPECT_TRUE(num->IsNumberObject());
   EXPECT_EQ(NumberObject::Cast(*num)->ValueOf(), 42);
+
+  Local<String> str = num->ToString();
+  String::Utf8Value utf8(str);
+  EXPECT_STREQ(*utf8, "42");
 }
 
 TEST(SpiderShim, StringObject) {
@@ -500,6 +526,10 @@ TEST(SpiderShim, StringObject) {
   EXPECT_TRUE(str->IsStringObject());
   String::Utf8Value utf8(StringObject::Cast(*str)->ValueOf());
   EXPECT_STREQ(*utf8, "foobar");
+
+  Local<String> str_2 = str->ToString();
+  String::Utf8Value utf8_2(str_2);
+  EXPECT_STREQ(*utf8_2, "foobar");
 }
 
 TEST(SpiderShim, Date) {
@@ -517,4 +547,11 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(*date.ToLocalChecked(), Date::Cast(*date.ToLocalChecked()));
   EXPECT_TRUE(date.ToLocalChecked()->IsDate());
   EXPECT_EQ(Date::Cast(*date.ToLocalChecked())->ValueOf(), time);
+
+  Local<String> str = date.ToLocalChecked()->ToString();
+  String::Utf8Value utf8(str);
+  const char datePortion[] = "Thu Oct 23 2008";
+  // Only compare the date portion, as the time part will change depending on
+  // the timezone!
+  EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
 }
