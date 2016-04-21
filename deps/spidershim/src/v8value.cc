@@ -163,4 +163,24 @@ Local<String> Value::ToString(Isolate* isolate) const {
            FromMaybe(Local<String>());
 }
 
+MaybeLocal<Object> Value::ToObject(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JSObject* obj = JS::ToObject(cx, thisVal);
+  if (!obj) {
+    return MaybeLocal<Object>();
+  }
+  JS::Value objVal;
+  objVal.setObject(*obj);
+  return internal::Local<Object>::New(context->GetIsolate(), objVal);
+}
+
+Local<Object> Value::ToObject(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToObject(isolate->GetCurrentContext()).
+           FromMaybe(Local<Object>());
+}
+
 }

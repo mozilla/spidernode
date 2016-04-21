@@ -24,6 +24,8 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_EQ(boolean->ToBoolean()->Value(), value);
   EXPECT_EQ(boolean->ToNumber()->Value(), value ? 1.0 : 0.0);
   EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1.0 : 0.0);
+  EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
+  EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), value);
 }
 
 TEST(SpiderShim, Boolean) {
@@ -50,6 +52,8 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   EXPECT_EQ(number->ToBoolean()->Value(), !!value);
   EXPECT_EQ(number->ToNumber()->Value(), value);
   EXPECT_EQ(number->ToInteger()->Value(), value < 0 ? ceil(value) : floor(value));
+  EXPECT_TRUE(number->ToObject()->IsNumberObject());
+  EXPECT_EQ(NumberObject::Cast(*number->ToObject())->ValueOf(), value);
 }
 
 TEST(SpiderShim, Number) {
@@ -106,6 +110,8 @@ void TestInteger(Isolate* isolate, T value) {
   EXPECT_EQ(intVal->ToBoolean()->Value(), !!value);
   EXPECT_EQ(intVal->ToNumber()->Value(), value);
   EXPECT_EQ(intVal->ToInteger()->Value(), value);
+  EXPECT_TRUE(intVal->ToObject()->IsNumberObject());
+  EXPECT_EQ(NumberObject::Cast(*intVal->ToObject())->ValueOf(), value);
 }
 
 TEST(SpiderShim, Integer) {
@@ -194,6 +200,8 @@ TEST(SpiderShim, Object) {
   EXPECT_EQ(object->ToBoolean()->Value(), true);
   EXPECT_TRUE(object->ToNumber(context).IsEmpty());
   EXPECT_TRUE(object->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(object->ToObject()->IsObject());
+  EXPECT_TRUE(Object::Cast(*object->ToObject())->Has(foo));
 
   EXPECT_TRUE(object->Has(foo));
   EXPECT_TRUE(object->Has(context, foo).FromJust());
@@ -581,6 +589,8 @@ TEST(SpiderShim, Array) {
   EXPECT_EQ(array->ToBoolean()->Value(), true);
   EXPECT_TRUE(array->ToNumber(context).IsEmpty());
   EXPECT_TRUE(array->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(array->ToObject()->IsObject());
+  EXPECT_EQ(Object::Cast(*array->ToObject())->Get(2)->ToInteger()->Value(), 4);
 }
 
 TEST(SpiderShim, BooleanObject) {
@@ -603,6 +613,8 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_EQ(boolean->ToBoolean()->Value(), true);
   EXPECT_EQ(boolean->ToNumber()->Value(), 1.0);
   EXPECT_EQ(boolean->ToInteger()->Value(), 1.0);
+  EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
+  EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), true);
 }
 
 TEST(SpiderShim, NumberObject) {
@@ -625,6 +637,8 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_EQ(num->ToBoolean()->Value(), true);
   EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
   EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42.0);
+  EXPECT_TRUE(num->ToObject()->IsNumberObject());
+  EXPECT_EQ(NumberObject::Cast(*num->ToObject())->ValueOf(), 42.0);
 }
 
 TEST(SpiderShim, StringObject) {
@@ -651,6 +665,8 @@ TEST(SpiderShim, StringObject) {
   EXPECT_EQ(str->ToBoolean()->Value(), true);
   EXPECT_TRUE(str->ToNumber(context).IsEmpty());
   EXPECT_TRUE(str->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(str->ToObject()->IsStringObject());
+  EXPECT_EQ(StringObject::Cast(*str->ToObject())->ValueOf()->Length(), 6);
 }
 
 TEST(SpiderShim, Date) {
@@ -678,6 +694,8 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
+  EXPECT_TRUE(date.ToLocalChecked()->ToObject()->IsDate());
+  EXPECT_EQ(Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf(), time);
 }
 
 TEST(SpiderShim, String) {
@@ -705,4 +723,20 @@ TEST(SpiderShim, String) {
   Local<String> concat = String::Concat(foobar, baz);
   String::Utf8Value utf8Concat(concat);
   EXPECT_STREQ(*utf8Concat, "foobarbaz");
+  EXPECT_TRUE(foobar->ToObject()->IsStringObject());
+  EXPECT_EQ(StringObject::Cast(*foobar->ToObject())->ValueOf()->Length(), 6);
+}
+
+TEST(SpiderShim, ToObject) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  // Null and undefined can't be converted into an Object
+  EXPECT_TRUE(Null(engine.isolate())->ToObject().IsEmpty());
+  EXPECT_TRUE(Undefined(engine.isolate())->ToObject().IsEmpty());
 }
