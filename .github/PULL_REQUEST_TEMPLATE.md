@@ -1,6 +1,10 @@
-### Pull Request check-list
+<!--
+Thank you for submitting a pull request to Node.js. Before you submit, please
+review below requirements and walk through the checklist. You can 'tick'
+a box by using the letter "x": [x].
 
-_Please make sure to review and check all of these items:_
+Run the test suite by invoking: `make -j4 lint test` on linux or
+`vcbuild test nosign` on Windows.
 
 - [ ] Have you enabled debug builds by passing `--debug` to `./configure`?
 - [ ] Have you run the test binaries under `out/{Debug,Release}/` after running
@@ -12,9 +16,17 @@ _Please make sure to review and check all of these items:_
 - [ ] Is a documentation update included (if this change modifies
   existing APIs, or introduces new ones)?
 
-_NOTE: these things are not required to open a PR and can be done
-afterwards / while the PR is open._
+Finally, read through our contributors guide and make adjustments as necessary:
+https://github.com/nodejs/node/blob/master/CONTRIBUTING.md
+-->
 
 ### Description of change
 
-_Please provide a description of the change here._
+##### Affected core subsystem(s)
+
+<!-- provide affected core subsystem(s) (like doc, cluster, crypto, etc) -->
+
+
+##### Description of change
+
+<!-- provide a description of the change below this comment -->
