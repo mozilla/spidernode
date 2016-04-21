@@ -26,6 +26,7 @@
 #include "js/CharacterEncoding.h"
 #include "v8isolate.h"
 #include "v8local.h"
+#include "v8string.h"
 
 namespace v8 {
 
@@ -55,24 +56,17 @@ String::Utf8Value::~Utf8Value() {
 String::Value::Value(Handle<v8::Value> obj)
   : str_(nullptr), length_(0) {
   Local<String> strVal = obj->ToString();
-  JSString* str = nullptr;
-  if (*strVal) {
-    str = reinterpret_cast<JS::Value*>(*strVal)->toString();
-  }
-  if (str) {
-    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-    JS::AutoCheckCannotGC nogc;
-    auto flat = JS_GetTwoByteStringCharsAndLength(cx, nogc, str, &length_);
-    if (flat) {
-      str_ = new uint16_t[length_ + 1];
-      memcpy(str_, flat, length_ * sizeof(char16_t));
-      str_[length_] = '\0';
-    }
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::UniqueTwoByteChars buffer = internal::GetFlatString(cx, strVal, &length_);
+  if (buffer) {
+    str_ = buffer.release();
+  } else {
+    length_ = 0;
   }
 }
 
 String::Value::~Value() {
-  delete[] str_;
+  js_free(str_);
 }
 
 Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
