@@ -630,6 +630,8 @@ TEST(SpiderShim, StringObject) {
   Local<String> foobar =
     String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
       ToLocalChecked();
+  EXPECT_EQ(foobar->Length(), 6);
+  EXPECT_EQ(foobar->Utf8Length(), 6);
   Local<Value> str = StringObject::New(foobar);
   EXPECT_EQ(*str, StringObject::Cast(*str));
   EXPECT_TRUE(str->IsStringObject());

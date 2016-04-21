@@ -78,6 +78,21 @@ String* String::Cast(v8::Value* obj) {
   return static_cast<String*>(obj);
 }
 
+int String::Length() const {
+  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  return JS_GetStringLength(thisStr);
+}
+
+int String::Utf8Length() const {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  JSFlatString* flat = JS_FlattenString(cx, thisStr);
+  if (!flat) {
+    return 0;
+  }
+  return JS::GetDeflatedUTF8StringLength(flat);
+}
+
 namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {
