@@ -103,6 +103,26 @@ Local<Boolean> Value::ToBoolean(Isolate* isolate) const {
            ToLocalChecked();
 }
 
+MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  double num = 0.0;
+  if (!JS::ToNumber(cx, thisVal, &num)) {
+    return MaybeLocal<Number>();
+  }
+  JS::Value numVal;
+  numVal.setNumber(num);
+  return internal::Local<Number>::New(context->GetIsolate(), numVal);
+}
+
+Local<Number> Value::ToNumber(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToNumber(isolate->GetCurrentContext()).
+           FromMaybe(Local<Number>());
+}
+
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
