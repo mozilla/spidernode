@@ -22,6 +22,7 @@ void TestBoolean(Isolate* isolate, bool value) {
   String::Utf8Value utf8(boolean->ToString());
   EXPECT_STREQ(*utf8, value ? "true" : "false");
   EXPECT_EQ(boolean->ToBoolean()->Value(), value);
+  EXPECT_EQ(boolean->BooleanValue(), value);
   EXPECT_EQ(boolean->ToNumber()->Value(), value ? 1.0 : 0.0);
   EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1.0 : 0.0);
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
@@ -50,6 +51,7 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   String::Utf8Value utf8(number->ToString());
   EXPECT_STREQ(*utf8, strValue);
   EXPECT_EQ(number->ToBoolean()->Value(), !!value);
+  EXPECT_EQ(number->BooleanValue(), !!value);
   EXPECT_EQ(number->ToNumber()->Value(), value);
   EXPECT_EQ(number->ToInteger()->Value(), value < 0 ? ceil(value) : floor(value));
   EXPECT_TRUE(number->ToObject()->IsNumberObject());
@@ -108,6 +110,7 @@ void TestInteger(Isolate* isolate, T value) {
   sprintf(strValue, IntegerMaker<T>::formatString, value);
   EXPECT_STREQ(*utf8, strValue);
   EXPECT_EQ(intVal->ToBoolean()->Value(), !!value);
+  EXPECT_EQ(intVal->BooleanValue(), !!value);
   EXPECT_EQ(intVal->ToNumber()->Value(), value);
   EXPECT_EQ(intVal->ToInteger()->Value(), value);
   EXPECT_TRUE(intVal->ToObject()->IsNumberObject());
@@ -187,6 +190,7 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(context, 0).FromJust());
 
   EXPECT_EQ(object->ToBoolean()->Value(), true);
+  EXPECT_EQ(object->BooleanValue(), true);
 
   EXPECT_TRUE(object->Set(context, foo, zero).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, bar, one, ReadOnly).FromJust());
@@ -198,6 +202,7 @@ TEST(SpiderShim, Object) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "[object Object]");
   EXPECT_EQ(object->ToBoolean()->Value(), true);
+  EXPECT_EQ(object->BooleanValue(), true);
   EXPECT_TRUE(object->ToNumber(context).IsEmpty());
   EXPECT_TRUE(object->ToInteger(context).IsEmpty());
   EXPECT_TRUE(object->ToObject()->IsObject());
@@ -587,6 +592,7 @@ TEST(SpiderShim, Array) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "0,1,4,9,16,25,36,49,64,81,,,,,42");
   EXPECT_EQ(array->ToBoolean()->Value(), true);
+  EXPECT_EQ(array->BooleanValue(), true);
   EXPECT_TRUE(array->ToNumber(context).IsEmpty());
   EXPECT_TRUE(array->ToInteger(context).IsEmpty());
   EXPECT_TRUE(array->ToObject()->IsObject());
@@ -611,6 +617,7 @@ TEST(SpiderShim, BooleanObject) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "true");
   EXPECT_EQ(boolean->ToBoolean()->Value(), true);
+  EXPECT_EQ(boolean->BooleanValue(), true);
   EXPECT_EQ(boolean->ToNumber()->Value(), 1.0);
   EXPECT_EQ(boolean->ToInteger()->Value(), 1.0);
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
@@ -635,6 +642,7 @@ TEST(SpiderShim, NumberObject) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "42");
   EXPECT_EQ(num->ToBoolean()->Value(), true);
+  EXPECT_EQ(num->BooleanValue(), true);
   EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
   EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42.0);
   EXPECT_TRUE(num->ToObject()->IsNumberObject());
@@ -663,6 +671,7 @@ TEST(SpiderShim, StringObject) {
   String::Utf8Value utf8_2(str_2);
   EXPECT_STREQ(*utf8_2, "foobar");
   EXPECT_EQ(str->ToBoolean()->Value(), true);
+  EXPECT_EQ(str->BooleanValue(), true);
   EXPECT_TRUE(str->ToNumber(context).IsEmpty());
   EXPECT_TRUE(str->ToInteger(context).IsEmpty());
   EXPECT_TRUE(str->ToObject()->IsStringObject());
@@ -692,6 +701,7 @@ TEST(SpiderShim, Date) {
   // the timezone!
   EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
+  EXPECT_EQ(date.ToLocalChecked()->BooleanValue(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
   EXPECT_TRUE(date.ToLocalChecked()->ToObject()->IsDate());

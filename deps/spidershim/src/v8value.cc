@@ -103,6 +103,19 @@ Local<Boolean> Value::ToBoolean(Isolate* isolate) const {
            ToLocalChecked();
 }
 
+Maybe<bool> Value::BooleanValue(Local<Context> context) const {
+  MaybeLocal<Boolean> maybeBool = ToBoolean(context);
+  if (maybeBool.IsEmpty()) {
+    return Nothing<bool>();
+  }
+  return Just(maybeBool.ToLocalChecked()->Value());
+}
+
+bool Value::BooleanValue() const {
+  return BooleanValue(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(false);
+}
+
 MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
