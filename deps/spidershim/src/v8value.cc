@@ -202,6 +202,19 @@ Local<Int32> Value::ToInt32(Isolate* isolate) const {
            FromMaybe(Local<Int32>());
 }
 
+Maybe<int32_t> Value::Int32Value(Local<Context> context) const {
+  MaybeLocal<Int32> maybeInt = ToInt32(context);
+  if (maybeInt.IsEmpty()) {
+    return Nothing<int32_t>();
+  }
+  return Just(maybeInt.ToLocalChecked()->Value());
+}
+
+int32_t Value::Int32Value() const {
+  return Int32Value(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(0);
+}
+
 MaybeLocal<Uint32> Value::ToUint32(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
@@ -220,6 +233,19 @@ Local<Uint32> Value::ToUint32(Isolate* isolate) const {
   }
   return ToUint32(isolate->GetCurrentContext()).
            FromMaybe(Local<Uint32>());
+}
+
+Maybe<uint32_t> Value::Uint32Value(Local<Context> context) const {
+  MaybeLocal<Uint32> maybeInt = ToUint32(context);
+  if (maybeInt.IsEmpty()) {
+    return Nothing<uint32_t>();
+  }
+  return Just(maybeInt.ToLocalChecked()->Value());
+}
+
+uint32_t Value::Uint32Value() const {
+  return Uint32Value(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(0);
 }
 
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
