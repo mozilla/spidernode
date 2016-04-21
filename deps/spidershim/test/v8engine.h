@@ -92,3 +92,11 @@ private:
   Isolate* isolate_;
 };
 
+static inline Local<String> v8_str(const char* str) {
+  return String::NewFromUtf8(Isolate::GetCurrent(), str);
+}
+
+static inline Local<Number> v8_num(double num) {
+  return Number::New(Isolate::GetCurrent(), num);
+}
+

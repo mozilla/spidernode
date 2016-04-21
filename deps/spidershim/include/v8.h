@@ -1105,6 +1105,7 @@ class V8_EXPORT Value : public Data {
                                            Handle<Value> that) const;
 
   bool StrictEquals(Handle<Value> that) const;
+  bool SameValue(Local<Value> that) const;
 
   template <class T> static Value* Cast(T* value) {
     return static_cast<Value*>(value);

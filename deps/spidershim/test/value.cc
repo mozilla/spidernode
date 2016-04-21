@@ -810,3 +810,54 @@ TEST(SpiderShim, ToObject) {
   EXPECT_TRUE(Null(engine.isolate())->ToObject().IsEmpty());
   EXPECT_TRUE(Undefined(engine.isolate())->ToObject().IsEmpty());
 }
+
+TEST(SpiderShim, Equals) {
+  // This test is adopted from the V8 Equality test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  EXPECT_TRUE(v8_str("a")->Equals(context, v8_str("a")).FromJust());
+  EXPECT_TRUE(!v8_str("a")->Equals(context, v8_str("b")).FromJust());
+
+  EXPECT_TRUE(v8_str("a")->Equals(context, v8_str("a")).FromJust());
+  EXPECT_TRUE(!v8_str("a")->Equals(context, v8_str("b")).FromJust());
+  EXPECT_TRUE(v8_num(1)->Equals(context, v8_num(1)).FromJust());
+  EXPECT_TRUE(v8_num(1.00)->Equals(context, v8_num(1)).FromJust());
+  EXPECT_TRUE(!v8_num(1)->Equals(context, v8_num(2)).FromJust());
+
+  // Assume String is not internalized.
+  EXPECT_TRUE(v8_str("a")->StrictEquals(v8_str("a")));
+  EXPECT_TRUE(!v8_str("a")->StrictEquals(v8_str("b")));
+  EXPECT_TRUE(!v8_str("5")->StrictEquals(v8_num(5)));
+  EXPECT_TRUE(v8_num(1)->StrictEquals(v8_num(1)));
+  EXPECT_TRUE(!v8_num(1)->StrictEquals(v8_num(2)));
+  EXPECT_TRUE(v8_num(0.0)->StrictEquals(v8_num(-0.0)));
+  Local<Value> not_a_number = v8_num(std::numeric_limits<double>::quiet_NaN());
+  EXPECT_TRUE(!not_a_number->StrictEquals(not_a_number));
+  EXPECT_TRUE(False(isolate)->StrictEquals(False(isolate)));
+  EXPECT_TRUE(!False(isolate)->StrictEquals(Undefined(isolate)));
+
+#if 0
+  // TODO: Enable this test once we support Persistent.
+  Local<Object> obj = Object::New(isolate);
+  Persistent<Object> alias(isolate, obj);
+  EXPECT_TRUE(Local<Object>::New(isolate, alias)->StrictEquals(obj));
+  alias.Reset();
+#endif
+
+  EXPECT_TRUE(v8_str("a")->SameValue(v8_str("a")));
+  EXPECT_TRUE(!v8_str("a")->SameValue(v8_str("b")));
+  EXPECT_TRUE(!v8_str("5")->SameValue(v8_num(5)));
+  EXPECT_TRUE(v8_num(1)->SameValue(v8_num(1)));
+  EXPECT_TRUE(!v8_num(1)->SameValue(v8_num(2)));
+  EXPECT_TRUE(!v8_num(0.0)->SameValue(v8_num(-0.0)));
+  EXPECT_TRUE(not_a_number->SameValue(not_a_number));
+  EXPECT_TRUE(False(isolate)->SameValue(False(isolate)));
+  EXPECT_TRUE(!False(isolate)->SameValue(Undefined(isolate)));
+}

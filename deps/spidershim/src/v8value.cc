@@ -288,4 +288,39 @@ Local<Object> Value::ToObject(Isolate* isolate) const {
            FromMaybe(Local<Object>());
 }
 
+Maybe<bool> Value::Equals(Local<Context> context,
+                          Handle<Value> that) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  bool equal = false;
+  if (!JS_LooselyEqual(cx, thisVal, thatVal, &equal)) {
+    return Nothing<bool>();
+  }
+  return Just(equal);
+}
+
+bool Value::Equals(Handle<Value> that) const {
+  return Equals(Isolate::GetCurrent()->GetCurrentContext(), that).
+           FromMaybe(false);
+}
+
+bool Value::StrictEquals(Handle<Value> that) const {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  bool equal = false;
+  JS_StrictlyEqual(cx, thisVal, thatVal, &equal);
+  return equal;
+}
+
+bool Value::SameValue(Handle<Value> that) const {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  bool same = false;
+  JS_SameValue(cx, thisVal, thatVal, &same);
+  return same;
+}
+
 }
