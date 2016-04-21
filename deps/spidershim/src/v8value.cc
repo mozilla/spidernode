@@ -107,7 +107,7 @@ MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
   double num = 0.0;
-  if (!JS::ToNumber(cx, thisVal, &num)) {
+  if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
     return MaybeLocal<Number>();
   }
   JS::Value numVal;
@@ -121,6 +121,26 @@ Local<Number> Value::ToNumber(Isolate* isolate) const {
   }
   return ToNumber(isolate->GetCurrentContext()).
            FromMaybe(Local<Number>());
+}
+
+MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  double num = 0.0;
+  if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
+    return MaybeLocal<Integer>();
+  }
+  JS::Value numVal;
+  numVal.setNumber(JS::ToInteger(num));
+  return internal::Local<Integer>::New(context->GetIsolate(), numVal);
+}
+
+Local<Integer> Value::ToInteger(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToInteger(isolate->GetCurrentContext()).
+           FromMaybe(Local<Integer>());
 }
 
 MaybeLocal<String> Value::ToString(Local<Context> context) const {

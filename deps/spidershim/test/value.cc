@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_STREQ(*utf8, value ? "true" : "false");
   EXPECT_EQ(boolean->ToBoolean()->Value(), value);
   EXPECT_EQ(boolean->ToNumber()->Value(), value ? 1.0 : 0.0);
+  EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1.0 : 0.0);
 }
 
 TEST(SpiderShim, Boolean) {
@@ -47,6 +49,7 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   EXPECT_STREQ(*utf8, strValue);
   EXPECT_EQ(number->ToBoolean()->Value(), !!value);
   EXPECT_EQ(number->ToNumber()->Value(), value);
+  EXPECT_EQ(number->ToInteger()->Value(), value < 0 ? ceil(value) : floor(value));
 }
 
 TEST(SpiderShim, Number) {
@@ -61,6 +64,7 @@ TEST(SpiderShim, Number) {
   TestNumber(engine.isolate(), 0, "0");
   TestNumber(engine.isolate(), 42, "42");
   TestNumber(engine.isolate(), 42.42, "42.42");
+  TestNumber(engine.isolate(), -42.42, "-42.42");
 }
 
 template<class T>
@@ -101,6 +105,7 @@ void TestInteger(Isolate* isolate, T value) {
   EXPECT_STREQ(*utf8, strValue);
   EXPECT_EQ(intVal->ToBoolean()->Value(), !!value);
   EXPECT_EQ(intVal->ToNumber()->Value(), value);
+  EXPECT_EQ(intVal->ToInteger()->Value(), value);
 }
 
 TEST(SpiderShim, Integer) {
@@ -187,7 +192,8 @@ TEST(SpiderShim, Object) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "[object Object]");
   EXPECT_EQ(object->ToBoolean()->Value(), true);
-  EXPECT_NE(object->ToNumber()->Value(), object->ToNumber()->Value()); // NaN
+  EXPECT_TRUE(object->ToNumber(context).IsEmpty());
+  EXPECT_TRUE(object->ToInteger(context).IsEmpty());
 
   EXPECT_TRUE(object->Has(foo));
   EXPECT_TRUE(object->Has(context, foo).FromJust());
@@ -573,7 +579,8 @@ TEST(SpiderShim, Array) {
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "0,1,4,9,16,25,36,49,64,81,,,,,42");
   EXPECT_EQ(array->ToBoolean()->Value(), true);
-  EXPECT_NE(array->ToNumber()->Value(), array->ToNumber()->Value()); // NaN
+  EXPECT_TRUE(array->ToNumber(context).IsEmpty());
+  EXPECT_TRUE(array->ToInteger(context).IsEmpty());
 }
 
 TEST(SpiderShim, BooleanObject) {
@@ -595,6 +602,7 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_STREQ(*utf8, "true");
   EXPECT_EQ(boolean->ToBoolean()->Value(), true);
   EXPECT_EQ(boolean->ToNumber()->Value(), 1.0);
+  EXPECT_EQ(boolean->ToInteger()->Value(), 1.0);
 }
 
 TEST(SpiderShim, NumberObject) {
@@ -616,6 +624,7 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_STREQ(*utf8, "42");
   EXPECT_EQ(num->ToBoolean()->Value(), true);
   EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
+  EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42.0);
 }
 
 TEST(SpiderShim, StringObject) {
@@ -640,7 +649,8 @@ TEST(SpiderShim, StringObject) {
   String::Utf8Value utf8_2(str_2);
   EXPECT_STREQ(*utf8_2, "foobar");
   EXPECT_EQ(str->ToBoolean()->Value(), true);
-  EXPECT_NE(str->ToNumber()->Value(), str->ToNumber()->Value()); // NaN
+  EXPECT_TRUE(str->ToNumber(context).IsEmpty());
+  EXPECT_TRUE(str->ToInteger(context).IsEmpty());
 }
 
 TEST(SpiderShim, Date) {
@@ -667,6 +677,7 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
+  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
 }
 
 TEST(SpiderShim, String) {
