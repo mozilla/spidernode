@@ -182,6 +182,46 @@ int64_t Value::IntegerValue() const {
            FromMaybe(0);
 }
 
+MaybeLocal<Int32> Value::ToInt32(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  int32_t num = 0;
+  if (!JS::ToInt32(cx, thisVal, &num)) {
+    return MaybeLocal<Int32>();
+  }
+  JS::Value numVal;
+  numVal.setNumber(double(num));
+  return internal::Local<Int32>::New(context->GetIsolate(), numVal);
+}
+
+Local<Int32> Value::ToInt32(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToInt32(isolate->GetCurrentContext()).
+           FromMaybe(Local<Int32>());
+}
+
+MaybeLocal<Uint32> Value::ToUint32(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  uint32_t num = 0;
+  if (!JS::ToUint32(cx, thisVal, &num)) {
+    return MaybeLocal<Uint32>();
+  }
+  JS::Value numVal;
+  numVal.setNumber(num);
+  return internal::Local<Uint32>::New(context->GetIsolate(), numVal);
+}
+
+Local<Uint32> Value::ToUint32(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToUint32(isolate->GetCurrentContext()).
+           FromMaybe(Local<Uint32>());
+}
+
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
