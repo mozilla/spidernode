@@ -332,4 +332,49 @@ Local<Object> Object::Clone() {
   return internal::Local<Object>::New(isolate, cloneVal);
 }
 
+MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context, unsigned flags) {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::AutoIdVector idv(cx);
+  if (!js::GetPropertyKeys(cx, thisObj, flags, &idv)) {
+    return MaybeLocal<Array>();
+  }
+  Local<Array> array = Array::New(context->GetIsolate(), idv.length());
+  for (size_t i = 0; i < idv.length(); ++i) {
+    Local<Value> val;
+    if (JSID_IS_STRING(idv[i])) {
+      JSString* rawStr = JSID_TO_STRING(idv[i]);
+      JS::Value strVal;
+      strVal.setString(rawStr);
+      val = internal::Local<Value>::New(context->GetIsolate(), strVal);
+    } else if (JSID_IS_INT(idv[i])) {
+      val = Integer::New(context->GetIsolate(), JSID_TO_INT(idv[i]));
+    } else {
+      continue;
+    }
+    if (!array->Set(context, i, val).FromMaybe(false)) {
+      return MaybeLocal<Array>();
+    }
+  }
+  return array;
+}
+
+MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context) {
+  return GetPropertyNames(context, 0);
+}
+
+Local<Array> Object::GetPropertyNames() {
+  return GetPropertyNames(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(Local<Array>());
+}
+
+MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context) {
+  return GetPropertyNames(context, JSITER_OWNONLY);
+}
+
+Local<Array> Object::GetOwnPropertyNames() {
+  return GetOwnPropertyNames(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(Local<Array>());
+}
+
 }

@@ -442,6 +442,99 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(cloneProto->Has(qux));
 }
 
+void CheckProperties(Isolate* isolate, Local<Value> val,
+                     unsigned elmc, const char* elmv[]) {
+  Local<Context> context = isolate->GetCurrentContext();
+  Object* obj = Object::Cast(*val);
+  Local<Array> props = obj->GetPropertyNames(context).ToLocalChecked();
+  EXPECT_EQ(elmc, props->Length());
+  for (unsigned i = 0; i < elmc; i++) {
+    String::Utf8Value elm(
+        props->Get(context, Integer::New(isolate, i)).ToLocalChecked());
+    EXPECT_STREQ(elmv[i], *elm);
+  }
+}
+
+void CheckOwnProperties(Isolate* isolate, Local<Value> val,
+                        unsigned elmc, const char* elmv[]) {
+  Local<Context> context = isolate->GetCurrentContext();
+  Object* obj = Object::Cast(*val);
+  Local<Array> props =
+      obj->GetOwnPropertyNames(context).ToLocalChecked();
+  EXPECT_EQ(elmc, props->Length());
+  for (unsigned i = 0; i < elmc; i++) {
+    String::Utf8Value elm(
+        props->Get(context, Integer::New(isolate, i)).ToLocalChecked());
+    EXPECT_STREQ(elmv[i], *elm);
+  }
+}
+
+TEST(SpiderShim, ObjectPropertyEnumeration) {
+  // This test is adopted from the V8 PropertyEnumeration test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Isolate* isolate = engine.isolate();
+  Local<Value> obj = engine.CompileRun(context,
+      "var result = [];"
+      "result[0] = {};"
+      "result[1] = {a: 1, b: 2};"
+      "result[2] = [1, 2, 3];"
+      "var proto = {x: 1, y: 2, z: 3};"
+      "var x = { __proto__: proto, w: 0, z: 1 };"
+      "result[3] = x;"
+      "result;");
+  Array* elms = Array::Cast(*obj);
+  EXPECT_EQ(elms->Length(), 4);
+  int elmc0 = 0;
+  const char** elmv0 = NULL;
+  CheckProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 0)).ToLocalChecked(),
+      elmc0, elmv0);
+  CheckOwnProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 0)).ToLocalChecked(),
+      elmc0, elmv0);
+  int elmc1 = 2;
+  const char* elmv1[] = {"a", "b"};
+  CheckProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 1)).ToLocalChecked(),
+      elmc1, elmv1);
+  CheckOwnProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 1)).ToLocalChecked(),
+      elmc1, elmv1);
+  int elmc2 = 3;
+  const char* elmv2[] = {"0", "1", "2"};
+  CheckProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 2)).ToLocalChecked(),
+      elmc2, elmv2);
+  CheckOwnProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 2)).ToLocalChecked(),
+      elmc2, elmv2);
+  int elmc3 = 4;
+  const char* elmv3[] = {"w", "z", "x", "y"};
+  CheckProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 3)).ToLocalChecked(),
+      elmc3, elmv3);
+  int elmc4 = 2;
+  const char* elmv4[] = {"w", "z"};
+  CheckOwnProperties(
+      isolate,
+      elms->Get(context, v8::Integer::New(isolate, 3)).ToLocalChecked(),
+      elmc4, elmv4);
+}
+
 TEST(SpiderShim, Array) {
   V8Engine engine;
 
