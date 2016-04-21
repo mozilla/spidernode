@@ -684,4 +684,8 @@ TEST(SpiderShim, String) {
   EXPECT_EQ(foobar->Length(), 6);
   EXPECT_EQ(foobar->Utf8Length(), 6);
   EXPECT_EQ(String::Empty(engine.isolate())->Length(), 0);
+  String::Utf8Value utf8(foobar);
+  EXPECT_STREQ(*utf8, "foobar");
+  String::Value twobytes(foobar);
+  EXPECT_EQ(0, memcmp(*twobytes, u"foobar", sizeof(u"foobar")));
 }

@@ -1268,22 +1268,22 @@ class V8_EXPORT String : public Name {
     void operator=(const Utf8Value&);
 
     char* str_;
-    int length_;
+    size_t length_;
   };
 
   class V8_EXPORT Value {
    public:
     explicit Value(Handle<v8::Value> obj);
     ~Value();
-    uint16_t *operator*() { return _str; }
-    const uint16_t *operator*() const { return _str; }
-    int length() const { return _length; }
+    uint16_t *operator*() { return str_; }
+    const uint16_t *operator*() const { return str_; }
+    int length() const { return static_cast<int>(length_); }
    private:
     Value(const Value&);
     void operator=(const Value&);
 
-    uint16_t* _str;
-    int _length;
+    uint16_t* str_;
+    size_t length_;
   };
 
  private:
