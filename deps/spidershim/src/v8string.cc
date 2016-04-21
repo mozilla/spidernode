@@ -93,6 +93,10 @@ int String::Utf8Length() const {
   return JS::GetDeflatedUTF8StringLength(flat);
 }
 
+Local<String> String::Empty(Isolate* isolate) {
+  return NewFromUtf8(isolate, "");
+}
+
 namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {

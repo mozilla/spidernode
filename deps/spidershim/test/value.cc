@@ -630,8 +630,6 @@ TEST(SpiderShim, StringObject) {
   Local<String> foobar =
     String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
       ToLocalChecked();
-  EXPECT_EQ(foobar->Length(), 6);
-  EXPECT_EQ(foobar->Utf8Length(), 6);
   Local<Value> str = StringObject::New(foobar);
   EXPECT_EQ(*str, StringObject::Cast(*str));
   EXPECT_TRUE(str->IsStringObject());
@@ -669,4 +667,21 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
+}
+
+TEST(SpiderShim, String) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<String> foobar =
+    String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
+      ToLocalChecked();
+  EXPECT_EQ(foobar->Length(), 6);
+  EXPECT_EQ(foobar->Utf8Length(), 6);
+  EXPECT_EQ(String::Empty(engine.isolate())->Length(), 0);
 }
