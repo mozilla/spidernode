@@ -136,6 +136,19 @@ Local<Number> Value::ToNumber(Isolate* isolate) const {
            FromMaybe(Local<Number>());
 }
 
+Maybe<double> Value::NumberValue(Local<Context> context) const {
+  MaybeLocal<Number> maybeNum = ToNumber(context);
+  if (maybeNum.IsEmpty()) {
+    return Nothing<double>();
+  }
+  return Just(maybeNum.ToLocalChecked()->Value());
+}
+
+double Value::NumberValue() const {
+  return NumberValue(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(NAN);
+}
+
 MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
