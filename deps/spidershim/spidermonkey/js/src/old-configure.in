@@ -161,8 +161,6 @@ fi
 
 MOZ_TOOL_VARIABLES
 
-MOZ_CHECK_COMPILER_WRAPPER
-
 AC_PROG_CPP
 AC_PROG_CXXCPP
 MOZ_RUST_SUPPORT
@@ -228,26 +226,19 @@ case "$target" in
         _MSVC_VER_FILTER='s|.*[^!-~]([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?).*|\1|p'
         changequote([,])
 
-        # Determine compiler version
-        _CC_MAJOR_VERSION=`echo ${CC_VERSION} | cut -c 1-2`
-        _CC_MINOR_VERSION=`echo ${CC_VERSION} | cut -c 3-4`
-        _MSC_VER=${CC_VERSION}
-
-        _CXX_MAJOR_VERSION=`echo ${CXX_VERSION} | cut -c 1-2`
-
-        if test "$_CC_MAJOR_VERSION" != "$_CXX_MAJOR_VERSION"; then
-            AC_MSG_ERROR([The major versions of \$CC and \$CXX do not match.])
-        fi
+        _MSC_VER=`echo ${CC_VERSION} | cut -c 1-2,4-5`
 
         AC_DEFINE(_CRT_SECURE_NO_WARNINGS)
         AC_DEFINE(_CRT_NONSTDC_NO_WARNINGS)
         AC_DEFINE(_USE_MATH_DEFINES) # Otherwise MSVC's math.h doesn't #define M_PI.
 
-        if test "$_CC_MAJOR_VERSION" = "18"; then
+        case "$CC_VERSION" in
+        18*)
             _CC_SUITE=12
             MSVC_C_RUNTIME_DLL=msvcr120.dll
             MSVC_CXX_RUNTIME_DLL=msvcp120.dll
-        elif test "$_CC_MAJOR_VERSION" = "19"; then
+            ;;
+        19*)
             _CC_SUITE=14
             MSVC_C_RUNTIME_DLL=vcruntime140.dll
             MSVC_CXX_RUNTIME_DLL=msvcp140.dll
@@ -264,9 +255,8 @@ case "$target" in
             # Disable C++11 thread-safe statics due to crashes on XP (bug 1204752)
             # See https://connect.microsoft.com/VisualStudio/feedback/details/1789709/visual-c-2015-runtime-broken-on-windows-server-2003-c-11-magic-statics
             CXXFLAGS="$CXXFLAGS -Zc:threadSafeInit-"
-        else
-            AC_MSG_ERROR([This version ($CC_VERSION) of the MSVC compiler is unsupported. See https://developer.mozilla.org/en/Windows_Build_Prerequisites.])
-        fi
+            ;;
+        esac
         AC_SUBST(MSVC_C_RUNTIME_DLL)
         AC_SUBST(MSVC_CXX_RUNTIME_DLL)
 
@@ -717,8 +707,6 @@ dnl ========================================================
 dnl GNU specific defaults
 dnl ========================================================
 if test "$GNU_CC"; then
-    # We use C99.
-    CFLAGS="$CFLAGS -std=gnu99"
     MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -Wl,-h,$(DSO_SONAME) -o $@'
     MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -Wl,-h,$(DSO_SONAME) -o $@'
     DSO_LDOPTS='-shared'
@@ -1310,14 +1298,7 @@ if test "$GNU_CC" -a "$OS_TARGET" != WINNT; then
     VISIBILITY_FLAGS='-fvisibility=hidden -fvisibility-inlines-hidden'
     ;;
   *)
-    case $GCC_VERSION in
-    4.6*)
-      VISIBILITY_FLAGS="-I${DIST}/system_wrappers -include ${_topsrcdir}/config/gcc_hidden_dso_handle.h"
-      ;;
-    *)
-      VISIBILITY_FLAGS="-I${DIST}/system_wrappers -include ${_topsrcdir}/config/gcc_hidden.h"
-      ;;
-    esac
+    VISIBILITY_FLAGS="-I${DIST}/system_wrappers -include ${_topsrcdir}/config/gcc_hidden.h"
     WRAP_SYSTEM_INCLUDES=1
     ;;
   esac
@@ -1977,18 +1958,6 @@ dnl ========================================================
 dnl = Enable jemalloc
 dnl ========================================================
 
-LOCAL_MOZ_MEMORY=1
-MOZ_ARG_DISABLE_BOOL(jemalloc,
-[  --disable-jemalloc       Don't replace memory allocator with jemalloc],
-    LOCAL_MOZ_MEMORY=)
-
-dnl Consult the command-line arguments in stand alone-builds only. In
-dnl non-stand-alone builds, we always use the value of MOZ_MEMORY inherited from
-dnl the top-level configure script.
-if test "$JS_STANDALONE"; then
-    MOZ_MEMORY=$LOCAL_MOZ_MEMORY
-fi
-
 dnl In stand-alone builds we always only want to link executables against mozglue.
 if test "$JS_STANDALONE"; then
   MOZ_GLUE_IN_PROGRAM=
@@ -2006,7 +1975,6 @@ else
 fi
 
 if test "$MOZ_MEMORY"; then
-  AC_DEFINE(MOZ_MEMORY)
   if test "x$MOZ_DEBUG" = "x1"; then
     AC_DEFINE(MOZ_MEMORY_DEBUG)
   fi
@@ -2014,35 +1982,10 @@ if test "$MOZ_MEMORY"; then
   dnl complicated.  Therefore, simply define special cpp variables for the
   dnl platforms we have special knowledge of.
   case "${target}" in
-  *-darwin*)
-    AC_DEFINE(MOZ_MEMORY_DARWIN)
-    ;;
-  *-*freebsd*)
-    AC_DEFINE(MOZ_MEMORY_BSD)
-    ;;
-  *-android*|*-linuxandroid*)
-    AC_DEFINE(MOZ_MEMORY_LINUX)
-    AC_DEFINE(MOZ_MEMORY_ANDROID)
-    ;;
-  *-*linux*)
-    AC_DEFINE(MOZ_MEMORY_LINUX)
-    ;;
-  *-netbsd*)
-    AC_DEFINE(MOZ_MEMORY_BSD)
-    ;;
   *-mingw*)
-    AC_DEFINE(MOZ_MEMORY_WINDOWS)
     export MOZ_NO_DEBUG_RTL=1
     ;;
-  *)
-    AC_MSG_ERROR([--enable-jemalloc not supported on ${target}])
-    ;;
   esac
-fi
-AC_SUBST(MOZ_MEMORY)
-AC_SUBST(MOZ_JEMALLOC4)
-if test -n "$MOZ_JEMALLOC4"; then
-  AC_DEFINE(MOZ_JEMALLOC4)
 fi
 AC_SUBST(MOZ_CRT)
 AC_SUBST(MOZ_GLUE_IN_PROGRAM)
@@ -2466,18 +2409,6 @@ else
 fi
 
 dnl ========================================================
-dnl = Disable -fstrict-aliasing with GCC 4.4 and earlier.
-dnl = See bugs 821502 and 832623.
-dnl ========================================================
-if test -n "$GNU_CC" -a -z "$CLANG_CC"; then
-    dnl GCC 3.x isn't supported, so we don't need to check for that.
-    if test "$GCC_MAJOR_VERSION" -eq "4" -a "$GCC_MINOR_VERSION" -lt "5" ; then
-        CFLAGS="$CFLAGS -fno-strict-aliasing"
-        CXXFLAGS="$CXXFLAGS -fno-strict-aliasing"
-    fi
-fi
-
-dnl ========================================================
 dnl = Link js shell to system readline
 dnl ========================================================
 MOZ_ARG_ENABLE_BOOL(readline,
@@ -2672,7 +2603,6 @@ AC_SUBST(BIN_SUFFIX)
 AC_SUBST(IMPORT_LIB_SUFFIX)
 AC_SUBST(USE_N32)
 AC_SUBST(CC_VERSION)
-AC_SUBST(CXX_VERSION)
 AC_SUBST(MSMANIFEST_TOOL)
 AC_SUBST(MOZ_LINKER)
 AC_SUBST(WIN32_CONSOLE_EXE_LDFLAGS)

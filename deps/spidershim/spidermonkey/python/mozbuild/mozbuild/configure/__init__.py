@@ -28,10 +28,12 @@ from mozbuild.configure.util import (
     LineIO,
 )
 from mozbuild.util import (
+    exec_,
     memoize,
     ReadOnlyDict,
     ReadOnlyNamespace,
 )
+
 import mozpack.path as mozpath
 
 
@@ -93,14 +95,16 @@ class ConfigureSandbox(dict):
     BUILTINS = ReadOnlyDict({
         b: __builtins__[b]
         for b in ('None', 'False', 'True', 'int', 'bool', 'any', 'all', 'len',
-                  'list', 'tuple', 'set', 'dict', 'isinstance')
+                  'list', 'tuple', 'set', 'dict', 'isinstance', 'getattr',
+                  'hasattr', 'enumerate', 'range', 'zip')
     }, __import__=forbidden_import, str=unicode)
 
     # Expose a limited set of functions from os.path
     OS = ReadOnlyNamespace(path=ReadOnlyNamespace(**{
         k: getattr(mozpath, k, getattr(os.path, k))
         for k in ('abspath', 'basename', 'dirname', 'exists', 'isabs', 'isdir',
-                  'isfile', 'join', 'normpath', 'realpath', 'relpath')
+                  'isfile', 'join', 'normcase', 'normpath', 'realpath',
+                  'relpath')
     }))
 
     def __init__(self, config, environ=os.environ, argv=sys.argv,
@@ -119,7 +123,7 @@ class ConfigureSandbox(dict):
 
         self._options = OrderedDict()
         # Store raw option (as per command line or environment) for each Option
-        self._raw_options = {}
+        self._raw_options = OrderedDict()
 
         # Store options added with `imply_option`, and the reason they were
         # added (which can either have been given to `imply_option`, or
@@ -198,7 +202,7 @@ class ConfigureSandbox(dict):
 
         code = compile(source, path, 'exec')
 
-        exec(code, self)
+        exec_(code, self)
 
         self._paths.pop(-1)
 
@@ -221,10 +225,13 @@ class ConfigureSandbox(dict):
 
         # All implied options should exist.
         for implied_option in self._implied_options:
-            raise ConfigureError(
-                '`%s`, emitted from `%s` line %d, is unknown.'
-                % (implied_option.option, implied_option.caller[1],
-                   implied_option.caller[2]))
+            value = self._resolve(implied_option.value,
+                                  need_help_dependency=False)
+            if value is not None:
+                raise ConfigureError(
+                    '`%s`, emitted from `%s` line %d, is unknown.'
+                    % (implied_option.option, implied_option.caller[1],
+                       implied_option.caller[2]))
 
         # All options should have been removed (handled) by now.
         for arg in self._helper:
@@ -339,12 +346,13 @@ class ConfigureSandbox(dict):
         except ConflictingOptionError as e:
             reason = implied[e.arg].reason
             reason = self._raw_options.get(reason) or reason.option
+            reason = reason.split('=', 1)[0]
             raise InvalidOptionError(
                 "'%s' implied by '%s' conflicts with '%s' from the %s"
                 % (e.arg, reason, e.old_arg, e.old_origin))
 
-        self._raw_options[option] = (option_string.split('=', 1)[0]
-                                     if option_string else option_string)
+        if option_string:
+            self._raw_options[option] = option_string
 
         return value
 
@@ -491,6 +499,14 @@ class ConfigureSandbox(dict):
                           for k, v in kwargs.iteritems()}
                 ret = template(*args, **kwargs)
                 if isfunction(ret):
+                    # We can't expect the sandboxed code to think about all the
+                    # details of implementing decorators, so do some of the
+                    # work for them. If the function takes exactly one function
+                    # as argument and returns a function, it must be a
+                    # decorator, so mark the returned function as wrapping the
+                    # function passed in.
+                    if len(args) == 1 and not kwargs and isfunction(args[0]):
+                        ret = wraps(args[0])(ret)
                     return wrap_template(ret)
                 return ret
             return wrapper
@@ -556,10 +572,7 @@ class ConfigureSandbox(dict):
             import_line += 'import %s' % _import
             if _as:
                 import_line += ' as %s' % _as
-            # Some versions of python fail with "SyntaxError: unqualified exec
-            # is not allowed in function '_apply_imports' it contains a nested
-            # function with free variable" when using the exec function.
-            exec import_line in {}, glob
+            exec_(import_line, {}, glob)
 
     def _resolve_and_set(self, data, name, value):
         # Don't set anything when --help was on the command line
@@ -690,10 +703,10 @@ class ConfigureSandbox(dict):
         glob.update(
             __builtins__=self.BUILTINS,
             __file__=self._paths[-1] if self._paths else '',
+            __name__=self._paths[-1] if self._paths else '',
             os=self.OS,
             log=self.log_impl,
         )
-        self._apply_imports(func, glob)
 
         # The execution model in the sandbox doesn't guarantee the execution
         # order will always be the same for a given function, and if it uses
@@ -713,12 +726,17 @@ class ConfigureSandbox(dict):
             closure = tuple(makecell(cell.cell_contents)
                             for cell in func.func_closure)
 
-        func = wraps(func)(types.FunctionType(
+        new_func = wraps(func)(types.FunctionType(
             func.func_code,
             glob,
             func.__name__,
             func.func_defaults,
             closure
         ))
-        self._prepared_functions.add(func)
-        return func, glob
+        @wraps(new_func)
+        def wrapped(*args, **kwargs):
+            self._apply_imports(func, glob)
+            return new_func(*args, **kwargs)
+
+        self._prepared_functions.add(wrapped)
+        return wrapped, glob
