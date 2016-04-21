@@ -27,11 +27,6 @@
 #include "v8local.h"
 #include "v8string.h"
 
-namespace js {
-// This needs to be exposed as a JS API from SpiderMonkey.
-extern bool FromPropertyDescriptor(JSContext* cx, JS::Handle<JS::PropertyDescriptor> desc, JS::MutableHandleValue vp);
-}
-
 namespace v8 {
 
 Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
@@ -178,7 +173,7 @@ MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context,
     return MaybeLocal<Value>();
   }
   JS::RootedValue result(cx);
-  if (!js::FromPropertyDescriptor(cx, desc, &result)) {
+  if (!JS::FromPropertyDescriptor(cx, desc, &result)) {
     return MaybeLocal<Value>();
   }
   return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
