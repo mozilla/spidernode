@@ -25,7 +25,8 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_EQ(boolean->BooleanValue(), value);
   EXPECT_EQ(boolean->ToNumber()->Value(), value ? 1.0 : 0.0);
   EXPECT_EQ(boolean->NumberValue(), value ? 1.0 : 0.0);
-  EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1.0 : 0.0);
+  EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1 : 0);
+  EXPECT_EQ(boolean->IntegerValue(), value ? 1 : 0);
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
   EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), value);
 }
@@ -56,6 +57,7 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   EXPECT_EQ(number->ToNumber()->Value(), value);
   EXPECT_EQ(number->NumberValue(), value);
   EXPECT_EQ(number->ToInteger()->Value(), value < 0 ? ceil(value) : floor(value));
+  EXPECT_EQ(number->IntegerValue(), value < 0 ? ceil(value) : floor(value));
   EXPECT_TRUE(number->ToObject()->IsNumberObject());
   EXPECT_EQ(NumberObject::Cast(*number->ToObject())->ValueOf(), value);
 }
@@ -116,6 +118,7 @@ void TestInteger(Isolate* isolate, T value) {
   EXPECT_EQ(intVal->ToNumber()->Value(), value);
   EXPECT_EQ(intVal->NumberValue(), value);
   EXPECT_EQ(intVal->ToInteger()->Value(), value);
+  EXPECT_EQ(intVal->IntegerValue(), value);
   EXPECT_TRUE(intVal->ToObject()->IsNumberObject());
   EXPECT_EQ(NumberObject::Cast(*intVal->ToObject())->ValueOf(), value);
 }
@@ -210,6 +213,8 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(object->NumberValue(context).IsNothing());
   EXPECT_NE(object->NumberValue(), object->NumberValue()); // NaN
   EXPECT_TRUE(object->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(object->IntegerValue(context).IsNothing());
+  EXPECT_EQ(object->IntegerValue(), 0);
   EXPECT_TRUE(object->ToObject()->IsObject());
   EXPECT_TRUE(Object::Cast(*object->ToObject())->Has(foo));
 
@@ -602,6 +607,8 @@ TEST(SpiderShim, Array) {
   EXPECT_TRUE(array->NumberValue(context).IsNothing());
   EXPECT_NE(array->NumberValue(), array->NumberValue()); // NaN
   EXPECT_TRUE(array->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(array->IntegerValue(context).IsNothing());
+  EXPECT_EQ(array->IntegerValue(), 0);
   EXPECT_TRUE(array->ToObject()->IsObject());
   EXPECT_EQ(Object::Cast(*array->ToObject())->Get(2)->ToInteger()->Value(), 4);
 }
@@ -627,7 +634,8 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_EQ(boolean->BooleanValue(), true);
   EXPECT_EQ(boolean->ToNumber()->Value(), 1.0);
   EXPECT_EQ(boolean->NumberValue(), 1.0);
-  EXPECT_EQ(boolean->ToInteger()->Value(), 1.0);
+  EXPECT_EQ(boolean->ToInteger()->Value(), 1);
+  EXPECT_EQ(boolean->IntegerValue(), 1);
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
   EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), true);
 }
@@ -653,7 +661,8 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_EQ(num->BooleanValue(), true);
   EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
   EXPECT_DOUBLE_EQ(num->NumberValue(), 42.0);
-  EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42.0);
+  EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42);
+  EXPECT_DOUBLE_EQ(num->IntegerValue(), 42);
   EXPECT_TRUE(num->ToObject()->IsNumberObject());
   EXPECT_EQ(NumberObject::Cast(*num->ToObject())->ValueOf(), 42.0);
 }
@@ -685,6 +694,8 @@ TEST(SpiderShim, StringObject) {
   EXPECT_TRUE(str->NumberValue(context).IsNothing());
   EXPECT_NE(str->NumberValue(), str->NumberValue()); // NaN
   EXPECT_TRUE(str->ToInteger(context).IsEmpty());
+  EXPECT_TRUE(str->IntegerValue(context).IsNothing());
+  EXPECT_EQ(str->IntegerValue(), 0);
   EXPECT_TRUE(str->ToObject()->IsStringObject());
   EXPECT_EQ(StringObject::Cast(*str->ToObject())->ValueOf()->Length(), 6);
 }
@@ -715,7 +726,8 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(date.ToLocalChecked()->BooleanValue(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->NumberValue(), time);
-  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
+  EXPECT_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
+  EXPECT_EQ(date.ToLocalChecked()->IntegerValue(), time);
   EXPECT_TRUE(date.ToLocalChecked()->ToObject()->IsDate());
   EXPECT_EQ(Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf(), time);
 }

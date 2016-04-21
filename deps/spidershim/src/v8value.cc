@@ -169,6 +169,19 @@ Local<Integer> Value::ToInteger(Isolate* isolate) const {
            FromMaybe(Local<Integer>());
 }
 
+Maybe<int64_t> Value::IntegerValue(Local<Context> context) const {
+  MaybeLocal<Integer> maybeInt = ToInteger(context);
+  if (maybeInt.IsEmpty()) {
+    return Nothing<int64_t>();
+  }
+  return Just(maybeInt.ToLocalChecked()->Value());
+}
+
+int64_t Value::IntegerValue() const {
+  return IntegerValue(Isolate::GetCurrent()->GetCurrentContext()).
+           FromMaybe(0);
+}
+
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
