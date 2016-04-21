@@ -114,6 +114,20 @@ Local<String> String::Empty(Isolate* isolate) {
   return NewFromUtf8(isolate, "");
 }
 
+Local<String> String::Concat(Handle<String> left, Handle<String> right) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString leftStr(cx, reinterpret_cast<JS::Value*>(*left)->toString());
+  JS::RootedString rightStr(cx, reinterpret_cast<JS::Value*>(*right)->toString());
+  JSString* result = JS_ConcatStrings(cx, leftStr, rightStr);
+  if (!result) {
+    return Empty(isolate);
+  }
+  JS::Value retVal;
+  retVal.setString(result);
+  return internal::Local<String>::New(isolate, retVal);
+}
+
 namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {

@@ -681,6 +681,9 @@ TEST(SpiderShim, String) {
   Local<String> foobar =
     String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
       ToLocalChecked();
+  Local<String> baz =
+    String::NewFromUtf8(engine.isolate(), "baz", NewStringType::kNormal).
+      ToLocalChecked();
   EXPECT_EQ(foobar->Length(), 6);
   EXPECT_EQ(foobar->Utf8Length(), 6);
   EXPECT_EQ(String::Empty(engine.isolate())->Length(), 0);
@@ -688,4 +691,7 @@ TEST(SpiderShim, String) {
   EXPECT_STREQ(*utf8, "foobar");
   String::Value twobytes(foobar);
   EXPECT_EQ(0, memcmp(*twobytes, u"foobar", sizeof(u"foobar")));
+  Local<String> concat = String::Concat(foobar, baz);
+  String::Utf8Value utf8Concat(concat);
+  EXPECT_STREQ(*utf8Concat, "foobarbaz");
 }
