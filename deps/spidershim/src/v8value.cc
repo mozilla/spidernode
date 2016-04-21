@@ -87,6 +87,22 @@ bool Value::IsDataView() const {
   return JS_IsDataViewObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
 }
 
+MaybeLocal<Boolean> Value::ToBoolean(Local<Context> context) const {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::Value boolVal;
+  boolVal.setBoolean(JS::ToBoolean(thisVal));
+  return internal::Local<Boolean>::New(context->GetIsolate(), boolVal);
+}
+
+Local<Boolean> Value::ToBoolean(Isolate* isolate) const {
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+  return ToBoolean(isolate->GetCurrentContext()).
+           ToLocalChecked();
+}
+
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));

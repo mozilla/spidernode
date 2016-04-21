@@ -20,6 +20,7 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_EQ(boolean->Value(), value);
   String::Utf8Value utf8(boolean->ToString());
   EXPECT_STREQ(*utf8, value ? "true" : "false");
+  EXPECT_EQ(boolean->ToBoolean()->Value(), value);
 }
 
 TEST(SpiderShim, Boolean) {
@@ -43,6 +44,7 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   EXPECT_EQ(number->Value(), double(value));
   String::Utf8Value utf8(number->ToString());
   EXPECT_STREQ(*utf8, strValue);
+  EXPECT_EQ(number->ToBoolean()->Value(), !!value);
 }
 
 TEST(SpiderShim, Number) {
@@ -95,6 +97,7 @@ void TestInteger(Isolate* isolate, T value) {
   char strValue[1024];
   sprintf(strValue, IntegerMaker<T>::formatString, value);
   EXPECT_STREQ(*utf8, strValue);
+  EXPECT_EQ(intVal->ToBoolean()->Value(), !!value);
 }
 
 TEST(SpiderShim, Integer) {
@@ -169,6 +172,8 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(0));
   EXPECT_FALSE(object->Has(context, 0).FromJust());
 
+  EXPECT_EQ(object->ToBoolean()->Value(), true);
+
   EXPECT_TRUE(object->Set(context, foo, zero).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, bar, one, ReadOnly).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, baz, two, PropertyAttribute(DontEnum | DontDelete)).FromJust());
@@ -178,6 +183,7 @@ TEST(SpiderShim, Object) {
   Local<String> str = object->ToString();
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "[object Object]");
+  EXPECT_EQ(object->ToBoolean()->Value(), true);
 
   EXPECT_TRUE(object->Has(foo));
   EXPECT_TRUE(object->Has(context, foo).FromJust());
@@ -562,6 +568,7 @@ TEST(SpiderShim, Array) {
   Local<String> str = array->ToString();
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "0,1,4,9,16,25,36,49,64,81,,,,,42");
+  EXPECT_EQ(array->ToBoolean()->Value(), true);
 }
 
 TEST(SpiderShim, BooleanObject) {
@@ -581,6 +588,7 @@ TEST(SpiderShim, BooleanObject) {
   Local<String> str = boolean->ToString();
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "true");
+  EXPECT_EQ(boolean->ToBoolean()->Value(), true);
 }
 
 TEST(SpiderShim, NumberObject) {
@@ -600,6 +608,7 @@ TEST(SpiderShim, NumberObject) {
   Local<String> str = num->ToString();
   String::Utf8Value utf8(str);
   EXPECT_STREQ(*utf8, "42");
+  EXPECT_EQ(num->ToBoolean()->Value(), true);
 }
 
 TEST(SpiderShim, StringObject) {
@@ -623,6 +632,7 @@ TEST(SpiderShim, StringObject) {
   Local<String> str_2 = str->ToString();
   String::Utf8Value utf8_2(str_2);
   EXPECT_STREQ(*utf8_2, "foobar");
+  EXPECT_EQ(str->ToBoolean()->Value(), true);
 }
 
 TEST(SpiderShim, Date) {
@@ -647,4 +657,5 @@ TEST(SpiderShim, Date) {
   // Only compare the date portion, as the time part will change depending on
   // the timezone!
   EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
+  EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
 }
