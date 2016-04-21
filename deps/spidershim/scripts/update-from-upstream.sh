@@ -37,7 +37,7 @@ rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete "$SM_DIR"/js spidermonkey/
 
 for patch in `ls spidermonkey-patches/* | sort`; do
-  (cd "$SM_DIR" && patch -p1 < "../$patch")
+  (cd spidermonkey && patch -p1 < "../$patch")
 done
 
 git add spidermonkey
