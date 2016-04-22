@@ -861,3 +861,28 @@ TEST(SpiderShim, Equals) {
   EXPECT_TRUE(False(isolate)->SameValue(False(isolate)));
   EXPECT_TRUE(!False(isolate)->SameValue(Undefined(isolate)));
 }
+
+TEST(SpiderShim, Function) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  engine.CompileRun(context,
+      "function normal() { return 1; }"
+      "function* gen() { yield 1; }");
+  Local<Value> normal = engine.CompileRun(context, "normal");
+  Local<Value> integer = engine.CompileRun(context, "normal()");
+  Local<Value> object = engine.CompileRun(context, "{a:42}");
+  Local<Value> gen = engine.CompileRun(context, "gen");
+  Local<Value> genObject = engine.CompileRun(context, "gen()");
+
+  EXPECT_TRUE(normal->IsFunction());
+  EXPECT_FALSE(integer->IsFunction());
+  EXPECT_FALSE(object->IsFunction());
+  EXPECT_TRUE(gen->IsFunction());
+  EXPECT_FALSE(genObject->IsFunction());
+}

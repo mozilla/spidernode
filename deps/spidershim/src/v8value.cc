@@ -87,6 +87,13 @@ bool Value::IsDataView() const {
   return JS_IsDataViewObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
 }
 
+bool Value::IsFunction() const {
+  if (!IsObject()) {
+    return false;
+  }
+  return JS::IsCallable(&reinterpret_cast<const JS::Value*>(this)->toObject());
+}
+
 MaybeLocal<Boolean> Value::ToBoolean(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
