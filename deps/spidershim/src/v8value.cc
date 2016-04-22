@@ -323,4 +323,12 @@ bool Value::SameValue(Handle<Value> that) const {
   return same;
 }
 
+bool
+Value::IsFunction() const
+{
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  const JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  return thisVal.isObject() && JS::IsCallable(&thisVal.toObject());
+}
+
 }
