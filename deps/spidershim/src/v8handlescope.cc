@@ -23,26 +23,19 @@
 
 #include "v8.h"
 #include "jsapi.h"
-#include "gclist.h"
+#include "rootstore.h"
 
 namespace v8 {
-
-using ValueVector = internal::GCList<JS::Value>;
-using ScriptVector = internal::GCList<JSScript*>;
 
 // TODO: This needs to be allocated in TLS.
 static HandleScope* sCurrentScope = nullptr;
 
-struct HandleScope::Impl {
+struct HandleScope::Impl : internal::RootStore {
   Impl(Isolate* iso) :
-    values(JSContextFromIsolate(iso)),
-    scripts(JSContextFromIsolate(iso)),
+    RootStore(iso),
     isolate(iso)
   {
   }
-  JS::Rooted<ValueVector> values;
-  JS::Rooted<ScriptVector> scripts;
-  std::vector<Script*> scriptObjects;
   HandleScope* prev;
   Isolate* isolate;
 };
@@ -58,10 +51,6 @@ HandleScope::HandleScope(Isolate* isolate) {
 HandleScope::~HandleScope() {
   assert(pimpl_);
   sCurrentScope = pimpl_->prev;
-  assert(pimpl_->scripts.size() == pimpl_->scriptObjects.size());
-  for (auto script : pimpl_->scriptObjects) {
-    delete script;
-  }
   delete pimpl_;
 }
 
@@ -71,8 +60,7 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
   while (current) {
     assert(current->pimpl_);
     if (current->pimpl_->isolate == isolate) {
-      count += current->pimpl_->values.size();
-      count += current->pimpl_->scripts.size();
+      count += current->pimpl_->RootedCount();
     }
     current = current->pimpl_->prev;
   }
@@ -83,26 +71,20 @@ Value* HandleScope::AddToScope(Value* val) {
   if (!sCurrentScope) {
     return nullptr;
   }
-  sCurrentScope->pimpl_->values.push_back(reinterpret_cast<JS::Value&>(*val));
-  return reinterpret_cast<Value*>(&sCurrentScope->pimpl_->values.back());
+  return sCurrentScope->pimpl_->Add(val);
 }
 
 Script* HandleScope::AddToScope(JSScript* script) {
-  assert(sCurrentScope->pimpl_->scripts.size() ==
-         sCurrentScope->pimpl_->scriptObjects.size());
   if (!sCurrentScope) {
     return nullptr;
   }
-  sCurrentScope->pimpl_->scripts.push_back(script);
-  sCurrentScope->pimpl_->scriptObjects.push_back(new Script(script));
-  return sCurrentScope->pimpl_->scriptObjects.back();
+  return sCurrentScope->pimpl_->Add(script);
 }
 
-bool EscapableHandleScope::AddToParentScope(const Value* val) {
+bool EscapableHandleScope::AddToParentScope(Value* val) {
   return sCurrentScope &&
          sCurrentScope->pimpl_->prev &&
-         (sCurrentScope->pimpl_->prev->pimpl_->
-            values.push_back(reinterpret_cast<const JS::Value&>(*val)), true);
+         !!sCurrentScope->pimpl_->prev->pimpl_->Add(val);
 }
 
 }
