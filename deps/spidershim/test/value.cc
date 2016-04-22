@@ -795,6 +795,46 @@ TEST(SpiderShim, String) {
   EXPECT_STREQ(*utf8Concat, "foobarbaz");
   EXPECT_TRUE(foobar->ToObject()->IsStringObject());
   EXPECT_EQ(StringObject::Cast(*foobar->ToObject())->ValueOf()->Length(), 6);
+
+  const uint8_t asciiData[] = { 0x4F, 0x68, 0x61, 0x69, 0x00 }; // "Ohai"
+
+  Local<String> asciiStr =
+    String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal).
+      ToLocalChecked();
+  EXPECT_EQ(4, asciiStr->Length());
+  EXPECT_EQ(4, asciiStr->Utf8Length());
+  String::Value asciiVal(asciiStr);
+  EXPECT_EQ(0, memcmp(*asciiVal, asciiData, sizeof(*asciiData)));
+
+  const uint8_t latin1Data[] = { 0xD3, 0x68, 0xE3, 0xEF, 0x00 }; // "Óhãï"
+
+  Local<String> latin1Str =
+    String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal).
+      ToLocalChecked();
+  EXPECT_EQ(4, latin1Str->Length());
+  EXPECT_EQ(7, latin1Str->Utf8Length());
+  String::Value latin1Val(latin1Str);
+  EXPECT_EQ(0, memcmp(*latin1Val, latin1Data, sizeof(*latin1Data)));
+
+  // A five character string (u"ˤdዤ0ぅ", from V8's test-strings.cc) in UTF-16
+  // and UTF-8 bytes.
+  // UTF-16 -> UTF-8
+  // ------    -----
+  // U+02E4 -> CB A4
+  // U+0064 -> 64
+  // U+12E4 -> E1 8B A4
+  // U+0030 -> 30
+  // U+3045 -> E3 81 85
+  const uint16_t utf16Data[] = { 0x02E4, 0x0064, 0x12E4, 0x0030, 0x3045, 0x0000 };
+  const unsigned char utf8Data[] = { 0xCB, 0xA4, 0x64, 0xE1, 0x8B, 0xA4, 0x30, 0xE3, 0x81, 0x85, 0x00 };
+
+  Local<String> fromTwoByteStr =
+    String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
+      ToLocalChecked();
+  EXPECT_EQ(5, fromTwoByteStr->Length());
+  EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
+  String::Value fromTwoByteVal(fromTwoByteStr);
+  EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(*utf16Data)));
 }
 
 TEST(SpiderShim, ToObject) {
