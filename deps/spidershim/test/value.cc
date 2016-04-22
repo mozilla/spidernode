@@ -848,7 +848,19 @@ TEST(SpiderShim, String) {
   EXPECT_EQ(5, fromTwoByteStr->Length());
   EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
   String::Value fromTwoByteVal(fromTwoByteStr);
+  String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
   EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(*utf16Data)));
+  EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, sizeof(*utf8Data)));
+
+  Local<String> fromUtf8Str =
+    String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
+      ToLocalChecked();
+  EXPECT_EQ(5, fromUtf8Str->Length());
+  EXPECT_EQ(10, fromUtf8Str->Utf8Length());
+  String::Value fromUtf8Val(fromUtf8Str);
+  String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+  EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(*utf16Data)));
+  EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(*utf8Data)));
 }
 
 TEST(SpiderShim, ToObject) {
