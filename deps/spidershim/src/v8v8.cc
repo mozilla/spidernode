@@ -18,17 +18,26 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+#include <assert.h>
+
 #include "v8.h"
 #include "jsapi.h"
 #include "js/Initialization.h"
 
 namespace v8 {
 
+namespace internal {
+bool gDisposed = false;
+}
+
 bool V8::Initialize() {
+  assert(!internal::gDisposed);
   return JS_Init();
 }
 
 bool V8::Dispose() {
+  assert(!internal::gDisposed);
+  internal::gDisposed = true;
   JS_ShutDown();
   return true;
 }
@@ -39,6 +48,10 @@ void V8::FromJustIsNothing() {
 
 void V8::ToLocalEmpty() {
   MOZ_CRASH("MaybeLocal value in ToLocalChecked is null");
+}
+
+bool V8::IsDead() {
+  return internal::gDisposed;
 }
 
 }
