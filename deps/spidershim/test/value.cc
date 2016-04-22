@@ -875,9 +875,13 @@ TEST(SpiderShim, ArrayBuffer) {
   Local<ArrayBuffer> arr = ArrayBuffer::New(isolate, 0);
   EXPECT_TRUE(arr->IsArrayBuffer());
   EXPECT_EQ(arr->ByteLength(), 0);
+  ArrayBuffer::Contents contents = arr->GetContents();
+  EXPECT_EQ(contents.ByteLength(), 0);
   Local<ArrayBuffer> arr2 = ArrayBuffer::New(isolate, 2);
   EXPECT_TRUE(arr2->IsArrayBuffer());
   EXPECT_EQ(arr2->ByteLength(), 2);
+  contents = arr2->GetContents();
+  EXPECT_EQ(contents.ByteLength(), 2);
 }
 
 TEST(SpiderShim, Function) {

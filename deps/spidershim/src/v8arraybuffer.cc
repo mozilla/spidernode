@@ -44,4 +44,19 @@ ArrayBuffer::ByteLength() const
   JSObject& obj = val->toObject();
   return JS_GetArrayBufferByteLength(&obj);
 }
+
+ArrayBuffer::Contents
+ArrayBuffer::GetContents()
+{
+  const JS::Value thisVal = *reinterpret_cast<const JS::Value*>(this);
+  JSObject* obj = &thisVal.toObject();
+  uint8_t *data;
+  bool shared;
+  uint32_t length;
+  js::GetArrayBufferLengthAndData(obj, &length, &shared, &data);
+  Contents contents;
+  contents.data_ = static_cast<void*>(data);
+  contents.byte_length_ = length;
+  return contents;
+}
 }
