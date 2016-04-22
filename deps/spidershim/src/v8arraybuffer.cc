@@ -37,4 +37,11 @@ ArrayBuffer::New(Isolate* isolate, size_t size)
   return internal::Local<ArrayBuffer>::New(isolate, val);
 }
 
+size_t
+ArrayBuffer::ByteLength() const
+{
+  const JS::Value* val = reinterpret_cast<const JS::Value*>(this);
+  JSObject& obj = val->toObject();
+  return JS_GetArrayBufferByteLength(&obj);
+}
 }
