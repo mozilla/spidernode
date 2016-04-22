@@ -936,6 +936,7 @@ TEST(SpiderShim, ArrayBuffer) {
   EXPECT_EQ(arr2->ByteLength(), 2);
   contents = arr2->GetContents();
   EXPECT_EQ(contents.ByteLength(), 2);
+  EXPECT_EQ(ArrayBuffer::Cast(*arr2->ToObject())->ByteLength(), 2);
 }
 
 TEST(SpiderShim, Function) {

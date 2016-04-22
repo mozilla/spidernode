@@ -27,6 +27,13 @@
 
 namespace v8 {
 
+ArrayBuffer*
+ArrayBuffer::Cast(Value* val)
+{
+  assert(val->IsArrayBuffer());
+  return static_cast<ArrayBuffer*>(val);
+}
+
 Local<ArrayBuffer>
 ArrayBuffer::New(Isolate* isolate, size_t size)
 {
