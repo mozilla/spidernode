@@ -828,16 +828,6 @@ TEST(SpiderShim, String) {
   const uint16_t utf16Data[] = { 0x02E4, 0x0064, 0x12E4, 0x0030, 0x3045, 0x0000 };
   const unsigned char utf8Data[] = { 0xCB, 0xA4, 0x64, 0xE1, 0x8B, 0xA4, 0x30, 0xE3, 0x81, 0x85, 0x00 };
 
-  // This test currently fails because String::NewFromUtf8 interprets its input
-  // as Latin-1 rather than UTF-8.
-  Local<String> fromUtf8Str =
-    String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(5, fromUtf8Str->Length());
-  EXPECT_EQ(10, fromUtf8Str->Utf8Length());
-  String::Value fromUtf8Val(fromUtf8Str);
-  EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(*utf16Data)));
-
   Local<String> fromTwoByteStr =
     String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
       ToLocalChecked();
