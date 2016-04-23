@@ -109,7 +109,7 @@ class RetainedObjectInfo;
 struct ExternalArrayData;
 
 namespace internal {
-class HandleScope;
+class RootStore;
 template <class T> class Local;
 }
 
@@ -867,7 +867,7 @@ class V8_EXPORT Script {
   Local<UnboundScript> GetUnboundScript();
 
 private:
-  friend class HandleScope;
+  friend class internal::RootStore;
 
   Script(JSScript* script)
     : script_(script) {}
