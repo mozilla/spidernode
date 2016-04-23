@@ -41,7 +41,10 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
                              JS::SourceBufferHolder::GiveOwnership);
   JS::CompileOptions options(cx);
   options.setVersion(JSVERSION_DEFAULT)
-         .setNoScriptRval(false);
+         .setNoScriptRval(false)
+         .setUTF8(true)
+         .setSourceIsLazy(false)
+         .forceAsync = true;;
   JS::RootedScript jsScript(cx);
   if (!JS::Compile(cx, options, sbh, &jsScript)) {
     return MaybeLocal<Script>();
