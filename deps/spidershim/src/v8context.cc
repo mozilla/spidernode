@@ -38,7 +38,7 @@ Local<Context> Context::New(Isolate* isolate,
                             Handle<Value> global_object) {
   //TODO: Implement extensions, global_template and global_object.
   assert(isolate->Runtime());
-  JSContext* cx = JS_NewContext(isolate->Runtime(), 8192);
+  JSContext* cx = JS_NewContext(isolate->Runtime(), 32 * 1024);
   if (!cx) {
     return Local<Context>();
   }

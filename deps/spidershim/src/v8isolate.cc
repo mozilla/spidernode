@@ -18,12 +18,36 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+#include <stdlib.h>
 #include <vector>
 #include <stack>
 
 #include "v8.h"
 #include "v8context.h"
 #include "jsapi.h"
+#include "mozilla/TimeStamp.h"
+
+namespace {
+
+void OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
+  const char* env = getenv("DUMP_GC");
+  if (env && *env) {
+    using mozilla::TimeStamp;
+    static TimeStamp beginTime;
+    switch (status) {
+      case JSGC_BEGIN:
+        beginTime = TimeStamp::Now();
+        printf("GC: begin\n");
+        break;
+      case JSGC_END:
+        printf("GC: end, took %lf microseconds\n",
+               (TimeStamp::Now() - beginTime).ToMicroseconds());
+        break;
+    }
+  }
+}
+
+}
 
 namespace v8 {
 
@@ -58,7 +82,20 @@ Isolate::Isolate()
   }
   JS_SetErrorReporter(pimpl_->rt, Impl::ErrorReporter);
   const size_t defaultStackQuota = 128 * sizeof(size_t) * 1024;
+  JS_SetGCParameter(pimpl_->rt, JSGC_MODE, JSGC_MODE_INCREMENTAL);
+  JS_SetGCParameter(pimpl_->rt, JSGC_MAX_BYTES, 0xffffffff);
   JS_SetNativeStackQuota(pimpl_->rt, defaultStackQuota);
+  JS_SetDefaultLocale(pimpl_->rt, "UTF-8");
+
+#ifndef DEBUG
+  JS::RuntimeOptionsRef(pimpl_->rt)
+      .setBaseline(true)
+      .setIon(true)
+      .setAsmJS(true)
+      .setNativeRegExp(true);
+#endif
+
+  JS_SetGCCallback(pimpl_->rt, OnGC, NULL);
 }
 
 Isolate::~Isolate() {
