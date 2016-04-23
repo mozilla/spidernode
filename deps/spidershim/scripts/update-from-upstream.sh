@@ -34,7 +34,9 @@ rsync -av --delete "$SM_DIR"/dom/bindings/mozwebidlcodegen spidermonkey/dom/bind
 test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
 rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
-rsync -av --delete "$SM_DIR"/js spidermonkey/
+rsync -av --delete "$SM_DIR"/js/src spidermonkey/js/
+rsync -av --delete "$SM_DIR"/js/public spidermonkey/js/
+rsync -av --delete "$SM_DIR"/js/moz.configure spidermonkey/js/
 
 for patch in `ls spidermonkey-patches/* | sort`; do
   (cd spidermonkey && patch -p1 < "../$patch")
