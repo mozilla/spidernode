@@ -805,8 +805,8 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
   }
 
 private:
-  static bool AddToParentScope(const Value* val);
-  static bool AddToParentScope(const Context* context) {
+  static bool AddToParentScope(Value* val);
+  static bool AddToParentScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return true;
   }
