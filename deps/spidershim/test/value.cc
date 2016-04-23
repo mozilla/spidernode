@@ -750,10 +750,24 @@ TEST(SpiderShim, Date) {
 
   Local<String> str = date.ToLocalChecked()->ToString();
   String::Utf8Value utf8(str);
-  const char datePortion[] = "Thu Oct 23 2008";
-  // Only compare the date portion, as the time part will change depending on
-  // the timezone!
-  EXPECT_EQ(0, strncmp(*utf8, datePortion, sizeof(datePortion) - 1));
+  const char datePortion[] = "Thu Oct 23 2008 02:51:29 GMT-0400 (EDT)";
+  //                              ^      ^          ^     ^
+  //                              4     11         21    27
+  // Parts of this string are timezone dependent, so only compare the rest!
+  struct TimeZoneIndependentOffsets {
+    size_t begin, length;
+  } offsets[] = {
+    {4, 4},
+    {11, 5},
+    {21, 6},
+    {0, 0}
+  };
+  for (auto& o : offsets) {
+    if (!o.begin && !o.length) {
+      break;
+    }
+    EXPECT_EQ(0, strncmp(*utf8 + o.begin, datePortion + o.begin, o.length));
+  }
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
   EXPECT_EQ(date.ToLocalChecked()->BooleanValue(), true);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
@@ -947,4 +961,4 @@ TEST(SpiderShim, Function) {
   EXPECT_FALSE(object->IsFunction());
   EXPECT_TRUE(gen->IsFunction());
   EXPECT_FALSE(genObject->IsFunction());
-	}
+}
