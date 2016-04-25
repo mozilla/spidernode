@@ -759,13 +759,9 @@ TEST(SpiderShim, Date) {
   } offsets[] = {
     {4, 4},
     {11, 5},
-    {21, 6},
-    {0, 0}
+    {21, 6}
   };
   for (auto& o : offsets) {
-    if (!o.begin && !o.length) {
-      break;
-    }
     EXPECT_EQ(0, strncmp(*utf8 + o.begin, datePortion + o.begin, o.length));
   }
   EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
