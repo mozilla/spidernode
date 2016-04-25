@@ -95,6 +95,17 @@ ArrayBufferView::ByteOffset()
   return JS_GetDataViewByteOffset(view);
 }
 
+size_t
+ArrayBufferView::ByteLength()
+{
+  JSObject* view = &reinterpret_cast<JS::Value*>(this)->toObject();
+  if (JS_IsTypedArrayObject(view)) {
+    return JS_GetTypedArrayByteLength(view);
+  }
+
+  return JS_GetDataViewByteLength(view);
+}
+
 #define ES_BUILTIN(X, Y)
 #define COMMON_VALUE(X)
 #define TYPED_ARRAY(TYPE) \
