@@ -73,6 +73,9 @@ public:
   void push_back(const T& elem) {
     return list().push_back(elem);
   }
+  void erase(const typename List::iterator position) {
+    list().erase(position);
+  }
 };
 
 }

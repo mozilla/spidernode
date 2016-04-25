@@ -55,6 +55,18 @@ public:
     return reinterpret_cast<Value*>(&values.back());
   }
 
+  void Remove(Value* val) {
+    typedef ValueVector::iterator Iter;
+    for (Iter begin = values.get().begin(),
+              end = values.get().end();
+         begin != end; ++begin) {
+      if (&*begin == reinterpret_cast<const JS::Value*>(val)) {
+        values.erase(begin);
+        break;
+      }
+    }
+  }
+
   Script* Add(JSScript* script) {
     assert(scripts.size() == scriptObjects.size());
     scripts.push_back(script);

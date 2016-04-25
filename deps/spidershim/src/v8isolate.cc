@@ -26,6 +26,8 @@
 #include "v8context.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/Maybe.h"
+#include "rootstore.h"
 
 namespace {
 
@@ -55,6 +57,14 @@ struct Isolate::Impl {
   JSRuntime* rt;
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
+  mozilla::Maybe<internal::RootStore> persistents;
+
+  internal::RootStore& EnsurePersistents(Isolate* iso) {
+    if (!persistents) {
+      persistents.emplace(iso);
+    }
+    return *persistents;
+  }
 
   static void ErrorReporter(JSContext* cx, const char* message,
                             JSErrorReport* report) {
@@ -133,6 +143,7 @@ void Isolate::Exit() {
 }
 
 void Isolate::Dispose() {
+  pimpl_->persistents.reset();
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
@@ -167,6 +178,21 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
 
 JSRuntime* Isolate::Runtime() const {
   return pimpl_->rt;
+}
+
+Value* Isolate::AddPersistent(Value* val) {
+  return pimpl_->EnsurePersistents(this).Add(val);
+}
+
+void Isolate::RemovePersistent(Value* val) {
+  return pimpl_->EnsurePersistents(this).Remove(val);
+}
+
+size_t Isolate::PersistentCount() const {
+  if (pimpl_->persistents.isNothing()) {
+    return 0;
+  }
+  return pimpl_->persistents->RootedCount();
 }
 
 }

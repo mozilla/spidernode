@@ -80,6 +80,10 @@ public:
     return isolate_;
   }
 
+  size_t GlobalHandleCount() const {
+    return isolate_->PersistentCount();
+  }
+
   Local<Value> CompileRun(Local<Context> context, const char* script) {
     return Script::Compile(context, String::NewFromUtf8(isolate_, script,
                                                         NewStringType::kNormal)

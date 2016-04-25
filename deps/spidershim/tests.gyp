@@ -13,6 +13,10 @@
       'sources': [ 'test/hello-world.cc' ],
     },
     {
+      'target_name': 'persistent',
+      'sources': [ 'test/persistent.cc' ],
+    },
+    {
       'target_name': 'value',
       'sources': [ 'test/value.cc' ],
     },

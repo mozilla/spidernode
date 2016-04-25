@@ -56,6 +56,7 @@ const JsRef JS_INVALID_REFERENCE = NULL;
 struct JSRuntime;
 struct JSContext;
 class JSScript;
+class V8Engine;
 
 namespace v8 {
 
@@ -93,6 +94,7 @@ class StartupData;
 class StackFrame;
 class String;
 class StringObject;
+class Template;
 class Uint32;
 class UnboundScript;
 template <class T> class Local;
@@ -430,50 +432,13 @@ class WeakCallbackData {
 };
 
 
-namespace chakrashim {
-struct WeakReferenceCallbackWrapper {
-  void *parameters;
-  union {
-    WeakCallbackInfo<void>::Callback infoCallback;
-    WeakCallbackData<Value, void>::Callback dataCallback;
-  };
-  bool isWeakCallbackInfo;
-};
 #if 0
-template class V8_EXPORT std::shared_ptr<WeakReferenceCallbackWrapper>;
-
-// A helper method for setting an object with a WeakReferenceCallback. The
-// callback will be called before the object is released.
-V8_EXPORT void SetObjectWeakReferenceCallback(
-  JsValueRef object,
-  WeakCallbackInfo<void>::Callback callback,
-  void* parameters,
-  std::shared_ptr<WeakReferenceCallbackWrapper>* weakWrapper);
-V8_EXPORT void SetObjectWeakReferenceCallback(
-  JsValueRef object,
-  WeakCallbackData<Value, void>::Callback callback,
-  void* parameters,
-  std::shared_ptr<WeakReferenceCallbackWrapper>* weakWrapper);
-#endif
 // A helper method for turning off the WeakReferenceCallback that was set using
 // the previous method
 V8_EXPORT void ClearObjectWeakReferenceCallback(JsValueRef object, bool revive);
-}
+#endif
 
 enum class WeakCallbackType { kParameter, kInternalFields };
-
-namespace detail {
-
-template <class T>
-struct BarrierMethods {
-  template <class U, class V>
-  static void PostWriteBarrier(T** vp, const U& prev, const V& next) {
-    // TODO: Implement this for JSObject and friends.
-    // TODO: Try to call JS::AssertGCThingIsNotAnObjectSubclass().
-  }
-};
-
-}
 
 template <class T>
 class PersistentBase {
@@ -489,14 +454,18 @@ class PersistentBase {
   V8_INLINE bool IsEmpty() const { return val_ == NULL; }
   V8_INLINE void Empty() { Reset(); }
 
+  V8_INLINE Local<T> Get(Isolate* isolate) const {
+    return Local<T>::New(isolate, *this);
+  }
+
   template <class S>
   V8_INLINE bool operator==(const PersistentBase<S>& that) const {
-    return val_ == that.val_;
+    return *val_ == *that.val_;
   }
 
   template <class S>
   V8_INLINE bool operator==(const Handle<S>& that) const {
-    return val_ == that.val_;
+    return *val_ == *that.val_;
   }
 
   template <class S>
@@ -532,30 +501,19 @@ class PersistentBase {
   V8_INLINE void SetWrapperClassId(uint16_t class_id);
 
  private:
+  template<class F> friend class Global;
   template<class F> friend class Local;
   template<class F1, class F2> friend class Persistent;
 
-  explicit V8_INLINE PersistentBase(T* val) : val_(val) {
-    PostWriteBarrier(nullptr, val_);
-  }
-  V8_INLINE ~PersistentBase() {
-    PostWriteBarrier(val_, nullptr);
-  }
+  explicit V8_INLINE PersistentBase(T* val) : val_(val) {}
   PersistentBase(PersistentBase& other) = delete;  // NOLINT
   void operator=(PersistentBase&) = delete;
+  V8_INLINE static T* New(Isolate* isolate, T* that);
 
   template <typename P, typename Callback>
   void SetWeakCommon(P* parameter, Callback callback);
 
-  template <class U, class V>
-  void PostWriteBarrier(const U& prev, const V& next) {
-    detail::BarrierMethods<T>::PostWriteBarrier(&val_, prev, next);
-  }
-
   T* val_;
-#if 0
-  std::shared_ptr<chakrashim::WeakReferenceCallbackWrapper> _weakWrapper;
-#endif
 };
 
 
@@ -594,7 +552,7 @@ class Persistent : public PersistentBase<T> {
 
   template <class S>
   V8_INLINE Persistent(Isolate* isolate, Handle<S> that)
-      : PersistentBase<T>(*that) {
+      : PersistentBase<T>(PersistentBase<T>::New(isolate, *that)) {
     TYPE_CHECK(T, S);
   }
 
@@ -651,23 +609,13 @@ class Persistent : public PersistentBase<T> {
   template <class F> friend class Local;
   template <class F> friend class ReturnValue;
 
-  V8_INLINE Persistent(T* that)
-    : PersistentBase<T>(PersistentBase<T>::New(nullptr, that)) { }
+  template <class S> V8_INLINE Persistent(S* that) : PersistentBase<T>(that) { }
 
   V8_INLINE T* operator*() const { return this->val_; }
   V8_INLINE T* operator->() const { return this->val_; }
 
   template<class S, class M2>
   V8_INLINE void Copy(const Persistent<S, M2>& that);
-
-  template <class S>
-  V8_INLINE Persistent& operator=(const Local<S>& other) {
-    Reset(nullptr, other);
-    return *this;
-  }
-  V8_INLINE Persistent& operator=(JsRef other) {
-    return operator=(Local<T>(static_cast<T*>(other)));
-  }
 };
 
 
@@ -691,7 +639,9 @@ class Global : public PersistentBase<T> {
   V8_INLINE Global(Global&& other) : PersistentBase<T>(other.val_) {
 #if 0
     this._weakWrapper = other._weakWrapper;
+#endif
     other.val_ = nullptr;
+#if 0
     other._weakWrapper.reset();
 #endif
   }
@@ -706,7 +656,9 @@ class Global : public PersistentBase<T> {
       this->val_ = rhs.val_;
 #if 0
       this->_weakWrapper = rhs._weakWrapper;
+#endif
       rhs.val_ = nullptr;
+#if 0
       rhs._weakWrapper.reset();
 #endif
     }
@@ -718,6 +670,7 @@ class Global : public PersistentBase<T> {
  private:
   Global(Global&) = delete;
   void operator=(Global&) = delete;
+  V8_INLINE T* operator*() const { return this->val_; }
 };
 
 
@@ -1113,6 +1066,17 @@ class V8_EXPORT Value : public Data {
 
 private:
   char spidershim_padding[8]; // see the comment for Value.
+
+protected:
+  template <class F> friend class PersistentBase;
+  V8_INLINE bool operator==(const Value& that) const {
+    for (size_t i = 0; i < sizeof(spidershim_padding); ++i) {
+      if (spidershim_padding[i] != that.spidershim_padding[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
 static_assert(sizeof(v8::Value) == 8, "v8::Value must be the same size as JS::Value");
 
@@ -2280,7 +2244,22 @@ private:
   void PushCurrentContext(Context* context);
   void PopCurrentContext();
   friend class Context;
+  friend class ::V8Engine;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
+  template <class T> friend class PersistentBase;
+
+  Value* AddPersistent(Value* val);
+  void RemovePersistent(Value* val);
+  Private* AddPersistent(Private* val); // not supported yet
+  void RemovePersistent(Private* val);  // not supported yet
+  Context* AddPersistent(Context* val); // not supported yet
+  void RemovePersistent(Context* val);  // not supported yet
+  Template* AddPersistent(Template* val); // not supported yet
+  void RemovePersistent(Template* val);   // not supported yet
+  UnboundScript* AddPersistent(UnboundScript* val); // not supported yet
+  void RemovePersistent(UnboundScript* val);        // not supported yet
+
+  size_t PersistentCount() const;
 
   JSRuntime* Runtime() const;
 
@@ -2559,7 +2538,14 @@ Local<T> Local<T>::New(Isolate* isolate, const PersistentBase<T>& that) {
 // Persistent<T> members
 //
 
-#if 0
+template <class T>
+T* PersistentBase<T>::New(Isolate* isolate, T* that) {
+  if (!that) {
+    return nullptr;
+  }
+  return static_cast<T*>(isolate->AddPersistent(that));
+}
+
 template <class T, class M>
 template <class S, class M2>
 void Persistent<T, M>::Copy(const Persistent<S, M2>& that) {
@@ -2568,10 +2554,12 @@ void Persistent<T, M>::Copy(const Persistent<S, M2>& that) {
   if (that.IsEmpty()) return;
 
   this->val_ = that.val_;
+#if 0
   this->_weakWrapper = that._weakWrapper;
   if (val_ && !IsWeak()) {
     JsAddRef(val_, nullptr);
   }
+#endif
 
   M::Copy(that, this);
 }
@@ -2583,13 +2571,20 @@ bool PersistentBase<T>::IsNearDeath() const {
 
 template <class T>
 bool PersistentBase<T>::IsWeak() const {
+#if 0
   return static_cast<bool>(_weakWrapper);
+#else
+  return false;
+#endif
 }
 
 template <class T>
 void PersistentBase<T>::Reset() {
   if (this->IsEmpty() || V8::IsDead()) return;
 
+  Isolate::GetCurrent()->RemovePersistent(this->val_);
+
+#if 0
   if (IsWeak()) {
     if (_weakWrapper.unique()) {
       chakrashim::ClearObjectWeakReferenceCallback(val_, /*revive*/false);
@@ -2598,23 +2593,20 @@ void PersistentBase<T>::Reset() {
   } else {
     JsRelease(val_, nullptr);
   }
+#endif
 
   val_ = nullptr;
 }
-#endif
 
 template <class T>
 template <class S>
 void PersistentBase<T>::Reset(Isolate* isolate, const Handle<S>& other) {
   TYPE_CHECK(T, S);
-  T* prev = val_;
-  this->val_ = nullptr;
+  Reset();
   if (other.IsEmpty()) {
-    PostWriteBarrier(prev, val_);
     return;
   }
-  this->val_ = other.val_;
-  PostWriteBarrier(prev, val_);
+  this->val_ = New(isolate, other.val_);
 }
 
 template <class T>
@@ -2622,14 +2614,11 @@ template <class S>
 void PersistentBase<T>::Reset(Isolate* isolate,
                               const PersistentBase<S>& other) {
   TYPE_CHECK(T, S);
-  T* prev = val_;
-  this->val_ = nullptr;
+  Reset();
   if (other.IsEmpty()) {
-    PostWriteBarrier(prev, val_);
     return;
   }
-  this->val_ = other.val_;
-  PostWriteBarrier(prev, val_);
+  this->val_ = New(isolate, other.val_);
 }
 
 template <class T>
@@ -2665,12 +2654,12 @@ void PersistentBase<T>::SetWeak(P* parameter,
   SetWeakCommon(parameter, reinterpret_cast<Callback>(callback));
 }
 
-#if 0
 template <class T>
 template <typename P>
 P* PersistentBase<T>::ClearWeak() {
   if (!IsWeak()) return nullptr;
 
+#if 0
   P* parameters = reinterpret_cast<P*>(_weakWrapper->parameters);
   if (_weakWrapper.unique()) {
     chakrashim::ClearObjectWeakReferenceCallback(val_, /*revive*/true);
@@ -2679,8 +2668,9 @@ P* PersistentBase<T>::ClearWeak() {
 
   JsAddRef(val_, nullptr);
   return parameters;
-}
 #endif
+  return nullptr;
+}
 
 template <class T>
 void PersistentBase<T>::MarkIndependent() {
