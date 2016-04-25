@@ -67,6 +67,23 @@ ArrayBuffer::GetContents()
   return contents;
 }
 
+Local<ArrayBuffer>
+ArrayBufferView::Buffer()
+{
+  Isolate* isolate = GetIsolate();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject view(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  bool shared;
+  JSObject* buf = JS_GetArrayBufferViewBuffer(cx, view, &shared);
+  if (!buf) {
+    return Local<ArrayBuffer>();
+  }
+
+  JS::Value bufVal;
+  bufVal.setObject(*buf);
+  return internal::Local<ArrayBuffer>::New(isolate, bufVal);
+}
+
 #define ES_BUILTIN(X, Y)
 #define COMMON_VALUE(X)
 #define TYPED_ARRAY(TYPE) \
