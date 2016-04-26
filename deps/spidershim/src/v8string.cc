@@ -79,9 +79,20 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                        v8::NewStringType type, int length) {
   assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-                        JS_NewStringCopyN(cx, data, length) :
-                        JS_NewStringCopyZ(cx, data));
+
+  // In V8's api.cc, this conditional block is annotated with the comment:
+  //    TODO(dcarney): throw a context free exception.
+  if (length > v8::String::kMaxLength) {
+    return MaybeLocal<String>();
+  }
+
+  if (length < 0) {
+    length = strlen(data);
+  }
+
+  size_t twoByteLen;
+  char16_t* twoByteChars = JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get();
+  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars, twoByteLen));
   if (!str) {
     return MaybeLocal<String>();
   }
