@@ -778,6 +778,24 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(time, Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf());
 }
 
+namespace {
+
+class TestExternalStringResource : public String::ExternalStringResource {
+  public:
+    TestExternalStringResource(const uint16_t* source, size_t length)
+        : data_(source), length_(length) {}
+    ~TestExternalStringResource() {
+      // XXX Check that we get called when the string is finalized.
+    }
+    const uint16_t* data() const override { return data_; }
+    size_t length() const override { return length_; }
+  private:
+    const uint16_t* data_;
+    size_t length_;
+};
+
+}  // namespace
+
 TEST(SpiderShim, String) {
   V8Engine engine;
 
@@ -857,6 +875,16 @@ TEST(SpiderShim, String) {
   String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
   EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(*utf16Data)));
   EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(*utf8Data)));
+
+  TestExternalStringResource* testResource =
+    new TestExternalStringResource(utf16Data, (sizeof(utf16Data)/sizeof(*utf16Data) - 1));
+  Local<String> externalStr = String::NewExternalTwoByte(engine.isolate(), testResource).ToLocalChecked();
+  EXPECT_EQ(5, externalStr->Length());
+  EXPECT_EQ(10, externalStr->Utf8Length());
+  String::Value externalVal(externalStr);
+  String::Utf8Value externalUtf8Val(externalStr);
+  EXPECT_EQ(0, memcmp(*externalVal, utf16Data, sizeof(*utf16Data)));
+  EXPECT_EQ(0, memcmp(*externalUtf8Val, utf8Data, sizeof(*utf8Data)));
 }
 
 TEST(SpiderShim, ToObject) {
