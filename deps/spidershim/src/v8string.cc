@@ -91,8 +91,9 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   }
 
   size_t twoByteLen;
-  char16_t* twoByteChars = JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get();
-  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars, twoByteLen));
+  JS::UniqueTwoByteChars twoByteChars(
+    JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get());
+  JS::RootedString str(cx, JS_NewUCStringCopyN(cx, twoByteChars.get(), twoByteLen));
   if (!str) {
     return MaybeLocal<String>();
   }
