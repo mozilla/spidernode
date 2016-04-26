@@ -22,6 +22,7 @@
 #include "include/v8.h"
 
 #include <memory>
+#include <string.h>
 
 using namespace v8;
 
