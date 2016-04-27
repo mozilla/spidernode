@@ -16,23 +16,23 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_TRUE(boolean->IsBoolean());
   EXPECT_FALSE(boolean->IsNumber());
   EXPECT_FALSE(boolean->IsBooleanObject());
-  EXPECT_EQ(boolean->IsTrue(), value);
-  EXPECT_EQ(boolean->IsFalse(), !value);
-  EXPECT_EQ(boolean->Value(), value);
+  EXPECT_EQ(value, boolean->IsTrue());
+  EXPECT_EQ(!value, boolean->IsFalse());
+  EXPECT_EQ(value, boolean->Value());
   String::Utf8Value utf8(boolean->ToString());
-  EXPECT_STREQ(*utf8, value ? "true" : "false");
-  EXPECT_EQ(boolean->ToBoolean()->Value(), value);
-  EXPECT_EQ(boolean->BooleanValue(), value);
-  EXPECT_EQ(boolean->ToNumber()->Value(), value ? 1.0 : 0.0);
-  EXPECT_EQ(boolean->NumberValue(), value ? 1.0 : 0.0);
-  EXPECT_EQ(boolean->ToInteger()->Value(), value ? 1 : 0);
-  EXPECT_EQ(boolean->IntegerValue(), value ? 1 : 0);
-  EXPECT_EQ(boolean->ToInt32()->Value(), value ? 1 : 0);
-  EXPECT_EQ(boolean->Int32Value(), value ? 1 : 0);
-  EXPECT_EQ(boolean->ToUint32()->Value(), value ? 1 : 0);
-  EXPECT_EQ(boolean->Uint32Value(), value ? 1 : 0);
+  EXPECT_STREQ(value ? "true" : "false", *utf8);
+  EXPECT_EQ(value, boolean->ToBoolean()->Value());
+  EXPECT_EQ(value, boolean->BooleanValue());
+  EXPECT_EQ(value ? 1.0 : 0.0, boolean->ToNumber()->Value());
+  EXPECT_EQ(value ? 1.0 : 0.0, boolean->NumberValue());
+  EXPECT_EQ(value ? 1 : 0, boolean->ToInteger()->Value());
+  EXPECT_EQ(value ? 1 : 0, boolean->IntegerValue());
+  EXPECT_EQ(value ? 1 : 0, boolean->ToInt32()->Value());
+  EXPECT_EQ(value ? 1 : 0, boolean->Int32Value());
+  EXPECT_EQ(value ? 1 : 0, boolean->ToUint32()->Value());
+  EXPECT_EQ(value ? 1 : 0, boolean->Uint32Value());
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
-  EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), value);
+  EXPECT_EQ(value, BooleanObject::Cast(*boolean->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, Boolean) {
@@ -53,21 +53,21 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   Local<Number> number = Number::New(isolate, value);
   EXPECT_TRUE(number->IsNumber());
   EXPECT_FALSE(number->IsBoolean());
-  EXPECT_EQ(number->Value(), double(value));
+  EXPECT_EQ(double(value), number->Value());
   String::Utf8Value utf8(number->ToString());
-  EXPECT_STREQ(*utf8, strValue);
-  EXPECT_EQ(number->ToBoolean()->Value(), !!value);
-  EXPECT_EQ(number->BooleanValue(), !!value);
-  EXPECT_EQ(number->ToNumber()->Value(), value);
-  EXPECT_EQ(number->NumberValue(), value);
-  EXPECT_EQ(number->ToInteger()->Value(), value < 0 ? ceil(value) : floor(value));
-  EXPECT_EQ(number->IntegerValue(), value < 0 ? ceil(value) : floor(value));
-  EXPECT_EQ(number->ToInt32()->Value(), value < 0 ? ceil(value) : floor(value));
-  EXPECT_EQ(number->Int32Value(), value < 0 ? ceil(value) : floor(value));
-  EXPECT_EQ(number->ToUint32()->Value(), value < 0 ? uint32_t(ceil(value)) : floor(value));
-  EXPECT_EQ(number->Uint32Value(), value < 0 ? uint32_t(ceil(value)) : floor(value));
+  EXPECT_STREQ(strValue, *utf8);
+  EXPECT_EQ(!!value, number->ToBoolean()->Value());
+  EXPECT_EQ(!!value, number->BooleanValue());
+  EXPECT_EQ(value, number->ToNumber()->Value());
+  EXPECT_EQ(value, number->NumberValue());
+  EXPECT_EQ(value < 0 ? ceil(value) : floor(value), number->ToInteger()->Value());
+  EXPECT_EQ(value < 0 ? ceil(value) : floor(value), number->IntegerValue());
+  EXPECT_EQ(value < 0 ? ceil(value) : floor(value), number->ToInt32()->Value());
+  EXPECT_EQ(value < 0 ? ceil(value) : floor(value), number->Int32Value());
+  EXPECT_EQ(value < 0 ? uint32_t(ceil(value)) : floor(value), number->ToUint32()->Value());
+  EXPECT_EQ(value < 0 ? uint32_t(ceil(value)) : floor(value), number->Uint32Value());
   EXPECT_TRUE(number->ToObject()->IsNumberObject());
-  EXPECT_EQ(NumberObject::Cast(*number->ToObject())->ValueOf(), value);
+  EXPECT_EQ(value, NumberObject::Cast(*number->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, Number) {
@@ -113,26 +113,26 @@ void TestInteger(Isolate* isolate, T value) {
   Local<Integer> integer = IntegerMaker<T>::New(isolate, value);
   EXPECT_TRUE(integer->IsNumber());
   EXPECT_FALSE(integer->IsBoolean());
-  EXPECT_EQ(integer->Value(), int64_t(value));
+  EXPECT_EQ(int64_t(value), integer->Value());
   typedef typename IntegerMaker<T>::IntType IntType;
   IntType* intVal = IntType::Cast(*integer);
-  EXPECT_EQ(intVal->Value(), value);
+  EXPECT_EQ(value, intVal->Value());
   String::Utf8Value utf8(intVal->ToString());
   char strValue[1024];
   sprintf(strValue, IntegerMaker<T>::formatString, value);
-  EXPECT_STREQ(*utf8, strValue);
-  EXPECT_EQ(intVal->ToBoolean()->Value(), !!value);
-  EXPECT_EQ(intVal->BooleanValue(), !!value);
-  EXPECT_EQ(intVal->ToNumber()->Value(), value);
-  EXPECT_EQ(intVal->NumberValue(), value);
-  EXPECT_EQ(intVal->ToInteger()->Value(), value);
-  EXPECT_EQ(intVal->IntegerValue(), value);
-  EXPECT_EQ(intVal->ToInt32()->Value(), value);
-  EXPECT_EQ(intVal->Int32Value(), value);
-  EXPECT_EQ(intVal->ToUint32()->Value(), value);
-  EXPECT_EQ(intVal->Uint32Value(), value);
+  EXPECT_STREQ(strValue, *utf8);
+  EXPECT_EQ(!!value, intVal->ToBoolean()->Value());
+  EXPECT_EQ(!!value, intVal->BooleanValue());
+  EXPECT_EQ(value, intVal->ToNumber()->Value());
+  EXPECT_EQ(value, intVal->NumberValue());
+  EXPECT_EQ(value, intVal->ToInteger()->Value());
+  EXPECT_EQ(value, intVal->IntegerValue());
+  EXPECT_EQ(value, intVal->ToInt32()->Value());
+  EXPECT_EQ(value, intVal->Int32Value());
+  EXPECT_EQ(value, intVal->ToUint32()->Value());
+  EXPECT_EQ(value, intVal->Uint32Value());
   EXPECT_TRUE(intVal->ToObject()->IsNumberObject());
-  EXPECT_EQ(NumberObject::Cast(*intVal->ToObject())->ValueOf(), value);
+  EXPECT_EQ(value, NumberObject::Cast(*intVal->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, Integer) {
@@ -207,8 +207,8 @@ TEST(SpiderShim, Object) {
   EXPECT_FALSE(object->Has(0));
   EXPECT_FALSE(object->Has(context, 0).FromJust());
 
-  EXPECT_EQ(object->ToBoolean()->Value(), true);
-  EXPECT_EQ(object->BooleanValue(), true);
+  EXPECT_EQ(true, object->ToBoolean()->Value());
+  EXPECT_EQ(true, object->BooleanValue());
 
   EXPECT_TRUE(object->Set(context, foo, zero).FromJust());
   EXPECT_TRUE(object->DefineOwnProperty(context, bar, one, ReadOnly).FromJust());
@@ -218,19 +218,19 @@ TEST(SpiderShim, Object) {
 
   Local<String> str = object->ToString();
   String::Utf8Value utf8(str);
-  EXPECT_STREQ(*utf8, "[object Object]");
-  EXPECT_EQ(object->ToBoolean()->Value(), true);
-  EXPECT_EQ(object->BooleanValue(), true);
+  EXPECT_STREQ("[object Object]", *utf8);
+  EXPECT_EQ(true, object->ToBoolean()->Value());
+  EXPECT_EQ(true, object->BooleanValue());
   EXPECT_TRUE(object->ToNumber(context).IsEmpty());
   EXPECT_TRUE(object->NumberValue(context).IsNothing());
   EXPECT_NE(object->NumberValue(), object->NumberValue()); // NaN
   EXPECT_TRUE(object->ToInteger(context).IsEmpty());
   EXPECT_TRUE(object->IntegerValue(context).IsNothing());
-  EXPECT_EQ(object->ToInt32()->Value(), 0);
-  EXPECT_EQ(object->Int32Value(), 0);
-  EXPECT_EQ(object->ToUint32()->Value(), 0);
-  EXPECT_EQ(object->Uint32Value(), 0);
-  EXPECT_EQ(object->IntegerValue(), 0);
+  EXPECT_EQ(0, object->ToInt32()->Value());
+  EXPECT_EQ(0, object->Int32Value());
+  EXPECT_EQ(0, object->ToUint32()->Value());
+  EXPECT_EQ(0, object->Uint32Value());
+  EXPECT_EQ(0, object->IntegerValue());
   EXPECT_TRUE(object->ToObject()->IsObject());
   EXPECT_TRUE(Object::Cast(*object->ToObject())->Has(foo));
 
@@ -249,109 +249,109 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> fooVal = object->Get(context, foo);
     EXPECT_FALSE(fooVal.IsEmpty());
     Integer* intVal = Integer::Cast(*fooVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
   }
   {
     Local<Value> fooVal = object->Get(foo);
     Integer* intVal = Integer::Cast(*fooVal);
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
   }
 
   {
     MaybeLocal<Value> barVal = object->Get(context, bar);
     EXPECT_FALSE(barVal.IsEmpty());
     Integer* intVal = Integer::Cast(*barVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
   }
   {
     Local<Value> barVal = object->Get(bar);
     Integer* intVal = Integer::Cast(*barVal);
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
   }
 
   {
     MaybeLocal<Value> bazVal = object->Get(context, baz);
     EXPECT_FALSE(bazVal.IsEmpty());
     String::Utf8Value utf8(bazVal.ToLocalChecked());
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
   }
   {
     Local<Value> bazVal = object->Get(baz);
     String::Utf8Value utf8(bazVal);
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
   }
 
   {
     MaybeLocal<Value> oneVal = object->Get(context, 1);
     EXPECT_FALSE(oneVal.IsEmpty());
     Integer* intVal = Integer::Cast(*oneVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
   }
   {
     Local<Value> oneVal = object->Get(1);
     Integer* intVal = Integer::Cast(*oneVal);
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
   }
 
   {
     MaybeLocal<Value> zeroVal = object->Get(context, 0);
     EXPECT_FALSE(zeroVal.IsEmpty());
     String::Utf8Value utf8(zeroVal.ToLocalChecked());
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
   }
   {
     Local<Value> zeroVal = object->Get(0);
     String::Utf8Value utf8(zeroVal);
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
   }
 
   {
     Maybe<PropertyAttribute> attributes =
       object->GetPropertyAttributes(context, foo);
     EXPECT_TRUE(attributes.IsJust());
-    EXPECT_EQ(attributes.FromJust(), None);
+    EXPECT_EQ(None, attributes.FromJust());
   }
   {
     PropertyAttribute attributes = object->GetPropertyAttributes(foo);
-    EXPECT_EQ(attributes, None);
+    EXPECT_EQ(None, attributes);
   }
 
   {
     Maybe<PropertyAttribute> attributes =
       object->GetPropertyAttributes(context, bar);
     EXPECT_TRUE(attributes.IsJust());
-    EXPECT_EQ(attributes.FromJust(), ReadOnly);
+    EXPECT_EQ(ReadOnly, attributes.FromJust());
   }
   {
     PropertyAttribute attributes = object->GetPropertyAttributes(bar);
-    EXPECT_EQ(attributes, ReadOnly);
+    EXPECT_EQ(ReadOnly, attributes);
   }
 
   {
     Maybe<PropertyAttribute> attributes =
       object->GetPropertyAttributes(context, baz);
     EXPECT_TRUE(attributes.IsJust());
-    EXPECT_EQ(attributes.FromJust(), DontEnum | DontDelete);
+    EXPECT_EQ(DontEnum | DontDelete, attributes.FromJust());
   }
   {
     PropertyAttribute attributes = object->GetPropertyAttributes(baz);
-    EXPECT_EQ(attributes, DontEnum | DontDelete);
+    EXPECT_EQ(DontEnum | DontDelete, attributes);
   }
 
   auto CheckPropertyDescriptor = [&](Object* desc, bool readonly, bool enum_, bool config) {
     Local<Value> writableVal = desc->Get(writable);
     Boolean* boolVal = Boolean::Cast(*writableVal);
-    EXPECT_EQ(boolVal->Value(), !readonly);
+    EXPECT_EQ(!readonly, boolVal->Value());
     Local<Value> getVal = desc->Get(get);
     EXPECT_TRUE(getVal->IsUndefined());
     Local<Value> setVal = desc->Get(set);
     EXPECT_TRUE(setVal->IsUndefined());
     Local<Value> configurableVal = desc->Get(configurable);
     boolVal = Boolean::Cast(*configurableVal);
-    EXPECT_EQ(boolVal->Value(), config);
+    EXPECT_EQ(config, boolVal->Value());
     Local<Value> enumerableVal = desc->Get(enumerable);
     boolVal = Boolean::Cast(*enumerableVal);
-    EXPECT_EQ(boolVal->Value(), enum_);
+    EXPECT_EQ(enum_, boolVal->Value());
   };
 
   {
@@ -361,7 +361,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
     Local<Value> valueVal = desc->Get(value);
     Integer* intVal = Integer::Cast(*valueVal);
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
     CheckPropertyDescriptor(desc, false, true, true);
   }
   {
@@ -370,7 +370,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*descVal);
     Local<Value> valueVal = desc->Get(value);
     Integer* intVal = Integer::Cast(*valueVal);
-    EXPECT_EQ(intVal->Value(), 0);
+    EXPECT_EQ(0, intVal->Value());
     CheckPropertyDescriptor(desc, false, true, true);
   }
 
@@ -381,7 +381,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
     Local<Value> valueVal = desc->Get(value);
     Integer* intVal = Integer::Cast(*valueVal);
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
     CheckPropertyDescriptor(desc, true, true, true);
   }
   {
@@ -390,7 +390,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*descVal);
     Local<Value> valueVal = desc->Get(value);
     Integer* intVal = Integer::Cast(*valueVal);
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
     CheckPropertyDescriptor(desc, true, true, true);
   }
 
@@ -401,7 +401,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*maybeDesc.ToLocalChecked());
     Local<Value> valueVal = desc->Get(value);
     String::Utf8Value utf8(valueVal);
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
     CheckPropertyDescriptor(desc, false, false, false);
   }
   {
@@ -410,7 +410,7 @@ TEST(SpiderShim, Object) {
     Object* desc = Object::Cast(*descVal);
     Local<Value> valueVal = desc->Get(value);
     String::Utf8Value utf8(valueVal);
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
     CheckPropertyDescriptor(desc, false, false, false);
   }
 
@@ -421,7 +421,7 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> barVal = object->Get(context, bar);
     EXPECT_FALSE(barVal.IsEmpty());
     Integer* intVal = Integer::Cast(*barVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
   }
   // Now try ForceSet and verify that the value and the PropertyAttribute change.
   EXPECT_TRUE(object->ForceSet(context, bar, two, DontDelete).FromJust());
@@ -429,20 +429,20 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> barVal = object->Get(context, bar);
     EXPECT_FALSE(barVal.IsEmpty());
     String::Utf8Value utf8(barVal.ToLocalChecked());
-    EXPECT_STREQ(*utf8, "two");
+    EXPECT_STREQ("two", *utf8);
   }
   {
     Maybe<PropertyAttribute> attributes =
       object->GetPropertyAttributes(context, bar);
     EXPECT_TRUE(attributes.IsJust());
-    EXPECT_EQ(attributes.FromJust(), DontDelete);
+    EXPECT_EQ(DontDelete, attributes.FromJust());
   }
   EXPECT_TRUE(object->ForceSet(bar, two, PropertyAttribute(DontDelete | ReadOnly)));
   {
     Maybe<PropertyAttribute> attributes =
       object->GetPropertyAttributes(context, bar);
     EXPECT_TRUE(attributes.IsJust());
-    EXPECT_EQ(attributes.FromJust(), DontDelete | ReadOnly);
+    EXPECT_EQ(DontDelete | ReadOnly, attributes.FromJust());
   }
 
   EXPECT_TRUE(object->Delete(foo));
@@ -474,7 +474,7 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> quxVal = object->Get(context, qux);
     EXPECT_FALSE(quxVal.IsEmpty());
     Integer* intVal = Integer::Cast(*quxVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
   }
   Local<Object> newProto = Object::New(engine.isolate());
   EXPECT_TRUE(newProto->Set(context, foo, one).FromJust());
@@ -485,7 +485,7 @@ TEST(SpiderShim, Object) {
     MaybeLocal<Value> fooVal = object->Get(context, foo);
     EXPECT_FALSE(fooVal.IsEmpty());
     Integer* intVal = Integer::Cast(*fooVal.ToLocalChecked());
-    EXPECT_EQ(intVal->Value(), 1);
+    EXPECT_EQ(1, intVal->Value());
   }
 
   Local<Object> clone = object->Clone();
@@ -545,7 +545,7 @@ TEST(SpiderShim, ObjectPropertyEnumeration) {
       "result[3] = x;"
       "result;");
   Array* elms = Array::Cast(*obj);
-  EXPECT_EQ(elms->Length(), 4);
+  EXPECT_EQ(4, elms->Length());
   int elmc0 = 0;
   const char** elmv0 = NULL;
   CheckProperties(
@@ -600,37 +600,37 @@ TEST(SpiderShim, Array) {
   Context::Scope context_scope(context);
 
   Local<Array> array = Array::New(engine.isolate(), 10);
-  EXPECT_EQ(*array, Array::Cast(*array));
-  EXPECT_EQ(array->Length(), 10);
+  EXPECT_EQ(Array::Cast(*array), *array);
+  EXPECT_EQ(10, array->Length());
   for (int i = 0; i < 10; ++i) {
     MaybeLocal<Value> val = array->Get(context, i);
     EXPECT_TRUE(val.ToLocalChecked()->IsUndefined());
     EXPECT_TRUE(array->Set(context, i, Integer::New(engine.isolate(), i * i)).FromJust());
     val = array->Get(context, i);
-    EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), i * i);
+    EXPECT_EQ(i * i, Integer::Cast(*val.ToLocalChecked())->Value());
   }
   EXPECT_TRUE(array->Set(context, 14, Integer::New(engine.isolate(), 42)).FromJust());
   MaybeLocal<Value> val = array->Get(context, 14);
-  EXPECT_EQ(Integer::Cast(*val.ToLocalChecked())->Value(), 42);
-  EXPECT_EQ(array->Length(), 15);
+  EXPECT_EQ(42, Integer::Cast(*val.ToLocalChecked())->Value());
+  EXPECT_EQ(15, array->Length());
 
   Local<String> str = array->ToString();
   String::Utf8Value utf8(str);
-  EXPECT_STREQ(*utf8, "0,1,4,9,16,25,36,49,64,81,,,,,42");
-  EXPECT_EQ(array->ToBoolean()->Value(), true);
-  EXPECT_EQ(array->BooleanValue(), true);
+  EXPECT_STREQ("0,1,4,9,16,25,36,49,64,81,,,,,42", *utf8);
+  EXPECT_EQ(true, array->ToBoolean()->Value());
+  EXPECT_EQ(true, array->BooleanValue());
   EXPECT_TRUE(array->ToNumber(context).IsEmpty());
   EXPECT_TRUE(array->NumberValue(context).IsNothing());
   EXPECT_NE(array->NumberValue(), array->NumberValue()); // NaN
   EXPECT_TRUE(array->ToInteger(context).IsEmpty());
   EXPECT_TRUE(array->IntegerValue(context).IsNothing());
-  EXPECT_EQ(array->ToInt32()->Value(), 0);
-  EXPECT_EQ(array->Int32Value(), 0);
-  EXPECT_EQ(array->ToUint32()->Value(), 0);
-  EXPECT_EQ(array->Uint32Value(), 0);
-  EXPECT_EQ(array->IntegerValue(), 0);
+  EXPECT_EQ(0, array->ToInt32()->Value());
+  EXPECT_EQ(0, array->Int32Value());
+  EXPECT_EQ(0, array->ToUint32()->Value());
+  EXPECT_EQ(0, array->Uint32Value());
+  EXPECT_EQ(0, array->IntegerValue());
   EXPECT_TRUE(array->ToObject()->IsObject());
-  EXPECT_EQ(Object::Cast(*array->ToObject())->Get(2)->ToInteger()->Value(), 4);
+  EXPECT_EQ(4, Object::Cast(*array->ToObject())->Get(2)->ToInteger()->Value());
 }
 
 TEST(SpiderShim, BooleanObject) {
@@ -643,25 +643,25 @@ TEST(SpiderShim, BooleanObject) {
   Context::Scope context_scope(context);
 
   Local<Value> boolean = BooleanObject::New(true);
-  EXPECT_EQ(*boolean, BooleanObject::Cast(*boolean));
+  EXPECT_EQ(BooleanObject::Cast(*boolean), *boolean);
   EXPECT_TRUE(boolean->IsBooleanObject());
   EXPECT_TRUE(BooleanObject::Cast(*boolean)->ValueOf());
 
   Local<String> str = boolean->ToString();
   String::Utf8Value utf8(str);
-  EXPECT_STREQ(*utf8, "true");
-  EXPECT_EQ(boolean->ToBoolean()->Value(), true);
-  EXPECT_EQ(boolean->BooleanValue(), true);
-  EXPECT_EQ(boolean->ToNumber()->Value(), 1.0);
-  EXPECT_EQ(boolean->NumberValue(), 1.0);
-  EXPECT_EQ(boolean->ToInteger()->Value(), 1);
-  EXPECT_EQ(boolean->IntegerValue(), 1);
-  EXPECT_EQ(boolean->ToInt32()->Value(), 1);
-  EXPECT_EQ(boolean->Int32Value(), 1);
-  EXPECT_EQ(boolean->ToUint32()->Value(), 1);
-  EXPECT_EQ(boolean->Uint32Value(), 1);
+  EXPECT_STREQ("true", *utf8);
+  EXPECT_EQ(true, boolean->ToBoolean()->Value());
+  EXPECT_EQ(true, boolean->BooleanValue());
+  EXPECT_EQ(1.0, boolean->ToNumber()->Value());
+  EXPECT_EQ(1.0, boolean->NumberValue());
+  EXPECT_EQ(1, boolean->ToInteger()->Value());
+  EXPECT_EQ(1, boolean->IntegerValue());
+  EXPECT_EQ(1, boolean->ToInt32()->Value());
+  EXPECT_EQ(1, boolean->Int32Value());
+  EXPECT_EQ(1, boolean->ToUint32()->Value());
+  EXPECT_EQ(1, boolean->Uint32Value());
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
-  EXPECT_EQ(BooleanObject::Cast(*boolean->ToObject())->ValueOf(), true);
+  EXPECT_EQ(true, BooleanObject::Cast(*boolean->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, NumberObject) {
@@ -674,15 +674,15 @@ TEST(SpiderShim, NumberObject) {
   Context::Scope context_scope(context);
 
   Local<Value> num = NumberObject::New(engine.isolate(), 42);
-  EXPECT_EQ(*num, NumberObject::Cast(*num));
+  EXPECT_EQ(NumberObject::Cast(*num), *num);
   EXPECT_TRUE(num->IsNumberObject());
-  EXPECT_EQ(NumberObject::Cast(*num)->ValueOf(), 42);
+  EXPECT_EQ(42, NumberObject::Cast(*num)->ValueOf());
 
   Local<String> str = num->ToString();
   String::Utf8Value utf8(str);
-  EXPECT_STREQ(*utf8, "42");
-  EXPECT_EQ(num->ToBoolean()->Value(), true);
-  EXPECT_EQ(num->BooleanValue(), true);
+  EXPECT_STREQ("42", *utf8);
+  EXPECT_EQ(true, num->ToBoolean()->Value());
+  EXPECT_EQ(true, num->BooleanValue());
   EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
   EXPECT_DOUBLE_EQ(num->NumberValue(), 42.0);
   EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42);
@@ -692,7 +692,7 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_DOUBLE_EQ(num->ToUint32()->Value(), 42);
   EXPECT_DOUBLE_EQ(num->Uint32Value(), 42);
   EXPECT_TRUE(num->ToObject()->IsNumberObject());
-  EXPECT_EQ(NumberObject::Cast(*num->ToObject())->ValueOf(), 42.0);
+  EXPECT_EQ(42.0, NumberObject::Cast(*num->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, StringObject) {
@@ -708,28 +708,28 @@ TEST(SpiderShim, StringObject) {
     String::NewFromUtf8(engine.isolate(), "foobar", NewStringType::kNormal).
       ToLocalChecked();
   Local<Value> str = StringObject::New(foobar);
-  EXPECT_EQ(*str, StringObject::Cast(*str));
+  EXPECT_EQ(StringObject::Cast(*str), *str);
   EXPECT_TRUE(str->IsStringObject());
   String::Utf8Value utf8(StringObject::Cast(*str)->ValueOf());
-  EXPECT_STREQ(*utf8, "foobar");
+  EXPECT_STREQ("foobar", *utf8);
 
   Local<String> str_2 = str->ToString();
   String::Utf8Value utf8_2(str_2);
-  EXPECT_STREQ(*utf8_2, "foobar");
-  EXPECT_EQ(str->ToBoolean()->Value(), true);
-  EXPECT_EQ(str->BooleanValue(), true);
+  EXPECT_STREQ("foobar", *utf8_2);
+  EXPECT_EQ(true, str->ToBoolean()->Value());
+  EXPECT_EQ(true, str->BooleanValue());
   EXPECT_TRUE(str->ToNumber(context).IsEmpty());
   EXPECT_TRUE(str->NumberValue(context).IsNothing());
   EXPECT_NE(str->NumberValue(), str->NumberValue()); // NaN
   EXPECT_TRUE(str->ToInteger(context).IsEmpty());
   EXPECT_TRUE(str->IntegerValue(context).IsNothing());
-  EXPECT_EQ(str->IntegerValue(), 0);
-  EXPECT_EQ(str->ToInt32()->Value(), 0);
-  EXPECT_EQ(str->Int32Value(), 0);
-  EXPECT_EQ(str->ToUint32()->Value(), 0);
-  EXPECT_EQ(str->Uint32Value(), 0);
+  EXPECT_EQ(0, str->IntegerValue());
+  EXPECT_EQ(0, str->ToInt32()->Value());
+  EXPECT_EQ(0, str->Int32Value());
+  EXPECT_EQ(0, str->ToUint32()->Value());
+  EXPECT_EQ(0, str->Uint32Value());
   EXPECT_TRUE(str->ToObject()->IsStringObject());
-  EXPECT_EQ(StringObject::Cast(*str->ToObject())->ValueOf()->Length(), 6);
+  EXPECT_EQ(6, StringObject::Cast(*str->ToObject())->ValueOf()->Length());
 }
 
 TEST(SpiderShim, Date) {
@@ -744,9 +744,9 @@ TEST(SpiderShim, Date) {
   const double time = 1224744689038.0;
   MaybeLocal<Value> date = Date::New(context, time);
   EXPECT_FALSE(date.IsEmpty());
-  EXPECT_EQ(*date.ToLocalChecked(), Date::Cast(*date.ToLocalChecked()));
+  EXPECT_EQ(Date::Cast(*date.ToLocalChecked()), *date.ToLocalChecked());
   EXPECT_TRUE(date.ToLocalChecked()->IsDate());
-  EXPECT_EQ(Date::Cast(*date.ToLocalChecked())->ValueOf(), time);
+  EXPECT_EQ(time, Date::Cast(*date.ToLocalChecked())->ValueOf());
 
   Local<String> str = date.ToLocalChecked()->ToString();
   String::Utf8Value utf8(str);
@@ -764,18 +764,18 @@ TEST(SpiderShim, Date) {
   for (auto& o : offsets) {
     EXPECT_EQ(0, strncmp(*utf8 + o.begin, datePortion + o.begin, o.length));
   }
-  EXPECT_EQ(date.ToLocalChecked()->ToBoolean()->Value(), true);
-  EXPECT_EQ(date.ToLocalChecked()->BooleanValue(), true);
+  EXPECT_EQ(true, date.ToLocalChecked()->ToBoolean()->Value());
+  EXPECT_EQ(true, date.ToLocalChecked()->BooleanValue());
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
   EXPECT_DOUBLE_EQ(date.ToLocalChecked()->NumberValue(), time);
-  EXPECT_EQ(date.ToLocalChecked()->ToInteger()->Value(), time);
-  EXPECT_EQ(date.ToLocalChecked()->IntegerValue(), time);
-  EXPECT_EQ(date.ToLocalChecked()->ToInt32()->Value(), uint64_t(time) & 0xffffffff);
-  EXPECT_EQ(date.ToLocalChecked()->Int32Value(), uint64_t(time) & 0xffffffff);
-  EXPECT_EQ(date.ToLocalChecked()->ToUint32()->Value(), uint64_t(time) & 0xffffffff);
-  EXPECT_EQ(date.ToLocalChecked()->Uint32Value(), uint64_t(time) & 0xffffffff);
+  EXPECT_EQ(time, date.ToLocalChecked()->ToInteger()->Value());
+  EXPECT_EQ(time, date.ToLocalChecked()->IntegerValue());
+  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->ToInt32()->Value());
+  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->Int32Value());
+  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->ToUint32()->Value());
+  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->Uint32Value());
   EXPECT_TRUE(date.ToLocalChecked()->ToObject()->IsDate());
-  EXPECT_EQ(Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf(), time);
+  EXPECT_EQ(time, Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf());
 }
 
 TEST(SpiderShim, String) {
@@ -793,18 +793,18 @@ TEST(SpiderShim, String) {
   Local<String> baz =
     String::NewFromUtf8(engine.isolate(), "baz", NewStringType::kNormal).
       ToLocalChecked();
-  EXPECT_EQ(foobar->Length(), 6);
-  EXPECT_EQ(foobar->Utf8Length(), 6);
-  EXPECT_EQ(String::Empty(engine.isolate())->Length(), 0);
+  EXPECT_EQ(6, foobar->Length());
+  EXPECT_EQ(6, foobar->Utf8Length());
+  EXPECT_EQ(0, String::Empty(engine.isolate())->Length());
   String::Utf8Value utf8(foobar);
-  EXPECT_STREQ(*utf8, "foobar");
+  EXPECT_STREQ("foobar", *utf8);
   String::Value twobytes(foobar);
   EXPECT_EQ(0, memcmp(*twobytes, u"foobar", sizeof(u"foobar")));
   Local<String> concat = String::Concat(foobar, baz);
   String::Utf8Value utf8Concat(concat);
-  EXPECT_STREQ(*utf8Concat, "foobarbaz");
+  EXPECT_STREQ("foobarbaz", *utf8Concat);
   EXPECT_TRUE(foobar->ToObject()->IsStringObject());
-  EXPECT_EQ(StringObject::Cast(*foobar->ToObject())->ValueOf()->Length(), 6);
+  EXPECT_EQ(6, StringObject::Cast(*foobar->ToObject())->ValueOf()->Length());
 
   const uint8_t asciiData[] = { 0x4F, 0x68, 0x61, 0x69, 0x00 }; // "Ohai"
 
@@ -936,14 +936,14 @@ TEST(SpiderShim, ArrayBuffer) {
 
   Local<ArrayBuffer> arr = ArrayBuffer::New(isolate, 0);
   EXPECT_TRUE(arr->IsArrayBuffer());
-  EXPECT_EQ(arr->ByteLength(), 0);
+  EXPECT_EQ(0, arr->ByteLength());
   ArrayBuffer::Contents contents = arr->GetContents();
-  EXPECT_EQ(contents.ByteLength(), 0);
+  EXPECT_EQ(0, contents.ByteLength());
   Local<ArrayBuffer> arr2 = ArrayBuffer::New(isolate, 2);
   EXPECT_TRUE(arr2->IsArrayBuffer());
-  EXPECT_EQ(arr2->ByteLength(), 2);
+  EXPECT_EQ(2, arr2->ByteLength());
   contents = arr2->GetContents();
-  EXPECT_EQ(contents.ByteLength(), 2);
+  EXPECT_EQ(2, contents.ByteLength());
 }
 
 TEST(SpiderShim, Function) {
