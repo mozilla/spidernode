@@ -303,6 +303,7 @@ class Local {
   template <class F> friend class MaybeLocal;
   template <class F> friend class PersistentBase;
   template <class F, class M> friend class Persistent;
+  template <class F> friend class Eternal;
   template <class F> friend class Local;
   template <class F> friend class internal::Local;
   friend V8_EXPORT Local<Primitive> Undefined(Isolate* isolate);
@@ -675,24 +676,21 @@ class Global : public PersistentBase<T> {
 
 
 template <class T>
-class Eternal : private Persistent<T> {
+class Eternal {
  public:
-  Eternal() {}
+  Eternal() : val_(nullptr) {}
 
   template<class S>
-  Eternal(Isolate* isolate, Local<S> handle) {
+  Eternal(Isolate* isolate, Local<S> handle) : val_(nullptr) {
     Set(isolate, handle);
   }
 
-  Local<T> Get(Isolate* isolate) {
-    return Local<T>::New(isolate, *this);
-  }
+  V8_INLINE Local<T> Get(Isolate* isolate);
+  V8_INLINE bool IsEmpty() { return !val_; }
+  template<class S> V8_INLINE void Set(Isolate* isolate, Local<S> handle);
 
-  template<class S> void Set(Isolate* isolate, Local<S> handle) {
-#if 0
-    Reset(isolate, handle);
-#endif
-  }
+private:
+  T* val_;
 };
 
 // The SpiderMonkey Rooting API works by creating a bunch of Rooted objects on
@@ -2247,19 +2245,31 @@ private:
   friend class ::V8Engine;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
   template <class T> friend class PersistentBase;
+  template <class T> friend class Eternal;
 
   Value* AddPersistent(Value* val);
   void RemovePersistent(Value* val);
   Private* AddPersistent(Private* val); // not supported yet
   void RemovePersistent(Private* val);  // not supported yet
-  Context* AddPersistent(Context* val); // not supported yet
-  void RemovePersistent(Context* val);  // not supported yet
+  Context* AddPersistent(Context* val) {
+    // Contexts are not currently tracked by HandleScopes.
+    return val;
+  }
+  void RemovePersistent(Context* val) {
+    // Contexts are not currently tracked by HandleScopes.
+  }
   Template* AddPersistent(Template* val); // not supported yet
   void RemovePersistent(Template* val);   // not supported yet
   UnboundScript* AddPersistent(UnboundScript* val); // not supported yet
   void RemovePersistent(UnboundScript* val);        // not supported yet
 
   size_t PersistentCount() const;
+
+  Value* AddEternal(Value* val);
+  Private* AddEternal(Private* val);             // not supported yet
+  Context* AddEternal(Context* val);             // not supported yet
+  Template* AddEternal(Template* val);           // not supported yet
+  UnboundScript* AddEternal(UnboundScript* val); // not supported yet
 
   JSRuntime* Runtime() const;
 
@@ -2678,6 +2688,20 @@ void PersistentBase<T>::MarkIndependent() {
 
 template <class T>
 void PersistentBase<T>::SetWrapperClassId(uint16_t class_id) {
+}
+
+template <class T>
+template <class S>
+void Eternal<T>::Set(Isolate* isolate, Local<S> handle) {
+  TYPE_CHECK(T, S);
+  assert(!val_);
+  val_ = static_cast<T*>(isolate->AddEternal(*handle));
+}
+
+template <class T>
+Local<T> Eternal<T>::Get(Isolate* isolate) {
+  assert(val_);
+  return Local<T>(val_);
 }
 
 template <class T>

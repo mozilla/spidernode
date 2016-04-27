@@ -15,7 +15,7 @@ before_script:
   - ./configure --debug --engine=spidermonkey
 script:
   - make V= -k || make V= -k || true
-  - for test in ./out/{Debug,Release}/{hello-world,persistent,value}; do "$test"; done
+  - for test in ./out/{Debug,Release}/{hello-world,persistent,value}; do if ! "$test"; then exit 1; fi; done
 branches:
   only:
     - master

@@ -188,3 +188,22 @@ TEST(SpiderShim, Global) {
   EXPECT_EQ(initial_handle_count, engine.GlobalHandleCount());
   global.Reset();
 }
+
+TEST(SpiderShim, Eternal) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = Isolate::GetCurrent();
+
+  Eternal<String> eternal;
+  EXPECT_TRUE(eternal.IsEmpty());
+  eternal.Set(isolate, v8_str("foobar"));
+  EXPECT_EQ(6, eternal.Get(isolate)->Length());
+  Eternal<String> eternal2(isolate, v8_str("baz"));
+  EXPECT_FALSE(eternal2.IsEmpty());
+  EXPECT_EQ(3, eternal2.Get(isolate)->Length());
+}

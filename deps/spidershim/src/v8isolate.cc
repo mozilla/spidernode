@@ -58,12 +58,20 @@ struct Isolate::Impl {
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
   mozilla::Maybe<internal::RootStore> persistents;
+  mozilla::Maybe<internal::RootStore> eternals;
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
       persistents.emplace(iso);
     }
     return *persistents;
+  }
+
+  internal::RootStore& EnsureEternals(Isolate* iso) {
+    if (!eternals) {
+      eternals.emplace(iso);
+    }
+    return *eternals;
   }
 
   static void ErrorReporter(JSContext* cx, const char* message,
@@ -144,6 +152,7 @@ void Isolate::Exit() {
 
 void Isolate::Dispose() {
   pimpl_->persistents.reset();
+  pimpl_->eternals.reset();
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
@@ -193,6 +202,10 @@ size_t Isolate::PersistentCount() const {
     return 0;
   }
   return pimpl_->persistents->RootedCount();
+}
+
+Value* Isolate::AddEternal(Value* val) {
+  return pimpl_->EnsureEternals(this).Add(val);
 }
 
 }
