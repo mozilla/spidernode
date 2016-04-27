@@ -27,6 +27,13 @@
 
 namespace v8 {
 
+ArrayBuffer*
+ArrayBuffer::Cast(Value* val)
+{
+  assert(val->IsArrayBuffer());
+  return static_cast<ArrayBuffer*>(val);
+}
+
 Local<ArrayBuffer>
 ArrayBuffer::New(Isolate* isolate, size_t size)
 {
@@ -59,4 +66,73 @@ ArrayBuffer::GetContents()
   contents.byte_length_ = length;
   return contents;
 }
+
+Local<ArrayBuffer>
+ArrayBufferView::Buffer()
+{
+  Isolate* isolate = GetIsolate();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject view(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  bool shared;
+  JSObject* buf = JS_GetArrayBufferViewBuffer(cx, view, &shared);
+  if (!buf) {
+    return Local<ArrayBuffer>();
+  }
+
+  JS::Value bufVal;
+  bufVal.setObject(*buf);
+  return internal::Local<ArrayBuffer>::New(isolate, bufVal);
+}
+
+size_t
+ArrayBufferView::ByteOffset()
+{
+  JSObject* view = &reinterpret_cast<JS::Value*>(this)->toObject();
+  if (JS_IsTypedArrayObject(view)) {
+    return JS_GetTypedArrayByteOffset(view);
+  }
+
+  return JS_GetDataViewByteOffset(view);
+}
+
+size_t
+ArrayBufferView::ByteLength()
+{
+  JSObject* view = &reinterpret_cast<JS::Value*>(this)->toObject();
+  if (JS_IsTypedArrayObject(view)) {
+    return JS_GetTypedArrayByteLength(view);
+  }
+
+  return JS_GetDataViewByteLength(view);
+}
+
+#define ES_BUILTIN(X, Y)
+#define COMMON_VALUE(X)
+#define TYPED_ARRAY(TYPE) \
+  Local<TYPE ## Array> \
+  TYPE ## Array::New(Handle<ArrayBuffer> buffer, size_t offset, size_t length) \
+  { \
+    Isolate* isolate = buffer->GetIsolate(); \
+    JSContext* cx = JSContextFromIsolate(isolate); \
+    JS::RootedObject buf(cx, &reinterpret_cast<JS::Value*>(*buffer)->toObject()); \
+    JSObject* array = JS_New ## TYPE ## ArrayWithBuffer(cx, buf, offset, length); \
+    if (!array) { \
+      return Local<TYPE ## Array>(); \
+    } \
+    JS::Value arrayVal; \
+    arrayVal.setObject(*array); \
+    return internal::Local<TYPE ## Array>::New(isolate, arrayVal); \
+  } \
+\
+  TYPE ## Array* \
+  TYPE ## Array::Cast(Value* v) \
+  { \
+    assert(v->Is ## TYPE ## Array()); \
+    return static_cast<TYPE ## Array*>(v); \
+  }
+
+#include "valuemap.inc"
+#undef TYPED_ARRAY
+#undef ES_BUILTIN
+#undef COMMON_VALUE
 }
