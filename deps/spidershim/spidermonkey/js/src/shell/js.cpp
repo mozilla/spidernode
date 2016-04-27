@@ -4982,7 +4982,13 @@ class ShellAutoEntryMonitor : JS::dbg::AutoEntryMonitor {
         RootedString displayId(cx, JS_GetFunctionDisplayId(function));
         if (displayId) {
             UniqueChars displayIdStr(JS_EncodeStringToUTF8(cx, displayId));
-            oom = !displayIdStr || !log.append(mozilla::Move(displayIdStr));
+            if (!displayIdStr) {
+                // We report OOM in buildResult.
+                cx->recoverFromOutOfMemory();
+                oom = true;
+                return;
+            }
+            oom = !log.append(mozilla::Move(displayIdStr));
             return;
         }
 
@@ -7127,7 +7133,7 @@ PreInit()
 {
 #ifdef XP_WIN
     const char* crash_option = getenv("XRE_NO_WINDOWS_CRASH_DIALOG");
-    if (crash_option && strncmp(crash_option, "1", 1)) {
+    if (crash_option && crash_option[0] == '1') {
         // Disable the segfault dialog. We want to fail the tests immediately
         // instead of hanging automation.
         UINT newMode = SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX;
