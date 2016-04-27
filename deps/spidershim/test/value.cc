@@ -994,27 +994,27 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
   Context::Scope context_scope(context);
   Isolate* isolate = engine.isolate();
 
-  Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(isolate, 1024);
+  Local<ArrayBuffer> buffer = ArrayBuffer::New(isolate, 1024);
 
-  Local<v8::Uint8Array> u8a =
+  Local<Uint8Array> u8a =
       CreateAndCheck<Uint8Array, 1>(buffer, 1, 1023);
-  Local<v8::Uint8ClampedArray> u8c =
+  Local<Uint8ClampedArray> u8c =
       CreateAndCheck<Uint8ClampedArray, 1>(buffer, 1, 1023);
-  Local<v8::Int8Array> i8a =
+  Local<Int8Array> i8a =
       CreateAndCheck<Int8Array, 1>(buffer, 1, 1023);
 
-  Local<v8::Uint16Array> u16a =
+  Local<Uint16Array> u16a =
       CreateAndCheck<Uint16Array, 2>(buffer, 2, 511);
-  Local<v8::Int16Array> i16a =
+  Local<Int16Array> i16a =
       CreateAndCheck<Int16Array, 2>(buffer, 2, 511);
 
-  Local<v8::Uint32Array> u32a =
+  Local<Uint32Array> u32a =
       CreateAndCheck<Uint32Array, 4>(buffer, 4, 255);
-  Local<v8::Int32Array> i32a =
+  Local<Int32Array> i32a =
       CreateAndCheck<Int32Array, 4>(buffer, 4, 255);
 
-  Local<v8::Float32Array> f32a =
+  Local<Float32Array> f32a =
       CreateAndCheck<Float32Array, 4>(buffer, 4, 255);
-  Local<v8::Float64Array> f64a =
+  Local<Float64Array> f64a =
       CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
-	}
+}
