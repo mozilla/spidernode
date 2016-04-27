@@ -91,14 +91,13 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   }
 
   size_t twoByteLen;
-  char16_t* twoByteChars = JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get();
+  JS::UniqueTwoByteChars twoByteChars(
+    JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get());
   if (!twoByteChars) {
     return MaybeLocal<String>();
   }
-
-  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars, twoByteLen));
+  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars.release(), twoByteLen));
   if (!str) {
-    js_free(twoByteChars);
     return MaybeLocal<String>();
   }
   JS::Value strVal;
