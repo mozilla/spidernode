@@ -2251,8 +2251,13 @@ private:
   void RemovePersistent(Value* val);
   Private* AddPersistent(Private* val); // not supported yet
   void RemovePersistent(Private* val);  // not supported yet
-  Context* AddPersistent(Context* val); // not supported yet
-  void RemovePersistent(Context* val);  // not supported yet
+  Context* AddPersistent(Context* val) {
+    // Contexts are not currently tracked by HandleScopes.
+    return val;
+  }
+  void RemovePersistent(Context* val) {
+    // Contexts are not currently tracked by HandleScopes.
+  }
   Template* AddPersistent(Template* val); // not supported yet
   void RemovePersistent(Template* val);   // not supported yet
   UnboundScript* AddPersistent(UnboundScript* val); // not supported yet
