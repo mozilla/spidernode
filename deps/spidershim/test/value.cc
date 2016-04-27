@@ -944,6 +944,7 @@ TEST(SpiderShim, ArrayBuffer) {
   EXPECT_EQ(2, arr2->ByteLength());
   contents = arr2->GetContents();
   EXPECT_EQ(2, contents.ByteLength());
+  EXPECT_EQ(2, ArrayBuffer::Cast(*arr2->ToObject())->ByteLength());
 }
 
 TEST(SpiderShim, Function) {
@@ -970,3 +971,50 @@ TEST(SpiderShim, Function) {
   EXPECT_TRUE(gen->IsFunction());
   EXPECT_FALSE(genObject->IsFunction());
 }
+
+template <typename TypedArray, int kElementSize>
+static Local<TypedArray> CreateAndCheck(Local<ArrayBuffer> ab,
+                                        int byteOffset, int length) {
+  Local<TypedArray> ta = TypedArray::New(ab, byteOffset, length);
+  EXPECT_EQ(byteOffset, static_cast<int>(ta->ByteOffset()));
+  EXPECT_EQ(length * kElementSize, static_cast<int>(ta->ByteLength()));
+  EXPECT_EQ(ab->GetContents().Data(), ta->Buffer()->GetContents().Data());
+  EXPECT_EQ(ta->ByteOffset(), TypedArray::Cast(*ta->ToObject())->ByteOffset());
+  return ta;
+}
+
+TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
+  // This test is adopted from the V8 ArrayBuffer_NeuteringApi test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(isolate, 1024);
+
+  Local<v8::Uint8Array> u8a =
+      CreateAndCheck<Uint8Array, 1>(buffer, 1, 1023);
+  Local<v8::Uint8ClampedArray> u8c =
+      CreateAndCheck<Uint8ClampedArray, 1>(buffer, 1, 1023);
+  Local<v8::Int8Array> i8a =
+      CreateAndCheck<Int8Array, 1>(buffer, 1, 1023);
+
+  Local<v8::Uint16Array> u16a =
+      CreateAndCheck<Uint16Array, 2>(buffer, 2, 511);
+  Local<v8::Int16Array> i16a =
+      CreateAndCheck<Int16Array, 2>(buffer, 2, 511);
+
+  Local<v8::Uint32Array> u32a =
+      CreateAndCheck<Uint32Array, 4>(buffer, 4, 255);
+  Local<v8::Int32Array> i32a =
+      CreateAndCheck<Int32Array, 4>(buffer, 4, 255);
+
+  Local<v8::Float32Array> f32a =
+      CreateAndCheck<Float32Array, 4>(buffer, 4, 255);
+  Local<v8::Float64Array> f64a =
+      CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
+	}
