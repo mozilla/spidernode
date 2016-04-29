@@ -113,6 +113,7 @@ struct ExternalArrayData;
 namespace internal {
 class RootStore;
 template <class T> class Local;
+struct ExternalStringFinalizer;
 }
 
 enum PropertyAttribute {
@@ -1171,7 +1172,7 @@ class V8_EXPORT String : public Name {
     ExternalStringResourceBase(const ExternalStringResourceBase&);
     void operator=(const ExternalStringResourceBase&);
 
-    friend struct ExternalStringFinalizer;
+    friend struct internal::ExternalStringFinalizer;
   };
 
   /**

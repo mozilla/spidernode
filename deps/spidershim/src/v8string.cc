@@ -141,38 +141,16 @@ Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                         length).FromMaybe(Local<String>());
 }
 
-struct ExternalStringFinalizer : JSStringFinalizer {
-  ExternalStringFinalizer(String::ExternalStringResource* resource)
-    : resource_(resource) {}
-  String::ExternalStringResource* resource_;
-
-  // XXX Define finalize() here as a struct member instead of assigning it
-  // after instantiation.
-
-  void dispose() {
-    // Based on V8's Heap::FinalizeExternalString.
-
-    // Dispose of the C++ object if it has not already been disposed.
-    if (this->resource_ != NULL) {
-      this->resource_->Dispose();
-      this->resource_ = nullptr;
-    }
-
-    // Delete ourselves, which JSExternalString::finalize doesn't do,
-    // presumably because it assumes we're static.
-    delete this;
-  };
-};
-
 void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
-  const_cast<ExternalStringFinalizer*>(static_cast<const ExternalStringFinalizer*>(fin))->dispose();
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
 }
 
 MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
                                               ExternalStringResource* resource) {
   JSContext* cx = JSContextFromIsolate(isolate);
 
-  auto fin = mozilla::MakeUnique<ExternalStringFinalizer>(resource);
+  auto fin = mozilla::MakeUnique<internal::ExternalStringFinalizer>(resource);
   if (!fin) {
     return MaybeLocal<String>();
   }
@@ -250,6 +228,23 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
   buffer[len] = '\0';
   return buffer;
 }
+
+ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResource* resource)
+  : resource_(resource) {}
+
+void ExternalStringFinalizer::dispose() {
+  // Based on V8's Heap::FinalizeExternalString.
+
+  // Dispose of the C++ object if it has not already been disposed.
+  if (this->resource_ != NULL) {
+    this->resource_->Dispose();
+    this->resource_ = nullptr;
+  }
+
+  // Delete ourselves, which JSExternalString::finalize doesn't do,
+  // presumably because it assumes we're static.
+  delete this;
+};
 
 }
 
