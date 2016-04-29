@@ -796,6 +796,22 @@ class TestExternalStringResource : public String::ExternalStringResource {
     size_t length_;
 };
 
+bool externalOneByteStringResourceDestructorCalled = false;
+
+class TestExternalOneByteStringResource : public String::ExternalOneByteStringResource {
+  public:
+    TestExternalOneByteStringResource(const char* source, size_t length)
+        : data_(source), length_(length) {}
+    ~TestExternalOneByteStringResource() {
+      externalOneByteStringResourceDestructorCalled = true;
+    }
+    const char* data() const override { return data_; }
+    size_t length() const override { return length_; }
+  private:
+    const char* data_;
+    size_t length_;
+};
+
 }  // namespace
 
 TEST(SpiderShim, String) {
@@ -887,6 +903,14 @@ TEST(SpiderShim, String) {
   String::Utf8Value externalUtf8Val(externalStr);
   EXPECT_EQ(0, memcmp(*externalVal, utf16Data, sizeof(*utf16Data)));
   EXPECT_EQ(0, memcmp(*externalUtf8Val, utf8Data, sizeof(*utf8Data)));
+
+  TestExternalOneByteStringResource* testOneByteResource =
+    new TestExternalOneByteStringResource(reinterpret_cast<const char*>(latin1Data), sizeof(latin1Data) - 1);
+  Local<String> externalOneByteStr = String::NewExternalOneByte(engine.isolate(), testOneByteResource).ToLocalChecked();
+  EXPECT_EQ(4, externalOneByteStr->Length());
+  EXPECT_EQ(7, externalOneByteStr->Utf8Length());
+  String::Value externalOneByteVal(externalOneByteStr);
+  EXPECT_EQ(0, memcmp(*externalOneByteVal, latin1Data, sizeof(*latin1Data)));
 }
 
 // Other tests of external strings live in the String test function above.
@@ -894,6 +918,7 @@ TEST(SpiderShim, String) {
 // when the string was finalized.
 TEST(SpiderShim, ExternalStringResourceDestructorCalled) {
   EXPECT_TRUE(externalStringResourceDestructorCalled);
+  EXPECT_TRUE(externalOneByteStringResourceDestructorCalled);
 }
 
 TEST(SpiderShim, ToObject) {
