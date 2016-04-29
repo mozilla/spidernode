@@ -106,9 +106,6 @@ template <class T, class M = NonCopyablePersistentTraits<T> > class Persistent;
 template <typename T> class FunctionCallbackInfo;
 template <typename T> class PropertyCallbackInfo;
 
-namespace internal {
-class Heap;
-}  // namespace internal
 class JitCodeEvent;
 class RetainedObjectInfo;
 struct ExternalArrayData;
@@ -1174,7 +1171,6 @@ class V8_EXPORT String : public Name {
     ExternalStringResourceBase(const ExternalStringResourceBase&);
     void operator=(const ExternalStringResourceBase&);
 
-    friend class v8::internal::Heap;
     friend struct ExternalStringFinalizer;
   };
 
