@@ -780,12 +780,14 @@ TEST(SpiderShim, Date) {
 
 namespace {
 
+bool externalStringResourceDestructorCalled = false;
+
 class TestExternalStringResource : public String::ExternalStringResource {
   public:
     TestExternalStringResource(const uint16_t* source, size_t length)
         : data_(source), length_(length) {}
     ~TestExternalStringResource() {
-      // XXX Check that we get called when the string is finalized.
+      externalStringResourceDestructorCalled = true;
     }
     const uint16_t* data() const override { return data_; }
     size_t length() const override { return length_; }
@@ -885,6 +887,13 @@ TEST(SpiderShim, String) {
   String::Utf8Value externalUtf8Val(externalStr);
   EXPECT_EQ(0, memcmp(*externalVal, utf16Data, sizeof(*utf16Data)));
   EXPECT_EQ(0, memcmp(*externalUtf8Val, utf8Data, sizeof(*utf8Data)));
+}
+
+// Other tests of external strings live in the String test function above.
+// This just checks that an external string resource's destructor was called
+// when the string was finalized.
+TEST(SpiderShim, ExternalStringResourceDestructorCalled) {
+  EXPECT_TRUE(externalStringResourceDestructorCalled);
 }
 
 TEST(SpiderShim, ToObject) {
