@@ -141,11 +141,6 @@ Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                         length).FromMaybe(Local<String>());
 }
 
-void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
-  const_cast<internal::ExternalStringFinalizer*>(
-    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
-}
-
 MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
                                               ExternalStringResource* resource) {
   JSContext* cx = JSContextFromIsolate(isolate);
@@ -155,7 +150,7 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
 
-  fin->finalize = FinalizeExternalString;
+  fin->finalize = internal::ExternalStringFinalizer::FinalizeExternalString;
 
   JS::RootedString str(cx,
     JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
@@ -245,6 +240,11 @@ void ExternalStringFinalizer::dispose() {
   // presumably because it assumes we're static.
   delete this;
 };
+
+void ExternalStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
+}
 
 }
 

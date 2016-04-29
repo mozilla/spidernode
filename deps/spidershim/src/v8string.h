@@ -31,6 +31,7 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
 struct ExternalStringFinalizer : JSStringFinalizer {
   ExternalStringFinalizer(String::ExternalStringResource* resource);
   String::ExternalStringResource* resource_;
+  static void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars);
   void dispose();
   // XXX Define finalize() here as a struct member instead of assigning it
   // after instantiation.
