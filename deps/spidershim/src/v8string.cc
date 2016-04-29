@@ -150,8 +150,6 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
 
-  fin->finalize = internal::ExternalStringFinalizer::FinalizeExternalString;
-
   JS::RootedString str(cx,
     JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
                          resource->length(), fin.release()));
@@ -225,7 +223,9 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
 }
 
 ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResource* resource)
-  : resource_(resource) {}
+  : resource_(resource) {
+  this->finalize = FinalizeExternalString;
+}
 
 void ExternalStringFinalizer::dispose() {
   // Based on V8's Heap::FinalizeExternalString.
