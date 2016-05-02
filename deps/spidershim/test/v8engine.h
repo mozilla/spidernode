@@ -86,11 +86,13 @@ public:
   }
 
   Local<Value> CompileRun(Local<Context> context, const char* script) {
-    return Script::Compile(context, String::NewFromUtf8(isolate_, script,
-                                                        NewStringType::kNormal)
-                                    .ToLocalChecked())
-           .ToLocalChecked()->Run(context)
-           .ToLocalChecked();
+    auto scr = Script::Compile(String::NewFromUtf8(isolate_, script,
+                                                   NewStringType::kNormal)
+                                 .ToLocalChecked());
+    if (*scr) {
+      return scr->Run();
+    }
+    return Local<Value>();
   }
 
 private:

@@ -2312,6 +2312,7 @@ private:
   void PushCurrentContext(Context* context);
   void PopCurrentContext();
   friend class Context;
+  friend class TryCatch;
   friend class ::V8Engine;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
   template <class T> friend class PersistentBase;
@@ -2523,13 +2524,10 @@ class V8_EXPORT TryCatch {
  private:
   friend class Function;
 
-  void GetAndClearException();
   void CheckReportExternalException();
 
-  JsValueRef error;
-  TryCatch* prev;
-  bool rethrow;
-  bool verbose;
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT ExtensionConfiguration {

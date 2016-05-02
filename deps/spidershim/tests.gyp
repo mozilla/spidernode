@@ -17,6 +17,10 @@
       'sources': [ 'test/persistent.cc' ],
     },
     {
+      'target_name': 'trycatch',
+      'sources': [ 'test/trycatch.cc' ],
+    },
+    {
       'target_name': 'value',
       'sources': [ 'test/value.cc' ],
     },

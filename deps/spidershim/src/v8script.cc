@@ -52,6 +52,16 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   return internal::Local<Script>::New(context->GetIsolate(), jsScript);
 }
 
+Local<Script> Script::Compile(Local<String> source,
+                              ScriptOrigin* origin) {
+  MaybeLocal<Script> maybe = Compile(Isolate::GetCurrent()->GetCurrentContext(),
+                                     source, origin);
+  if (!maybe.IsEmpty()) {
+    return maybe.ToLocalChecked();
+  }
+  return Local<Script>();
+}
+
 MaybeLocal<Value> Script::Run(Local<Context> context) {
   assert(script_);
   JSContext* cx = JSContextFromContext(*context);
@@ -60,6 +70,14 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
     return MaybeLocal<Value>();
   }
   return internal::Local<Value>::New(context->GetIsolate(), result);
+}
+
+Local<Value> Script::Run() {
+  MaybeLocal<Value> maybe = Run(Isolate::GetCurrent()->GetCurrentContext());
+  if (!maybe.IsEmpty()) {
+    return maybe.ToLocalChecked();
+  }
+  return Local<Value>();
 }
 
 }
