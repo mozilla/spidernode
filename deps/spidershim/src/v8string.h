@@ -28,13 +28,21 @@ namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length = nullptr);
 
-struct ExternalStringFinalizer : JSStringFinalizer {
-  ExternalStringFinalizer(String::ExternalStringResource* resource);
-  String::ExternalStringResource* resource_;
-  static void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars);
+template<typename T>
+struct ExternalStringFinalizerBase : JSStringFinalizer {
+  ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource);
+  String::ExternalStringResourceBase* resource_;
   void dispose();
-  // XXX Define finalize() here as a struct member instead of assigning it
-  // after instantiation.
+};
+
+struct ExternalStringFinalizer : ExternalStringFinalizerBase<ExternalStringFinalizer> {
+  ExternalStringFinalizer(String::ExternalStringResourceBase* resource);
+  static void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars);
+};
+
+struct ExternalOneByteStringFinalizer : ExternalStringFinalizerBase<ExternalOneByteStringFinalizer> {
+  ExternalOneByteStringFinalizer(String::ExternalStringResourceBase* resource);
+  static void FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars);
 };
 
 }

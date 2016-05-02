@@ -161,9 +161,49 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
   return internal::Local<String>::New(isolate, strVal);
 }
 
+MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
+                                              ExternalOneByteStringResource* resource) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+
+  auto fin = mozilla::MakeUnique<internal::ExternalOneByteStringFinalizer>(resource);
+  if (!fin) {
+    return MaybeLocal<String>();
+  }
+
+  // SpiderMonkey doesn't have a one-byte variant of JS_NewExternalString, so we
+  // inflate the external string data to its two-byte equivalent.  According to
+  // https://github.com/mozilla/spidernode/blob/7466b2f/deps/v8/include/v8.h#L2252-L2260
+  // the external string data is immutable, so there's no risk of it changing
+  // after we inflate it.  But we do need to ensure that the inflated data gets
+  // deleted when the string is finalized, which FinalizeExternalString does.
+  size_t length = resource->length();
+  JS::UniqueTwoByteChars data(js_pod_malloc<char16_t>(length + 1));
+  if (!data) {
+    return MaybeLocal<String>();
+  }
+  const char* oneByteData = resource->data();
+  for (size_t i = 0; i < length; ++i)
+      data[i] = (unsigned char) oneByteData[i];
+  data[length] = 0;
+
+  JS::RootedString str(cx, JS_NewExternalString(cx, data.release(), length, fin.release()));
+  if (!str) {
+    return MaybeLocal<String>();
+  }
+
+  JS::Value strVal;
+  strVal.setString(str);
+  return internal::Local<String>::New(isolate, strVal);
+}
+
 Local<String> String::NewExternal(Isolate* isolate,
                                   ExternalStringResource* resource) {
   return NewExternalTwoByte(isolate, resource).FromMaybe(Local<String>());
+}
+
+Local<String> String::NewExternal(Isolate* isolate,
+                                  ExternalOneByteStringResource* resource) {
+  return NewExternalOneByte(isolate, resource).FromMaybe(Local<String>());
 }
 
 String* String::Cast(v8::Value* obj) {
@@ -222,12 +262,14 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
   return buffer;
 }
 
-ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResource* resource)
+template<typename T>
+ExternalStringFinalizerBase<T>::ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource)
   : resource_(resource) {
-  this->finalize = FinalizeExternalString;
-}
+    static_cast<T*>(this)->finalize = T::FinalizeExternalString;
+  }
 
-void ExternalStringFinalizer::dispose() {
+template<typename T>
+void ExternalStringFinalizerBase<T>::dispose() {
   // Based on V8's Heap::FinalizeExternalString.
 
   // Dispose of the C++ object if it has not already been disposed.
@@ -241,9 +283,25 @@ void ExternalStringFinalizer::dispose() {
   delete this;
 };
 
+ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResourceBase* resource)
+  : ExternalStringFinalizerBase(resource) {}
+
 void ExternalStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
   const_cast<internal::ExternalStringFinalizer*>(
     static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
+}
+
+ExternalOneByteStringFinalizer::ExternalOneByteStringFinalizer(String::ExternalStringResourceBase* resource)
+  : ExternalStringFinalizerBase(resource) {}
+
+void ExternalOneByteStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
+
+  // NewExternalOneByte made a two-byte copy of the data in the resource,
+  // and this is that copy. The resource will handle deleting its original
+  // data, but we have to delete this copy.
+  delete chars;
 }
 
 }
