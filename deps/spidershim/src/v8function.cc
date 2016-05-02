@@ -57,4 +57,11 @@ Function::Call(Local<Value> obj, int argc, Local<Value> argv[])
 	Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
   return Call(ctx, obj, argc, argv).ToLocalChecked();
 }
+
+Function*
+Function::Cast(Value* v)
+{
+  assert(v->IsFunction());
+  return static_cast<Function*>(v);
+}
 }
