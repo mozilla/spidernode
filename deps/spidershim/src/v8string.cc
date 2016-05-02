@@ -257,10 +257,14 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
   return buffer;
 }
 
-ExternalStringFinalizerBase::ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource)
-  : resource_(resource) {}
+template<typename T>
+ExternalStringFinalizerBase<T>::ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource)
+  : resource_(resource) {
+    static_cast<T*>(this)->finalize = T::FinalizeExternalString;
+  }
 
-void ExternalStringFinalizerBase::dispose() {
+template<typename T>
+void ExternalStringFinalizerBase<T>::dispose() {
   // Based on V8's Heap::FinalizeExternalString.
 
   // Dispose of the C++ object if it has not already been disposed.
@@ -275,23 +279,19 @@ void ExternalStringFinalizerBase::dispose() {
 };
 
 ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResourceBase* resource)
-  : ExternalStringFinalizerBase(resource) {
-  this->finalize = FinalizeExternalString;
-}
+  : ExternalStringFinalizerBase(resource) {}
 
 void ExternalStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
-  const_cast<internal::ExternalStringFinalizerBase*>(
-    static_cast<const internal::ExternalStringFinalizerBase*>(fin))->dispose();
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
 }
 
 ExternalOneByteStringFinalizer::ExternalOneByteStringFinalizer(String::ExternalStringResourceBase* resource)
-  : ExternalStringFinalizerBase(resource) {
-  this->finalize = FinalizeExternalString;
-}
+  : ExternalStringFinalizerBase(resource) {}
 
 void ExternalOneByteStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
-  const_cast<internal::ExternalStringFinalizerBase*>(
-    static_cast<const internal::ExternalStringFinalizerBase*>(fin))->dispose();
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
 
   // NewExternalOneByte made a two-byte copy of the data in the resource,
   // and this is that copy. The resource will handle deleting its original
