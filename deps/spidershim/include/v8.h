@@ -113,6 +113,7 @@ struct ExternalArrayData;
 namespace internal {
 class RootStore;
 template <class T> class Local;
+struct ExternalStringFinalizer;
 }
 
 enum PropertyAttribute {
@@ -1149,18 +1150,84 @@ class V8_EXPORT String : public Name {
   bool IsExternal() const { return false; }
   bool IsExternalOneByte() const { return false; }
 
-  class V8_EXPORT ExternalOneByteStringResource {
+  class V8_EXPORT ExternalStringResourceBase {  // NOLINT
    public:
-    virtual ~ExternalOneByteStringResource() {}
-    virtual const char *data() const = 0;
-    virtual size_t length() const = 0;
+    virtual ~ExternalStringResourceBase() {}
+
+    virtual bool IsCompressible() const { return false; }
+
+   protected:
+    ExternalStringResourceBase() {}
+
+    /**
+     * Internally V8 will call this Dispose method when the external string
+     * resource is no longer needed. The default implementation will use the
+     * delete operator. This method can be overridden in subclasses to
+     * control how allocated external string resources are disposed.
+     */
+    virtual void Dispose() { delete this; }
+
+   private:
+    // Disallow copying and assigning.
+    ExternalStringResourceBase(const ExternalStringResourceBase&);
+    void operator=(const ExternalStringResourceBase&);
+
+    friend struct internal::ExternalStringFinalizer;
   };
 
-  class V8_EXPORT ExternalStringResource {
+  /**
+   * An ExternalStringResource is a wrapper around a two-byte string
+   * buffer that resides outside V8's heap. Implement an
+   * ExternalStringResource to manage the life cycle of the underlying
+   * buffer.  Note that the string data must be immutable.
+   */
+  class V8_EXPORT ExternalStringResource
+      : public ExternalStringResourceBase {
    public:
+    /**
+     * Override the destructor to manage the life cycle of the underlying
+     * buffer.
+     */
     virtual ~ExternalStringResource() {}
+
+    /**
+     * The string data from the underlying buffer.
+     */
     virtual const uint16_t* data() const = 0;
+
+    /**
+     * The length of the string. That is, the number of two-byte characters.
+     */
     virtual size_t length() const = 0;
+
+   protected:
+    ExternalStringResource() {}
+  };
+
+  /**
+   * An ExternalOneByteStringResource is a wrapper around an one-byte
+   * string buffer that resides outside V8's heap. Implement an
+   * ExternalOneByteStringResource to manage the life cycle of the
+   * underlying buffer.  Note that the string data must be immutable
+   * and that the data must be Latin-1 and not UTF-8, which would require
+   * special treatment internally in the engine and do not allow efficient
+   * indexing.  Use String::New or convert to 16 bit data for non-Latin1.
+   */
+
+  class V8_EXPORT ExternalOneByteStringResource
+      : public ExternalStringResourceBase {
+   public:
+    /**
+     * Override the destructor to manage the life cycle of the underlying
+     * buffer.
+     */
+    virtual ~ExternalOneByteStringResource() {}
+    /** The string data from the underlying buffer.*/
+    virtual const char* data() const = 0;
+    /** The number of Latin-1 characters in the string.*/
+    virtual size_t length() const = 0;
+   protected:
+    ExternalOneByteStringResource() {}
   };
 
   ExternalStringResource* GetExternalStringResource() const { return nullptr; }

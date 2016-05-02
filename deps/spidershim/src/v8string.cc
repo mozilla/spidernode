@@ -141,6 +141,31 @@ Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                         length).FromMaybe(Local<String>());
 }
 
+MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
+                                              ExternalStringResource* resource) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+
+  auto fin = mozilla::MakeUnique<internal::ExternalStringFinalizer>(resource);
+  if (!fin) {
+    return MaybeLocal<String>();
+  }
+
+  JS::RootedString str(cx,
+    JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
+                         resource->length(), fin.release()));
+  if (!str) {
+    return MaybeLocal<String>();
+  }
+  JS::Value strVal;
+  strVal.setString(str);
+  return internal::Local<String>::New(isolate, strVal);
+}
+
+Local<String> String::NewExternal(Isolate* isolate,
+                                  ExternalStringResource* resource) {
+  return NewExternalTwoByte(isolate, resource).FromMaybe(Local<String>());
+}
+
 String* String::Cast(v8::Value* obj) {
   assert(reinterpret_cast<JS::Value*>(obj)->isString());
   return static_cast<String*>(obj);
@@ -195,6 +220,30 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
   }
   buffer[len] = '\0';
   return buffer;
+}
+
+ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResource* resource)
+  : resource_(resource) {
+  this->finalize = FinalizeExternalString;
+}
+
+void ExternalStringFinalizer::dispose() {
+  // Based on V8's Heap::FinalizeExternalString.
+
+  // Dispose of the C++ object if it has not already been disposed.
+  if (this->resource_ != NULL) {
+    this->resource_->Dispose();
+    this->resource_ = nullptr;
+  }
+
+  // Delete ourselves, which JSExternalString::finalize doesn't do,
+  // presumably because it assumes we're static.
+  delete this;
+};
+
+void ExternalStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
+  const_cast<internal::ExternalStringFinalizer*>(
+    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
 }
 
 }
