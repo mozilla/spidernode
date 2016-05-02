@@ -33,8 +33,6 @@ struct ExternalStringFinalizerBase : JSStringFinalizer {
   ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource);
   String::ExternalStringResourceBase* resource_;
   void dispose();
-  // XXX Define finalize() here as a struct member instead of assigning it
-  // after instantiation.
 };
 
 struct ExternalStringFinalizer : ExternalStringFinalizerBase<ExternalStringFinalizer> {
