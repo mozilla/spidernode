@@ -201,6 +201,11 @@ Local<String> String::NewExternal(Isolate* isolate,
   return NewExternalTwoByte(isolate, resource).FromMaybe(Local<String>());
 }
 
+Local<String> String::NewExternal(Isolate* isolate,
+                                  ExternalOneByteStringResource* resource) {
+  return NewExternalOneByte(isolate, resource).FromMaybe(Local<String>());
+}
+
 String* String::Cast(v8::Value* obj) {
   assert(reinterpret_cast<JS::Value*>(obj)->isString());
   return static_cast<String*>(obj);
