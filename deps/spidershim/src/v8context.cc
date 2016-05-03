@@ -80,6 +80,10 @@ bool Context::CreateGlobal(Isolate* isolate) {
 
   pimpl_->global.init(isolate->Runtime());
   pimpl_->global = newGlobal;
+
+  // Ensure that JS errors appear as exceptions to us.
+  JS::ContextOptionsRef(pimpl_->cx).setAutoJSAPIOwnsErrorReporting(true);
+
   return true;
 }
 
