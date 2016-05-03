@@ -357,6 +357,15 @@ ModuleNamespaceObject::ProxyHandler::setPrototype(JSContext* cx, HandleObject pr
 }
 
 bool
+ModuleNamespaceObject::ProxyHandler::getPrototypeIfOrdinary(JSContext* cx, HandleObject proxy,
+                                                            bool* isOrdinary,
+                                                            MutableHandleObject protop) const
+{
+    *isOrdinary = false;
+    return true;
+}
+
+bool
 ModuleNamespaceObject::ProxyHandler::setImmutablePrototype(JSContext* cx, HandleObject proxy,
                                                            bool* succeeded) const
 {
@@ -1108,7 +1117,7 @@ ModuleBuilder::processExport(frontend::ParseNode* pn)
 
       case PNK_FUNCTION: {
           RootedFunction func(cx_, kid->pn_funbox->function());
-          RootedAtom localName(cx_, func->atom());
+          RootedAtom localName(cx_, func->name());
           RootedAtom exportName(cx_, isDefault ? cx_->names().default_ : localName.get());
           if (!appendExportEntry(exportName, localName))
               return false;

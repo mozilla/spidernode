@@ -56,22 +56,13 @@ template<typename T, size_t N, class AP, bool IsPod>
 struct VectorImpl
 {
   /*
-   * Constructs a default object in the uninitialized memory at *aDst.
+   * Constructs an object in the uninitialized memory at *aDst with aArgs.
    */
+  template<typename... Args>
   MOZ_NONNULL(1)
-  static inline void new_(T* aDst)
+  static inline void new_(T* aDst, Args&&... aArgs)
   {
-    new(aDst) T();
-  }
-
-  /*
-   * Constructs an object in the uninitialized memory at *aDst from aSrc.
-   */
-  template<typename U>
-  MOZ_NONNULL(1)
-  static inline void new_(T* aDst, U&& aU)
-  {
-    new(aDst) T(Forward<U>(aU));
+    new(aDst) T(Forward<Args>(aArgs)...);
   }
 
   /* Destroys constructed objects in the range [aBegin, aEnd). */
@@ -168,15 +159,11 @@ struct VectorImpl
 template<typename T, size_t N, class AP>
 struct VectorImpl<T, N, AP, true>
 {
-  static inline void new_(T* aDst)
+  template<typename... Args>
+  MOZ_NONNULL(1)
+  static inline void new_(T* aDst, Args&&... aArgs)
   {
-    *aDst = T();
-  }
-
-  template<typename U>
-  static inline void new_(T* aDst, U&& aU)
-  {
-    *aDst = Forward<U>(aU);
+    *aDst = T(Forward<Args>(aArgs)...);
   }
 
   static inline void destroy(T*, T*) {}
@@ -281,9 +268,9 @@ class Vector final : private AllocPolicy
 
   friend struct detail::VectorTesting;
 
-  MOZ_WARN_UNUSED_RESULT bool growStorageBy(size_t aIncr);
-  MOZ_WARN_UNUSED_RESULT bool convertToHeapStorage(size_t aNewCap);
-  MOZ_WARN_UNUSED_RESULT bool maybeCheckSimulatedOOM(size_t aRequestedSize);
+  MOZ_MUST_USE bool growStorageBy(size_t aIncr);
+  MOZ_MUST_USE bool convertToHeapStorage(size_t aNewCap);
+  MOZ_MUST_USE bool maybeCheckSimulatedOOM(size_t aRequestedSize);
 
   /* magic constants */
 
@@ -528,7 +515,7 @@ public:
    * Given that the vector is empty and has no inline storage, grow to
    * |capacity|.
    */
-  MOZ_WARN_UNUSED_RESULT bool initCapacity(size_t aRequest);
+  MOZ_MUST_USE bool initCapacity(size_t aRequest);
 
   /**
    * If reserve(aRequest) succeeds and |aRequest >= length()|, then appending
@@ -538,7 +525,7 @@ public:
    * A request to reserve an amount less than the current length does not affect
    * reserved space.
    */
-  MOZ_WARN_UNUSED_RESULT bool reserve(size_t aRequest);
+  MOZ_MUST_USE bool reserve(size_t aRequest);
 
   /**
    * Destroy elements in the range [end() - aIncr, end()). Does not deallocate
@@ -553,18 +540,18 @@ public:
   void shrinkTo(size_t aNewLength);
 
   /** Grow the vector by aIncr elements. */
-  MOZ_WARN_UNUSED_RESULT bool growBy(size_t aIncr);
+  MOZ_MUST_USE bool growBy(size_t aIncr);
 
   /** Call shrinkBy or growBy based on whether newSize > length(). */
-  MOZ_WARN_UNUSED_RESULT bool resize(size_t aNewLength);
+  MOZ_MUST_USE bool resize(size_t aNewLength);
 
   /**
    * Increase the length of the vector, but don't initialize the new elements
    * -- leave them as uninitialized memory.
    */
-  MOZ_WARN_UNUSED_RESULT bool growByUninitialized(size_t aIncr);
+  MOZ_MUST_USE bool growByUninitialized(size_t aIncr);
   void infallibleGrowByUninitialized(size_t aIncr);
-  MOZ_WARN_UNUSED_RESULT bool resizeUninitialized(size_t aNewLength);
+  MOZ_MUST_USE bool resizeUninitialized(size_t aNewLength);
 
   /** Shorthand for shrinkBy(length()). */
   void clear();
@@ -587,25 +574,25 @@ public:
    * vector, instead of copying it. If it fails, |aU| is left unmoved. ("We are
    * not amused.")
    */
-  template<typename U> MOZ_WARN_UNUSED_RESULT bool append(U&& aU);
+  template<typename U> MOZ_MUST_USE bool append(U&& aU);
 
   /**
    * Construct a T in-place as a new entry at the end of this vector.
    */
   template<typename... Args>
-  MOZ_WARN_UNUSED_RESULT bool emplaceBack(Args&&... aArgs)
+  MOZ_MUST_USE bool emplaceBack(Args&&... aArgs)
   {
     if (!growByUninitialized(1))
       return false;
-    new (&back()) T(Forward<Args>(aArgs)...);
+    Impl::new_(&back(), Forward<Args>(aArgs)...);
     return true;
   }
 
   template<typename U, size_t O, class BP>
-  MOZ_WARN_UNUSED_RESULT bool appendAll(const Vector<U, O, BP>& aU);
-  MOZ_WARN_UNUSED_RESULT bool appendN(const T& aT, size_t aN);
-  template<typename U> MOZ_WARN_UNUSED_RESULT bool append(const U* aBegin, const U* aEnd);
-  template<typename U> MOZ_WARN_UNUSED_RESULT bool append(const U* aBegin, size_t aLength);
+  MOZ_MUST_USE bool appendAll(const Vector<U, O, BP>& aU);
+  MOZ_MUST_USE bool appendN(const T& aT, size_t aN);
+  template<typename U> MOZ_MUST_USE bool append(const U* aBegin, const U* aEnd);
+  template<typename U> MOZ_MUST_USE bool append(const U* aBegin, size_t aLength);
 
   /*
    * Guaranteed-infallible append operations for use upon vectors whose
@@ -632,7 +619,7 @@ public:
   void infallibleEmplaceBack(Args&&... aArgs)
   {
     infallibleGrowByUninitialized(1);
-    new (&back()) T(Forward<Args>(aArgs)...);
+    Impl::new_(&back(), Forward<Args>(aArgs)...);
   }
 
   void popBack();
@@ -649,7 +636,7 @@ public:
    *
    * N.B. Although a T*, only the range [0, length()) is constructed.
    */
-  MOZ_WARN_UNUSED_RESULT T* extractRawBuffer();
+  MOZ_MUST_USE T* extractRawBuffer();
 
   /**
    * If elements are stored in-place, allocate a new buffer, move this vector's
@@ -667,7 +654,7 @@ public:
    * If any of these elements are uninitialized (as growByUninitialized
    * enables), behavior is undefined.
    */
-  MOZ_WARN_UNUSED_RESULT T* extractOrCopyRawBuffer();
+  MOZ_MUST_USE T* extractOrCopyRawBuffer();
 
   /**
    * Transfer ownership of an array of objects into the vector.  The caller
@@ -695,7 +682,7 @@ public:
    * This is inherently a linear-time operation.  Be careful!
    */
   template<typename U>
-  MOZ_WARN_UNUSED_RESULT T* insert(T* aP, U&& aVal);
+  MOZ_MUST_USE T* insert(T* aP, U&& aVal);
 
   /**
    * Removes the element |aT|, which must fall in the bounds [begin, end),

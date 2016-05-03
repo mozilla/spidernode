@@ -114,6 +114,8 @@ struct Zone
     JSTracer* const barrierTracer_;     // A pointer to the JSRuntime's |gcMarker|.
 
   public:
+    js::RootLists roots;
+
     bool needsIncrementalBarrier_;
 
     Zone(JSRuntime* runtime, JSTracer* barrierTracerArg)
@@ -391,6 +393,9 @@ GCThingIsMarkedGray(GCCellPtr thing)
         return false;
     return js::gc::detail::CellIsMarkedGray(thing.asCell());
 }
+
+extern JS_PUBLIC_API(JS::TraceKind)
+GCThingTraceKind(void* thing);
 
 } /* namespace JS */
 

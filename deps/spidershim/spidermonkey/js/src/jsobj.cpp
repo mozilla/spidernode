@@ -1176,7 +1176,7 @@ js::CloneObject(JSContext* cx, HandleObject obj, Handle<js::TaggedProto> proto)
 }
 
 static bool
-GetScriptArrayObjectElements(JSContext* cx, HandleObject obj, AutoValueVector& values)
+GetScriptArrayObjectElements(JSContext* cx, HandleObject obj, MutableHandle<GCVector<Value>> values)
 {
     MOZ_ASSERT(!obj->isSingleton());
     MOZ_ASSERT(obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>());
@@ -1286,8 +1286,8 @@ js::DeepCloneObjectLiteral(JSContext* cx, HandleObject obj, NewObjectKind newKin
     MOZ_ASSERT(newKind != SingletonObject);
 
     if (obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>()) {
-        AutoValueVector values(cx);
-        if (!GetScriptArrayObjectElements(cx, obj, values))
+        Rooted<GCVector<Value>> values(cx, GCVector<Value>(cx));
+        if (!GetScriptArrayObjectElements(cx, obj, &values))
             return nullptr;
 
         // Deep clone any elements.
@@ -1415,8 +1415,8 @@ js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj)
     RootedId tmpId(cx);
 
     if (isArray) {
-        AutoValueVector values(cx);
-        if (mode == XDR_ENCODE && !GetScriptArrayObjectElements(cx, obj, values))
+        Rooted<GCVector<Value>> values(cx, GCVector<Value>(cx));
+        if (mode == XDR_ENCODE && !GetScriptArrayObjectElements(cx, obj, &values))
             return false;
 
         uint32_t initialized;
@@ -2494,6 +2494,20 @@ JSObject::reportNotExtensible(JSContext* cx, unsigned report)
                                  nullptr, nullptr);
 }
 
+bool
+js::GetPrototypeIfOrdinary(JSContext* cx, HandleObject obj, bool* isOrdinary,
+                           MutableHandleObject protop)
+{
+    if (obj->getTaggedProto().isLazy()) {
+        MOZ_ASSERT(obj->is<js::ProxyObject>());
+        return js::Proxy::getPrototypeIfOrdinary(cx, obj, isOrdinary, protop);
+    }
+
+    *isOrdinary = true;
+    protop.set(obj->getTaggedProto().toObjectOrNull());
+    return true;
+}
+
 // Our immutable-prototype behavior is non-standard, and it's unclear whether
 // it's shippable.  (Or at least it's unclear whether it's shippable with any
 // provided-by-default uses exposed to script.)  If this bool is true,
@@ -2587,14 +2601,17 @@ js::SetPrototype(JSContext* cx, HandleObject obj, HandleObject proto, JS::Object
      * possibly-Window object we're setting the proto on.
      */
     RootedObject objMaybeWindowProxy(cx, ToWindowProxyIfWindow(obj));
-    RootedObject obj2(cx);
-    for (obj2 = proto; obj2; ) {
+    RootedObject obj2(cx, proto);
+    while (obj2) {
         MOZ_ASSERT(!IsWindow(obj2));
         if (obj2 == objMaybeWindowProxy)
             return result.fail(JSMSG_CANT_SET_PROTO_CYCLE);
 
-        if (!GetPrototype(cx, obj2, &obj2))
+        bool isOrdinary;
+        if (!GetPrototypeIfOrdinary(cx, obj2, &isOrdinary, &obj2))
             return false;
+        if (!isOrdinary)
+            break;
     }
 
     // Convert unboxed objects to their native representations before changing

@@ -143,6 +143,12 @@ JS_NewObjectWithoutMetadata(JSContext* cx, const JSClass* clasp, JS::Handle<JSOb
     return JS_NewObjectWithGivenProto(cx, clasp, proto);
 }
 
+JS_FRIEND_API(bool)
+JS_GetIsSecureContext(JSCompartment* compartment)
+{
+    return compartment->creationOptions().secureContext();
+}
+
 JS_FRIEND_API(JSPrincipals*)
 JS_GetCompartmentPrincipals(JSCompartment* compartment)
 {
@@ -579,13 +585,6 @@ js::ZoneGlobalsAreAllGray(JS::Zone* zone)
             return false;
     }
     return true;
-}
-
-JS_FRIEND_API(JS::TraceKind)
-js::GCThingTraceKind(void* thing)
-{
-    MOZ_ASSERT(thing);
-    return static_cast<js::gc::Cell*>(thing)->getTraceKind();
 }
 
 JS_FRIEND_API(void)
@@ -1275,32 +1274,6 @@ js::HasObjectMovedOp(JSObject* obj) {
     return !!GetObjectClass(obj)->extObjectMovedOp();
 }
 #endif
-
-JS_FRIEND_API(void)
-JS_StoreObjectPostBarrierCallback(JSContext* cx,
-                                  void (*callback)(JSTracer* trc, JSObject* key, void* data),
-                                  JSObject* key, void* data)
-{
-    JSRuntime* rt = cx->runtime();
-    if (IsInsideNursery(key))
-        rt->gc.storeBuffer.putCallback(callback, key, data);
-}
-
-extern JS_FRIEND_API(void)
-JS_StoreStringPostBarrierCallback(JSContext* cx,
-                                  void (*callback)(JSTracer* trc, JSString* key, void* data),
-                                  JSString* key, void* data)
-{
-    JSRuntime* rt = cx->runtime();
-    if (IsInsideNursery(key))
-        rt->gc.storeBuffer.putCallback(callback, key, data);
-}
-
-extern JS_FRIEND_API(void)
-JS_ClearAllPostBarrierCallbacks(JSRuntime* rt)
-{
-    rt->gc.clearPostBarrierCallbacks();
-}
 
 JS_FRIEND_API(bool)
 js::ForwardToNative(JSContext* cx, JSNative native, const CallArgs& args)

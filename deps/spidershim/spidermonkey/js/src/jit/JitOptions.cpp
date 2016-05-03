@@ -87,6 +87,9 @@ DefaultJitOptions::DefaultJitOptions()
     // Toggles whether Edge Case Analysis is gobally disabled.
     SET_DEFAULT(disableEdgeCaseAnalysis, false);
 
+    // Toggles whether to use flow sensitive Alias Analysis.
+    SET_DEFAULT(disableFlowAA, true);
+
     // Toggle whether global value numbering is globally disabled.
     SET_DEFAULT(disableGvn, false);
 
@@ -107,6 +110,9 @@ DefaultJitOptions::DefaultJitOptions()
 
     // Toggles whether Range Analysis is globally disabled.
     SET_DEFAULT(disableRangeAnalysis, false);
+
+    // Toggles wheter Recover instructions is globally disabled.
+    SET_DEFAULT(disableRecoverIns, false);
 
     // Toggle whether eager scalar replacement is globally disabled.
     SET_DEFAULT(disableScalarReplacement, false);

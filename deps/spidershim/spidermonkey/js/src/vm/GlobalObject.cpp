@@ -221,9 +221,32 @@ GlobalObject::resolveConstructor(JSContext* cx, Handle<GlobalObject*> global, JS
             return false;
     }
 
+    // Set the constructor slot here to make it usable from JS_DefineFunctions,
+    // especially with JSProto_Function, as Function.prototype.toString is also
+    // a function.
+    // All failure cases from here should reset them to undefined, to avoid
+    // leaving partially initiallized object in the constructor slot.
     global->setConstructor(key, ObjectValue(*ctor));
     global->setConstructorPropertySlot(key, ObjectValue(*ctor));
 
+    if (!defineConstructorPropertiesAndLinkPrototype(cx, global, key, clasp, id,
+                                                     ctor, proto))
+    {
+        global->setConstructor(key, UndefinedValue());
+        global->setConstructorPropertySlot(key, UndefinedValue());
+        return false;
+    }
+
+    return true;
+}
+
+/* static */ bool
+GlobalObject::defineConstructorPropertiesAndLinkPrototype(JSContext* cx,
+                                                          Handle<GlobalObject*> global,
+                                                          JSProtoKey key, const Class* clasp,
+                                                          HandleId id, HandleObject ctor,
+                                                          HandleObject proto)
+{
     // Define any specified functions and properties, unless we're a dependent
     // standard class (in which case they live on the prototype), or we're
     // operating on the self-hosting global, in which case we don't want any
@@ -767,10 +790,10 @@ GlobalObject::getSelfHostedFunction(JSContext* cx, Handle<GlobalObject*> global,
         return false;
     if (exists) {
         RootedFunction fun(cx, &funVal.toObject().as<JSFunction>());
-        if (fun->atom() == name)
+        if (fun->name() == name)
             return true;
 
-        if (fun->atom() == selfHostedName) {
+        if (fun->name() == selfHostedName) {
             // This function was initially cloned because it was called by
             // other self-hosted code, so the clone kept its self-hosted name,
             // instead of getting the name it's intended to have in content

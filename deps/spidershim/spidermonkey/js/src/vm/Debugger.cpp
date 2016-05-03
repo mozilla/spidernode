@@ -3973,7 +3973,7 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
      * this query, and append the matching scripts to |vector|.
      */
     bool findScripts() {
-        if (!prepareQuery())
+        if (!prepareQuery() || !delazifyScripts())
             return false;
 
         JSCompartment* singletonComp = nullptr;
@@ -4099,13 +4099,6 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
     bool oom;
 
     bool addCompartment(JSCompartment* comp) {
-        {
-            // All scripts in the debuggee compartment must be visible, so
-            // delazify everything.
-            AutoCompartment ac(cx, comp);
-            if (!comp->ensureDelazifyScriptsForDebugger(cx))
-                return false;
-        }
         return compartments.put(comp);
     }
 
@@ -4147,6 +4140,18 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
                 return false;
         }
 
+        return true;
+    }
+
+    bool delazifyScripts() {
+        // All scripts in debuggee compartments must be visible, so delazify
+        // everything.
+        for (auto r = compartments.all(); !r.empty(); r.popFront()) {
+            JSCompartment* comp = r.front();
+            AutoCompartment ac(cx, comp);
+            if (!comp->ensureDelazifyScriptsForDebugger(cx))
+                return false;
+        }
         return true;
     }
 
@@ -7716,7 +7721,7 @@ DebuggerObject_getName(JSContext* cx, unsigned argc, Value* vp)
         return true;
     }
 
-    JSString* name = obj->as<JSFunction>().atom();
+    JSString* name = obj->as<JSFunction>().name();
     if (!name) {
         args.rval().setUndefined();
         return true;
@@ -8065,7 +8070,7 @@ DebuggerObject_getPromiseDependentPromises(JSContext* cx, unsigned argc, Value* 
 {
     THIS_DEBUGOBJECT_OWNER_PROMISE(cx, argc, vp, "get promiseDependentPromises", args, dbg, refobj);
 
-    AutoValueVector values(cx);
+    Rooted<GCVector<Value>> values(cx, GCVector<Value>());
     {
         JSAutoCompartment ac(cx, promise);
         if (!promise->dependentPromises(cx, values))
