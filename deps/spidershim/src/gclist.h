@@ -38,7 +38,7 @@ public:
 
   void trace(JSTracer* trc) {
     for (auto& item : *this) {
-      js::GCPolicy<T>::trace(trc, &item, "list element");
+      JS::GCPolicy<T>::trace(trc, &item, "list element");
     }
   }
 };
