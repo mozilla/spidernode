@@ -20,6 +20,7 @@
 
 #include "v8.h"
 #include "v8context.h"
+#include "v8local.h"
 #include "jsapi.h"
 
 namespace v8 {
@@ -80,11 +81,18 @@ bool Context::CreateGlobal(Isolate* isolate) {
 
   pimpl_->global.init(isolate->Runtime());
   pimpl_->global = newGlobal;
+  JS::Value globalObj;
+  globalObj.setObject(*newGlobal);
+  pimpl_->globalObj = internal::Local<Object>::New(Isolate::GetCurrent(), globalObj);
 
   // Ensure that JS errors appear as exceptions to us.
   JS::ContextOptionsRef(pimpl_->cx).setAutoJSAPIOwnsErrorReporting(true);
 
   return true;
+}
+
+Local<Object> Context::Global() {
+  return pimpl_->globalObj;
 }
 
 void Context::Dispose() {

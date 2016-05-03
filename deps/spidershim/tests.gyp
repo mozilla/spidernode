@@ -9,6 +9,10 @@
   },
   'targets': [
     {
+      'target_name': 'exception',
+      'sources': [ 'test/exception.cc' ],
+    },
+    {
       'target_name': 'hello-world',
       'sources': [ 'test/hello-world.cc' ],
     },

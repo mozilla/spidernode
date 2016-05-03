@@ -31,6 +31,7 @@ struct Context::Impl {
   }
   JSContext* cx;
   JS::PersistentRootedObject global;
+  Local<Object> globalObj;
   JSCompartment* oldCompartment;
 };
 
