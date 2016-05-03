@@ -37,6 +37,10 @@ Local<Number> Number::New(Isolate* isolate, double value) {
   return internal::Local<Number>::New(isolate, numVal);
 }
 
+Local<Number> Number::From(double value) {
+  return New(Isolate::GetCurrent(), value);
+}
+
 Number* Number::Cast(class Value* obj) {
   assert(obj->IsNumber());
   return static_cast<Number*>(obj);

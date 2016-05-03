@@ -42,10 +42,18 @@ Local<Integer> Integer::New(Isolate* isolate, int32_t value) {
   return internal::Local<Integer>::New(isolate, intVal);
 }
 
+Local<Integer> Integer::From(int32_t value) {
+  return New(Isolate::GetCurrent(), value);
+}
+
 Local<Integer> Integer::NewFromUnsigned(Isolate* isolate, uint32_t value) {
   JS::Value intVal;
   intVal.setNumber(value);
   return internal::Local<Integer>::New(isolate, intVal);
+}
+
+Local<Integer> Integer::From(uint32_t value) {
+  return NewFromUnsigned(Isolate::GetCurrent(), value);
 }
 
 Integer* Integer::Cast(class Value* obj) {
