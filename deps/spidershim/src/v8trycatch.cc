@@ -29,7 +29,8 @@ namespace v8 {
 
 struct TryCatch::Impl {
   Impl(Isolate* iso)
-    : isolate_(iso) {
+    : isolate_(iso),
+      verbose_(false) {
     Reset();
   }
   ~Impl() {
@@ -75,6 +76,7 @@ struct TryCatch::Impl {
     assert(hasExceptionSet_ && HasException());
     return exception_.unsafeGet();
   }
+  void SetVerbose(bool verbose) { verbose_ = verbose; }
 
   void Reset() {
     hasException_ = false;
@@ -93,6 +95,9 @@ struct TryCatch::Impl {
     }
     JS::RootedValue exc(cx);
     if (JS_GetPendingException(cx, &exc)) {
+      if (verbose_) {
+        JS_ReportPendingException(cx);
+      }
       JS_ClearPendingException(cx);
       SetException(exc);
       hasException_ = true;
@@ -107,6 +112,7 @@ private:
   mutable bool hasException_;
   mutable bool hasExceptionSet_;
   mutable bool rethrow_;
+  bool verbose_;
 };
 
 TryCatch::TryCatch(Isolate* iso)
@@ -141,6 +147,10 @@ Local<Value> TryCatch::Exception() const {
 
 void TryCatch::Reset() {
   pimpl_->Reset();
+}
+
+void TryCatch::SetVerbose(bool verbose) {
+  pimpl_->SetVerbose(verbose);
 }
 
 }
