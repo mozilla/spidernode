@@ -153,4 +153,9 @@ void TryCatch::SetVerbose(bool verbose) {
   pimpl_->SetVerbose(verbose);
 }
 
+Local<Message> TryCatch::Message() const {
+  auto msg = new class Message(Exception());
+  return Local<class Message>::New(Isolate::GetCurrent(), msg);
+}
+
 }

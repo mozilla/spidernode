@@ -78,6 +78,7 @@ class HeapStatistics;
 class Int32;
 class Integer;
 class Isolate;
+class Message;
 class Name;
 class Number;
 class NumberObject;
@@ -733,6 +734,10 @@ private:
     // Contexts are not currently tracked by HandleScopes.
     return context;
   }
+  static Message* AddToScope(Message* msg) {
+    // Messages are not currently tracked by HandleScopes.
+    return msg;
+  }
   static Private* AddToScope(Private* priv) {
     // TODO: Add support for Local<Private>
     return priv;
@@ -915,6 +920,14 @@ class V8_EXPORT Message {
   static const int kNoLineNumberInfo = 0;
   static const int kNoColumnInfo = 0;
   static const int kNoScriptIdInfo = 0;
+
+private:
+  friend class TryCatch;
+  explicit Message(Local<Value> exception);
+
+private:
+  struct Impl;
+  Impl* pimpl_;
 };
 
 typedef void (*MessageCallback)(Handle<Message> message, Handle<Value> error);

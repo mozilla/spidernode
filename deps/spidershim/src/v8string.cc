@@ -120,6 +120,12 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
   return internal::Local<String>::New(isolate, strVal);
 }
 
+Local<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
+                                     NewStringType type, int length) {
+  return NewFromOneByte(isolate, data, static_cast<v8::NewStringType>(type),
+                        length).FromMaybe(Local<String>());
+}
+
 MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                                           v8::NewStringType type, int length) {
   assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings

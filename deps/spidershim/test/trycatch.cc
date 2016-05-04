@@ -203,3 +203,96 @@ TEST(SpiderShim, TryCatchFinallyUsingTryCatchHandler) {
       "})()");
   EXPECT_TRUE(try_catch.HasCaught());
 }
+
+static void CheckTryCatchSourceInfo(const V8Engine& engine,
+                                    Local<Script> script,
+                                    const char* resource_name,
+                                    int line_offset) {
+  HandleScope scope(engine.isolate());
+  TryCatch try_catch(engine.isolate());
+  Local<Context> context = engine.isolate()->GetCurrentContext();
+  EXPECT_TRUE(script->Run(context).IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  Local<Message> message = try_catch.Message();
+  EXPECT_TRUE(!message.IsEmpty());
+  EXPECT_EQ(10 + line_offset, message->GetLineNumber(context).FromJust());
+  // GetStartPosition and GetEndPosition not supported yet.
+  //EXPECT_EQ(91, message->GetStartPosition());
+  //EXPECT_EQ(92, message->GetEndPosition());
+  EXPECT_EQ(9, message->GetStartColumn(context).FromJust());
+  // GetEndColumn is not supported yet.
+  //EXPECT_EQ(3, message->GetEndColumn(context).FromJust());
+  EXPECT_TRUE(message->GetEndColumn(context).IsNothing());
+  // GetSourceLine not supported yet.
+  //String::Utf8Value line(message->GetSourceLine(context).ToLocalChecked());
+  //EXPECT_EQ(0, strcmp("  throw 'nirk';", *line));
+  // GetScriptOrigin not supported yet.
+  //String::Utf8Value name(message->GetScriptOrigin().ResourceName());
+  //EXPECT_EQ(0, strcmp(resource_name, *name));
+}
+
+TEST(SpiderShim, TryCatchSourceInfo) {
+  // This test is based on V8's TryCatchSourceInfo test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<String> source = v8_str(
+      "function Foo() {\n"
+      "  return Bar();\n"
+      "}\n"
+      "\n"
+      "function Bar() {\n"
+      "  return Baz();\n"
+      "}\n"
+      "\n"
+      "function Baz() {\n"
+      "  throw new Error('nirk');\n"
+      "}\n"
+      "\n"
+      "Foo();\n");
+
+  const char* resource_name;
+  Local<Script> script;
+  resource_name = "test.js";
+  ScriptOrigin origin0(v8_str(resource_name));
+  script =
+      Script::Compile(context, source, &origin0).ToLocalChecked();
+  CheckTryCatchSourceInfo(engine, script, resource_name, 0);
+
+  resource_name = "test1.js";
+  ScriptOrigin origin1(v8_str(resource_name));
+  script =
+      Script::Compile(context, source, &origin1).ToLocalChecked();
+  CheckTryCatchSourceInfo(engine, script, resource_name, 0);
+
+  resource_name = "test2.js";
+  ScriptOrigin origin2(v8_str(resource_name),
+                           Integer::New(context->GetIsolate(), 7));
+  script =
+      Script::Compile(context, source, &origin2).ToLocalChecked();
+  CheckTryCatchSourceInfo(engine, script, resource_name, 7);
+}
+
+TEST(SpiderShim, TryCatchSourceInfoForEOSError) {
+  // This test is based on V8's TryCatchSourceInfoForEOSError test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  TryCatch try_catch(engine.isolate());
+  EXPECT_TRUE(Script::Compile(context, v8_str("!\n")).IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  Local<Message> message = try_catch.Message();
+  // TODO: V8 seems to report the line number as 1 here!
+  EXPECT_EQ(2, message->GetLineNumber(context).FromJust());
+  EXPECT_EQ(0, message->GetStartColumn(context).FromJust());
+}

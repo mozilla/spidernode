@@ -23,14 +23,13 @@
 #include "js/CharacterEncoding.h"
 #include "v8local.h"
 #include "v8string.h"
+#include "mozilla/UniquePtr.h"
 
 namespace v8 {
 
 MaybeLocal<Script> Script::Compile(Local<Context> context,
                                    Local<String> source,
                                    ScriptOrigin* origin) {
-  // TODO: Add support for origin.
-  assert(!origin && "The origin argument is not supported yet");
   JSContext* cx = JSContextFromContext(*context);
   size_t length = 0;
   auto buffer = internal::GetFlatString(cx, source, &length);
@@ -40,11 +39,28 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   JS::SourceBufferHolder sbh(buffer.release(), length,
                              JS::SourceBufferHolder::GiveOwnership);
   JS::CompileOptions options(cx);
+  mozilla::UniquePtr<String::Utf8Value> utf8;
   options.setVersion(JSVERSION_DEFAULT)
          .setNoScriptRval(false)
          .setUTF8(true)
          .setSourceIsLazy(false)
+         .setLine(1)
+         .setColumn(0)
          .forceAsync = true;;
+  if (origin) {
+    MaybeLocal<String> resourceName =
+      origin->ResourceName()->ToString(context);
+    if (!resourceName.IsEmpty()) {
+      utf8 = mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
+      options.setFile(**utf8);
+    }
+    if (!origin->ResourceLineOffset().IsEmpty()) {
+      options.setLine(origin->ResourceLineOffset()->Value() + 1);
+    }
+    if (!origin->ResourceColumnOffset().IsEmpty()) {
+      options.setColumn(origin->ResourceColumnOffset()->Value());
+    }
+  }
   JS::RootedScript jsScript(cx);
   if (!JS::Compile(cx, options, sbh, &jsScript)) {
     return MaybeLocal<Script>();
