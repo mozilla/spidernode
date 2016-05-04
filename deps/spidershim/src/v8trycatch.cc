@@ -96,9 +96,12 @@ struct TryCatch::Impl {
     JS::RootedValue exc(cx);
     if (JS_GetPendingException(cx, &exc)) {
       if (verbose_) {
+        // This function clears the pending exception automatically.
         JS_ReportPendingException(cx);
+        assert(!JS_IsExceptionPending(cx));
+      } else {
+        JS_ClearPendingException(cx);
       }
-      JS_ClearPendingException(cx);
       SetException(exc);
       hasException_ = true;
       return true;
