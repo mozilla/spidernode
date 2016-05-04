@@ -77,7 +77,6 @@ Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
 MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                        v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
 
   // In V8's api.cc, this conditional block is annotated with the comment:
@@ -96,27 +95,40 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   if (!twoByteChars) {
     return MaybeLocal<String>();
   }
-  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars.release(), twoByteLen));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(twoByteChars.release())) :
+      JS_NewUCString(cx, twoByteChars.release(), twoByteLen);
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
+  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(str);
+  strVal.setString(rootedStr);
   return internal::Local<String>::New(isolate, strVal);
 }
 
 MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
                                           v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-    JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
-    JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data)));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      JS_AtomizeAndPinString(cx, reinterpret_cast<const char*>(data)) :
+      length >= 0 ?
+        JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
+        JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data));
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
+  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(str);
+  strVal.setString(rootedStr);
   return internal::Local<String>::New(isolate, strVal);
 }
 
@@ -128,16 +140,22 @@ Local<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
 
 MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                                           v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-    JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
-    JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data)));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(data)) :
+      length >= 0 ?
+        JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
+        JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data));
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
+  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(str);
+  strVal.setString(rootedStr);
   return internal::Local<String>::New(isolate, strVal);
 }
 
