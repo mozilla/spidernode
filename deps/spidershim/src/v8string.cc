@@ -250,6 +250,62 @@ Local<String> String::Concat(Handle<String> left, Handle<String> right) {
   return internal::Local<String>::New(isolate, retVal);
 }
 
+int String::Write(uint16_t* buffer, int start, int length, int options) const {
+  return internal::Write(this, reinterpret_cast<char16_t*>(buffer), start, length, options);
+}
+
+int String::WriteOneByte(uint8_t* buffer, int start, int length, int options) const {
+  return internal::Write(this, reinterpret_cast<char*>(buffer), start, length, options);
+}
+
+// Based on String::WriteUtf8 in V8's api.cc.
+int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) const {
+  bool nullTermination = !(options & NO_NULL_TERMINATION);
+
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  JSLinearString* linearStr = js::StringToLinearString(cx, thisStr);
+  if (!linearStr) {
+    return 0;
+  }
+
+  // The number of bytes written to the buffer.  DeflateStringToUTF8Buffer
+  // expects its initial value to be the capacity of the buffer, and it uses it
+  // to determine whether/when to abort writing bytes to the buffer.
+  size_t numBytes = (size_t)capacity;
+
+  // The number of Unicode characters written to the buffer. This could be
+  // less than the length of the string, if the buffer isn't big enough to hold
+  // the whole string.
+  if (numChars != nullptr) {
+    *numChars = 0;
+  }
+
+  bool completed = internal::DeflateStringToUTF8Buffer(linearStr, buffer, &numBytes, numChars, options);
+
+  if (completed) {
+    // If the caller requested null termination, but the buffer doesn't have
+    // any more space for it, then disable null termination.
+    if (nullTermination && (size_t)capacity == numBytes) {
+      nullTermination = false;
+    }
+  } else {
+    // Deflation was aborted, so don't null terminate, regardless of what
+    // the caller requested.  Presumably this is because deflation only aborts
+    // when the buffer runs out of space (although it's possible for the buffer
+    // to still have space for null termination in that case, if the abort
+    // happens on a character that deflates to multiple bytes, and the buffer
+    // has at least one free byte, but not enough to hold the whole character).
+    nullTermination = false;
+  }
+
+  if (nullTermination) {
+    buffer[numBytes++] = '\0';
+  }
+
+  return numBytes;
+}
+
 namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {
@@ -308,6 +364,180 @@ void ExternalOneByteStringFinalizer::FinalizeExternalString(const JSStringFinali
   // and this is that copy. The resource will handle deleting its original
   // data, but we have to delete this copy.
   delete chars;
+}
+
+// Based on WriteHelper in V8's api.cc.
+template<typename CharType>
+static inline int Write(const String* string, CharType* buffer, int start,
+                        int length, int options) {
+  MOZ_ASSERT(start >= 0 && length >= -1);
+
+  JSString* str = reinterpret_cast<const JS::Value*>(string)->toString();
+  int strLength = JS_GetStringLength(str);
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+
+  int end = start + length;
+  if ((length == -1) || (length > strLength - start)) {
+    end = strLength;
+  }
+  if (end < 0) {
+    return 0;
+  }
+
+  if (!internal::CopyStringChars(cx, buffer, str, end - start, start)) {
+    return 0;
+  }
+
+  if (!(options & String::NO_NULL_TERMINATION) &&
+      (length == -1 || end - start < length)) {
+    buffer[end - start] = '\0';
+  }
+
+  return end - start;
+}
+
+// This is identical (modulo formatting) to the function of the same name
+// in jsstr.
+//
+// TODO: expose that function and get rid of this one.
+//
+uint32_t
+OneUcs4ToUtf8Char(uint8_t* utf8Buffer, uint32_t ucs4Char) {
+  MOZ_ASSERT(ucs4Char <= 0x10FFFF);
+
+  if (ucs4Char < 0x80) {
+    utf8Buffer[0] = uint8_t(ucs4Char);
+    return 1;
+  }
+
+  uint32_t a = ucs4Char >> 11;
+  uint32_t utf8Length = 2;
+  while (a) {
+    a >>= 5;
+    utf8Length++;
+  }
+
+  MOZ_ASSERT(utf8Length <= 4);
+
+  uint32_t i = utf8Length;
+  while (--i) {
+    utf8Buffer[i] = uint8_t((ucs4Char & 0x3F) | 0x80);
+    ucs4Char >>= 6;
+  }
+
+  utf8Buffer[0] = uint8_t(0x100 - (1 << (8 - utf8Length)) + ucs4Char);
+  return utf8Length;
+}
+
+const char16_t UTF8_REPLACEMENT_CHAR = u'\uFFFD';
+
+// There are two existing versions of this function: the public one
+// in CharacterEncoding and a private one in CTypes.
+//
+// Neither of them does quite what we want, since CharacterEncoding requires
+// the caller to ensure that the buffer is big enough to deflate the whole
+// string, while CTypes abort on a bad surrogate.  Whereas we want to abort
+// if the buffer runs out of space while continuing on a bad surrogate (which
+// we either replace with the replacement character or lossily convert).
+//
+// So this is a third implementation, based on those other two.  In theory,
+// it should be possible to refactor all three into a single implementation.
+//
+// TODO: that.
+//
+template <typename CharT>
+bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
+                               char* dst, size_t* dstlenp, int* numchrp,
+                               int options)
+{
+  size_t i, utf8Len;
+  char16_t c, c2;
+  uint32_t v;
+  uint8_t utf8buf[6];
+
+  size_t dstlen = *dstlenp;
+  size_t origDstlen = dstlen;
+  bool replaceInvalidUtf8 = (options & String::REPLACE_INVALID_UTF8);
+
+  while (srclen) {
+    c = *src++;
+    srclen--;
+    if (c >= 0xDC00 && c <= 0xDFFF) {
+      // bad surrogate pair (trailing surrogate at first byte of pair)
+      v = replaceInvalidUtf8 ? UTF8_REPLACEMENT_CHAR : c;
+    }
+    else if (c < 0xD800 || c > 0xDBFF) {
+      // non-surrogate
+      v = c;
+    } else {
+      // leading surrogate
+      if (srclen < 1) {
+        // bad surrogate pair (leading surrogate at end of string)
+        v = replaceInvalidUtf8 ? UTF8_REPLACEMENT_CHAR : c;
+      } else {
+        c2 = *src;
+        if ((c2 < 0xDC00) || (c2 > 0xDFFF)) {
+          // bad surrogate pair (second byte of pair not a trailing surrogate)
+          v = replaceInvalidUtf8 ? UTF8_REPLACEMENT_CHAR : c;
+        } else {
+          // valid surrogate pair
+          src++;
+          srclen--;
+          v = ((c - 0xD800) << 10) + (c2 - 0xDC00) + 0x10000;
+        }
+      }
+    }
+    if (v < 0x0080) {
+      /* no encoding necessary - performance hack */
+      if (dstlen == 0) {
+        goto bufferTooSmall;
+      }
+      *dst++ = (char) v;
+      utf8Len = 1;
+    } else {
+      utf8Len = OneUcs4ToUtf8Char(utf8buf, v);
+      if (utf8Len > dstlen) {
+        goto bufferTooSmall;
+      }
+      for (i = 0; i < utf8Len; i++) {
+        *dst++ = (char) utf8buf[i];
+      }
+    }
+    dstlen -= utf8Len;
+    if (numchrp != nullptr) {
+      (*numchrp)++;
+    }
+  }
+  *dstlenp = (origDstlen - dstlen);
+  return true;
+
+  bufferTooSmall:
+    *dstlenp = (origDstlen - dstlen);
+    return false;
+}
+
+template
+bool DeflateStringToUTF8Buffer(const JS::Latin1Char* src, size_t srclen,
+                               char* dst, size_t* dstlenp, int* numchrp,
+                               int options);
+
+template
+bool DeflateStringToUTF8Buffer(const char16_t* src, size_t srclen,
+                               char* dst, size_t* dstlenp, int* numchrp,
+                               int options);
+
+bool DeflateStringToUTF8Buffer(JSLinearString* str, char* dst, size_t* dstlenp,
+                               int* numchrp, int options)
+{
+  size_t length = js::GetLinearStringLength(str);
+
+  JS::AutoCheckCannotGC nogc;
+  return js::LinearStringHasLatin1Chars(str)
+         ? DeflateStringToUTF8Buffer(js::GetLatin1LinearStringChars(nogc, str),
+                                     length, dst, dstlenp, numchrp, options)
+         : DeflateStringToUTF8Buffer(js::GetTwoByteLinearStringChars(nogc, str),
+                                     length, dst, dstlenp, numchrp, options);
 }
 
 }
