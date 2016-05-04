@@ -1434,3 +1434,177 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
   Local<Float64Array> f64a =
       CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
 }
+
+static inline v8::Local<v8::Script> v8_compile(v8::Local<v8::String> x) {
+  v8::Local<v8::Script> result;
+  if (v8::Script::Compile(v8::Isolate::GetCurrent()->GetCurrentContext(), x)
+          .ToLocal(&result)) {
+    return result;
+  }
+  return v8::Local<v8::Script>();
+}
+
+static inline v8::Local<v8::Value> CompileRun(v8::Local<v8::String> source) {
+  v8::Local<v8::Value> result;
+  if (v8_compile(source)
+          ->Run(v8::Isolate::GetCurrent()->GetCurrentContext())
+          .ToLocal(&result)) {
+    return result;
+  }
+  return v8::Local<v8::Value>();
+}
+
+
+// Helper functions that compile and run the source.
+static inline v8::Local<v8::Value> CompileRun(const char* source) {
+  return CompileRun(v8_str(source));
+}
+
+TEST(SpiderShim, FunctionCall) {
+  // This test is adopted from the V8 FunctionCall test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  CompileRun(
+      "function Foo() {"
+      "  var result = [];"
+      "  for (var i = 0; i < arguments.length; i++) {"
+      "    result.push(arguments[i]);"
+      "  }"
+      "  return result;"
+      "}"
+      "function ReturnThisSloppy() {"
+      "  return this;"
+      "}"
+      "function ReturnThisStrict() {"
+      "  'use strict';"
+      "  return this;"
+      "}");
+  Local<Function> Foo = Local<Function>::Cast(
+      context->Global()->Get(context, v8_str("Foo")).ToLocalChecked());
+  Local<Function> ReturnThisSloppy = Local<Function>::Cast(
+      context->Global()
+          ->Get(context, v8_str("ReturnThisSloppy"))
+          .ToLocalChecked());
+  Local<Function> ReturnThisStrict = Local<Function>::Cast(
+      context->Global()
+          ->Get(context, v8_str("ReturnThisStrict"))
+          .ToLocalChecked());
+
+  v8::Local<Value>* args0 = NULL;
+  Local<v8::Array> a0 = Local<v8::Array>::Cast(
+      Foo->Call(context, Foo, 0, args0).ToLocalChecked());
+  EXPECT_EQ(0u, a0->Length());
+
+  v8::Local<Value> args1[] = {v8_num(1.1)};
+  Local<v8::Array> a1 = Local<v8::Array>::Cast(
+      Foo->Call(context, Foo, 1, args1).ToLocalChecked());
+  EXPECT_EQ(1u, a1->Length());
+  EXPECT_EQ(1.1, a1->Get(context, v8::Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  v8::Local<Value> args2[] = {v8_num(2.2), v8_num(3.3)};
+  Local<v8::Array> a2 = Local<v8::Array>::Cast(
+      Foo->Call(context, Foo, 2, args2).ToLocalChecked());
+  EXPECT_EQ(2u, a2->Length());
+  EXPECT_EQ(2.2, a2->Get(context, v8::Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(3.3, a2->Get(context, v8::Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  v8::Local<Value> args3[] = {v8_num(4.4), v8_num(5.5), v8_num(6.6)};
+  Local<v8::Array> a3 = Local<v8::Array>::Cast(
+      Foo->Call(context, Foo, 3, args3).ToLocalChecked());
+  EXPECT_EQ(3u, a3->Length());
+  EXPECT_EQ(4.4, a3->Get(context, v8::Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(5.5, a3->Get(context, v8::Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(6.6, a3->Get(context, v8::Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  v8::Local<Value> args4[] = {v8_num(7.7), v8_num(8.8), v8_num(9.9),
+                              v8_num(10.11)};
+  Local<v8::Array> a4 = Local<v8::Array>::Cast(
+      Foo->Call(context, Foo, 4, args4).ToLocalChecked());
+  EXPECT_EQ(4u, a4->Length());
+  EXPECT_EQ(7.7, a4->Get(context, v8::Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(8.8, a4->Get(context, v8::Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(9.9, a4->Get(context, v8::Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  EXPECT_EQ(10.11, a4->Get(context, v8::Integer::New(isolate, 3))
+                      .ToLocalChecked()
+                      ->NumberValue(context)
+                      .FromJust());
+
+  Local<v8::Value> r1 =
+      ReturnThisSloppy->Call(context, v8::Undefined(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r1->StrictEquals(context->Global()));
+  Local<v8::Value> r2 =
+      ReturnThisSloppy->Call(context, v8::Null(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r2->StrictEquals(context->Global()));
+  Local<v8::Value> r3 =
+      ReturnThisSloppy->Call(context, v8_num(42), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r3->IsNumberObject());
+  EXPECT_EQ(42.0, r3.As<v8::NumberObject>()->ValueOf());
+  Local<v8::Value> r4 =
+      ReturnThisSloppy->Call(context, v8_str("hello"), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r4->IsStringObject());
+  EXPECT_TRUE(r4.As<v8::StringObject>()->ValueOf()->StrictEquals(v8_str("hello")));
+  Local<v8::Value> r5 =
+      ReturnThisSloppy->Call(context, v8::True(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r5->IsBooleanObject());
+  EXPECT_TRUE(r5.As<v8::BooleanObject>()->ValueOf());
+
+  Local<v8::Value> r6 =
+      ReturnThisStrict->Call(context, v8::Undefined(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r6->IsUndefined());
+  Local<v8::Value> r7 =
+      ReturnThisStrict->Call(context, v8::Null(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r7->IsNull());
+  Local<v8::Value> r8 =
+      ReturnThisStrict->Call(context, v8_num(42), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r8->StrictEquals(v8_num(42)));
+  Local<v8::Value> r9 =
+      ReturnThisStrict->Call(context, v8_str("hello"), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r9->StrictEquals(v8_str("hello")));
+  Local<v8::Value> r10 =
+      ReturnThisStrict->Call(context, v8::True(isolate), 0, NULL)
+          .ToLocalChecked();
+  EXPECT_TRUE(r10->StrictEquals(v8::True(isolate)));
+}
