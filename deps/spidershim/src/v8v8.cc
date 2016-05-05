@@ -54,4 +54,22 @@ bool V8::IsDead() {
   return internal::gDisposed;
 }
 
+const char *V8::GetVersion() {
+  // Spidermonkey's version number does not match the format of v8's (X.X.X.X),
+  // unsure if this will be an issue yet.
+  return JS_GetImplementationVersion();
+}
+
+void V8::SetFlagsFromString(const char* str, int length) {
+  // TODO
+}
+
+void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
+  // TODO
+}
+
+void V8::SetEntropySource(EntropySource entropy_source) {
+  // TODO
+}
+
 }
