@@ -117,7 +117,9 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
 
   JSString* str =
     type == v8::NewStringType::kInternalized ?
-      JS_AtomizeAndPinString(cx, reinterpret_cast<const char*>(data)) :
+      length >= 0 ?
+        JS_AtomizeAndPinStringN(cx, reinterpret_cast<const char*>(data), length) :
+        JS_AtomizeAndPinString(cx, reinterpret_cast<const char*>(data)) :
       length >= 0 ?
         JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
         JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data));
@@ -144,7 +146,9 @@ MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data
 
   JSString* str =
     type == v8::NewStringType::kInternalized ?
-      JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(data)) :
+      length >= 0 ?
+        JS_AtomizeAndPinUCStringN(cx, reinterpret_cast<const char16_t*>(data), length) :
+        JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(data)) :
       length >= 0 ?
         JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
         JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data));
