@@ -912,24 +912,70 @@ TEST(SpiderShim, String) {
   EXPECT_EQ(6, StringObject::Cast(*foobar->ToObject())->ValueOf()->Length());
 
   const uint8_t asciiData[] = { 0x4F, 0x68, 0x61, 0x69, 0x00 }; // "Ohai"
+  const uint16_t asciiResult[] = { 0x4F, 0x68, 0x61, 0x69 };
 
-  Local<String> asciiStr =
-    String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(4, asciiStr->Length());
-  EXPECT_EQ(4, asciiStr->Utf8Length());
-  String::Value asciiVal(asciiStr);
-  EXPECT_EQ(0, memcmp(*asciiVal, asciiData, sizeof(*asciiData)));
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(4, asciiStr->Length());
+    EXPECT_EQ(4, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, sizeof(asciiResult)));
+  }
+
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, asciiStr->Length());
+    EXPECT_EQ(3, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, 3 * sizeof(*asciiResult)));
+  }
+
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kInternalized, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, asciiStr->Length());
+    EXPECT_EQ(3, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, 3 * sizeof(*asciiResult)));
+  }
 
   const uint8_t latin1Data[] = { 0xD3, 0x68, 0xE3, 0xEF, 0x00 }; // "Óhãï"
+  const uint16_t latin1Result[] = { 0xD3, 0x68, 0xE3, 0xEF };
 
-  Local<String> latin1Str =
-    String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(4, latin1Str->Length());
-  EXPECT_EQ(7, latin1Str->Utf8Length());
-  String::Value latin1Val(latin1Str);
-  EXPECT_EQ(0, memcmp(*latin1Val, latin1Data, sizeof(*latin1Data)));
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(4, latin1Str->Length());
+    EXPECT_EQ(7, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, sizeof(latin1Result)));
+  }
+
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, latin1Str->Length());
+    EXPECT_EQ(5, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, 3 * sizeof(*latin1Result)));
+  }
+
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kInternalized, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, latin1Str->Length());
+    EXPECT_EQ(5, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, 3 * sizeof(*latin1Result)));
+  }
 
   // A five character string (u"ˤdዤ0ぅ", from V8's test-strings.cc) in UTF-16
   // and UTF-8 bytes.
@@ -943,25 +989,77 @@ TEST(SpiderShim, String) {
   const uint16_t utf16Data[] = { 0x02E4, 0x0064, 0x12E4, 0x0030, 0x3045, 0x0000 };
   const unsigned char utf8Data[] = { 0xCB, 0xA4, 0x64, 0xE1, 0x8B, 0xA4, 0x30, 0xE3, 0x81, 0x85, 0x00 };
 
-  Local<String> fromTwoByteStr =
-    String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(5, fromTwoByteStr->Length());
-  EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
-  String::Value fromTwoByteVal(fromTwoByteStr);
-  String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
-  EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(*utf16Data)));
-  EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, sizeof(*utf8Data)));
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(5, fromTwoByteStr->Length());
+    EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, sizeof(utf8Data)));
+  }
 
-  Local<String> fromUtf8Str =
-    String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(5, fromUtf8Str->Length());
-  EXPECT_EQ(10, fromUtf8Str->Utf8Length());
-  String::Value fromUtf8Val(fromUtf8Str);
-  String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
-  EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(*utf16Data)));
-  EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(*utf8Data)));
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal, 4).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromTwoByteStr->Length());
+    EXPECT_EQ(7, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, 7 * sizeof(*utf8Data)));
+  }
+
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kInternalized, 4).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromTwoByteStr->Length());
+    EXPECT_EQ(7, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, 7 * sizeof(*utf8Data)));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(5, fromUtf8Str->Length());
+    EXPECT_EQ(10, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(utf8Data)));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal, 7).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromUtf8Str->Length());
+    EXPECT_EQ(7, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, 7));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kInternalized, 7).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromUtf8Str->Length());
+    EXPECT_EQ(7, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, 7));
+  }
 
   TestExternalStringResource* testResource =
     new TestExternalStringResource(utf16Data, (sizeof(utf16Data)/sizeof(*utf16Data) - 1));
