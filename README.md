@@ -40,7 +40,11 @@ Build Command:
 make
 ```
 
-Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the build system twice.  See [.travis.yml](https://github.com/mozilla/spidernode/blob/master/.travis.yml) for example.
+Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the build system twice.  See [.travis.yml](https://github.com/mozilla/spidernode/blob/master/.travis.yml) for example.  To run the tests, do:
+
+```bash
+./deps/spidershim/scripts/run-tests.sh
+```
 
 ### Repository structure
 The repository is based on [node-chakracore](https://github.com/nodejs/node-chakracore).  The interesting bits can be found in the [deps/spidershim](https://github.com/mozilla/spidernode/tree/master/deps/spidershim) directory.
