@@ -57,6 +57,7 @@ struct Isolate::Impl {
   JSRuntime* rt;
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
+  std::vector<StackFrame*> stackFrames;
   std::vector<StackTrace*> stackTraces;
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
@@ -157,6 +158,9 @@ void Isolate::Dispose() {
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
+  for (auto frame : pimpl_->stackFrames) {
+    delete frame;
+  }
   for (auto trace : pimpl_->stackTraces) {
     delete trace;
   }
@@ -187,6 +191,11 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
   return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+}
+
+void Isolate::AddStackFrame(StackFrame* frame) {
+  assert(pimpl_);
+  pimpl_->stackFrames.push_back(frame);
 }
 
 void Isolate::AddStackTrace(StackTrace* trace) {

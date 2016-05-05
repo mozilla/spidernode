@@ -222,4 +222,14 @@ Local<Array> StackTrace::AsArray() {
   return pimpl_->frames_;
 }
 
+Local<StackFrame> StackTrace::GetFrame(uint32_t index) const {
+  if (!pimpl_->ResolveIfNeeded() || index >= pimpl_->frames_->Length()) {
+    return Local<StackFrame>();
+  }
+  StackFrame* frame = new StackFrame(pimpl_->frames_->Get(index)->ToObject());
+  Isolate* isolate = Isolate::GetCurrent();
+  isolate->AddStackFrame(frame);
+  return Local<StackFrame>::New(isolate, frame);
+}
+
 }

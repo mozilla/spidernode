@@ -739,6 +739,10 @@ private:
     // Messages are not currently tracked by HandleScopes.
     return msg;
   }
+  static StackFrame* AddToScope(StackFrame* frame) {
+    // StackFrames are not currently tracked by HandleScopes.
+    return frame;
+  }
   static StackTrace* AddToScope(StackTrace* trace) {
     // StackTraces are not currently tracked by HandleScopes.
     return trace;
@@ -981,6 +985,13 @@ class V8_EXPORT StackFrame {
   Local<String> GetFunctionName() const;
   bool IsEval() const;
   bool IsConstructor() const;
+
+ private:
+  StackFrame(Local<Object> frame)
+    : frame_(frame) {}
+
+  friend class StackTrace;
+  Local<Object> frame_;
 };
 
 // v8::Value C++ objects in V8 are not created like normal C++ objects.  Instead,
@@ -2337,8 +2348,10 @@ private:
   void AddContext(Context* context);
   void PushCurrentContext(Context* context);
   void PopCurrentContext();
+  void AddStackFrame(StackFrame* frame);
   void AddStackTrace(StackTrace* trace);
   friend class Context;
+  friend class StackFrame;
   friend class StackTrace;
   friend class TryCatch;
   friend class ::V8Engine;

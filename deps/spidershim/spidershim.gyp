@@ -82,6 +82,7 @@
         'src/v8numberobject.cc',
         'src/v8object.cc',
         'src/v8script.cc',
+        'src/v8stackframe.cc',
         'src/v8stacktrace.cc',
         'src/v8string.cc',
         'src/v8stringobject.cc',
