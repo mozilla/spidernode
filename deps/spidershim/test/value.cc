@@ -1464,31 +1464,6 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
       CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
 }
 
-static inline v8::Local<v8::Script> v8_compile(v8::Local<v8::String> x) {
-  v8::Local<v8::Script> result;
-  if (v8::Script::Compile(v8::Isolate::GetCurrent()->GetCurrentContext(), x)
-          .ToLocal(&result)) {
-    return result;
-  }
-  return v8::Local<v8::Script>();
-}
-
-static inline v8::Local<v8::Value> CompileRun(v8::Local<v8::String> source) {
-  v8::Local<v8::Value> result;
-  if (v8_compile(source)
-          ->Run(v8::Isolate::GetCurrent()->GetCurrentContext())
-          .ToLocal(&result)) {
-    return result;
-  }
-  return v8::Local<v8::Value>();
-}
-
-
-// Helper functions that compile and run the source.
-static inline v8::Local<v8::Value> CompileRun(const char* source) {
-  return CompileRun(v8_str(source));
-}
-
 TEST(SpiderShim, FunctionCall) {
   // This test is adopted from the V8 FunctionCall test.
   V8Engine engine;
@@ -1500,7 +1475,7 @@ TEST(SpiderShim, FunctionCall) {
   Context::Scope context_scope(context);
   Isolate* isolate = engine.isolate();
 
-  CompileRun(
+  engine.CompileRun(context,
       "function Foo() {"
       "  var result = [];"
       "  for (var i = 0; i < arguments.length; i++) {"
