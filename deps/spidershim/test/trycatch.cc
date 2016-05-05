@@ -296,3 +296,43 @@ TEST(SpiderShim, TryCatchSourceInfoForEOSError) {
   EXPECT_EQ(2, message->GetLineNumber(context).FromJust());
   EXPECT_EQ(0, message->GetStartColumn(context).FromJust());
 }
+
+TEST(SpiderShim, TryCatchStackTrace) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<String> source = v8_str(
+      "function Foo() {\n"
+      "  return Bar();\n"
+      "}\n"
+      "\n"
+      "function Bar() {\n"
+      "  return Baz();\n"
+      "}\n"
+      "\n"
+      "function Baz() {\n"
+      "  throw new Error('nirk');\n"
+      "}\n"
+      "\n"
+      "Foo();\n");
+  const char* expectedStack = "Baz@test.js:10:9\n"
+                              "Bar@test.js:6:10\n"
+                              "Foo@test.js:2:10\n"
+                              "@test.js:13:1\n";
+
+  const char* resource_name;
+  Local<Script> script;
+  resource_name = "test.js";
+  ScriptOrigin origin0(v8_str(resource_name));
+  script =
+      Script::Compile(context, source, &origin0).ToLocalChecked();
+  TryCatch try_catch(engine.isolate());
+  EXPECT_TRUE(script->Run(context).IsEmpty());
+  String::Utf8Value stackTrace(try_catch.StackTrace());
+  EXPECT_STREQ(expectedStack, *stackTrace);
+}

@@ -161,4 +161,32 @@ Local<Message> TryCatch::Message() const {
   return Local<class Message>::New(Isolate::GetCurrent(), msg);
 }
 
+MaybeLocal<Value> TryCatch::StackTrace(Local<Context> context) const {
+  if (!pimpl_->HasException()) {
+    return MaybeLocal<Value>();
+  }
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedValue excValue(cx, *reinterpret_cast<JS::Value*>(*Exception()));
+  if (!excValue.isObject()) {
+    return MaybeLocal<Value>();
+  }
+  JS::RootedObject exc(cx, &excValue.toObject());
+  JS::RootedObject stack(cx, ExceptionStackOrNull(exc));
+  if (!stack) {
+    return MaybeLocal<Value>();
+  }
+  JS::RootedString stackString(cx);
+  if (!JS::BuildStackString(cx, stack, &stackString)) {
+    return MaybeLocal<Value>();
+  }
+  JS::Value retVal;
+  retVal.setString(stackString);
+  return internal::Local<Value>::New(context->GetIsolate(), retVal);
+}
+
+Local<Value> TryCatch::StackTrace() const {
+  return StackTrace(Isolate::GetCurrent()->GetCurrentContext())
+           .FromMaybe(Local<Value>());
+}
+
 }
