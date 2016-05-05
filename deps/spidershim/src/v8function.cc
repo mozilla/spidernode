@@ -39,7 +39,7 @@ Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
   }
 
   for (int i = 0; i < argc; i++) {
-	  args.infallibleAppend(*reinterpret_cast<JS::Value*>(*argv[i]));
+    args.infallibleAppend(*reinterpret_cast<JS::Value*>(*argv[i]));
   }
 
   JS::RootedValue func(cx, *reinterpret_cast<JS::Value*>(this));
@@ -54,7 +54,7 @@ Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
 Local<Value>
 Function::Call(Local<Value> obj, int argc, Local<Value> argv[])
 {
-	Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
+  Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
   return Call(ctx, obj, argc, argv).ToLocalChecked();
 }
 
@@ -64,4 +64,5 @@ Function::Cast(Value* v)
   assert(v->IsFunction());
   return static_cast<Function*>(v);
 }
+
 }
