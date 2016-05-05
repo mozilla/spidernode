@@ -100,6 +100,7 @@ void Context::Dispose() {
   assert(pimpl_->cx);
   JS_DestroyContext(pimpl_->cx);
   pimpl_->cx = nullptr;
+  delete this;
 }
 
 void Context::Enter() {
