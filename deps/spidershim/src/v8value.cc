@@ -330,4 +330,18 @@ bool Value::SameValue(Handle<Value> that) const {
   return same;
 }
 
+bool Value::IsNativeError() const {
+  if (!IsObject()) {
+    return false;
+  }
+  JSProtoKey key = JS::IdentifyStandardInstanceOrPrototype(
+      &reinterpret_cast<const JS::Value*>(this)->toObject());
+  return key == JSProto_EvalError ||
+         key == JSProto_RangeError ||
+         key == JSProto_ReferenceError ||
+         key == JSProto_SyntaxError ||
+         key == JSProto_TypeError ||
+         key == JSProto_URIError;
+}
+
 }

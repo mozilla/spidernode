@@ -804,6 +804,35 @@ TEST(SpiderShim, Date) {
   EXPECT_EQ(time, Date::Cast(*date.ToLocalChecked()->ToObject())->ValueOf());
 }
 
+TEST(SpiderShim, NativeError) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+#define FOR_EACH_NATIVEERROR(_)                   \
+  _(EvalError)                                    \
+  _(RangeError)                                   \
+  _(ReferenceError)                               \
+  _(SyntaxError)                                  \
+  _(TypeError)                                    \
+  _(URIError)
+#define CHECK_ERROR(ERR)                          \
+  Local<Value> err_ ## ERR =                      \
+    engine.CompileRun(context, "new " #ERR "()"); \
+  EXPECT_TRUE(err_ ## ERR->IsNativeError());
+FOR_EACH_NATIVEERROR(CHECK_ERROR)
+#undef CHECK_ERROR
+#undef FOR_EACH_NATIVEERROR
+
+  Local<Value> err_InternalError =
+    engine.CompileRun(context, "new InternalError()");
+  EXPECT_FALSE(err_InternalError->IsNativeError());
+}
+
 namespace {
 
 bool externalStringResourceDestructorCalled = false;
