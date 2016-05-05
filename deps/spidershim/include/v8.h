@@ -93,6 +93,7 @@ class Script;
 class Signature;
 class StartupData;
 class StackFrame;
+class StackTrace;
 class String;
 class StringObject;
 class Template;
@@ -738,6 +739,10 @@ private:
     // Messages are not currently tracked by HandleScopes.
     return msg;
   }
+  static StackTrace* AddToScope(StackTrace* trace) {
+    // StackTraces are not currently tracked by HandleScopes.
+    return trace;
+  }
   static Private* AddToScope(Private* priv) {
     // TODO: Add support for Local<Private>
     return priv;
@@ -956,6 +961,14 @@ class V8_EXPORT StackTrace {
     Isolate* isolate,
     int frame_limit,
     StackTraceOptions options = kOverview);
+
+  ~StackTrace();
+
+private:
+  StackTrace();
+
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT StackFrame {
@@ -2324,7 +2337,9 @@ private:
   void AddContext(Context* context);
   void PushCurrentContext(Context* context);
   void PopCurrentContext();
+  void AddStackTrace(StackTrace* trace);
   friend class Context;
+  friend class StackTrace;
   friend class TryCatch;
   friend class ::V8Engine;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
