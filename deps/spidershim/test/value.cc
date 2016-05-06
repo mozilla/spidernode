@@ -1719,6 +1719,17 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
       CreateAndCheck<Float32Array, 4>(buffer, 4, 255);
   Local<Float64Array> f64a =
       CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
+
+  // Avoid "unused variable" warnings.
+  EXPECT_FALSE(u8a->IsNull());
+  EXPECT_FALSE(u8c->IsNull());
+  EXPECT_FALSE(i8a->IsNull());
+  EXPECT_FALSE(u16a->IsNull());
+  EXPECT_FALSE(i16a->IsNull());
+  EXPECT_FALSE(u32a->IsNull());
+  EXPECT_FALSE(i32a->IsNull());
+  EXPECT_FALSE(f32a->IsNull());
+  EXPECT_FALSE(f64a->IsNull());
 }
 
 TEST(SpiderShim, FunctionCall) {
