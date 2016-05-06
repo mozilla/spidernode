@@ -77,7 +77,6 @@ Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
 MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                        v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
 
   // In V8's api.cc, this conditional block is annotated with the comment:
@@ -96,10 +95,16 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   if (!twoByteChars) {
     return MaybeLocal<String>();
   }
-  JS::RootedString str(cx, JS_NewUCString(cx, twoByteChars.release(), twoByteLen));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(twoByteChars.release())) :
+      JS_NewUCString(cx, twoByteChars.release(), twoByteLen);
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
   JS::Value strVal;
   strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
@@ -107,14 +112,21 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
 MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
                                           v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-    JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
-    JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data)));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      length >= 0 ?
+        JS_AtomizeAndPinStringN(cx, reinterpret_cast<const char*>(data), length) :
+        JS_AtomizeAndPinString(cx, reinterpret_cast<const char*>(data)) :
+      length >= 0 ?
+        JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
+        JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data));
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
   JS::Value strVal;
   strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
@@ -128,14 +140,21 @@ Local<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
 
 MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                                           v8::NewStringType type, int length) {
-  assert(type == v8::NewStringType::kNormal); // TODO: Add support for interned strings
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString str(cx, length >= 0 ?
-    JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
-    JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data)));
+
+  JSString* str =
+    type == v8::NewStringType::kInternalized ?
+      length >= 0 ?
+        JS_AtomizeAndPinUCStringN(cx, reinterpret_cast<const char16_t*>(data), length) :
+        JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(data)) :
+      length >= 0 ?
+        JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
+        JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data));
+
   if (!str) {
     return MaybeLocal<String>();
   }
+
   JS::Value strVal;
   strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
@@ -156,9 +175,9 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
 
-  JS::RootedString str(cx,
+  JSString* str =
     JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
-                         resource->length(), fin.release()));
+                         resource->length(), fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }
@@ -192,7 +211,8 @@ MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
       data[i] = (unsigned char) oneByteData[i];
   data[length] = 0;
 
-  JS::RootedString str(cx, JS_NewExternalString(cx, data.release(), length, fin.release()));
+  JSString* str =
+    JS_NewExternalString(cx, data.release(), length, fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }

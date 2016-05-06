@@ -32,8 +32,36 @@ static int StrNCmp16(uint16_t* a, uint16_t* b, int n) {
   }
 }
 
+/**
+ * Ensure that the JSString object referenced by the first Local<String>
+ * is the same JSString object referenced by the second Local<String>, i.e.
+ * that both Local<String>s reference the same JSString (as they should do
+ * when the string in question was interned).
+ *
+ * This is based on the function of the same name in test-api.cc, but modified
+ * to compare JSString objects in a SpiderShim-compatible way.  This invokes
+ * the operator== method for Value, which compares the spidershim_padding
+ * data members of the two Value objects to determine whether or not they refer
+ * to the same JSString.
+ *
+ * Since the operator== method is protected, we access it through Persistent<T>,
+ * which is a friend of Value.  See the comment for the Value class in v8.h
+ * for more information about the way a Value instance encapsulates a JS::Value.
+ */
+static bool SameSymbol(Local<String> s1, Local<String> s2) {
+  Isolate* isolate = Isolate::GetCurrent();
+  // Use Persistent<T> to get access to the protected Value "equal to" operator.
+  Persistent<String> p1(isolate, s1);
+  Persistent<String> p2(isolate, s2);
+  bool same = p1 == p2;
+  p1.Reset();
+  p2.Reset();
+  return same;
+}
+
 // Translations from cctest assertion macros to gtest equivalents, so we can
 // copy code from test-api.cc into this file with minimal modifications.
+#define CHECK(expression) EXPECT_TRUE(expression)
 #define CHECK_EQ(a, b) EXPECT_EQ(a, b)
 #define CHECK_NE(a, b) EXPECT_NE(a, b)
 
@@ -898,24 +926,70 @@ TEST(SpiderShim, String) {
   EXPECT_EQ(6, StringObject::Cast(*foobar->ToObject())->ValueOf()->Length());
 
   const uint8_t asciiData[] = { 0x4F, 0x68, 0x61, 0x69, 0x00 }; // "Ohai"
+  const uint16_t asciiResult[] = { 0x4F, 0x68, 0x61, 0x69 };
 
-  Local<String> asciiStr =
-    String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(4, asciiStr->Length());
-  EXPECT_EQ(4, asciiStr->Utf8Length());
-  String::Value asciiVal(asciiStr);
-  EXPECT_EQ(0, memcmp(*asciiVal, asciiData, sizeof(*asciiData)));
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(4, asciiStr->Length());
+    EXPECT_EQ(4, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, sizeof(asciiResult)));
+  }
+
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kNormal, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, asciiStr->Length());
+    EXPECT_EQ(3, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, 3 * sizeof(*asciiResult)));
+  }
+
+  {
+    Local<String> asciiStr =
+      String::NewFromOneByte(engine.isolate(), asciiData, NewStringType::kInternalized, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, asciiStr->Length());
+    EXPECT_EQ(3, asciiStr->Utf8Length());
+    String::Value asciiVal(asciiStr);
+    EXPECT_EQ(0, memcmp(*asciiVal, asciiResult, 3 * sizeof(*asciiResult)));
+  }
 
   const uint8_t latin1Data[] = { 0xD3, 0x68, 0xE3, 0xEF, 0x00 }; // "Óhãï"
+  const uint16_t latin1Result[] = { 0xD3, 0x68, 0xE3, 0xEF };
 
-  Local<String> latin1Str =
-    String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(4, latin1Str->Length());
-  EXPECT_EQ(7, latin1Str->Utf8Length());
-  String::Value latin1Val(latin1Str);
-  EXPECT_EQ(0, memcmp(*latin1Val, latin1Data, sizeof(*latin1Data)));
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(4, latin1Str->Length());
+    EXPECT_EQ(7, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, sizeof(latin1Result)));
+  }
+
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kNormal, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, latin1Str->Length());
+    EXPECT_EQ(5, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, 3 * sizeof(*latin1Result)));
+  }
+
+  {
+    Local<String> latin1Str =
+      String::NewFromOneByte(engine.isolate(), latin1Data, NewStringType::kInternalized, 3).
+        ToLocalChecked();
+    EXPECT_EQ(3, latin1Str->Length());
+    EXPECT_EQ(5, latin1Str->Utf8Length());
+    String::Value latin1Val(latin1Str);
+    EXPECT_EQ(0, memcmp(*latin1Val, latin1Result, 3 * sizeof(*latin1Result)));
+  }
 
   // A five character string (u"ˤdዤ0ぅ", from V8's test-strings.cc) in UTF-16
   // and UTF-8 bytes.
@@ -929,25 +1003,77 @@ TEST(SpiderShim, String) {
   const uint16_t utf16Data[] = { 0x02E4, 0x0064, 0x12E4, 0x0030, 0x3045, 0x0000 };
   const unsigned char utf8Data[] = { 0xCB, 0xA4, 0x64, 0xE1, 0x8B, 0xA4, 0x30, 0xE3, 0x81, 0x85, 0x00 };
 
-  Local<String> fromTwoByteStr =
-    String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(5, fromTwoByteStr->Length());
-  EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
-  String::Value fromTwoByteVal(fromTwoByteStr);
-  String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
-  EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(*utf16Data)));
-  EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, sizeof(*utf8Data)));
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(5, fromTwoByteStr->Length());
+    EXPECT_EQ(10, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, sizeof(utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, sizeof(utf8Data)));
+  }
 
-  Local<String> fromUtf8Str =
-    String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
-      ToLocalChecked();
-  EXPECT_EQ(5, fromUtf8Str->Length());
-  EXPECT_EQ(10, fromUtf8Str->Utf8Length());
-  String::Value fromUtf8Val(fromUtf8Str);
-  String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
-  EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(*utf16Data)));
-  EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(*utf8Data)));
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kNormal, 4).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromTwoByteStr->Length());
+    EXPECT_EQ(7, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, 7 * sizeof(*utf8Data)));
+  }
+
+  {
+    Local<String> fromTwoByteStr =
+      String::NewFromTwoByte(engine.isolate(), utf16Data, NewStringType::kInternalized, 4).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromTwoByteStr->Length());
+    EXPECT_EQ(7, fromTwoByteStr->Utf8Length());
+    String::Value fromTwoByteVal(fromTwoByteStr);
+    String::Utf8Value fromTwoByteUtf8Val(fromTwoByteStr);
+    EXPECT_EQ(0, memcmp(*fromTwoByteVal, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromTwoByteUtf8Val, utf8Data, 7 * sizeof(*utf8Data)));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal).
+        ToLocalChecked();
+    EXPECT_EQ(5, fromUtf8Str->Length());
+    EXPECT_EQ(10, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, sizeof(utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, sizeof(utf8Data)));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kNormal, 7).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromUtf8Str->Length());
+    EXPECT_EQ(7, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, 7));
+  }
+
+  {
+    Local<String> fromUtf8Str =
+      String::NewFromUtf8(engine.isolate(), reinterpret_cast<const char*>(utf8Data), NewStringType::kInternalized, 7).
+        ToLocalChecked();
+    EXPECT_EQ(4, fromUtf8Str->Length());
+    EXPECT_EQ(7, fromUtf8Str->Utf8Length());
+    String::Value fromUtf8Val(fromUtf8Str);
+    String::Utf8Value fromUtf8Utf8Val(fromUtf8Str);
+    EXPECT_EQ(0, memcmp(*fromUtf8Val, utf16Data, 4 * sizeof(*utf16Data)));
+    EXPECT_EQ(0, memcmp(*fromUtf8Utf8Val, utf8Data, 7));
+  }
 
   TestExternalStringResource* testResource =
     new TestExternalStringResource(utf16Data, (sizeof(utf16Data)/sizeof(*utf16Data) - 1));
@@ -1302,6 +1428,137 @@ TEST(SpiderShim, StringWrite) {
   CHECK_EQ(0, str->WriteOneByte(NULL, 0, 0, String::NO_NULL_TERMINATION));
   CHECK_EQ(0, str->WriteUtf8(NULL, 0, 0, String::NO_NULL_TERMINATION));
   CHECK_EQ(0, str->Write(NULL, 0, 0, String::NO_NULL_TERMINATION));
+}
+
+TEST(SpiderShim, Utf16Symbol) {
+  // This test is based on V8's Utf16Symbol test.
+
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  {
+    Local<String> symbol1 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    Local<String> symbol2 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    CHECK(SameSymbol(symbol1, symbol2));
+  }
+
+  {
+    Local<String> symbol1 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked();
+    Local<String> symbol2 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked();
+    CHECK(!SameSymbol(symbol1, symbol2));
+  }
+
+  {
+    Local<String> symbol1 =
+        v8::String::NewFromOneByte(engine.isolate(),
+                                   reinterpret_cast<const uint8_t*>("abc"),
+                                   v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    Local<String> symbol2 =
+        v8::String::NewFromOneByte(engine.isolate(),
+                                   reinterpret_cast<const uint8_t*>("abc"),
+                                   v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    CHECK(SameSymbol(symbol1, symbol2));
+  }
+
+  {
+    Local<String> symbol1 =
+        v8::String::NewFromTwoByte(engine.isolate(),
+                                   reinterpret_cast<const uint16_t*>(u"abc"),
+                                   v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    Local<String> symbol2 =
+        v8::String::NewFromTwoByte(engine.isolate(),
+                                   reinterpret_cast<const uint16_t*>(u"abc"),
+                                   v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    CHECK(SameSymbol(symbol1, symbol2));
+  }
+
+  // SpiderShim uses InflateUTF8StringToBuffer to convert UTF-8 strings
+  // to UTF-16 strings, and it doesn't support UTF-8 strings containing invalid
+  // characters, so the tests with invalid characters below are commented out.
+  //
+  // TODO: make InflateUTF8StringToBuffer support UTF-* strings containing
+  // invalid characters, like LossyConvertUTF8toUTF16 in dom/wifi/WifiUtils.cpp.
+  //
+  engine.CompileRun(context,
+      "var sym0 = 'benedictus';"
+      "var sym0b = 'S\303\270ren';"
+      // "var sym1 = '\355\240\201\355\260\207';"
+      "var sym2 = '\360\220\220\210';"
+      // "var sym3 = 'x\355\240\201\355\260\207';"
+      "var sym4 = 'x\360\220\220\210';"
+      // "if (sym1.length != 2) throw sym1;"
+      // "if (sym1.charCodeAt(1) != 0xdc07) throw sym1.charCodeAt(1);"
+      "if (sym2.length != 2) throw sym2;"
+      "if (sym2.charCodeAt(1) != 0xdc08) throw sym2.charCodeAt(2);"
+      // "if (sym3.length != 3) throw sym3;"
+      // "if (sym3.charCodeAt(2) != 0xdc07) throw sym1.charCodeAt(2);"
+      "if (sym4.length != 3) throw sym4;"
+      "if (sym4.charCodeAt(2) != 0xdc08) throw sym2.charCodeAt(2);"
+  );
+  Local<String> sym0 =
+      v8::String::NewFromUtf8(engine.isolate(), "benedictus",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
+  Local<String> sym0b =
+      v8::String::NewFromUtf8(engine.isolate(), "S\303\270ren",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
+  // Local<String> sym1 =
+  //     v8::String::NewFromUtf8(engine.isolate(), "\355\240\201\355\260\207",
+  //                             v8::NewStringType::kInternalized)
+  //         .ToLocalChecked();
+  Local<String> sym2 =
+      v8::String::NewFromUtf8(engine.isolate(), "\360\220\220\210",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
+  // Local<String> sym3 = v8::String::NewFromUtf8(engine.isolate(),
+  //                                              "x\355\240\201\355\260\207",
+  //                                              v8::NewStringType::kInternalized)
+  //                          .ToLocalChecked();
+  Local<String> sym4 =
+      v8::String::NewFromUtf8(engine.isolate(), "x\360\220\220\210",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
+  v8::Local<v8::Object> global = context->Global();
+  Local<Value> s0 =
+      global->Get(context, v8_str("sym0")).ToLocalChecked();
+  Local<Value> s0b =
+      global->Get(context, v8_str("sym0b")).ToLocalChecked();
+  // Local<Value> s1 =
+  //     global->Get(context, v8_str("sym1")).ToLocalChecked();
+  Local<Value> s2 =
+      global->Get(context, v8_str("sym2")).ToLocalChecked();
+  // Local<Value> s3 =
+  //     global->Get(context, v8_str("sym3")).ToLocalChecked();
+  Local<Value> s4 =
+      global->Get(context, v8_str("sym4")).ToLocalChecked();
+  CHECK(SameSymbol(sym0, Local<String>::Cast(s0)));
+  CHECK(SameSymbol(sym0b, Local<String>::Cast(s0b)));
+  // CHECK(SameSymbol(sym1, Local<String>::Cast(s1)));
+  CHECK(SameSymbol(sym2, Local<String>::Cast(s2)));
+  // CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
+  CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
 }
 
 TEST(SpiderShim, ToObject) {
