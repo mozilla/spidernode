@@ -33,21 +33,27 @@ class RootStore {
 private:
   using ValueVector = GCList<JS::Value>;
   using ScriptVector = GCList<JSScript*>;
+  using SymbolVector = GCList<JS::Symbol*>;
 
 public:
   RootStore(Isolate* iso) :
     values(JSContextFromIsolate(iso)),
-    scripts(JSContextFromIsolate(iso)) {}
+    scripts(JSContextFromIsolate(iso)),
+    symbols(JSContextFromIsolate(iso)) {}
 
   ~RootStore() {
     assert(scripts.size() == scriptObjects.size());
     for (auto script : scriptObjects) {
       delete script;
     }
+    assert(symbols.size() == privateObjects.size());
+    for (auto priv : privateObjects) {
+      delete priv;
+    }
   }
 
   size_t RootedCount() const {
-    return values.size() + scripts.size();
+    return values.size() + scripts.size() + symbols.size();
   }
 
   Value* Add(Value* val) {
@@ -74,10 +80,19 @@ public:
     return scriptObjects.back();
   }
 
+  Private* Add(JS::Symbol* symbol) {
+    assert(symbols.size() == privateObjects.size());
+    symbols.push_back(symbol);
+    privateObjects.push_back(new Private(symbol));
+    return privateObjects.back();
+  }
+
 private:
   JS::Rooted<ValueVector> values;
   JS::Rooted<ScriptVector> scripts;
   std::vector<Script*> scriptObjects;
+  JS::Rooted<SymbolVector> symbols;
+  std::vector<Private*> privateObjects;
 };
 
 }

@@ -58,6 +58,10 @@ struct JSContext;
 class JSScript;
 class V8Engine;
 
+namespace JS {
+class Symbol;
+}
+
 namespace v8 {
 
 class AccessorSignature;
@@ -731,6 +735,7 @@ private:
 
   static Value* AddToScope(Value* val);
   static Script* AddToScope(JSScript* script);
+  static Private* AddToScope(JS::Symbol* priv);
   static Context* AddToScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return context;
@@ -746,10 +751,6 @@ private:
   static StackTrace* AddToScope(StackTrace* trace) {
     // StackTraces are not currently tracked by HandleScopes.
     return trace;
-  }
-  static Private* AddToScope(Private* priv) {
-    // TODO: Add support for Local<Private>
-    return priv;
   }
   static UnboundScript* AddToScope(UnboundScript* us) {
     // TODO: Add support for Local<UnboundScript>
@@ -1126,7 +1127,13 @@ public:
   static Local<Private> ForApi(Isolate* isolate, Local<String> name);
 
 private:
-  Private();
+  friend class internal::RootStore;
+  friend class Isolate;
+
+  Private(JS::Symbol* symbol)
+    : symbol_(symbol) {}
+
+  JS::Symbol* symbol_;
 };
 
 class V8_EXPORT Primitive : public Value {
@@ -2378,7 +2385,7 @@ private:
   size_t PersistentCount() const;
 
   Value* AddEternal(Value* val);
-  Private* AddEternal(Private* val);             // not supported yet
+  Private* AddEternal(Private* val);
   Context* AddEternal(Context* val);             // not supported yet
   Template* AddEternal(Template* val);           // not supported yet
   UnboundScript* AddEternal(UnboundScript* val); // not supported yet

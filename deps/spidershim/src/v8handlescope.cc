@@ -81,6 +81,13 @@ Script* HandleScope::AddToScope(JSScript* script) {
   return sCurrentScope->pimpl_->Add(script);
 }
 
+Private* HandleScope::AddToScope(JS::Symbol* symbol) {
+  if (!sCurrentScope) {
+    return nullptr;
+  }
+  return sCurrentScope->pimpl_->Add(symbol);
+}
+
 bool EscapableHandleScope::AddToParentScope(Value* val) {
   return sCurrentScope &&
          sCurrentScope->pimpl_->prev &&

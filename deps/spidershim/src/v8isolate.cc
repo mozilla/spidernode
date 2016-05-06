@@ -226,4 +226,8 @@ Value* Isolate::AddEternal(Value* val) {
   return pimpl_->EnsureEternals(this).Add(val);
 }
 
+Private* Isolate::AddEternal(Private* val) {
+  return pimpl_->EnsureEternals(this).Add(val->symbol_);
+}
+
 }
