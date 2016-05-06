@@ -32,8 +32,22 @@ static int StrNCmp16(uint16_t* a, uint16_t* b, int n) {
   }
 }
 
-// Based on the function of the same name in test-api.cc, but modified
-// to compare strings in a SpiderShim-compatible way.
+/**
+ * Ensure that the JSString object referenced by the first Local<String>
+ * is the same JSString object referenced by the second Local<String>, i.e.
+ * that both Local<String>s reference the same JSString (as they should do
+ * when the string in question was interned).
+ *
+ * This is based on the function of the same name in test-api.cc, but modified
+ * to compare JSString objects in a SpiderShim-compatible way.  This invokes
+ * the operator== method for Value, which compares the spidershim_padding
+ * data members of the two Value objects to determine whether or not they refer
+ * to the same JSString.
+ *
+ * Since the operator== method is protected, we access it through Persistent<T>,
+ * which is a friend of Value.  See the comment for the Value class in v8.h
+ * for more information about the way a Value instance encapsulates a JS::Value.
+ */
 static bool SameSymbol(Local<String> s1, Local<String> s2) {
   Isolate* isolate = Isolate::GetCurrent();
   // Use Persistent<T> to get access to the protected Value "equal to" operator.
@@ -1437,6 +1451,18 @@ TEST(SpiderShim, Utf16Symbol) {
                                 v8::NewStringType::kInternalized)
             .ToLocalChecked();
     CHECK(SameSymbol(symbol1, symbol2));
+  }
+
+  {
+    Local<String> symbol1 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked();
+    Local<String> symbol2 =
+        v8::String::NewFromUtf8(engine.isolate(), "abc",
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked();
+    CHECK(!SameSymbol(symbol1, symbol2));
   }
 
   {
