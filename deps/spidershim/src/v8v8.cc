@@ -55,21 +55,19 @@ bool V8::IsDead() {
 }
 
 const char *V8::GetVersion() {
-  // Spidermonkey's version number does not match the format of v8's (X.X.X.X),
-  // unsure if this will be an issue yet.
   return JS_GetImplementationVersion();
 }
 
 void V8::SetFlagsFromString(const char* str, int length) {
-  // TODO
+  // TODO: see SetFlagsFromCommandLine
 }
 
 void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
-  // TODO
+  // TODO: command line arguments should be added on an as-needed basis
 }
 
 void V8::SetEntropySource(EntropySource entropy_source) {
-  // TODO
+  // TODO: https://github.com/mozilla/spidernode/issues/58
 }
 
 }

@@ -29,8 +29,8 @@
       'sources': [ 'test/value.cc' ],
     },
     {
-      'target_name': 'v8v8',
-      'sources': [ 'test/v8v8.cc' ],
+      'target_name': 'v8',
+      'sources': [ 'test/v8.cc' ],
     },
   ],
 }
