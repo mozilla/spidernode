@@ -95,7 +95,7 @@ public:
     return Local<Value>();
   }
 
-  Local<Value> CompileRun(Local<Context> context, Local<String> script) {
+  Local<Value> CompileRun(Local<String> script) {
     auto scr = Script::Compile(script);
     if (*scr) {
       return scr->Run();
