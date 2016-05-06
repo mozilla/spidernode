@@ -18,6 +18,8 @@ ES_BUILTIN(RegExp, RegExp)
 ES_BUILTIN(Array, Array)
 ES_BUILTIN(ArrayBuffer, ArrayBuffer)
 ES_BUILTIN(Promise, Promise)
+ES_BUILTIN(MapIterator, MapIterator)
+ES_BUILTIN(SetIterator, SetIterator)
 
 TYPED_ARRAY(Uint8)
 TYPED_ARRAY(Uint8Clamped)

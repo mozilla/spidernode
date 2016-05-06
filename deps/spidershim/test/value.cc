@@ -1612,3 +1612,20 @@ TEST(SpiderShim, FunctionCall) {
           .ToLocalChecked();
   EXPECT_TRUE(r10->StrictEquals(True(isolate)));
 }
+
+TEST(SpiderShim, Iterator) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Value> mapIterator = engine.CompileRun(context,
+      "new Map([['key1', 'value1'], ['key2', 'value2']]).entries()");
+  EXPECT_TRUE(mapIterator->IsMapIterator());
+  Local<Value> setIterator = engine.CompileRun(context,
+      "new Set(['value1', 'value2']).entries()");
+  EXPECT_TRUE(setIterator->IsSetIterator());
+}
