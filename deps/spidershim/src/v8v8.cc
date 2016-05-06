@@ -54,4 +54,20 @@ bool V8::IsDead() {
   return internal::gDisposed;
 }
 
+const char *V8::GetVersion() {
+  return JS_GetImplementationVersion();
+}
+
+void V8::SetFlagsFromString(const char* str, int length) {
+  // TODO: see SetFlagsFromCommandLine
+}
+
+void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
+  // TODO: command line arguments should be added on an as-needed basis
+}
+
+void V8::SetEntropySource(EntropySource entropy_source) {
+  // TODO: https://github.com/mozilla/spidernode/issues/58
+}
+
 }
