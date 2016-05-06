@@ -1129,6 +1129,7 @@ public:
 private:
   friend class internal::RootStore;
   friend class Isolate;
+  friend class Object;
 
   Private(JS::Symbol* symbol)
     : symbol_(symbol) {}

@@ -27,6 +27,40 @@
 #include "v8local.h"
 #include "v8string.h"
 
+namespace {
+
+// For now, we implement the hidden values table using a property with a symbol key.
+// This is observable to script, so if this becomes an issue in the future we'd need
+// to do something more sophisticated.
+JS::Symbol* GetHiddenValuesTableSymbol(JSContext* cx) {
+  JS::RootedString name(cx, JS_NewStringCopyZ(cx, "__spidershim_hidden_values_table__"));
+  return JS::GetSymbolFor(cx, name);
+}
+
+JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self, bool create = false) {
+  JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenValuesTableSymbol(cx)));
+  JS::RootedValue table(cx);
+  bool hasOwn = false;
+  if (JS_HasOwnPropertyById(cx, self, id, &hasOwn) && hasOwn &&
+      JS_GetPropertyById(cx, self, id, &table) &&
+      table.isObject()) {
+    return &table.toObject();
+  }
+  if (create) {
+    JS::RootedObject tableObj(cx, JS_NewObject(cx, nullptr));
+    if (tableObj) {
+      JS::RootedValue tableVal(cx);
+      tableVal.setObject(*tableObj);
+      if (JS_SetPropertyById(cx, self, id, tableVal)) {
+        return tableObj;
+      }
+    }
+  }
+  return nullptr;
+}
+
+}
+
 namespace v8 {
 
 Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
@@ -370,6 +404,67 @@ MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context) {
 Local<Array> Object::GetOwnPropertyNames() {
   return GetOwnPropertyNames(Isolate::GetCurrent()->GetCurrentContext()).
            FromMaybe(Local<Array>());
+}
+
+Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
+  if (!table) {
+    return Just(false);
+  }
+  JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
+  bool hasPrivate = false;
+  if (!JS_HasPropertyById(cx, table, keyId, &hasPrivate)) {
+    return Nothing<bool>();
+  }
+  return Just(hasPrivate);
+}
+
+Maybe<bool> Object::SetPrivate(Local<Context> context, Local<Private> key,
+                               Local<Value> value) {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj, true));
+  if (!table) {
+    return Just(false);
+  }
+  JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
+  JS::RootedValue valueVal(cx, *reinterpret_cast<const JS::Value*>(*value));
+  if (!JS_SetPropertyById(cx, table, keyId, valueVal)) {
+    return Nothing<bool>();
+  }
+  return Just(true);
+}
+
+Maybe<bool> Object::DeletePrivate(Local<Context> context, Local<Private> key) {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
+  if (!table) {
+    return Just(false);
+  }
+  JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
+  JS::ObjectOpResult result;
+  if (!JS_DeletePropertyById(cx, table, keyId, result)) {
+    return Nothing<bool>();
+  }
+  return Just(result.succeed());
+}
+
+MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key) {
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
+  if (!table) {
+    return MaybeLocal<Value>();
+  }
+  JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
+  JS::RootedValue result(cx);
+  if (!JS_GetPropertyById(cx, table, keyId, &result)) {
+    return MaybeLocal<Value>();
+  }
+  return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
 }
 
 }

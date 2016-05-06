@@ -1886,3 +1886,181 @@ TEST(SpiderShim, Iterator) {
       "new Set(['value1', 'value2']).entries()");
   EXPECT_TRUE(setIterator->IsSetIterator());
 }
+
+TEST(SpiderShim, HiddenProperties) {
+  // This test is adopted from the V8 HiddenProperties test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<Object> obj = Object::New(isolate);
+  Local<Private> key =
+      Private::ForApi(isolate, v8_str("api-test::hidden-key"));
+  Local<String> empty = v8_str("");
+  Local<String> prop_name = v8_str("prop_name");
+
+  // Make sure delete of a non-existent hidden value works
+  obj->DeletePrivate(context, key).FromJust();
+
+  EXPECT_TRUE(obj->SetPrivate(context, key, Integer::New(isolate, 1503))
+            .FromJust());
+  EXPECT_EQ(1503, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_TRUE(obj->SetPrivate(context, key, Integer::New(isolate, 2002))
+            .FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+
+  // Make sure we do not find the hidden property.
+  EXPECT_TRUE(!obj->Has(context, empty).FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_TRUE(obj->Get(context, empty).ToLocalChecked()->IsUndefined());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_TRUE(
+      obj->Set(context, empty, Integer::New(isolate, 2003)).FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(2003, obj->Get(context, empty)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+
+  // Add another property and delete it afterwards to force the object in
+  // slow case.
+  EXPECT_TRUE(obj->Set(context, prop_name, Integer::New(isolate, 2008))
+            .FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(2008, obj->Get(context, prop_name)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_TRUE(obj->Delete(context, prop_name).FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, key)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+
+  EXPECT_TRUE(obj->SetPrivate(context, key, Integer::New(isolate, 2002))
+            .FromJust());
+  EXPECT_TRUE(obj->DeletePrivate(context, key).FromJust());
+  EXPECT_TRUE(!obj->HasPrivate(context, key).FromJust());
+}
+
+TEST(SpiderShim, PrivateProperties) {
+  // This test is adopted from the V8 PrivateProperties test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<Object> obj = Object::New(isolate);
+  Local<Private> priv1 = Private::New(isolate);
+  Local<Private> priv2 =
+      Private::New(isolate, v8_str("my-private"));
+
+  EXPECT_TRUE(priv2->Name()
+            ->Equals(context,
+                     String::NewFromUtf8(isolate, "my-private",
+                                             NewStringType::kNormal)
+                         .ToLocalChecked())
+            .FromJust());
+
+  // Make sure delete of a non-existent private symbol property works.
+  obj->DeletePrivate(context, priv1).FromJust();
+  EXPECT_TRUE(!obj->HasPrivate(context, priv1).FromJust());
+
+  EXPECT_TRUE(obj->SetPrivate(context, priv1, Integer::New(isolate, 1503))
+            .FromJust());
+  EXPECT_TRUE(obj->HasPrivate(context, priv1).FromJust());
+  EXPECT_EQ(1503, obj->GetPrivate(context, priv1)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_TRUE(obj->SetPrivate(context, priv1, Integer::New(isolate, 2002))
+            .FromJust());
+  EXPECT_TRUE(obj->HasPrivate(context, priv1).FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, priv1)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+
+  EXPECT_EQ(0u,
+           obj->GetOwnPropertyNames(context).ToLocalChecked()->Length());
+  unsigned num_props =
+      obj->GetPropertyNames(context).ToLocalChecked()->Length();
+  EXPECT_TRUE(obj->Set(context, String::NewFromUtf8(
+                                  isolate, "bla", NewStringType::kNormal)
+                                  .ToLocalChecked(),
+                 Integer::New(isolate, 20))
+            .FromJust());
+  EXPECT_EQ(1u,
+           obj->GetOwnPropertyNames(context).ToLocalChecked()->Length());
+  EXPECT_EQ(num_props + 1,
+           obj->GetPropertyNames(context).ToLocalChecked()->Length());
+
+  // Add another property and delete it afterwards to force the object in
+  // slow case.
+  EXPECT_TRUE(obj->SetPrivate(context, priv2, Integer::New(isolate, 2008))
+            .FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, priv1)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(2008, obj->GetPrivate(context, priv2)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, priv1)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(1u,
+           obj->GetOwnPropertyNames(context).ToLocalChecked()->Length());
+
+  EXPECT_TRUE(obj->HasPrivate(context, priv1).FromJust());
+  EXPECT_TRUE(obj->HasPrivate(context, priv2).FromJust());
+  EXPECT_TRUE(obj->DeletePrivate(context, priv2).FromJust());
+  EXPECT_TRUE(obj->HasPrivate(context, priv1).FromJust());
+  EXPECT_TRUE(!obj->HasPrivate(context, priv2).FromJust());
+  EXPECT_EQ(2002, obj->GetPrivate(context, priv1)
+                     .ToLocalChecked()
+                     ->Int32Value(context)
+                     .FromJust());
+  EXPECT_EQ(1u,
+           obj->GetOwnPropertyNames(context).ToLocalChecked()->Length());
+
+  // Private properties are not inherited (for the time being).
+  Local<Object> child = Object::New(isolate);
+  EXPECT_TRUE(child->SetPrototype(context, obj).FromJust());
+  EXPECT_TRUE(!child->HasPrivate(context, priv1).FromJust());
+  EXPECT_EQ(0u,
+           child->GetOwnPropertyNames(context).ToLocalChecked()->Length());
+}
