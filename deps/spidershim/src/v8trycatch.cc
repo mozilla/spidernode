@@ -41,7 +41,7 @@ struct TryCatch::Impl {
     // TODO: Propagate exceptions to the caller
     //       https://github.com/mozilla/spidernode/issues/51
   }
-  Isolate* Iso() const { return isolate_; }
+  class Isolate* Isolate() const { return isolate_; }
   bool HasException() const {
     if (!hasExceptionSet_ &&
         !GetAndClearExceptionIfNeeded()) {
@@ -138,14 +138,14 @@ bool TryCatch::HasTerminated() const {
 
 Local<Value> TryCatch::ReThrow() {
   pimpl_->ReThrow();
-  return internal::Local<Value>::New(pimpl_->Iso(), *pimpl_->Exception());
+  return internal::Local<Value>::New(pimpl_->Isolate(), *pimpl_->Exception());
 }
 
 Local<Value> TryCatch::Exception() const {
   if (!pimpl_->HasException()) {
     return Local<Value>();
   }
-  return internal::Local<Value>::New(pimpl_->Iso(), *pimpl_->Exception());
+  return internal::Local<Value>::New(pimpl_->Isolate(), *pimpl_->Exception());
 }
 
 void TryCatch::Reset() {
