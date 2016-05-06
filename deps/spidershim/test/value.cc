@@ -1666,7 +1666,7 @@ TEST(SpiderShim, ScriptUsingStringResource) {
     Local<String> source =
         String::NewExternalTwoByte(engine.isolate(), resource)
             .ToLocalChecked();
-    Local<Value> value = engine.CompileRun(context, &source);
+    Local<Value> value = engine.CompileRun(context, source);
     CHECK(value->IsNumber());
     CHECK_EQ(7, value->Int32Value(context).FromJust());
     // CHECK(source->IsExternal());
@@ -1708,7 +1708,7 @@ TEST(SpiderShim, ScriptUsingOneByteStringResource) {
     // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
     //          source->GetExternalStringResourceBase(&encoding));
     // CHECK_EQ(String::ONE_BYTE_ENCODING, encoding);
-    Local<Value> value = engine.CompileRun(context, &source);
+    Local<Value> value = engine.CompileRun(context, source);
     CHECK(value->IsNumber());
     CHECK_EQ(7, value->Int32Value(context).FromJust());
     // CcTest::heap()->CollectAllGarbage();
