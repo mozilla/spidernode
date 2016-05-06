@@ -65,6 +65,19 @@ static bool SameSymbol(Local<String> s1, Local<String> s2) {
 #define CHECK_EQ(a, b) EXPECT_EQ(a, b)
 #define CHECK_NE(a, b) EXPECT_NE(a, b)
 
+// From test-api.cc.
+class RandomLengthOneByteResource
+    : public String::ExternalOneByteStringResource {
+ public:
+  explicit RandomLengthOneByteResource(int length) : length_(length) {}
+  virtual const char* data() const { return string_; }
+  virtual size_t length() const { return length_; }
+
+ private:
+  char string_[10];
+  int length_;
+};
+
 void TestBoolean(Isolate* isolate, bool value) {
   Local<Boolean> boolean = Boolean::New(isolate, value);
   EXPECT_TRUE(boolean->IsBoolean());
@@ -1559,6 +1572,85 @@ TEST(SpiderShim, Utf16Symbol) {
   CHECK(SameSymbol(sym2, Local<String>::Cast(s2)));
   // CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
   CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
+}
+
+TEST(SpiderShim, NewStringRangeError) {
+  // This test is based on V8's NewStringRangeError test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  const int length = String::kMaxLength + 1;
+  const int buffer_size = length * sizeof(uint16_t);
+  void* buffer = malloc(buffer_size);
+  if (buffer == NULL) return;
+  memset(buffer, 'A', buffer_size - 1);
+  Isolate* isolate = engine.isolate();
+  {
+    // TryCatch try_catch(isolate);
+    char* data = reinterpret_cast<char*>(buffer);
+    CHECK(String::NewFromUtf8(isolate, data, NewStringType::kNormal,length)
+            .IsEmpty());
+    // CHECK(!try_catch.HasCaught());
+  }
+  {
+    // TryCatch try_catch(isolate);
+    uint8_t* data = reinterpret_cast<uint8_t*>(buffer);
+    CHECK(String::NewFromOneByte(isolate, data, NewStringType::kNormal, length)
+            .IsEmpty());
+    // CHECK(!try_catch.HasCaught());
+  }
+  {
+    // TryCatch try_catch(isolate);
+    uint16_t* data = reinterpret_cast<uint16_t*>(buffer);
+    CHECK(String::NewFromTwoByte(isolate, data, NewStringType::kNormal, length)
+            .IsEmpty());
+    // CHECK(!try_catch.HasCaught());
+  }
+  {
+    // TryCatch try_catch(isolate);
+    uint16_t* data = reinterpret_cast<uint16_t*>(buffer);
+    // Satisfy JSExternalString::new_ constraint that data is null-terminated.
+    data[buffer_size/sizeof(uint16_t)] = '\0';
+    TestExternalStringResource* testResource =
+      new TestExternalStringResource(data, length);
+    CHECK(String::NewExternalTwoByte(isolate, testResource).IsEmpty());
+    // CHECK(!try_catch.HasCaught());
+  }
+  {
+    // TryCatch try_catch(isolate);
+    char* data = reinterpret_cast<char*>(buffer);
+    // Satisfy JSExternalString::new_ constraint that data is null-terminated.
+    data[buffer_size/sizeof(char)] = '\0';
+    TestExternalOneByteStringResource* testResource =
+      new TestExternalOneByteStringResource(data, length);
+    CHECK(String::NewExternalOneByte(isolate, testResource).IsEmpty());
+    // CHECK(!try_catch.HasCaught());
+  }
+  free(buffer);
+}
+
+TEST(SpiderShim, StringConcatOverflow) {
+  // This test is based on V8's StringConcatOverflow test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  RandomLengthOneByteResource* r =
+    new RandomLengthOneByteResource(String::kMaxLength);
+  Local<String> str =
+    String::NewExternalOneByte(engine.isolate(), r).ToLocalChecked();
+  CHECK(!str.IsEmpty());
+  // TryCatch try_catch(engine.isolate());
+  Local<String> result = String::Concat(str, str);
+  CHECK(result.IsEmpty());
+  // CHECK(!try_catch.HasCaught());
 }
 
 TEST(SpiderShim, ToObject) {

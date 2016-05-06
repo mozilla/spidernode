@@ -77,17 +77,17 @@ Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
 MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                        v8::NewStringType type, int length) {
-  JSContext* cx = JSContextFromIsolate(isolate);
-
   // In V8's api.cc, this conditional block is annotated with the comment:
   //    TODO(dcarney): throw a context free exception.
-  if (length > v8::String::kMaxLength) {
+  if (length > String::kMaxLength) {
     return MaybeLocal<String>();
   }
 
   if (length < 0) {
     length = strlen(data);
   }
+
+  JSContext* cx = JSContextFromIsolate(isolate);
 
   size_t twoByteLen;
   JS::UniqueTwoByteChars twoByteChars(
@@ -112,6 +112,12 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
 MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
                                           v8::NewStringType type, int length) {
+  // In V8's api.cc, this conditional block is annotated with the comment:
+  //    TODO(dcarney): throw a context free exception.
+  if (length > String::kMaxLength) {
+    return MaybeLocal<String>();
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
 
   JSString* str =
@@ -140,6 +146,12 @@ Local<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
 
 MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                                           v8::NewStringType type, int length) {
+  // In V8's api.cc, this conditional block is annotated with the comment:
+  //    TODO(dcarney): throw a context free exception.
+  if (length > String::kMaxLength) {
+    return MaybeLocal<String>();
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
 
   JSString* str =
@@ -168,6 +180,12 @@ Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
 
 MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
                                               ExternalStringResource* resource) {
+  // In V8's api.cc, this conditional block is annotated with the comment:
+  //    TODO(dcarney): throw a context free exception.
+  if (resource->length() > static_cast<size_t>(String::kMaxLength)) {
+    return MaybeLocal<String>();
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
 
   auto fin = mozilla::MakeUnique<internal::ExternalStringFinalizer>(resource);
@@ -188,6 +206,12 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
 
 MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
                                               ExternalOneByteStringResource* resource) {
+  // In V8's api.cc, this conditional block is annotated with the comment:
+  //    TODO(dcarney): throw a context free exception.
+  if (resource->length() > static_cast<size_t>(String::kMaxLength)) {
+    return MaybeLocal<String>();
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
 
   auto fin = mozilla::MakeUnique<internal::ExternalOneByteStringFinalizer>(resource);
@@ -257,6 +281,10 @@ Local<String> String::Empty(Isolate* isolate) {
 }
 
 Local<String> String::Concat(Handle<String> left, Handle<String> right) {
+  if (left->Length() + right->Length() > String::kMaxLength) {
+    return Local<String>();
+  }
+
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedString leftStr(cx, reinterpret_cast<JS::Value*>(*left)->toString());
