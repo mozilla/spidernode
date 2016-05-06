@@ -232,7 +232,7 @@ MapIteratorObject::createResultPair(JSContext* cx)
     if (!resultPairObj)
         return nullptr;
 
-    Rooted<TaggedProto> proto(cx, resultPairObj->getTaggedProto());
+    Rooted<TaggedProto> proto(cx, resultPairObj->taggedProto());
     ObjectGroup* group = ObjectGroupCompartment::makeGroup(cx, resultPairObj->getClass(), proto);
     if (!group)
         return nullptr;
@@ -842,29 +842,6 @@ js::InitMapClass(JSContext* cx, HandleObject obj)
 
 
 /*** SetIterator *********************************************************************************/
-
-namespace {
-
-class SetIteratorObject : public NativeObject
-{
-  public:
-    static const Class class_;
-
-    enum { TargetSlot, KindSlot, RangeSlot, SlotCount };
-    static const JSFunctionSpec methods[];
-    static SetIteratorObject* create(JSContext* cx, HandleObject setobj, ValueSet* data,
-                                     SetObject::IteratorKind kind);
-    static bool next(JSContext* cx, unsigned argc, Value* vp);
-    static void finalize(FreeOp* fop, JSObject* obj);
-
-  private:
-    static inline bool is(HandleValue v);
-    inline ValueSet::Range* range();
-    inline SetObject::IteratorKind kind() const;
-    static bool next_impl(JSContext* cx, const CallArgs& args);
-};
-
-} /* anonymous namespace */
 
 static const ClassOps SetIteratorObjectClassOps = {
     nullptr, /* addProperty */
