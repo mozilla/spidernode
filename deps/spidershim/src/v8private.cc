@@ -18,26 +18,42 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
+#include <assert.h>
+
 #include "v8.h"
+#include "v8local.h"
 #include "jsapi.h"
 
 namespace v8 {
-namespace internal {
 
-template <class T>
-class Local {
-public:
-  static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, reinterpret_cast<T*>(&val));
+Local<Private> Private::New(Isolate* isolate, Local<String> name) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString description(cx);
+  if (!name.IsEmpty()) {
+    description = reinterpret_cast<JS::Value*>(*name)->toString();
   }
-  static v8::Local<T> New(Isolate* isolate, JSScript* script) {
-    return v8::Local<T>::New(isolate, script);
-  }
-  static v8::Local<T> New(Isolate* isolate, JS::Symbol* symbol) {
-    return v8::Local<T>::New(isolate, symbol);
-  }
-};
-
+  JS::Symbol* symbol = JS::NewSymbol(cx, description);
+  return internal::Local<Private>::New(isolate, symbol);
 }
+
+Local<Private> Private::ForApi(Isolate* isolate, Local<String> name) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedString description(cx, reinterpret_cast<JS::Value*>(*name)->toString());
+  JS::Symbol* symbol = JS::GetSymbolFor(cx, description);
+  return internal::Local<Private>::New(isolate, symbol);
+}
+
+Local<Value> Private::Name() const {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedSymbol self(cx, symbol_);
+  JSString* description = JS::GetSymbolDescription(self);
+  if (!description) {
+    return Undefined(isolate);
+  }
+  JS::Value retVal;
+  retVal.setString(description);
+  return internal::Local<Value>::New(isolate, retVal);
+}
+
 }
