@@ -27,6 +27,32 @@
 
 namespace v8 {
 
+MaybeLocal<Object>
+Function::NewInstance(Local<Context> context,
+                      int argc, Handle<Value> argv[]) const
+{
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::AutoValueVector args(cx);
+  if (!args.reserve(argc)) {
+    return Local<Object>();
+  }
+
+  for (int i = 0; i < argc; i++) {
+    args.infallibleAppend(*reinterpret_cast<JS::Value*>(*argv[i]));
+  }
+
+  auto obj = ::JS_New(cx, thisObj, args);
+  if (!obj) {
+    return Local<Object>();
+  }
+  JS::Value ret;
+  ret.setObject(*obj);
+
+  return internal::Local<Object>::New(isolate, ret);
+}
+
 MaybeLocal<Value>
 Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
 {
