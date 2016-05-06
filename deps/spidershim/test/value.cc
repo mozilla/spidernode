@@ -1590,45 +1590,45 @@ TEST(SpiderShim, NewStringRangeError) {
   memset(buffer, 'A', buffer_size - 1);
   Isolate* isolate = engine.isolate();
   {
-    // TryCatch try_catch(isolate);
+    TryCatch try_catch(isolate);
     char* data = reinterpret_cast<char*>(buffer);
     CHECK(String::NewFromUtf8(isolate, data, NewStringType::kNormal,length)
             .IsEmpty());
-    // CHECK(!try_catch.HasCaught());
+    CHECK(!try_catch.HasCaught());
   }
   {
-    // TryCatch try_catch(isolate);
+    TryCatch try_catch(isolate);
     uint8_t* data = reinterpret_cast<uint8_t*>(buffer);
     CHECK(String::NewFromOneByte(isolate, data, NewStringType::kNormal, length)
             .IsEmpty());
-    // CHECK(!try_catch.HasCaught());
+    CHECK(!try_catch.HasCaught());
   }
   {
-    // TryCatch try_catch(isolate);
+    TryCatch try_catch(isolate);
     uint16_t* data = reinterpret_cast<uint16_t*>(buffer);
     CHECK(String::NewFromTwoByte(isolate, data, NewStringType::kNormal, length)
             .IsEmpty());
-    // CHECK(!try_catch.HasCaught());
+    CHECK(!try_catch.HasCaught());
   }
   {
-    // TryCatch try_catch(isolate);
+    TryCatch try_catch(isolate);
     uint16_t* data = reinterpret_cast<uint16_t*>(buffer);
     // Satisfy JSExternalString::new_ constraint that data is null-terminated.
     data[buffer_size/sizeof(uint16_t)] = '\0';
     TestExternalStringResource* testResource =
       new TestExternalStringResource(data, length);
     CHECK(String::NewExternalTwoByte(isolate, testResource).IsEmpty());
-    // CHECK(!try_catch.HasCaught());
+    CHECK(!try_catch.HasCaught());
   }
   {
-    // TryCatch try_catch(isolate);
+    TryCatch try_catch(isolate);
     char* data = reinterpret_cast<char*>(buffer);
     // Satisfy JSExternalString::new_ constraint that data is null-terminated.
     data[buffer_size/sizeof(char)] = '\0';
     TestExternalOneByteStringResource* testResource =
       new TestExternalOneByteStringResource(data, length);
     CHECK(String::NewExternalOneByte(isolate, testResource).IsEmpty());
-    // CHECK(!try_catch.HasCaught());
+    CHECK(!try_catch.HasCaught());
   }
   free(buffer);
 }
@@ -1647,10 +1647,10 @@ TEST(SpiderShim, StringConcatOverflow) {
   Local<String> str =
     String::NewExternalOneByte(engine.isolate(), r).ToLocalChecked();
   CHECK(!str.IsEmpty());
-  // TryCatch try_catch(engine.isolate());
+  TryCatch try_catch(engine.isolate());
   Local<String> result = String::Concat(str, str);
   CHECK(result.IsEmpty());
-  // CHECK(!try_catch.HasCaught());
+  CHECK(!try_catch.HasCaught());
 }
 
 TEST(SpiderShim, ToObject) {
