@@ -9,7 +9,7 @@ if ! test -d "$BASE_DIR"; then
   exit 1
 fi
 
-for test in "$BASE_DIR"/out/{Debug,Release}/{hello-world,exception,persistent,trycatch,value}; do
+for test in "$BASE_DIR"/out/{Debug,Release}/{hello-world,exception,persistent,trycatch,value,v8}; do
   if ! "$test"; then
     >&2 echo "$test failed, see the log above"
     exit 1;
