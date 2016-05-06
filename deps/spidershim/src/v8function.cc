@@ -36,7 +36,7 @@ Function::NewInstance(Local<Context> context,
   JS::RootedObject thisObj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
-    return Local<Object>();
+    return MaybeLocal<Object>();
   }
 
   for (int i = 0; i < argc; i++) {
@@ -45,7 +45,7 @@ Function::NewInstance(Local<Context> context,
 
   auto obj = ::JS_New(cx, thisObj, args);
   if (!obj) {
-    return Local<Object>();
+    return MaybeLocal<Object>();
   }
   JS::Value ret;
   ret.setObject(*obj);
