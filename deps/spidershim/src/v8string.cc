@@ -105,9 +105,8 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
     return MaybeLocal<String>();
   }
 
-  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(rootedStr);
+  strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
 }
 
@@ -128,9 +127,8 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
     return MaybeLocal<String>();
   }
 
-  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(rootedStr);
+  strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
 }
 
@@ -157,9 +155,8 @@ MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data
     return MaybeLocal<String>();
   }
 
-  JS::RootedString rootedStr(cx, str);
   JS::Value strVal;
-  strVal.setString(rootedStr);
+  strVal.setString(str);
   return internal::Local<String>::New(isolate, strVal);
 }
 
@@ -178,9 +175,9 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
 
-  JS::RootedString str(cx,
+  JSString* str =
     JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
-                         resource->length(), fin.release()));
+                         resource->length(), fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }
@@ -214,7 +211,8 @@ MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
       data[i] = (unsigned char) oneByteData[i];
   data[length] = 0;
 
-  JS::RootedString str(cx, JS_NewExternalString(cx, data.release(), length, fin.release()));
+  JSString* str =
+    JS_NewExternalString(cx, data.release(), length, fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }
