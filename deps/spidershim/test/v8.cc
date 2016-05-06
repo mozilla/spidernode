@@ -11,5 +11,5 @@
 #include "gtest/gtest.h"
 
 TEST(SpiderShim, Version) {
-  EXPECT_EQ(strncmp("JavaScript-C", v8::V8::GetVersion(), 12), 0);
+  EXPECT_EQ(0, strncmp("JavaScript-C", v8::V8::GetVersion(), 12));
 }
