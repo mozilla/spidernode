@@ -95,6 +95,14 @@ public:
     return Local<Value>();
   }
 
+  Local<Value> CompileRun(Local<Context> context, Local<String>* script) {
+    auto scr = Script::Compile(*script);
+    if (*scr) {
+      return scr->Run();
+    }
+    return Local<Value>();
+  }
+
 private:
   Isolate* isolate_;
 };
