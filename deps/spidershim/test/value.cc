@@ -1143,28 +1143,28 @@ TEST(SpiderShim, StringWrite) {
       String::NewFromTwoByte(context->GetIsolate(), pair,
                                  NewStringType::kNormal, 2)
           .ToLocalChecked();
-  // const int kStride = 4;  // Must match stride in for loops in JS below.
-  // CompileRun(
-  //     "var left = '';"
-  //     "for (var i = 0; i < 0xd800; i += 4) {"
-  //     "  left = left + String.fromCharCode(i);"
-  //     "}");
-  // CompileRun(
-  //     "var right = '';"
-  //     "for (var i = 0; i < 0xd800; i += 4) {"
-  //     "  right = String.fromCharCode(i) + right;"
-  //     "}");
-  // Local<Object> global = context->Global();
-  // Local<String> left_tree = global->Get(context.local(), v8_str("left"))
-  //                               .ToLocalChecked()
-  //                               .As<String>();
-  // Local<String> right_tree = global->Get(context.local(), v8_str("right"))
-  //                                .ToLocalChecked()
-  //                                .As<String>();
+  const int kStride = 4;  // Must match stride in for loops in JS below.
+  engine.CompileRun(context,
+      "var left = '';"
+      "for (var i = 0; i < 0xd800; i += 4) {"
+      "  left = left + String.fromCharCode(i);"
+      "}");
+  engine.CompileRun(context,
+      "var right = '';"
+      "for (var i = 0; i < 0xd800; i += 4) {"
+      "  right = String.fromCharCode(i) + right;"
+      "}");
+  Local<Object> global = context->Global();
+  Local<String> left_tree = global->Get(context, v8_str("left"))
+                                .ToLocalChecked()
+                                .As<String>();
+  Local<String> right_tree = global->Get(context, v8_str("right"))
+                                 .ToLocalChecked()
+                                 .As<String>();
 
-  // CHECK_EQ(5, str2->Length());
-  // CHECK_EQ(0xd800 / kStride, left_tree->Length());
-  // CHECK_EQ(0xd800 / kStride, right_tree->Length());
+  CHECK_EQ(5, str2->Length());
+  CHECK_EQ(0xd800 / kStride, left_tree->Length());
+  CHECK_EQ(0xd800 / kStride, right_tree->Length());
 
   char buf[100];
   char utf8buf[0xd800 * 3];
@@ -1267,30 +1267,30 @@ TEST(SpiderShim, StringWrite) {
   CHECK_EQ(0, len);
   CHECK_EQ(0, charlen);
 
-  // memset(utf8buf, 0x1, sizeof(utf8buf));
-  // len = GetUtf8Length(left_tree);
-  // int utf8_expected =
-  //     (0x80 + (0x800 - 0x80) * 2 + (0xd800 - 0x800) * 3) / kStride;
-  // CHECK_EQ(utf8_expected, len);
-  // len = left_tree->WriteUtf8(utf8buf, utf8_expected, &charlen);
-  // CHECK_EQ(utf8_expected, len);
-  // CHECK_EQ(0xd800 / kStride, charlen);
-  // CHECK_EQ(0xed, static_cast<unsigned char>(utf8buf[utf8_expected - 3]));
-  // CHECK_EQ(0x9f, static_cast<unsigned char>(utf8buf[utf8_expected - 2]));
-  // CHECK_EQ(0xc0 - kStride,
-  //          static_cast<unsigned char>(utf8buf[utf8_expected - 1]));
-  // CHECK_EQ(1, utf8buf[utf8_expected]);
+  memset(utf8buf, 0x1, sizeof(utf8buf));
+  len = left_tree->Utf8Length();
+  int utf8_expected =
+      (0x80 + (0x800 - 0x80) * 2 + (0xd800 - 0x800) * 3) / kStride;
+  CHECK_EQ(utf8_expected, len);
+  len = left_tree->WriteUtf8(utf8buf, utf8_expected, &charlen);
+  CHECK_EQ(utf8_expected, len);
+  CHECK_EQ(0xd800 / kStride, charlen);
+  CHECK_EQ(0xed, static_cast<unsigned char>(utf8buf[utf8_expected - 3]));
+  CHECK_EQ(0x9f, static_cast<unsigned char>(utf8buf[utf8_expected - 2]));
+  CHECK_EQ(0xc0 - kStride,
+           static_cast<unsigned char>(utf8buf[utf8_expected - 1]));
+  CHECK_EQ(1, utf8buf[utf8_expected]);
 
-  // memset(utf8buf, 0x1, sizeof(utf8buf));
-  // len = GetUtf8Length(right_tree);
-  // CHECK_EQ(utf8_expected, len);
-  // len = right_tree->WriteUtf8(utf8buf, utf8_expected, &charlen);
-  // CHECK_EQ(utf8_expected, len);
-  // CHECK_EQ(0xd800 / kStride, charlen);
-  // CHECK_EQ(0xed, static_cast<unsigned char>(utf8buf[0]));
-  // CHECK_EQ(0x9f, static_cast<unsigned char>(utf8buf[1]));
-  // CHECK_EQ(0xc0 - kStride, static_cast<unsigned char>(utf8buf[2]));
-  // CHECK_EQ(1, utf8buf[utf8_expected]);
+  memset(utf8buf, 0x1, sizeof(utf8buf));
+  len = right_tree->Utf8Length();
+  CHECK_EQ(utf8_expected, len);
+  len = right_tree->WriteUtf8(utf8buf, utf8_expected, &charlen);
+  CHECK_EQ(utf8_expected, len);
+  CHECK_EQ(0xd800 / kStride, charlen);
+  CHECK_EQ(0xed, static_cast<unsigned char>(utf8buf[0]));
+  CHECK_EQ(0x9f, static_cast<unsigned char>(utf8buf[1]));
+  CHECK_EQ(0xc0 - kStride, static_cast<unsigned char>(utf8buf[2]));
+  CHECK_EQ(1, utf8buf[utf8_expected]);
 
   memset(buf, 0x1, sizeof(buf));
   memset(wbuf, 0x1, sizeof(wbuf));
