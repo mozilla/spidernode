@@ -2032,6 +2032,94 @@ TEST(SpiderShim, FunctionCall) {
   EXPECT_TRUE(r10->StrictEquals(True(isolate)));
 }
 
+TEST(SpiderShim, ConstructCall) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  engine.CompileRun(context,
+      "function Foo() {"
+      "  var result = [];"
+      "  for (var i = 0; i < arguments.length; i++) {"
+      "    result.push(arguments[i]);"
+      "  }"
+      "  return result;"
+      "}");
+  Local<Function> Foo = Local<Function>::Cast(
+      context->Global()->Get(context, v8_str("Foo")).ToLocalChecked());
+
+  Local<Value>* args0 = NULL;
+  Local<Array> a0 = Local<Array>::Cast(
+      Foo->NewInstance(context, 0, args0).ToLocalChecked());
+  CHECK_EQ(0u, a0->Length());
+
+  Local<Value> args1[] = {v8_num(1.1)};
+  Local<Array> a1 = Local<Array>::Cast(
+      Foo->NewInstance(context, 1, args1).ToLocalChecked());
+  CHECK_EQ(1u, a1->Length());
+  CHECK_EQ(1.1, a1->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args2[] = {v8_num(2.2), v8_num(3.3)};
+  Local<Array> a2 = Local<Array>::Cast(
+      Foo->NewInstance(context, 2, args2).ToLocalChecked());
+  CHECK_EQ(2u, a2->Length());
+  CHECK_EQ(2.2, a2->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(3.3, a2->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args3[] = {v8_num(4.4), v8_num(5.5), v8_num(6.6)};
+  Local<Array> a3 = Local<Array>::Cast(
+      Foo->NewInstance(context, 3, args3).ToLocalChecked());
+  CHECK_EQ(3u, a3->Length());
+  CHECK_EQ(4.4, a3->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(5.5, a3->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(6.6, a3->Get(context, Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args4[] = {v8_num(7.7), v8_num(8.8), v8_num(9.9),
+                              v8_num(10.11)};
+  Local<Array> a4 = Local<Array>::Cast(
+      Foo->NewInstance(context, 4, args4).ToLocalChecked());
+  CHECK_EQ(4u, a4->Length());
+  CHECK_EQ(7.7, a4->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(8.8, a4->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(9.9, a4->Get(context, Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(10.11, a4->Get(context, Integer::New(isolate, 3))
+                      .ToLocalChecked()
+                      ->NumberValue(context)
+                      .FromJust());
+}
+
 TEST(SpiderShim, Iterator) {
   V8Engine engine;
 
