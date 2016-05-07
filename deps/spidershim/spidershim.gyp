@@ -71,6 +71,7 @@
         'src/v8context.cc',
         'src/v8date.cc',
         'src/v8exception.cc',
+        'src/v8external.cc',
         'src/v8function.cc',
         'src/v8global.cc',
         'src/v8handlescope.cc',

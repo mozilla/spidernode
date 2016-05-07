@@ -344,4 +344,8 @@ bool Value::IsNativeError() const {
          key == JSProto_URIError;
 }
 
+bool Value::IsExternal() const {
+  return External::IsExternal(this);
+}
+
 }

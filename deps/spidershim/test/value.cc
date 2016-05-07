@@ -2408,3 +2408,43 @@ TEST(SpiderShim, SubclassGetConstructorName) {
             ->Equals(context, v8_str("Child"))
             .FromJust());
 }
+
+TEST(SpiderShim, External) {
+  // This test is based on V8's External test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  int x = 3;
+  Local<External> ext = External::New(engine.isolate(), &x);
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("ext"), ext).FromJust());
+  Local<Value> reext_obj = engine.CompileRun(context, "this.ext");
+  EXPECT_TRUE(reext_obj->IsExternal());
+  EXPECT_TRUE(External::IsExternal(*reext_obj));
+  Local<External> reext = reext_obj.As<External>();
+  int* ptr = static_cast<int*>(reext->Value());
+  EXPECT_EQ(x, 3);
+  *ptr = 10;
+  EXPECT_EQ(x, 10);
+
+  // Make sure unaligned pointers are wrapped properly.
+  char* data = strdup("0123456789");
+  Local<Value> zero = External::New(engine.isolate(), &data[0]);
+  Local<Value> one = External::New(engine.isolate(), &data[1]);
+  Local<Value> two = External::New(engine.isolate(), &data[2]);
+  Local<Value> three = External::Wrap(&data[3]);
+
+  char* char_ptr = reinterpret_cast<char*>(External::Cast(*zero)->Value());
+  EXPECT_EQ('0', *char_ptr);
+  char_ptr = reinterpret_cast<char*>(External::Cast(*one)->Value());
+  EXPECT_EQ('1', *char_ptr);
+  char_ptr = reinterpret_cast<char*>(External::Unwrap(two));
+  EXPECT_EQ('2', *char_ptr);
+  char_ptr = reinterpret_cast<char*>(External::Cast(*three)->Value());
+  EXPECT_EQ('3', *char_ptr);
+  free(data);
+}

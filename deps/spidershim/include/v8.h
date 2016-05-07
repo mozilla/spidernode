@@ -2167,7 +2167,7 @@ class V8_EXPORT ObjectTemplate : public Template {
 class V8_EXPORT External : public Value {
  public:
   static Local<Value> Wrap(void* data);
-  static inline void* Unwrap(Handle<Value> obj);
+  static void* Unwrap(Handle<Value> obj);
   static bool IsExternal(const Value* obj);
 
   static Local<External> New(Isolate* isolate, void* value);
