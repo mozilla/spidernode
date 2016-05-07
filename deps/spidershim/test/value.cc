@@ -1493,26 +1493,19 @@ TEST(SpiderShim, Utf16Symbol) {
     CHECK(SameSymbol(symbol1, symbol2));
   }
 
-  // SpiderShim uses InflateUTF8StringToBuffer to convert UTF-8 strings
-  // to UTF-16 strings, and it doesn't support UTF-8 strings containing invalid
-  // characters, so the tests with invalid characters below are commented out.
-  //
-  // TODO: make InflateUTF8StringToBuffer support UTF-* strings containing
-  // invalid characters, like LossyConvertUTF8toUTF16 in dom/wifi/WifiUtils.cpp.
-  //
   engine.CompileRun(context,
       "var sym0 = 'benedictus';"
       "var sym0b = 'S\303\270ren';"
-      // "var sym1 = '\355\240\201\355\260\207';"
+      "var sym1 = '\355\240\201\355\260\207';"
       "var sym2 = '\360\220\220\210';"
-      // "var sym3 = 'x\355\240\201\355\260\207';"
+      "var sym3 = 'x\355\240\201\355\260\207';"
       "var sym4 = 'x\360\220\220\210';"
-      // "if (sym1.length != 2) throw sym1;"
-      // "if (sym1.charCodeAt(1) != 0xdc07) throw sym1.charCodeAt(1);"
+      "if (sym1.length != 2) throw sym1;"
+      "if (sym1.charCodeAt(1) != 0xdc07) throw sym1.charCodeAt(1);"
       "if (sym2.length != 2) throw sym2;"
       "if (sym2.charCodeAt(1) != 0xdc08) throw sym2.charCodeAt(2);"
-      // "if (sym3.length != 3) throw sym3;"
-      // "if (sym3.charCodeAt(2) != 0xdc07) throw sym1.charCodeAt(2);"
+      "if (sym3.length != 3) throw sym3;"
+      "if (sym3.charCodeAt(2) != 0xdc07) throw sym1.charCodeAt(2);"
       "if (sym4.length != 3) throw sym4;"
       "if (sym4.charCodeAt(2) != 0xdc08) throw sym2.charCodeAt(2);"
   );
@@ -1524,18 +1517,18 @@ TEST(SpiderShim, Utf16Symbol) {
       v8::String::NewFromUtf8(engine.isolate(), "S\303\270ren",
                               v8::NewStringType::kInternalized)
           .ToLocalChecked();
-  // Local<String> sym1 =
-  //     v8::String::NewFromUtf8(engine.isolate(), "\355\240\201\355\260\207",
-  //                             v8::NewStringType::kInternalized)
-  //         .ToLocalChecked();
+  Local<String> sym1 =
+      v8::String::NewFromUtf8(engine.isolate(), "\355\240\201\355\260\207",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
   Local<String> sym2 =
       v8::String::NewFromUtf8(engine.isolate(), "\360\220\220\210",
                               v8::NewStringType::kInternalized)
           .ToLocalChecked();
-  // Local<String> sym3 = v8::String::NewFromUtf8(engine.isolate(),
-  //                                              "x\355\240\201\355\260\207",
-  //                                              v8::NewStringType::kInternalized)
-  //                          .ToLocalChecked();
+  Local<String> sym3 = v8::String::NewFromUtf8(engine.isolate(),
+                                               "x\355\240\201\355\260\207",
+                                               v8::NewStringType::kInternalized)
+                           .ToLocalChecked();
   Local<String> sym4 =
       v8::String::NewFromUtf8(engine.isolate(), "x\360\220\220\210",
                               v8::NewStringType::kInternalized)
@@ -1545,19 +1538,19 @@ TEST(SpiderShim, Utf16Symbol) {
       global->Get(context, v8_str("sym0")).ToLocalChecked();
   Local<Value> s0b =
       global->Get(context, v8_str("sym0b")).ToLocalChecked();
-  // Local<Value> s1 =
-  //     global->Get(context, v8_str("sym1")).ToLocalChecked();
+  Local<Value> s1 =
+      global->Get(context, v8_str("sym1")).ToLocalChecked();
   Local<Value> s2 =
       global->Get(context, v8_str("sym2")).ToLocalChecked();
-  // Local<Value> s3 =
-  //     global->Get(context, v8_str("sym3")).ToLocalChecked();
+  Local<Value> s3 =
+      global->Get(context, v8_str("sym3")).ToLocalChecked();
   Local<Value> s4 =
       global->Get(context, v8_str("sym4")).ToLocalChecked();
   CHECK(SameSymbol(sym0, Local<String>::Cast(s0)));
   CHECK(SameSymbol(sym0b, Local<String>::Cast(s0b)));
-  // CHECK(SameSymbol(sym1, Local<String>::Cast(s1)));
+  CHECK(SameSymbol(sym1, Local<String>::Cast(s1)));
   CHECK(SameSymbol(sym2, Local<String>::Cast(s2)));
-  // CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
+  CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
   CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
 }
 
