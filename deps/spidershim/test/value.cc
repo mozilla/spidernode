@@ -32,6 +32,20 @@ static int StrNCmp16(uint16_t* a, uint16_t* b, int n) {
   }
 }
 
+// From allocation.h.
+template <typename T>
+T* NewArray(size_t size) {
+  T* result = new T[size];
+  // if (result == NULL) FatalProcessOutOfMemory("NewArray");
+  return result;
+}
+
+// From allocation.h.
+template <typename T>
+void DeleteArray(T* array) {
+  delete[] array;
+}
+
 /**
  * Ensure that the JSString object referenced by the first Local<String>
  * is the same JSString object referenced by the second Local<String>, i.e.
@@ -69,12 +83,18 @@ static bool SameSymbol(Local<String> s1, Local<String> s2) {
 class RandomLengthOneByteResource
     : public String::ExternalOneByteStringResource {
  public:
-  explicit RandomLengthOneByteResource(int length) : length_(length) {}
+  explicit RandomLengthOneByteResource(int length) : length_(length) {
+    string_ = NewArray<char>(length);
+    memset(string_, 0x1, length * sizeof(char));
+  }
+  ~RandomLengthOneByteResource() {
+    DeleteArray(string_);
+  }
   virtual const char* data() const { return string_; }
   virtual size_t length() const { return length_; }
 
  private:
-  char string_[10];
+  char* string_;
   int length_;
 };
 
@@ -1565,20 +1585,6 @@ TEST(SpiderShim, Utf16Symbol) {
   CHECK(SameSymbol(sym2, Local<String>::Cast(s2)));
   CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
   CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
-}
-
-// From allocation.h.
-template <typename T>
-T* NewArray(size_t size) {
-  T* result = new T[size];
-  // if (result == NULL) FatalProcessOutOfMemory("NewArray");
-  return result;
-}
-
-// From allocation.h.
-template <typename T>
-void DeleteArray(T* array) {
-  delete[] array;
 }
 
 // From vector.h.
