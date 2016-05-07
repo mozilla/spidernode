@@ -96,8 +96,8 @@ void TestBoolean(Isolate* isolate, bool value) {
   EXPECT_EQ(value ? 1 : 0, boolean->IntegerValue());
   EXPECT_EQ(value ? 1 : 0, boolean->ToInt32()->Value());
   EXPECT_EQ(value ? 1 : 0, boolean->Int32Value());
-  EXPECT_EQ(value ? 1 : 0, boolean->ToUint32()->Value());
-  EXPECT_EQ(value ? 1 : 0, boolean->Uint32Value());
+  EXPECT_EQ(value ? 1u : 0u, boolean->ToUint32()->Value());
+  EXPECT_EQ(value ? 1u : 0u, boolean->Uint32Value());
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
   EXPECT_EQ(value, BooleanObject::Cast(*boolean->ToObject())->ValueOf());
 }
@@ -194,10 +194,10 @@ void TestInteger(Isolate* isolate, T value) {
   EXPECT_EQ(value, intVal->NumberValue());
   EXPECT_EQ(value, intVal->ToInteger()->Value());
   EXPECT_EQ(value, intVal->IntegerValue());
-  EXPECT_EQ(value, intVal->ToInt32()->Value());
-  EXPECT_EQ(value, intVal->Int32Value());
-  EXPECT_EQ(value, intVal->ToUint32()->Value());
-  EXPECT_EQ(value, intVal->Uint32Value());
+  EXPECT_EQ(static_cast<int>(value), intVal->ToInt32()->Value());
+  EXPECT_EQ(static_cast<int>(value), intVal->Int32Value());
+  EXPECT_EQ(static_cast<uint32_t>(value), intVal->ToUint32()->Value());
+  EXPECT_EQ(static_cast<uint32_t>(value), intVal->Uint32Value());
   EXPECT_TRUE(intVal->ToObject()->IsNumberObject());
   EXPECT_EQ(value, NumberObject::Cast(*intVal->ToObject())->ValueOf());
 }
@@ -295,8 +295,8 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(object->IntegerValue(context).IsNothing());
   EXPECT_EQ(0, object->ToInt32()->Value());
   EXPECT_EQ(0, object->Int32Value());
-  EXPECT_EQ(0, object->ToUint32()->Value());
-  EXPECT_EQ(0, object->Uint32Value());
+  EXPECT_EQ(0u, object->ToUint32()->Value());
+  EXPECT_EQ(0u, object->Uint32Value());
   EXPECT_EQ(0, object->IntegerValue());
   EXPECT_TRUE(object->ToObject()->IsObject());
   EXPECT_TRUE(Object::Cast(*object->ToObject())->Has(foo));
@@ -612,7 +612,7 @@ TEST(SpiderShim, ObjectPropertyEnumeration) {
       "result[3] = x;"
       "result;");
   Array* elms = Array::Cast(*obj);
-  EXPECT_EQ(4, elms->Length());
+  EXPECT_EQ(4u, elms->Length());
   int elmc0 = 0;
   const char** elmv0 = NULL;
   CheckProperties(
@@ -668,7 +668,7 @@ TEST(SpiderShim, Array) {
 
   Local<Array> array = Array::New(engine.isolate(), 10);
   EXPECT_EQ(Array::Cast(*array), *array);
-  EXPECT_EQ(10, array->Length());
+  EXPECT_EQ(10u, array->Length());
   for (int i = 0; i < 10; ++i) {
     MaybeLocal<Value> val = array->Get(context, i);
     EXPECT_TRUE(val.ToLocalChecked()->IsUndefined());
@@ -679,7 +679,7 @@ TEST(SpiderShim, Array) {
   EXPECT_TRUE(array->Set(context, 14, Integer::New(engine.isolate(), 42)).FromJust());
   MaybeLocal<Value> val = array->Get(context, 14);
   EXPECT_EQ(42, Integer::Cast(*val.ToLocalChecked())->Value());
-  EXPECT_EQ(15, array->Length());
+  EXPECT_EQ(15u, array->Length());
 
   Local<String> str = array->ToString();
   String::Utf8Value utf8(str);
@@ -693,8 +693,8 @@ TEST(SpiderShim, Array) {
   EXPECT_TRUE(array->IntegerValue(context).IsNothing());
   EXPECT_EQ(0, array->ToInt32()->Value());
   EXPECT_EQ(0, array->Int32Value());
-  EXPECT_EQ(0, array->ToUint32()->Value());
-  EXPECT_EQ(0, array->Uint32Value());
+  EXPECT_EQ(0u, array->ToUint32()->Value());
+  EXPECT_EQ(0u, array->Uint32Value());
   EXPECT_EQ(0, array->IntegerValue());
   EXPECT_TRUE(array->ToObject()->IsObject());
   EXPECT_EQ(4, Object::Cast(*array->ToObject())->Get(2)->ToInteger()->Value());
@@ -725,8 +725,8 @@ TEST(SpiderShim, BooleanObject) {
   EXPECT_EQ(1, boolean->IntegerValue());
   EXPECT_EQ(1, boolean->ToInt32()->Value());
   EXPECT_EQ(1, boolean->Int32Value());
-  EXPECT_EQ(1, boolean->ToUint32()->Value());
-  EXPECT_EQ(1, boolean->Uint32Value());
+  EXPECT_EQ(1u, boolean->ToUint32()->Value());
+  EXPECT_EQ(1u, boolean->Uint32Value());
   EXPECT_TRUE(boolean->ToObject()->IsBooleanObject());
   EXPECT_EQ(true, BooleanObject::Cast(*boolean->ToObject())->ValueOf());
 }
@@ -750,14 +750,14 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_STREQ("42", *utf8);
   EXPECT_EQ(true, num->ToBoolean()->Value());
   EXPECT_EQ(true, num->BooleanValue());
-  EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
-  EXPECT_DOUBLE_EQ(num->NumberValue(), 42.0);
-  EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->IntegerValue(), 42);
-  EXPECT_DOUBLE_EQ(num->ToInt32()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->Int32Value(), 42);
-  EXPECT_DOUBLE_EQ(num->ToUint32()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->Uint32Value(), 42);
+  EXPECT_DOUBLE_EQ(42.0, num->ToNumber()->Value());
+  EXPECT_DOUBLE_EQ(42.0, num->NumberValue());
+  EXPECT_DOUBLE_EQ(42, num->ToInteger()->Value());
+  EXPECT_DOUBLE_EQ(42, num->IntegerValue());
+  EXPECT_DOUBLE_EQ(42, num->ToInt32()->Value());
+  EXPECT_DOUBLE_EQ(42, num->Int32Value());
+  EXPECT_DOUBLE_EQ(42, num->ToUint32()->Value());
+  EXPECT_DOUBLE_EQ(42, num->Uint32Value());
   EXPECT_TRUE(num->ToObject()->IsNumberObject());
   EXPECT_EQ(42.0, NumberObject::Cast(*num->ToObject())->ValueOf());
 }
@@ -793,8 +793,8 @@ TEST(SpiderShim, StringObject) {
   EXPECT_EQ(0, str->IntegerValue());
   EXPECT_EQ(0, str->ToInt32()->Value());
   EXPECT_EQ(0, str->Int32Value());
-  EXPECT_EQ(0, str->ToUint32()->Value());
-  EXPECT_EQ(0, str->Uint32Value());
+  EXPECT_EQ(0u, str->ToUint32()->Value());
+  EXPECT_EQ(0u, str->Uint32Value());
   EXPECT_TRUE(str->ToObject()->IsStringObject());
   EXPECT_EQ(6, StringObject::Cast(*str->ToObject())->ValueOf()->Length());
 }
@@ -833,12 +833,12 @@ TEST(SpiderShim, Date) {
   }
   EXPECT_EQ(true, date.ToLocalChecked()->ToBoolean()->Value());
   EXPECT_EQ(true, date.ToLocalChecked()->BooleanValue());
-  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
-  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->NumberValue(), time);
+  EXPECT_DOUBLE_EQ(time, date.ToLocalChecked()->ToNumber()->Value());
+  EXPECT_DOUBLE_EQ(time, date.ToLocalChecked()->NumberValue());
   EXPECT_EQ(time, date.ToLocalChecked()->ToInteger()->Value());
   EXPECT_EQ(time, date.ToLocalChecked()->IntegerValue());
-  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->ToInt32()->Value());
-  EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->Int32Value());
+  EXPECT_EQ(int64_t(time) & 0xffffffff, date.ToLocalChecked()->ToInt32()->Value());
+  EXPECT_EQ(int64_t(time) & 0xffffffff, date.ToLocalChecked()->Int32Value());
   EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->ToUint32()->Value());
   EXPECT_EQ(uint64_t(time) & 0xffffffff, date.ToLocalChecked()->Uint32Value());
   EXPECT_TRUE(date.ToLocalChecked()->ToObject()->IsDate());
@@ -1506,26 +1506,19 @@ TEST(SpiderShim, Utf16Symbol) {
     CHECK(SameSymbol(symbol1, symbol2));
   }
 
-  // SpiderShim uses InflateUTF8StringToBuffer to convert UTF-8 strings
-  // to UTF-16 strings, and it doesn't support UTF-8 strings containing invalid
-  // characters, so the tests with invalid characters below are commented out.
-  //
-  // TODO: make InflateUTF8StringToBuffer support UTF-* strings containing
-  // invalid characters, like LossyConvertUTF8toUTF16 in dom/wifi/WifiUtils.cpp.
-  //
   engine.CompileRun(context,
       "var sym0 = 'benedictus';"
       "var sym0b = 'S\303\270ren';"
-      // "var sym1 = '\355\240\201\355\260\207';"
+      "var sym1 = '\355\240\201\355\260\207';"
       "var sym2 = '\360\220\220\210';"
-      // "var sym3 = 'x\355\240\201\355\260\207';"
+      "var sym3 = 'x\355\240\201\355\260\207';"
       "var sym4 = 'x\360\220\220\210';"
-      // "if (sym1.length != 2) throw sym1;"
-      // "if (sym1.charCodeAt(1) != 0xdc07) throw sym1.charCodeAt(1);"
+      "if (sym1.length != 2) throw sym1;"
+      "if (sym1.charCodeAt(1) != 0xdc07) throw sym1.charCodeAt(1);"
       "if (sym2.length != 2) throw sym2;"
       "if (sym2.charCodeAt(1) != 0xdc08) throw sym2.charCodeAt(2);"
-      // "if (sym3.length != 3) throw sym3;"
-      // "if (sym3.charCodeAt(2) != 0xdc07) throw sym1.charCodeAt(2);"
+      "if (sym3.length != 3) throw sym3;"
+      "if (sym3.charCodeAt(2) != 0xdc07) throw sym1.charCodeAt(2);"
       "if (sym4.length != 3) throw sym4;"
       "if (sym4.charCodeAt(2) != 0xdc08) throw sym2.charCodeAt(2);"
   );
@@ -1537,18 +1530,18 @@ TEST(SpiderShim, Utf16Symbol) {
       v8::String::NewFromUtf8(engine.isolate(), "S\303\270ren",
                               v8::NewStringType::kInternalized)
           .ToLocalChecked();
-  // Local<String> sym1 =
-  //     v8::String::NewFromUtf8(engine.isolate(), "\355\240\201\355\260\207",
-  //                             v8::NewStringType::kInternalized)
-  //         .ToLocalChecked();
+  Local<String> sym1 =
+      v8::String::NewFromUtf8(engine.isolate(), "\355\240\201\355\260\207",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
   Local<String> sym2 =
       v8::String::NewFromUtf8(engine.isolate(), "\360\220\220\210",
                               v8::NewStringType::kInternalized)
           .ToLocalChecked();
-  // Local<String> sym3 = v8::String::NewFromUtf8(engine.isolate(),
-  //                                              "x\355\240\201\355\260\207",
-  //                                              v8::NewStringType::kInternalized)
-  //                          .ToLocalChecked();
+  Local<String> sym3 = v8::String::NewFromUtf8(engine.isolate(),
+                                               "x\355\240\201\355\260\207",
+                                               v8::NewStringType::kInternalized)
+                           .ToLocalChecked();
   Local<String> sym4 =
       v8::String::NewFromUtf8(engine.isolate(), "x\360\220\220\210",
                               v8::NewStringType::kInternalized)
@@ -1558,21 +1551,109 @@ TEST(SpiderShim, Utf16Symbol) {
       global->Get(context, v8_str("sym0")).ToLocalChecked();
   Local<Value> s0b =
       global->Get(context, v8_str("sym0b")).ToLocalChecked();
-  // Local<Value> s1 =
-  //     global->Get(context, v8_str("sym1")).ToLocalChecked();
+  Local<Value> s1 =
+      global->Get(context, v8_str("sym1")).ToLocalChecked();
   Local<Value> s2 =
       global->Get(context, v8_str("sym2")).ToLocalChecked();
-  // Local<Value> s3 =
-  //     global->Get(context, v8_str("sym3")).ToLocalChecked();
+  Local<Value> s3 =
+      global->Get(context, v8_str("sym3")).ToLocalChecked();
   Local<Value> s4 =
       global->Get(context, v8_str("sym4")).ToLocalChecked();
   CHECK(SameSymbol(sym0, Local<String>::Cast(s0)));
   CHECK(SameSymbol(sym0b, Local<String>::Cast(s0b)));
-  // CHECK(SameSymbol(sym1, Local<String>::Cast(s1)));
+  CHECK(SameSymbol(sym1, Local<String>::Cast(s1)));
   CHECK(SameSymbol(sym2, Local<String>::Cast(s2)));
-  // CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
+  CHECK(SameSymbol(sym3, Local<String>::Cast(s3)));
   CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
 }
+
+// From allocation.h.
+template <typename T>
+T* NewArray(size_t size) {
+  T* result = new T[size];
+  // if (result == NULL) FatalProcessOutOfMemory("NewArray");
+  return result;
+}
+
+// From allocation.h.
+template <typename T>
+void DeleteArray(T* array) {
+  delete[] array;
+}
+
+// From vector.h.
+inline int StrLength(const char* string) {
+  size_t length = strlen(string);
+  // DCHECK(length == static_cast<size_t>(static_cast<int>(length)));
+  return static_cast<int>(length);
+}
+
+// From cctest.h.
+static inline uint16_t* AsciiToTwoByteString(const char* source) {
+  int array_length = StrLength(source) + 1;
+  uint16_t* converted = NewArray<uint16_t>(array_length);
+  for (int i = 0; i < array_length; i++) converted[i] = source[i];
+  return converted;
+}
+
+// From test-api.cc.
+class TestResource: public String::ExternalStringResource {
+ public:
+  explicit TestResource(uint16_t* data, int* counter = NULL,
+                        bool owning_data = true)
+      : data_(data), length_(0), counter_(counter), owning_data_(owning_data) {
+    while (data[length_]) ++length_;
+  }
+
+  ~TestResource() {
+    if (owning_data_) DeleteArray(data_);
+    if (counter_ != NULL) ++*counter_;
+  }
+
+  const uint16_t* data() const {
+    return data_;
+  }
+
+  size_t length() const {
+    return length_;
+  }
+
+ private:
+  uint16_t* data_;
+  size_t length_;
+  int* counter_;
+  bool owning_data_;
+};
+
+// From test-api.cc.
+class TestOneByteResource : public String::ExternalOneByteStringResource {
+ public:
+  explicit TestOneByteResource(const char* data, int* counter = NULL,
+                               size_t offset = 0)
+      : orig_data_(data),
+        data_(data + offset),
+        length_(strlen(data) - offset),
+        counter_(counter) {}
+
+  ~TestOneByteResource() {
+    DeleteArray(orig_data_);
+    if (counter_ != NULL) ++*counter_;
+  }
+
+  const char* data() const {
+    return data_;
+  }
+
+  size_t length() const {
+    return length_;
+  }
+
+ private:
+  const char* orig_data_;
+  const char* data_;
+  size_t length_;
+  int* counter_;
+};
 
 TEST(SpiderShim, NewStringRangeError) {
   // This test is based on V8's NewStringRangeError test.
@@ -1653,6 +1734,76 @@ TEST(SpiderShim, StringConcatOverflow) {
   CHECK(!try_catch.HasCaught());
 }
 
+TEST(SpiderShim, ScriptUsingStringResource) {
+  // This test is based on V8's ScriptUsingStringResource test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  int dispose_count = 0;
+  const char* c_source = "1 + 2 * 3";
+  uint16_t* two_byte_source = AsciiToTwoByteString(c_source);
+  {
+    TestResource* resource = new TestResource(two_byte_source, &dispose_count);
+    Local<String> source =
+        String::NewExternalTwoByte(engine.isolate(), resource)
+            .ToLocalChecked();
+    Local<Value> value = engine.CompileRun(source);
+    CHECK(value->IsNumber());
+    CHECK_EQ(7, value->Int32Value(context).FromJust());
+    // CHECK(source->IsExternal());
+    // CHECK_EQ(resource,
+    //          static_cast<TestResource*>(source->GetExternalStringResource()));
+    // String::Encoding encoding = String::UNKNOWN_ENCODING;
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalStringResourceBase(&encoding));
+    // CHECK_EQ(String::TWO_BYTE_ENCODING, encoding);
+    // CcTest::heap()->CollectAllGarbage();
+    // CHECK_EQ(0, dispose_count);
+  }
+  // CcTest::i_isolate()->compilation_cache()->Clear();
+  // CcTest::heap()->CollectAllAvailableGarbage();
+  // CHECK_EQ(1, dispose_count);
+}
+
+TEST(SpiderShim, ScriptUsingOneByteStringResource) {
+  // This test is based on V8's ScriptUsingOneByteStringResource test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  int dispose_count = 0;
+  const char* c_source = "1 + 2 * 3";
+  {
+    TestOneByteResource* resource =
+        new TestOneByteResource(strdup(c_source), &dispose_count);
+    Local<String> source =
+        String::NewExternalOneByte(engine.isolate(), resource)
+            .ToLocalChecked();
+    // CHECK(source->IsExternalOneByte());
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalOneByteStringResource());
+    // String::Encoding encoding = String::UNKNOWN_ENCODING;
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalStringResourceBase(&encoding));
+    // CHECK_EQ(String::ONE_BYTE_ENCODING, encoding);
+    Local<Value> value = engine.CompileRun(source);
+    CHECK(value->IsNumber());
+    CHECK_EQ(7, value->Int32Value(context).FromJust());
+    // CcTest::heap()->CollectAllGarbage();
+    // CHECK_EQ(0, dispose_count);
+  }
+  // CcTest::i_isolate()->compilation_cache()->Clear();
+  // CcTest::heap()->CollectAllAvailableGarbage();
+  // CHECK_EQ(1, dispose_count);
+}
+
 TEST(SpiderShim, ToObject) {
   V8Engine engine;
 
@@ -1730,15 +1881,15 @@ TEST(SpiderShim, ArrayBuffer) {
 
   Local<ArrayBuffer> arr = ArrayBuffer::New(isolate, 0);
   EXPECT_TRUE(arr->IsArrayBuffer());
-  EXPECT_EQ(0, arr->ByteLength());
+  EXPECT_EQ(0u, arr->ByteLength());
   ArrayBuffer::Contents contents = arr->GetContents();
-  EXPECT_EQ(0, contents.ByteLength());
+  EXPECT_EQ(0u, contents.ByteLength());
   Local<ArrayBuffer> arr2 = ArrayBuffer::New(isolate, 2);
   EXPECT_TRUE(arr2->IsArrayBuffer());
-  EXPECT_EQ(2, arr2->ByteLength());
+  EXPECT_EQ(2u, arr2->ByteLength());
   contents = arr2->GetContents();
-  EXPECT_EQ(2, contents.ByteLength());
-  EXPECT_EQ(2, ArrayBuffer::Cast(*arr2->ToObject())->ByteLength());
+  EXPECT_EQ(2u, contents.ByteLength());
+  EXPECT_EQ(2u, ArrayBuffer::Cast(*arr2->ToObject())->ByteLength());
 }
 
 TEST(SpiderShim, Function) {
@@ -1811,6 +1962,17 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
       CreateAndCheck<Float32Array, 4>(buffer, 4, 255);
   Local<Float64Array> f64a =
       CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
+
+  // Avoid "unused variable" warnings.
+  EXPECT_FALSE(u8a->IsNull());
+  EXPECT_FALSE(u8c->IsNull());
+  EXPECT_FALSE(i8a->IsNull());
+  EXPECT_FALSE(u16a->IsNull());
+  EXPECT_FALSE(i16a->IsNull());
+  EXPECT_FALSE(u32a->IsNull());
+  EXPECT_FALSE(i32a->IsNull());
+  EXPECT_FALSE(f32a->IsNull());
+  EXPECT_FALSE(f64a->IsNull());
 }
 
 TEST(SpiderShim, FunctionCall) {
@@ -1960,6 +2122,94 @@ TEST(SpiderShim, FunctionCall) {
       ReturnThisStrict->Call(context, True(isolate), 0, NULL)
           .ToLocalChecked();
   EXPECT_TRUE(r10->StrictEquals(True(isolate)));
+}
+
+TEST(SpiderShim, ConstructCall) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  engine.CompileRun(context,
+      "function Foo() {"
+      "  var result = [];"
+      "  for (var i = 0; i < arguments.length; i++) {"
+      "    result.push(arguments[i]);"
+      "  }"
+      "  return result;"
+      "}");
+  Local<Function> Foo = Local<Function>::Cast(
+      context->Global()->Get(context, v8_str("Foo")).ToLocalChecked());
+
+  Local<Value>* args0 = NULL;
+  Local<Array> a0 = Local<Array>::Cast(
+      Foo->NewInstance(context, 0, args0).ToLocalChecked());
+  CHECK_EQ(0u, a0->Length());
+
+  Local<Value> args1[] = {v8_num(1.1)};
+  Local<Array> a1 = Local<Array>::Cast(
+      Foo->NewInstance(context, 1, args1).ToLocalChecked());
+  CHECK_EQ(1u, a1->Length());
+  CHECK_EQ(1.1, a1->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args2[] = {v8_num(2.2), v8_num(3.3)};
+  Local<Array> a2 = Local<Array>::Cast(
+      Foo->NewInstance(context, 2, args2).ToLocalChecked());
+  CHECK_EQ(2u, a2->Length());
+  CHECK_EQ(2.2, a2->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(3.3, a2->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args3[] = {v8_num(4.4), v8_num(5.5), v8_num(6.6)};
+  Local<Array> a3 = Local<Array>::Cast(
+      Foo->NewInstance(context, 3, args3).ToLocalChecked());
+  CHECK_EQ(3u, a3->Length());
+  CHECK_EQ(4.4, a3->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(5.5, a3->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(6.6, a3->Get(context, Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+
+  Local<Value> args4[] = {v8_num(7.7), v8_num(8.8), v8_num(9.9),
+                              v8_num(10.11)};
+  Local<Array> a4 = Local<Array>::Cast(
+      Foo->NewInstance(context, 4, args4).ToLocalChecked());
+  CHECK_EQ(4u, a4->Length());
+  CHECK_EQ(7.7, a4->Get(context, Integer::New(isolate, 0))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(8.8, a4->Get(context, Integer::New(isolate, 1))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(9.9, a4->Get(context, Integer::New(isolate, 2))
+                    .ToLocalChecked()
+                    ->NumberValue(context)
+                    .FromJust());
+  CHECK_EQ(10.11, a4->Get(context, Integer::New(isolate, 3))
+                      .ToLocalChecked()
+                      ->NumberValue(context)
+                      .FromJust());
 }
 
 TEST(SpiderShim, Iterator) {
