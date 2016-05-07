@@ -59,6 +59,14 @@ private:
 
 static std::auto_ptr<V8Initializer> v8Initializer;
 
+static inline Local<String> v8_str(const char* str) {
+  return String::NewFromUtf8(Isolate::GetCurrent(), str);
+}
+
+static inline Local<Number> v8_num(double num) {
+  return Number::New(Isolate::GetCurrent(), num);
+}
+
 class V8Engine {
 public:
   V8Engine() {
@@ -85,25 +93,19 @@ public:
     return isolate_->PersistentCount();
   }
 
-  Local<Value> CompileRun(Local<Context> context, const char* script) {
-    auto scr = Script::Compile(String::NewFromUtf8(isolate_, script,
-                                                   NewStringType::kNormal)
-                                 .ToLocalChecked());
+  Local<Value> CompileRun(Local<String> script) {
+    auto scr = Script::Compile(script);
     if (*scr) {
       return scr->Run();
     }
     return Local<Value>();
   }
 
+  // TODO: remove unused "context" parameter.
+  Local<Value> CompileRun(Local<Context> context, const char* script) {
+    return CompileRun(v8_str(script));
+  }
+
 private:
   Isolate* isolate_;
 };
-
-static inline Local<String> v8_str(const char* str) {
-  return String::NewFromUtf8(Isolate::GetCurrent(), str);
-}
-
-static inline Local<Number> v8_num(double num) {
-  return Number::New(Isolate::GetCurrent(), num);
-}
-

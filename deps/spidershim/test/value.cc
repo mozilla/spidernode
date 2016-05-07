@@ -1561,6 +1561,164 @@ TEST(SpiderShim, Utf16Symbol) {
   CHECK(SameSymbol(sym4, Local<String>::Cast(s4)));
 }
 
+// From allocation.h.
+template <typename T>
+T* NewArray(size_t size) {
+  T* result = new T[size];
+  // if (result == NULL) FatalProcessOutOfMemory("NewArray");
+  return result;
+}
+
+// From allocation.h.
+template <typename T>
+void DeleteArray(T* array) {
+  delete[] array;
+}
+
+// From vector.h.
+inline int StrLength(const char* string) {
+  size_t length = strlen(string);
+  // DCHECK(length == static_cast<size_t>(static_cast<int>(length)));
+  return static_cast<int>(length);
+}
+
+// From cctest.h.
+static inline uint16_t* AsciiToTwoByteString(const char* source) {
+  int array_length = StrLength(source) + 1;
+  uint16_t* converted = NewArray<uint16_t>(array_length);
+  for (int i = 0; i < array_length; i++) converted[i] = source[i];
+  return converted;
+}
+
+// From test-api.cc.
+class TestResource: public String::ExternalStringResource {
+ public:
+  explicit TestResource(uint16_t* data, int* counter = NULL,
+                        bool owning_data = true)
+      : data_(data), length_(0), counter_(counter), owning_data_(owning_data) {
+    while (data[length_]) ++length_;
+  }
+
+  ~TestResource() {
+    if (owning_data_) DeleteArray(data_);
+    if (counter_ != NULL) ++*counter_;
+  }
+
+  const uint16_t* data() const {
+    return data_;
+  }
+
+  size_t length() const {
+    return length_;
+  }
+
+ private:
+  uint16_t* data_;
+  size_t length_;
+  int* counter_;
+  bool owning_data_;
+};
+
+// From test-api.cc.
+class TestOneByteResource : public String::ExternalOneByteStringResource {
+ public:
+  explicit TestOneByteResource(const char* data, int* counter = NULL,
+                               size_t offset = 0)
+      : orig_data_(data),
+        data_(data + offset),
+        length_(strlen(data) - offset),
+        counter_(counter) {}
+
+  ~TestOneByteResource() {
+    DeleteArray(orig_data_);
+    if (counter_ != NULL) ++*counter_;
+  }
+
+  const char* data() const {
+    return data_;
+  }
+
+  size_t length() const {
+    return length_;
+  }
+
+ private:
+  const char* orig_data_;
+  const char* data_;
+  size_t length_;
+  int* counter_;
+};
+
+TEST(SpiderShim, ScriptUsingStringResource) {
+  // This test is based on V8's ScriptUsingStringResource test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  int dispose_count = 0;
+  const char* c_source = "1 + 2 * 3";
+  uint16_t* two_byte_source = AsciiToTwoByteString(c_source);
+  {
+    TestResource* resource = new TestResource(two_byte_source, &dispose_count);
+    Local<String> source =
+        String::NewExternalTwoByte(engine.isolate(), resource)
+            .ToLocalChecked();
+    Local<Value> value = engine.CompileRun(source);
+    CHECK(value->IsNumber());
+    CHECK_EQ(7, value->Int32Value(context).FromJust());
+    // CHECK(source->IsExternal());
+    // CHECK_EQ(resource,
+    //          static_cast<TestResource*>(source->GetExternalStringResource()));
+    // String::Encoding encoding = String::UNKNOWN_ENCODING;
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalStringResourceBase(&encoding));
+    // CHECK_EQ(String::TWO_BYTE_ENCODING, encoding);
+    // CcTest::heap()->CollectAllGarbage();
+    // CHECK_EQ(0, dispose_count);
+  }
+  // CcTest::i_isolate()->compilation_cache()->Clear();
+  // CcTest::heap()->CollectAllAvailableGarbage();
+  // CHECK_EQ(1, dispose_count);
+}
+
+TEST(SpiderShim, ScriptUsingOneByteStringResource) {
+  // This test is based on V8's ScriptUsingOneByteStringResource test.
+
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  int dispose_count = 0;
+  const char* c_source = "1 + 2 * 3";
+  {
+    TestOneByteResource* resource =
+        new TestOneByteResource(strdup(c_source), &dispose_count);
+    Local<String> source =
+        String::NewExternalOneByte(engine.isolate(), resource)
+            .ToLocalChecked();
+    // CHECK(source->IsExternalOneByte());
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalOneByteStringResource());
+    // String::Encoding encoding = String::UNKNOWN_ENCODING;
+    // CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+    //          source->GetExternalStringResourceBase(&encoding));
+    // CHECK_EQ(String::ONE_BYTE_ENCODING, encoding);
+    Local<Value> value = engine.CompileRun(source);
+    CHECK(value->IsNumber());
+    CHECK_EQ(7, value->Int32Value(context).FromJust());
+    // CcTest::heap()->CollectAllGarbage();
+    // CHECK_EQ(0, dispose_count);
+  }
+  // CcTest::i_isolate()->compilation_cache()->Clear();
+  // CcTest::heap()->CollectAllAvailableGarbage();
+  // CHECK_EQ(1, dispose_count);
+}
+
 TEST(SpiderShim, ToObject) {
   V8Engine engine;
 
