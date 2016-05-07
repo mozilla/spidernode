@@ -34,7 +34,6 @@ TEST(SpiderShim, ErrorConstruction) {
   HandleScope handle_scope(engine.isolate());
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
-  Isolate* isolate = Isolate::GetCurrent();
 
   Local<String> foo = v8_str("foo");
   Local<String> message = v8_str("message");
