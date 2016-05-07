@@ -737,14 +737,14 @@ TEST(SpiderShim, NumberObject) {
   EXPECT_STREQ("42", *utf8);
   EXPECT_EQ(true, num->ToBoolean()->Value());
   EXPECT_EQ(true, num->BooleanValue());
-  EXPECT_DOUBLE_EQ(num->ToNumber()->Value(), 42.0);
-  EXPECT_DOUBLE_EQ(num->NumberValue(), 42.0);
-  EXPECT_DOUBLE_EQ(num->ToInteger()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->IntegerValue(), 42);
-  EXPECT_DOUBLE_EQ(num->ToInt32()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->Int32Value(), 42);
-  EXPECT_DOUBLE_EQ(num->ToUint32()->Value(), 42);
-  EXPECT_DOUBLE_EQ(num->Uint32Value(), 42);
+  EXPECT_DOUBLE_EQ(42.0, num->ToNumber()->Value());
+  EXPECT_DOUBLE_EQ(42.0, num->NumberValue());
+  EXPECT_DOUBLE_EQ(42, num->ToInteger()->Value());
+  EXPECT_DOUBLE_EQ(42, num->IntegerValue());
+  EXPECT_DOUBLE_EQ(42, num->ToInt32()->Value());
+  EXPECT_DOUBLE_EQ(42, num->Int32Value());
+  EXPECT_DOUBLE_EQ(42, num->ToUint32()->Value());
+  EXPECT_DOUBLE_EQ(42, num->Uint32Value());
   EXPECT_TRUE(num->ToObject()->IsNumberObject());
   EXPECT_EQ(42.0, NumberObject::Cast(*num->ToObject())->ValueOf());
 }
@@ -820,8 +820,8 @@ TEST(SpiderShim, Date) {
   }
   EXPECT_EQ(true, date.ToLocalChecked()->ToBoolean()->Value());
   EXPECT_EQ(true, date.ToLocalChecked()->BooleanValue());
-  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->ToNumber()->Value(), time);
-  EXPECT_DOUBLE_EQ(date.ToLocalChecked()->NumberValue(), time);
+  EXPECT_DOUBLE_EQ(time, date.ToLocalChecked()->ToNumber()->Value());
+  EXPECT_DOUBLE_EQ(time, date.ToLocalChecked()->NumberValue());
   EXPECT_EQ(time, date.ToLocalChecked()->ToInteger()->Value());
   EXPECT_EQ(time, date.ToLocalChecked()->IntegerValue());
   EXPECT_EQ(int64_t(time) & 0xffffffff, date.ToLocalChecked()->ToInt32()->Value());
