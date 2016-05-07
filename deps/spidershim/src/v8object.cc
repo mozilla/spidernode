@@ -467,4 +467,25 @@ MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key)
   return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
 }
 
+Local<String> Object::GetConstructorName() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject prototype(cx);
+  JS::RootedValue constructorVal(cx);
+  JS::RootedObject constructor(cx);
+  JS::RootedFunction func(cx);
+  if (!JS_GetPrototype(cx, thisObj, &prototype) ||
+      !JS_GetProperty(cx, prototype, "constructor", &constructorVal) ||
+      !constructorVal.isObject() ||
+      !(constructor = &constructorVal.toObject()) ||
+      !js::IsFunctionObject(constructor) ||
+      !(func = JS_GetObjectFunction(constructor))) {
+    return Local<String>();
+  }
+  JS::Value retVal;
+  retVal.setString(JS_GetFunctionDisplayId(func));
+  return internal::Local<String>::New(isolate, retVal);
+}
+
 }

@@ -2314,3 +2314,97 @@ TEST(SpiderShim, PrivateProperties) {
   EXPECT_EQ(0u,
            child->GetOwnPropertyNames(context).ToLocalChecked()->Length());
 }
+
+TEST(SpiderShim, ObjectGetConstructorName) {
+  // This test is based on V8's ObjectGetConstructorName test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  engine.CompileRun(context,
+      "function Parent() {};"
+      "function Child() {};"
+      "Child.prototype = new Parent();"
+      "Child.prototype.constructor = Child;"
+      "var outer = { inner: function() { } };"
+      "var p = new Parent();"
+      "var c = new Child();"
+      "var x = new outer.inner();"
+      "var proto = Child.prototype;");
+
+  Local<Value> p =
+      context->Global()->Get(context, v8_str("p")).ToLocalChecked();
+  EXPECT_TRUE(p->IsObject() &&
+        p->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("Parent"))
+            .FromJust());
+
+  Local<Value> c =
+      context->Global()->Get(context, v8_str("c")).ToLocalChecked();
+  EXPECT_TRUE(c->IsObject() &&
+        c->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("Child"))
+            .FromJust());
+
+  Local<Value> x =
+      context->Global()->Get(context, v8_str("x")).ToLocalChecked();
+  EXPECT_TRUE(x->IsObject() &&
+        x->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("outer.inner"))
+            .FromJust());
+
+  Local<Value> child_prototype =
+      context->Global()->Get(context, v8_str("proto")).ToLocalChecked();
+  EXPECT_TRUE(child_prototype->IsObject() &&
+        child_prototype->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("Parent"))
+            .FromJust());
+}
+
+TEST(SpiderShim, SubclassGetConstructorName) {
+  // This test is based on V8's SubclassGetConstructorName test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  engine.CompileRun(context,
+      "\"use strict\";"
+      "class Parent {}"
+      "class Child extends Parent {}"
+      "var p = new Parent();"
+      "var c = new Child();");
+
+  Local<Value> p =
+      context->Global()->Get(context, v8_str("p")).ToLocalChecked();
+  EXPECT_TRUE(p->IsObject() &&
+        p->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("Parent"))
+            .FromJust());
+
+  Local<Value> c =
+      context->Global()->Get(context, v8_str("c")).ToLocalChecked();
+  EXPECT_TRUE(c->IsObject() &&
+        c->ToObject(context)
+            .ToLocalChecked()
+            ->GetConstructorName()
+            ->Equals(context, v8_str("Child"))
+            .FromJust());
+}
