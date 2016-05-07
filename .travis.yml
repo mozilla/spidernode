@@ -21,9 +21,6 @@ before_script:
 script:
   - make V= -k || make V= -k || true
   - ./deps/spidershim/scripts/run-tests.sh
-branches:
-  only:
-    - master
 notifications:
   email: true
 env:
