@@ -117,7 +117,5 @@ inline bool CopyStringChars(JSContext* cx, CharType* dest, JSString* s,
   return true;
 }
 
-bool DeflateStringToUTF8Buffer(JSLinearString* str, char* dst, size_t* dstlenp,
-                               int* numchrp, int options);
 }
 }
