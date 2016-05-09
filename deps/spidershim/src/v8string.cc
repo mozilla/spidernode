@@ -456,7 +456,7 @@ static inline int Write(const String* string, CharType* buffer, int start,
     return 0;
   }
 
-  if (!internal::CopyStringChars(cx, buffer, str, end - start, start)) {
+  if (!js::CopyStringChars(cx, buffer, str, end - start, start)) {
     return 0;
   }
 
