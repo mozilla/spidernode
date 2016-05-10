@@ -18,6 +18,7 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+#include "conversions.h"
 #include "v8.h"
 #include "v8conversions.h"
 #include "v8local.h"
@@ -40,7 +41,7 @@ Function::NewInstance(Local<Context> context,
   }
 
   for (int i = 0; i < argc; i++) {
-    args.infallibleAppend(*reinterpret_cast<JS::Value*>(*argv[i]));
+    args.infallibleAppend(*GetValue(argv[i]));
   }
 
   auto obj = ::JS_New(cx, thisObj, args);
@@ -58,17 +59,17 @@ Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
 {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedValue val(cx, *reinterpret_cast<JS::Value*>(*recv));
+  JS::RootedValue val(cx, *GetValue(recv));
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
     return Local<Value>();
   }
 
   for (int i = 0; i < argc; i++) {
-    args.infallibleAppend(*reinterpret_cast<JS::Value*>(*argv[i]));
+    args.infallibleAppend(*GetValue(argv[i]));
   }
 
-  JS::RootedValue func(cx, *reinterpret_cast<JS::Value*>(this));
+  JS::RootedValue func(cx, *GetValue(this));
   JS::RootedValue ret(cx);
   if (!JS::Call(cx, val, func, args, &ret)) {
     return Local<Value>();

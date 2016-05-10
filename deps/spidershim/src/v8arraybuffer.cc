@@ -20,6 +20,7 @@
 
 #include "v8.h"
 #include "v8conversions.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -63,7 +64,7 @@ ArrayBuffer::New(Isolate* isolate, void* data, size_t size,
 size_t
 ArrayBuffer::ByteLength() const
 {
-  const JS::Value* val = reinterpret_cast<const JS::Value*>(this);
+  const JS::Value* val = GetValue(this);
   JSObject& obj = val->toObject();
   return JS_GetArrayBufferByteLength(&obj);
 }
@@ -71,7 +72,7 @@ ArrayBuffer::ByteLength() const
 ArrayBuffer::Contents
 ArrayBuffer::GetContents()
 {
-  const JS::Value thisVal = *reinterpret_cast<const JS::Value*>(this);
+  const JS::Value thisVal = *GetValue(this);
   JSObject* obj = &thisVal.toObject();
   uint8_t *data;
   bool shared;

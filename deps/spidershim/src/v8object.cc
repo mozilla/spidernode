@@ -24,6 +24,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "v8context.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "v8string.h"
 
@@ -68,12 +69,12 @@ Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
                         bool force) {
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<jsid> id(cx);
-  JS::RootedValue keyVal(cx, *reinterpret_cast<const JS::Value*>(*key));
+  JS::RootedValue keyVal(cx, *GetValue(key));
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
-  JS::RootedValue valueVal(cx, *reinterpret_cast<const JS::Value*>(*value));
+  JS::RootedObject thisVal(cx, &GetValue(this)->toObject());
+  JS::RootedValue valueVal(cx, *GetValue(value));
   if (!force && attributes == None) {
     return Just(JS_SetPropertyById(cx, thisVal, id, valueVal));
   }
@@ -101,8 +102,8 @@ bool Object::Set(Handle<Value> key, Handle<Value> value) {
 
 Maybe<bool> Object::Set(Local<Context> context, uint32_t index, Local<Value> value) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
-  JS::RootedValue valueVal(cx, *reinterpret_cast<const JS::Value*>(*value));
+  JS::RootedObject thisVal(cx, &GetValue(this)->toObject());
+  JS::RootedValue valueVal(cx, *GetValue(value));
   return Just(JS_SetElement(cx, thisVal, index, valueVal));
 }
 
@@ -134,7 +135,7 @@ bool Object::ForceSet(Handle<Value> key, Handle<Value> value,
 MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<jsid> id(cx);
-  JS::RootedValue keyVal(cx, *reinterpret_cast<const JS::Value*>(*key));
+  JS::RootedValue keyVal(cx, *GetValue(key));
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return MaybeLocal<Value>();
   }
@@ -170,7 +171,7 @@ Maybe<PropertyAttribute> Object::GetPropertyAttributes(Local<Context> context,
                                                        Local<Value> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<jsid> id(cx);
-  JS::RootedValue keyVal(cx, *reinterpret_cast<const JS::Value*>(*key));
+  JS::RootedValue keyVal(cx, *GetValue(key));
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<PropertyAttribute>();
   }
@@ -221,7 +222,7 @@ Local<Value> Object::GetOwnPropertyDescriptor(Local<String> key) {
 Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<jsid> id(cx);
-  JS::RootedValue keyVal(cx, *reinterpret_cast<const JS::Value*>(*key));
+  JS::RootedValue keyVal(cx, *GetValue(key));
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
@@ -256,7 +257,7 @@ bool Object::Has(uint32_t index) {
 Maybe<bool> Object::Delete(Local<Context> context, Local<Value> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<jsid> id(cx);
-  JS::RootedValue keyVal(cx, *reinterpret_cast<const JS::Value*>(*key));
+  JS::RootedValue keyVal(cx, *GetValue(key));
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
@@ -309,7 +310,7 @@ Local<Object> Object::New(Isolate* isolate) {
 }
 
 Object* Object::Cast(Value* obj) {
-  assert(reinterpret_cast<JS::Value*>(obj)->isObject());
+  assert(GetValue(obj)->isObject());
   return static_cast<Object*>(obj);
 }
 
@@ -430,7 +431,7 @@ Maybe<bool> Object::SetPrivate(Local<Context> context, Local<Private> key,
     return Just(false);
   }
   JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
-  JS::RootedValue valueVal(cx, *reinterpret_cast<const JS::Value*>(*value));
+  JS::RootedValue valueVal(cx, *GetValue(value));
   if (!JS_SetPropertyById(cx, table, keyId, valueVal)) {
     return Nothing<bool>();
   }

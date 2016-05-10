@@ -24,6 +24,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/CharacterEncoding.h"
+#include "conversions.h"
 #include "v8isolate.h"
 #include "v8local.h"
 #include "v8string.h"
@@ -257,7 +258,7 @@ Local<String> String::NewExternal(Isolate* isolate,
 }
 
 String* String::Cast(v8::Value* obj) {
-  assert(reinterpret_cast<JS::Value*>(obj)->isString());
+  assert(GetValue(obj)->isString());
   return static_cast<String*>(obj);
 }
 
@@ -357,7 +358,7 @@ int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) co
 namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {
-  auto sourceJsVal = reinterpret_cast<JS::Value*>(*source);
+	JS::Value* sourceJsVal = GetValue(source);
   auto sourceStr = sourceJsVal->toString();
   size_t len = JS_GetStringLength(sourceStr);
   if (length) {

@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -166,7 +167,7 @@ MaybeLocal<Value> TryCatch::StackTrace(Local<Context> context) const {
     return MaybeLocal<Value>();
   }
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue excValue(cx, *reinterpret_cast<JS::Value*>(*Exception()));
+  JS::RootedValue excValue(cx, *GetValue(Exception()));
   if (!excValue.isObject()) {
     return MaybeLocal<Value>();
   }

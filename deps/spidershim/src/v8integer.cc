@@ -22,6 +22,7 @@
 
 #include "v8.h"
 #include "jsapi.h"
+#include "conversions.h"
 #include "v8local.h"
 
 namespace v8 {
@@ -31,8 +32,7 @@ int64_t Integer::Value() const {
   if (IsNumber()) {
     return static_cast<int64_t>(Number::Value());
   } else {
-    return static_cast<int64_t>(
-        reinterpret_cast<const JS::Value*>(this)->toDouble());
+    return static_cast<int64_t>(GetValue(this)->toDouble());
   }
 }
 

@@ -20,6 +20,7 @@
 
 #include "v8.h"
 #include "v8conversions.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -32,7 +33,7 @@ namespace v8 {
 
 #define SIMPLE_VALUE(V8_VAL, SM_VAL)                               \
   bool Value::Is##V8_VAL() const {                                 \
-    return reinterpret_cast<const JS::Value*>(this)->is##SM_VAL(); \
+    return GetValue(this)->is##SM_VAL(); \
   }
 #define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
 #define ES_BUILTIN(V8_NAME, CLASS_NAME)                            \
@@ -66,7 +67,7 @@ bool Value::IsUint32() const {
   if (!IsNumber()) {
     return false;
   }
-  double value = reinterpret_cast<const JS::Value*>(this)->toDouble();
+  double value = GetValue(this)->toDouble();
   return !internal::IsMinusZero(value) &&
          value >= 0 &&
          value <= internal::kMaxUInt32 &&
@@ -96,7 +97,7 @@ bool Value::IsFunction() const {
 
 MaybeLocal<Boolean> Value::ToBoolean(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   JS::Value boolVal;
   boolVal.setBoolean(JS::ToBoolean(thisVal));
   return internal::Local<Boolean>::New(context->GetIsolate(), boolVal);
@@ -125,7 +126,7 @@ bool Value::BooleanValue() const {
 
 MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   double num = 0.0;
   if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
     return MaybeLocal<Number>();
@@ -158,7 +159,7 @@ double Value::NumberValue() const {
 
 MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   double num = 0.0;
   if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
     return MaybeLocal<Integer>();
@@ -191,7 +192,7 @@ int64_t Value::IntegerValue() const {
 
 MaybeLocal<Int32> Value::ToInt32(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   int32_t num = 0;
   if (!JS::ToInt32(cx, thisVal, &num)) {
     return MaybeLocal<Int32>();
@@ -224,7 +225,7 @@ int32_t Value::Int32Value() const {
 
 MaybeLocal<Uint32> Value::ToUint32(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   uint32_t num = 0;
   if (!JS::ToUint32(cx, thisVal, &num)) {
     return MaybeLocal<Uint32>();
@@ -257,7 +258,7 @@ uint32_t Value::Uint32Value() const {
 
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   JSString* str = JS::ToString(cx, thisVal);
   if (!str) {
     return MaybeLocal<String>();
@@ -277,7 +278,7 @@ Local<String> Value::ToString(Isolate* isolate) const {
 
 MaybeLocal<Object> Value::ToObject(Local<Context> context) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
+  JS::RootedValue thisVal(cx, *GetValue(this));
   JSObject* obj = JS::ToObject(cx, thisVal);
   if (!obj) {
     return MaybeLocal<Object>();
@@ -298,8 +299,8 @@ Local<Object> Value::ToObject(Isolate* isolate) const {
 Maybe<bool> Value::Equals(Local<Context> context,
                           Handle<Value> that) const {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
-  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  JS::RootedValue thisVal(cx, *GetValue(this));
+  JS::RootedValue thatVal(cx, *GetValue(that));
   bool equal = false;
   if (!JS_LooselyEqual(cx, thisVal, thatVal, &equal)) {
     return Nothing<bool>();
@@ -314,8 +315,8 @@ bool Value::Equals(Handle<Value> that) const {
 
 bool Value::StrictEquals(Handle<Value> that) const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
-  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  JS::RootedValue thisVal(cx, *GetValue(this));
+  JS::RootedValue thatVal(cx, *GetValue(that));
   bool equal = false;
   JS_StrictlyEqual(cx, thisVal, thatVal, &equal);
   return equal;
@@ -323,8 +324,8 @@ bool Value::StrictEquals(Handle<Value> that) const {
 
 bool Value::SameValue(Handle<Value> that) const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS::RootedValue thisVal(cx, *reinterpret_cast<const JS::Value*>(this));
-  JS::RootedValue thatVal(cx, *reinterpret_cast<const JS::Value*>(*that));
+  JS::RootedValue thisVal(cx, *GetValue(this));
+  JS::RootedValue thatVal(cx, *GetValue(that));
   bool same = false;
   JS_SameValue(cx, thisVal, thatVal, &same);
   return same;

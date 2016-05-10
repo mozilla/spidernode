@@ -22,13 +22,14 @@
 
 #include "v8.h"
 #include "jsapi.h"
+#include "conversions.h"
 #include "v8local.h"
 
 namespace v8 {
 
 double Number::Value() const {
   assert(IsNumber());
-  return reinterpret_cast<const JS::Value*>(this)->toNumber();
+  return GetValue(this)->toNumber();
 }
 
 Local<Number> Number::New(Isolate* isolate, double value) {

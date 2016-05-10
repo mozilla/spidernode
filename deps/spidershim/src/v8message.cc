@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -59,7 +60,7 @@ struct Message::Impl {
 };
 
 Message::Message(Local<Value> exception) :
-  pimpl_(new Impl(reinterpret_cast<JS::Value*>(*exception))) {
+  pimpl_(new Impl(GetValue(exception))) {
 }
 
 MaybeLocal<String> Message::GetSourceLine(Local<Context> context) const {

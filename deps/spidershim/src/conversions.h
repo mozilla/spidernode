@@ -18,33 +18,28 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#include <assert.h>
-
+#pragma once
 #include "v8.h"
 #include "jsapi.h"
-#include "conversions.h"
-#include "v8local.h"
 
 namespace v8 {
 
-bool Boolean::Value() const {
-  assert(IsBoolean());
-  return GetValue(this)->toBoolean();
+static inline 	JS::Value*
+GetValue(Value* val)
+{
+  return reinterpret_cast<JS::Value*>(val);
 }
 
-Local<Boolean> Boolean::New(Isolate* isolate, bool value) {
-  JS::Value boolVal;
-  boolVal.setBoolean(value);
-  return internal::Local<Boolean>::New(isolate, boolVal);
+static inline const 	JS::Value*
+GetValue(const Value* val)
+{
+  return reinterpret_cast<const JS::Value*>(val);
 }
 
-Local<Boolean> Boolean::From(bool value) {
-  return New(Isolate::GetCurrent(), value);
-}
-
-Boolean* Boolean::Cast(v8::Value* obj) {
-  assert(GetValue(obj)->isBoolean());
-  return static_cast<Boolean*>(obj);
+static inline 	JS::Value*
+GetValue(const Local<Value>& val)
+{
+  return GetValue(*val);
 }
 
 }

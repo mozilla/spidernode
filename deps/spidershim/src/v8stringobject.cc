@@ -24,6 +24,7 @@
 #include "jsapi.h"
 #include "js/Class.h"
 #include "js/Conversions.h"
+#include "conversions.h"
 #include "v8local.h"
 
 namespace v8 {
@@ -31,7 +32,7 @@ namespace v8 {
 Local<Value> StringObject::New(Handle<String> value) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::Value* inputVal = reinterpret_cast<JS::Value*>(*value);
+  JS::Value* inputVal = GetValue(value);
   JS::RootedValue strVal(cx, JS::StringValue(inputVal->toString()));
   JS::Value retVal;
   retVal.setObject(*JS::ToObject(cx, strVal));

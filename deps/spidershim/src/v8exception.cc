@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -38,8 +39,8 @@ static v8::Local<v8::Value> CreateError(const char* type,
   Local<Value> retVal = Undefined(isolate);
   if (*ctor) {
     // TODO: Reimplement on top of CallAsConstructor().
-    JS::RootedValue ctorVal(cx, *reinterpret_cast<JS::Value*>(*ctor));
-    JS::RootedValue msgVal(cx, *reinterpret_cast<JS::Value*>(*message));
+    JS::RootedValue ctorVal(cx, *GetValue(ctor));
+    JS::RootedValue msgVal(cx, *GetValue(message));
     JS::RootedObject obj(cx);
     if (JS::Construct(cx, ctorVal,
                       JS::HandleValueArray(msgVal),
