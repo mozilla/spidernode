@@ -28,7 +28,7 @@
 namespace v8 {
 
 struct TryCatch::Impl {
-  Impl(Isolate* iso)
+  Impl(class Isolate* iso)
     : isolate_(iso),
       verbose_(false) {
     Reset();
