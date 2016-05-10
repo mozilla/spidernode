@@ -122,6 +122,14 @@ ArrayBufferView::ByteLength()
   return JS_GetDataViewByteLength(view);
 }
 
+void
+ArrayBuffer::Neuter()
+{
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedObject obj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS_DetachArrayBuffer(cx, obj, KeepData);
+}
+
 #define ES_BUILTIN(X, Y)
 #define COMMON_VALUE(X)
 #define TYPED_ARRAY(TYPE) \
