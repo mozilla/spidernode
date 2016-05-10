@@ -44,6 +44,22 @@ ArrayBuffer::New(Isolate* isolate, size_t size)
   return internal::Local<ArrayBuffer>::New(isolate, val);
 }
 
+Local<ArrayBuffer>
+ArrayBuffer::New(Isolate* isolate, void* data, size_t size,
+	       	ArrayBufferCreationMode mode)
+{
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JSObject* buf;
+  if (mode == ArrayBufferCreationMode::kExternalized) {
+	  buf = JS_NewArrayBufferWithExternalContents(cx, size, data);
+  } else {
+	  buf = JS_NewArrayBufferWithContents(cx, size, data);
+  }
+  JS::Value val;
+  val.setObject(*buf);
+  return internal::Local<ArrayBuffer>::New(isolate, val);
+}
+
 size_t
 ArrayBuffer::ByteLength() const
 {
