@@ -1981,6 +1981,22 @@ TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
   EXPECT_FALSE(f64a->IsNull());
 }
 
+TEST(SpiderShim, ArrayBuffer_Neutering) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  char buf[1024];
+  Local<ArrayBuffer> buffer = ArrayBuffer::New(isolate, buf, 1024);
+  buffer->Neuter();
+  CHECK_EQ(buffer->ByteLength(), 0);
+}
+
 TEST(SpiderShim, FunctionCall) {
   // This test is adopted from the V8 FunctionCall test.
   V8Engine engine;
