@@ -21,8 +21,7 @@
 #include <assert.h>
 #include <vector>
 
-#include "v8.h"
-#include "jsapi.h"
+#include "conversions.h"
 #include "gclist.h"
 
 namespace v8 {
@@ -57,8 +56,8 @@ public:
   }
 
   Value* Add(Value* val) {
-    values.push_back(reinterpret_cast<JS::Value&>(*val));
-    return reinterpret_cast<Value*>(&values.back());
+    values.push_back(*GetValue(val));
+    return GetV8Value(&values.back());
   }
 
   void Remove(Value* val) {
@@ -66,7 +65,7 @@ public:
     for (Iter begin = values.get().begin(),
               end = values.get().end();
          begin != end; ++begin) {
-      if (&*begin == reinterpret_cast<const JS::Value*>(val)) {
+      if (&*begin == GetValue(val)) {
         values.erase(begin);
         break;
       }

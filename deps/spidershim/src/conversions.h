@@ -42,6 +42,12 @@ GetValue(const Local<Value>& val)
   return GetValue(*val);
 }
 
+static inline Value*
+GetV8Value(JS::Value* val)
+{
+  return reinterpret_cast<Value*>(val);
+}
+
 static inline JSObject*
 GetObject(Value* val)
 {

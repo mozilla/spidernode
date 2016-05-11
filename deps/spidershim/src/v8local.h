@@ -19,8 +19,7 @@
 // IN THE SOFTWARE.
 
 #pragma once
-#include "v8.h"
-#include "jsapi.h"
+#include "conversions.h"
 
 namespace v8 {
 namespace internal {
@@ -29,7 +28,7 @@ template <class T>
 class Local {
 public:
   static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, reinterpret_cast<T*>(&val));
+    return v8::Local<T>::New(isolate, GetV8Value(&val));
   }
   static v8::Local<T> New(Isolate* isolate, JSScript* script) {
     return v8::Local<T>::New(isolate, script);
