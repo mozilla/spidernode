@@ -18,6 +18,8 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+#include <errno.h>
+
 #include "v8.h"
 #include "v8context.h"
 #include "v8local.h"
@@ -97,8 +99,17 @@ bool Context::CreateGlobal(Isolate* isolate) {
       fprintf(stderr, "Warning: enabled max-zeal GC mode, this is super slow!\n");
       warned = true;
     }
+    uint32_t frequency = JS_DEFAULT_ZEAL_FREQ;
+    const char* freq = getenv("JS_GC_MAX_ZEAL_FREQ");
+    if (freq && *freq) {
+      errno = 0;
+      uint32_t f = atoi(freq);
+      if (errno == 0) {
+        frequency = f;
+      }
+    }
     for (uint32_t i = 1; i <= 14; ++i) {
-      JS_SetGCZeal(pimpl_->cx, i, JS_DEFAULT_ZEAL_FREQ);
+      JS_SetGCZeal(pimpl_->cx, i, frequency);
     }
   }
 #endif
