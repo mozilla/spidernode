@@ -34,7 +34,7 @@ Function::NewInstance(Local<Context> context,
 {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
     return MaybeLocal<Object>();

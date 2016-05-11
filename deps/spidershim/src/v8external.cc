@@ -23,6 +23,7 @@
 #include "v8.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "conversions.h"
 #include "v8local.h"
 
 namespace {
@@ -62,7 +63,7 @@ Local<Value> External::Wrap(void* data) {
 
 bool External::IsExternal(const class Value* obj) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  return ::IsExternal(cx, &reinterpret_cast<const JS::Value*>(obj)->toObject());
+  return ::IsExternal(cx, GetObject(obj));
 }
 
 void* External::Unwrap(Handle<class Value> obj) {
@@ -70,7 +71,7 @@ void* External::Unwrap(Handle<class Value> obj) {
     return nullptr;
   }
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  return JS_GetPrivate(&reinterpret_cast<JS::Value*>(*obj)->toObject());
+  return JS_GetPrivate(GetObject(obj));
 }
 
 External* External::Cast(class Value* obj) {
@@ -80,7 +81,7 @@ External* External::Cast(class Value* obj) {
 
 void* External::Value() const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  return JS_GetPrivate(&reinterpret_cast<const JS::Value*>(this)->toObject());
+  return JS_GetPrivate(GetObject(this));
 }
 
 }

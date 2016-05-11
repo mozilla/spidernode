@@ -42,4 +42,24 @@ GetValue(const Local<Value>& val)
   return GetValue(*val);
 }
 
+static inline JSObject*
+GetObject(Value* val)
+{
+  JS::Value* v = GetValue(val);
+  return v->isObject() ? &v->toObject() : nullptr;
+}
+
+static inline JSObject*
+GetObject(const Value* val)
+{
+  const JS::Value* v = GetValue(val);
+  return v->isObject() ? &v->toObject() : nullptr;
+}
+
+static inline JSObject*
+GetObject(const Local<Value>& val)
+{
+  return GetObject(*val);
+}
+
 }

@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
@@ -58,7 +59,7 @@ struct StackTrace::Impl {
     Local<Context> context = isolate->GetCurrentContext();
     JSContext* cx = JSContextFromIsolate(isolate);
     std::vector<FrameInfo> frames;
-    JS::RootedObject current(cx, &reinterpret_cast<JS::Value*>(*stack_)->toObject());
+    JS::RootedObject current(cx, GetObject(stack_));
 
     do {
       FrameInfo info;

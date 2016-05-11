@@ -43,7 +43,7 @@ namespace v8 {
     }                                                              \
     JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());   \
     JS::RootedObject obj(cx,                                       \
-      &reinterpret_cast<const JS::Value*>(this)->toObject());      \
+      GetObject(this));      \
     js::ESClassValue cls = js::ESClass_Other;                      \
     return js::GetBuiltinClass(cx, obj, &cls) &&                   \
            cls == js::ESClass_##CLASS_NAME;                        \
@@ -54,7 +54,7 @@ namespace v8 {
       return false;                                                \
     }                                                              \
     return JS_Is##NAME##Array(                                     \
-             &reinterpret_cast<const JS::Value*>(this)->toObject() \
+             GetObject(this) \
            );                                                      \
   }
 #include "valuemap.inc"
@@ -78,21 +78,21 @@ bool Value::IsTypedArray() const {
   if (!IsObject()) {
     return false;
   }
-  return JS_IsTypedArrayObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
+  return JS_IsTypedArrayObject(GetObject(this));
 }
 
 bool Value::IsDataView() const {
   if (!IsObject()) {
     return false;
   }
-  return JS_IsDataViewObject(&reinterpret_cast<const JS::Value*>(this)->toObject());
+  return JS_IsDataViewObject(GetObject(this));
 }
 
 bool Value::IsFunction() const {
   if (!IsObject()) {
     return false;
   }
-  return JS::IsCallable(&reinterpret_cast<const JS::Value*>(this)->toObject());
+  return JS::IsCallable(GetObject(this));
 }
 
 MaybeLocal<Boolean> Value::ToBoolean(Local<Context> context) const {
@@ -336,7 +336,7 @@ bool Value::IsNativeError() const {
     return false;
   }
   JSProtoKey key = JS::IdentifyStandardInstanceOrPrototype(
-      &reinterpret_cast<const JS::Value*>(this)->toObject());
+      GetObject(this));
   return key == JSProto_EvalError ||
          key == JSProto_RangeError ||
          key == JSProto_ReferenceError ||

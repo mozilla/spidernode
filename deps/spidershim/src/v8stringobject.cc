@@ -48,7 +48,7 @@ Local<String> StringObject::ValueOf() const {
   assert(IsStringObject());
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedValue unboxedVal(cx);
   if (!js::Unbox(cx, thisObj, &unboxedVal)) {
     MOZ_CRASH("Cannot unbox the StringObject value");

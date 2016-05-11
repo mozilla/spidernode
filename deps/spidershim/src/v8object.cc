@@ -139,7 +139,7 @@ MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) {
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return MaybeLocal<Value>();
   }
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::RootedValue valueVal(cx);
   if (!JS_GetPropertyById(cx, thisVal, id, &valueVal)) {
     return MaybeLocal<Value>();
@@ -154,7 +154,7 @@ Local<Value> Object::Get(Handle<Value> key) {
 
 MaybeLocal<Value> Object::Get(Local<Context> context, uint32_t index) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::RootedValue valueVal(cx);
   if (!JS_GetElement(cx, thisVal, index, &valueVal)) {
     return MaybeLocal<Value>();
@@ -175,7 +175,7 @@ Maybe<PropertyAttribute> Object::GetPropertyAttributes(Local<Context> context,
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<PropertyAttribute>();
   }
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::Rooted<JS::PropertyDescriptor> desc(cx);
   if (!JS_GetPropertyDescriptorById(cx, thisVal, id, &desc)) {
     return Nothing<PropertyAttribute>();
@@ -202,7 +202,7 @@ MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context,
                                                    Local<String> key) {
   JSContext* cx = JSContextFromContext(*context);
   auto flatKey = internal::GetFlatString(cx, key);
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::Rooted<JS::PropertyDescriptor> desc(cx);
   if (!JS_GetOwnUCPropertyDescriptor(cx, thisVal, flatKey.get(), &desc)) {
     return MaybeLocal<Value>();
@@ -226,7 +226,7 @@ Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) {
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   bool found = false;
   if (!JS_HasPropertyById(cx, thisVal, id, &found)) {
     return Nothing<bool>();
@@ -241,7 +241,7 @@ bool Object::Has(Local<Value> key) {
 
 Maybe<bool> Object::Has(Local<Context> context, uint32_t index) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   bool found = false;
   if (!JS_HasElement(cx, thisVal, index, &found)) {
     return Nothing<bool>();
@@ -261,7 +261,7 @@ Maybe<bool> Object::Delete(Local<Context> context, Local<Value> key) {
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::ObjectOpResult result;
   if (!JS_DeletePropertyById(cx, thisVal, id, result)) {
     return Nothing<bool>();
@@ -276,7 +276,7 @@ bool Object::Delete(Local<Value> key) {
 
 Maybe<bool> Object::Delete(Local<Context> context, uint32_t index) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisVal(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisVal(cx, GetObject(this));
   JS::ObjectOpResult result;
   if (!JS_DeleteElement(cx, thisVal, index, result)) {
     return Nothing<bool>();
@@ -317,7 +317,7 @@ Object* Object::Cast(Value* obj) {
 Local<Value> Object::GetPrototype() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject prototype(cx);
   JS::Value retVal;
   if (JS_GetPrototype(cx, thisObj, &prototype)) {
@@ -334,8 +334,8 @@ Maybe<bool> Object::SetPrototype(Local<Context> context,
                                  Local<Value> prototype) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject protoObj(cx, &reinterpret_cast<JS::Value*>(*prototype)->toObject());
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject protoObj(cx, GetObject(prototype));
+  JS::RootedObject thisObj(cx, GetObject(this));
   return Just(JS_SetPrototype(cx, thisObj, protoObj));
 }
 
@@ -347,7 +347,7 @@ bool Object::SetPrototype(Handle<Value> prototype) {
 Local<Object> Object::Clone() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject prototype(cx);
   JS::Value cloneVal;
   if (JS_GetPrototype(cx, thisObj, &prototype)) {
@@ -364,7 +364,7 @@ Local<Object> Object::Clone() {
 
 MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context, unsigned flags) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::AutoIdVector idv(cx);
   if (!js::GetPropertyKeys(cx, thisObj, flags, &idv)) {
     return MaybeLocal<Array>();
@@ -409,7 +409,7 @@ Local<Array> Object::GetOwnPropertyNames() {
 
 Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
   if (!table) {
     return Just(false);
@@ -425,7 +425,7 @@ Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
 Maybe<bool> Object::SetPrivate(Local<Context> context, Local<Private> key,
                                Local<Value> value) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj, true));
   if (!table) {
     return Just(false);
@@ -440,7 +440,7 @@ Maybe<bool> Object::SetPrivate(Local<Context> context, Local<Private> key,
 
 Maybe<bool> Object::DeletePrivate(Local<Context> context, Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
   if (!table) {
     return Just(false);
@@ -455,7 +455,7 @@ Maybe<bool> Object::DeletePrivate(Local<Context> context, Local<Private> key) {
 
 MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
   if (!table) {
     return MaybeLocal<Value>();
@@ -471,7 +471,7 @@ MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key)
 Local<String> Object::GetConstructorName() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject prototype(cx);
   JS::RootedValue constructorVal(cx);
   JS::RootedObject constructor(cx);

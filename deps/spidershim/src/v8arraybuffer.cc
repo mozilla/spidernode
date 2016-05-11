@@ -89,7 +89,7 @@ ArrayBufferView::Buffer()
 {
   Isolate* isolate = GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject view(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject view(cx, GetObject(this));
   bool shared;
   JSObject* buf = JS_GetArrayBufferViewBuffer(cx, view, &shared);
   if (!buf) {
@@ -104,7 +104,7 @@ ArrayBufferView::Buffer()
 size_t
 ArrayBufferView::ByteOffset()
 {
-  JSObject* view = &reinterpret_cast<JS::Value*>(this)->toObject();
+  JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteOffset(view);
   }
@@ -115,7 +115,7 @@ ArrayBufferView::ByteOffset()
 size_t
 ArrayBufferView::ByteLength()
 {
-  JSObject* view = &reinterpret_cast<JS::Value*>(this)->toObject();
+  JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteLength(view);
   }
@@ -127,7 +127,7 @@ void
 ArrayBuffer::Neuter()
 {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS::RootedObject obj(cx, &reinterpret_cast<JS::Value*>(this)->toObject());
+  JS::RootedObject obj(cx, GetObject(this));
   JS_DetachArrayBuffer(cx, obj, KeepData);
 }
 
@@ -139,7 +139,7 @@ ArrayBuffer::Neuter()
   { \
     Isolate* isolate = buffer->GetIsolate(); \
     JSContext* cx = JSContextFromIsolate(isolate); \
-    JS::RootedObject buf(cx, &reinterpret_cast<JS::Value*>(*buffer)->toObject()); \
+    JS::RootedObject buf(cx, GetObject(buffer)); \
     JSObject* array = JS_New ## TYPE ## ArrayWithBuffer(cx, buf, offset, length); \
     if (!array) { \
       return Local<TYPE ## Array>(); \

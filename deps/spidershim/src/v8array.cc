@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 #include "js/Class.h"
@@ -41,7 +42,7 @@ Local<Array> Array::New(Isolate* isolate, int length) {
 Array* Array::Cast(Value* obj) {
   bool isArray = false;
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS::RootedObject thisObj(cx, &reinterpret_cast<JS::Value*>(obj)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(obj));
   JS::IsArray(cx, thisObj, &isArray);
   assert(isArray);
   return static_cast<Array*>(obj);
@@ -50,7 +51,7 @@ Array* Array::Cast(Value* obj) {
 uint32_t Array::Length() const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject thisObj(cx, &reinterpret_cast<const JS::Value*>(this)->toObject());
+  JS::RootedObject thisObj(cx, GetObject(this));
   uint32_t length = 0;
   JS_GetArrayLength(cx, thisObj, &length);
   return length;
