@@ -2562,3 +2562,27 @@ TEST(SpiderShim, External) {
   EXPECT_EQ('3', *char_ptr);
   free(data);
 }
+
+static void CheckEmbedderData(Local<Context>* env, int index,
+                              Local<Value> data) {
+  (*env)->SetEmbedderData(index, data);
+  EXPECT_TRUE((*env)->GetEmbedderData(index)->StrictEquals(data));
+}
+
+TEST(SpiderShim, EmbedderData) {
+  // This test is based on V8's EmbedderData test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Isolate* isolate = context->GetIsolate();
+
+  CheckEmbedderData(&context, 3, v8_str("The quick brown fox jumps"));
+  CheckEmbedderData(&context, 2, v8_str("over the lazy dog."));
+  CheckEmbedderData(&context, 1, Number::New(isolate, 1.2345));
+  CheckEmbedderData(&context, 0, Boolean::New(isolate, true));
+}
