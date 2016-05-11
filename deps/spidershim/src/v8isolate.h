@@ -51,6 +51,8 @@ struct Isolate::Impl {
   std::stack<Context*> currentContexts;
   std::vector<StackFrame*> stackFrames;
   std::vector<StackTrace*> stackTraces;
+  std::vector<GCCallback> gcProlougeCallbacks;
+  std::vector<GCCallback> gcEpilogueCallbacks;
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;
@@ -80,7 +82,7 @@ struct Isolate::Impl {
   }
 
   static bool OnInterrupt(JSContext* cx);
-
+  static void OnGC(JSRuntime *rt, JSGCStatus status, void *data);
 };
 
 JSContext* JSContextFromIsolate(v8::Isolate* isolate);

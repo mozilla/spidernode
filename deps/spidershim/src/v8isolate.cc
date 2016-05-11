@@ -28,9 +28,30 @@
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
 
-namespace {
+namespace v8 {
 
-void OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
+static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
+
+namespace internal {
+
+bool InitializeIsolate() { return sCurrentIsolate.init(); }
+}
+
+void Isolate::Impl::OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
+  auto isolate = Isolate::GetCurrent();
+  switch (status) {
+    case JSGC_BEGIN:
+      for (auto callback : isolate->pimpl_->gcProlougeCallbacks) {
+        (*callback)(isolate, kGCTypeAll, kNoGCCallbackFlags);
+      }
+      break;
+    case JSGC_END:
+      for (auto callback : isolate->pimpl_->gcEpilogueCallbacks) {
+        (*callback)(isolate, kGCTypeAll, kNoGCCallbackFlags);
+      }
+      break;
+  }
+
   const char* env = getenv("DUMP_GC");
   if (env && *env) {
     using mozilla::TimeStamp;
@@ -46,16 +67,6 @@ void OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
         break;
     }
   }
-}
-}
-
-namespace v8 {
-
-static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
-
-namespace internal {
-
-bool InitializeIsolate() { return sCurrentIsolate.init(); }
 }
 
 bool Isolate::Impl::OnInterrupt(JSContext* cx) {
@@ -96,8 +107,8 @@ Isolate::Isolate() : pimpl_(new Impl()) {
       .setNativeRegExp(true);
 #endif
 
-  JS_SetGCCallback(pimpl_->rt, OnGC, NULL);
   JS_SetInterruptCallback(pimpl_->rt, Isolate::Impl::OnInterrupt);
+  JS_SetGCCallback(pimpl_->rt, Isolate::Impl::OnGC, NULL);
 }
 
 Isolate::~Isolate() {
@@ -134,6 +145,7 @@ void Isolate::Exit() {
 void Isolate::Dispose() {
   pimpl_->persistents.reset();
   pimpl_->eternals.reset();
+  JS_SetGCCallback(pimpl_->rt, NULL, NULL);
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
@@ -196,6 +208,40 @@ void Isolate::AddStackFrame(StackFrame* frame) {
 void Isolate::AddStackTrace(StackTrace* trace) {
   assert(pimpl_);
   pimpl_->stackTraces.push_back(trace);
+}
+
+void Isolate::AddGCPrologueCallback(
+  GCCallback callback, GCType gc_type_filter) {
+  assert(pimpl_);
+  if (gc_type_filter != kGCTypeAll) {
+    MOZ_CRASH("Unimplmented type of GC callback.");
+  }
+  pimpl_->gcProlougeCallbacks.push_back(callback);
+}
+
+void Isolate::RemoveGCPrologueCallback(GCCallback callback) {
+  auto i = std::remove(pimpl_->gcProlougeCallbacks.begin(),
+                       pimpl_->gcProlougeCallbacks.end(), callback);
+  pimpl_->gcProlougeCallbacks.erase(i, pimpl_->gcProlougeCallbacks.end());
+}
+
+void Isolate::AddGCEpilogueCallback(
+  GCCallback callback, GCType gc_type_filter) {
+  assert(pimpl_);
+  if (gc_type_filter != kGCTypeAll) {
+    MOZ_CRASH("Unimplmented type of GC callback.");
+  }
+  pimpl_->gcEpilogueCallbacks.push_back(callback);
+}
+
+void Isolate::RemoveGCEpilogueCallback(GCCallback callback) {
+  auto i = std::remove(pimpl_->gcEpilogueCallbacks.begin(),
+                       pimpl_->gcEpilogueCallbacks.end(), callback);
+  pimpl_->gcEpilogueCallbacks.erase(i, pimpl_->gcEpilogueCallbacks.end());
+}
+
+void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
+  JS_GC(Runtime());
 }
 
 JSRuntime* Isolate::Runtime() const { return pimpl_->rt; }
