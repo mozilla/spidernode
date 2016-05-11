@@ -19,9 +19,49 @@
 // IN THE SOFTWARE.
 
 #pragma once
+
+#include <stack>
+
 #include "v8.h"
+#include "v8context.h"
+#include "rootstore.h"
+#include "mozilla/Maybe.h"
 
 namespace v8 {
 
+struct Isolate::Impl {
+  JSRuntime* rt;
+  std::vector<Context*> contexts;
+  std::stack<Context*> currentContexts;
+  std::vector<StackFrame*> stackFrames;
+  std::vector<StackTrace*> stackTraces;
+  mozilla::Maybe<internal::RootStore> persistents;
+  mozilla::Maybe<internal::RootStore> eternals;
+  std::vector<void *> messageListeners;
+
+  internal::RootStore& EnsurePersistents(Isolate* iso) {
+    if (!persistents) {
+      persistents.emplace(iso);
+    }
+    return *persistents;
+  }
+
+  internal::RootStore& EnsureEternals(Isolate* iso) {
+    if (!eternals) {
+      eternals.emplace(iso);
+    }
+    return *eternals;
+  }
+
+  static void ErrorReporter(JSContext* cx, const char* message,
+                            JSErrorReport* report) {
+    fprintf(stderr, "JS error at %s:%u: %s\n",
+            report->filename ? report->filename : "<no filename>",
+            (unsigned int)report->lineno, message);
+  }
+
+};
+
 JSContext* JSContextFromIsolate(v8::Isolate* isolate);
+
 }

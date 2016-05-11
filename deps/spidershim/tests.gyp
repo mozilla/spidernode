@@ -32,5 +32,9 @@
       'target_name': 'v8',
       'sources': [ 'test/v8.cc' ],
     },
+    {
+      'target_name': 'isolate',
+      'sources': [ 'test/isolate.cc' ],
+    },
   ],
 }

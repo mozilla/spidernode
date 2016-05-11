@@ -69,6 +69,8 @@ MaybeLocal<Value> Function::Call(Local<Context>, Local<Value> recv, int argc,
   JS::RootedValue func(cx, *GetValue(this));
   JS::RootedValue ret(cx);
   if (!JS::Call(cx, val, func, args, &ret)) {
+    TryCatch tryCatch(isolate);
+    tryCatch.CheckReportExternalException();
     return Local<Value>();
   }
 

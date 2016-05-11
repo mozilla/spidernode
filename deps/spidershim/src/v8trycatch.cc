@@ -23,6 +23,7 @@
 #include "v8.h"
 #include "conversions.h"
 #include "v8local.h"
+#include "v8isolate.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
 
@@ -141,6 +142,18 @@ Local<Value> TryCatch::Exception() const {
 void TryCatch::Reset() { pimpl_->Reset(); }
 
 void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
+
+void TryCatch::CheckReportExternalException() {
+  // TODO: once propagating exceptions is implemented this will need extra logic
+  // to only report the exception if this is the topmost TryCatch or if verbose
+  // reporting is enabled.
+  auto isolateImpl = reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
+  auto messageListeners = isolateImpl->messageListeners;
+  for (auto i = messageListeners.begin(); i != messageListeners.end(); i++) {
+      ((v8::MessageCallback)*i)(this->Message(),
+                                this->Exception());
+  }
+}
 
 Local<Message> TryCatch::Message() const {
   auto msg = new class Message(Exception());
