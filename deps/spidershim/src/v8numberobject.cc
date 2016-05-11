@@ -53,5 +53,4 @@ double NumberObject::ValueOf() const {
   }
   return unboxedVal.toNumber();
 }
-
 }

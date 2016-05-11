@@ -28,21 +28,15 @@
 
 namespace {
 
-static const JSClassOps classOps = {
-  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
-};
-static const JSClass clazz = {
-  "External", JSCLASS_HAS_PRIVATE, &classOps
-};
+static const JSClassOps classOps = {nullptr, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr};
+static const JSClass clazz = {"External", JSCLASS_HAS_PRIVATE, &classOps};
 
 bool IsExternal(JSContext* cx, JSObject* obj) {
   return JS_GetClass(obj) == &clazz;
 }
 
-JSObject* CreateExternal(JSContext* cx) {
-  return JS_NewObject(cx, &clazz);
-}
-
+JSObject* CreateExternal(JSContext* cx) { return JS_NewObject(cx, &clazz); }
 }
 
 namespace v8 {
@@ -83,5 +77,4 @@ void* External::Value() const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   return JS_GetPrivate(GetObject(this));
 }
-
 }

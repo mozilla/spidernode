@@ -46,5 +46,4 @@ Number* Number::Cast(class Value* obj) {
   assert(obj->IsNumber());
   return static_cast<Number*>(obj);
 }
-
 }

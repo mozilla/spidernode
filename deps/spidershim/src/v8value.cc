@@ -31,31 +31,26 @@ static_assert(sizeof(v8::Value) == sizeof(JS::Value),
 
 namespace v8 {
 
-#define SIMPLE_VALUE(V8_VAL, SM_VAL)                               \
-  bool Value::Is##V8_VAL() const {                                 \
-    return GetValue(this)->is##SM_VAL(); \
-  }
+#define SIMPLE_VALUE(V8_VAL, SM_VAL) \
+  bool Value::Is##V8_VAL() const { return GetValue(this)->is##SM_VAL(); }
 #define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
-#define ES_BUILTIN(V8_NAME, CLASS_NAME)                            \
-  bool Value::Is##V8_NAME() const {                                \
-    if (!IsObject()) {                                             \
-      return false;                                                \
-    }                                                              \
-    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());   \
-    JS::RootedObject obj(cx,                                       \
-      GetObject(this));      \
-    js::ESClassValue cls = js::ESClass_Other;                      \
-    return js::GetBuiltinClass(cx, obj, &cls) &&                   \
-           cls == js::ESClass_##CLASS_NAME;                        \
+#define ES_BUILTIN(V8_NAME, CLASS_NAME)                          \
+  bool Value::Is##V8_NAME() const {                              \
+    if (!IsObject()) {                                           \
+      return false;                                              \
+    }                                                            \
+    JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent()); \
+    JS::RootedObject obj(cx, GetObject(this));                   \
+    js::ESClassValue cls = js::ESClass_Other;                    \
+    return js::GetBuiltinClass(cx, obj, &cls) &&                 \
+           cls == js::ESClass_##CLASS_NAME;                      \
   }
-#define TYPED_ARRAY(NAME)                                          \
-  bool Value::Is##NAME##Array() const {                            \
-    if (!IsObject()) {                                             \
-      return false;                                                \
-    }                                                              \
-    return JS_Is##NAME##Array(                                     \
-             GetObject(this) \
-           );                                                      \
+#define TYPED_ARRAY(NAME)                       \
+  bool Value::Is##NAME##Array() const {         \
+    if (!IsObject()) {                          \
+      return false;                             \
+    }                                           \
+    return JS_Is##NAME##Array(GetObject(this)); \
   }
 #include "valuemap.inc"
 #undef COMMON_VALUE
@@ -68,8 +63,7 @@ bool Value::IsUint32() const {
     return false;
   }
   double value = GetValue(this)->toDouble();
-  return !internal::IsMinusZero(value) &&
-         value >= 0 &&
+  return !internal::IsMinusZero(value) && value >= 0 &&
          value <= internal::kMaxUInt32 &&
          value == internal::FastUI2D(internal::FastD2UI(value));
 }
@@ -107,8 +101,7 @@ Local<Boolean> Value::ToBoolean(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToBoolean(isolate->GetCurrentContext()).
-           ToLocalChecked();
+  return ToBoolean(isolate->GetCurrentContext()).ToLocalChecked();
 }
 
 Maybe<bool> Value::BooleanValue(Local<Context> context) const {
@@ -120,8 +113,8 @@ Maybe<bool> Value::BooleanValue(Local<Context> context) const {
 }
 
 bool Value::BooleanValue() const {
-  return BooleanValue(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(false);
+  return BooleanValue(Isolate::GetCurrent()->GetCurrentContext())
+      .FromMaybe(false);
 }
 
 MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
@@ -140,8 +133,7 @@ Local<Number> Value::ToNumber(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToNumber(isolate->GetCurrentContext()).
-           FromMaybe(Local<Number>());
+  return ToNumber(isolate->GetCurrentContext()).FromMaybe(Local<Number>());
 }
 
 Maybe<double> Value::NumberValue(Local<Context> context) const {
@@ -153,8 +145,7 @@ Maybe<double> Value::NumberValue(Local<Context> context) const {
 }
 
 double Value::NumberValue() const {
-  return NumberValue(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(NAN);
+  return NumberValue(Isolate::GetCurrent()->GetCurrentContext()).FromMaybe(NAN);
 }
 
 MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
@@ -173,8 +164,7 @@ Local<Integer> Value::ToInteger(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToInteger(isolate->GetCurrentContext()).
-           FromMaybe(Local<Integer>());
+  return ToInteger(isolate->GetCurrentContext()).FromMaybe(Local<Integer>());
 }
 
 Maybe<int64_t> Value::IntegerValue(Local<Context> context) const {
@@ -186,8 +176,7 @@ Maybe<int64_t> Value::IntegerValue(Local<Context> context) const {
 }
 
 int64_t Value::IntegerValue() const {
-  return IntegerValue(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(0);
+  return IntegerValue(Isolate::GetCurrent()->GetCurrentContext()).FromMaybe(0);
 }
 
 MaybeLocal<Int32> Value::ToInt32(Local<Context> context) const {
@@ -206,8 +195,7 @@ Local<Int32> Value::ToInt32(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToInt32(isolate->GetCurrentContext()).
-           FromMaybe(Local<Int32>());
+  return ToInt32(isolate->GetCurrentContext()).FromMaybe(Local<Int32>());
 }
 
 Maybe<int32_t> Value::Int32Value(Local<Context> context) const {
@@ -219,8 +207,7 @@ Maybe<int32_t> Value::Int32Value(Local<Context> context) const {
 }
 
 int32_t Value::Int32Value() const {
-  return Int32Value(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(0);
+  return Int32Value(Isolate::GetCurrent()->GetCurrentContext()).FromMaybe(0);
 }
 
 MaybeLocal<Uint32> Value::ToUint32(Local<Context> context) const {
@@ -239,8 +226,7 @@ Local<Uint32> Value::ToUint32(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToUint32(isolate->GetCurrentContext()).
-           FromMaybe(Local<Uint32>());
+  return ToUint32(isolate->GetCurrentContext()).FromMaybe(Local<Uint32>());
 }
 
 Maybe<uint32_t> Value::Uint32Value(Local<Context> context) const {
@@ -252,8 +238,7 @@ Maybe<uint32_t> Value::Uint32Value(Local<Context> context) const {
 }
 
 uint32_t Value::Uint32Value() const {
-  return Uint32Value(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(0);
+  return Uint32Value(Isolate::GetCurrent()->GetCurrentContext()).FromMaybe(0);
 }
 
 MaybeLocal<String> Value::ToString(Local<Context> context) const {
@@ -272,8 +257,7 @@ Local<String> Value::ToString(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToString(isolate->GetCurrentContext()).
-           FromMaybe(Local<String>());
+  return ToString(isolate->GetCurrentContext()).FromMaybe(Local<String>());
 }
 
 MaybeLocal<Object> Value::ToObject(Local<Context> context) const {
@@ -292,12 +276,10 @@ Local<Object> Value::ToObject(Isolate* isolate) const {
   if (!isolate) {
     isolate = Isolate::GetCurrent();
   }
-  return ToObject(isolate->GetCurrentContext()).
-           FromMaybe(Local<Object>());
+  return ToObject(isolate->GetCurrentContext()).FromMaybe(Local<Object>());
 }
 
-Maybe<bool> Value::Equals(Local<Context> context,
-                          Handle<Value> that) const {
+Maybe<bool> Value::Equals(Local<Context> context, Handle<Value> that) const {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedValue thisVal(cx, *GetValue(this));
   JS::RootedValue thatVal(cx, *GetValue(that));
@@ -309,8 +291,8 @@ Maybe<bool> Value::Equals(Local<Context> context,
 }
 
 bool Value::Equals(Handle<Value> that) const {
-  return Equals(Isolate::GetCurrent()->GetCurrentContext(), that).
-           FromMaybe(false);
+  return Equals(Isolate::GetCurrent()->GetCurrentContext(), that)
+      .FromMaybe(false);
 }
 
 bool Value::StrictEquals(Handle<Value> that) const {
@@ -335,18 +317,11 @@ bool Value::IsNativeError() const {
   if (!IsObject()) {
     return false;
   }
-  JSProtoKey key = JS::IdentifyStandardInstanceOrPrototype(
-      GetObject(this));
-  return key == JSProto_EvalError ||
-         key == JSProto_RangeError ||
-         key == JSProto_ReferenceError ||
-         key == JSProto_SyntaxError ||
-         key == JSProto_TypeError ||
-         key == JSProto_URIError;
+  JSProtoKey key = JS::IdentifyStandardInstanceOrPrototype(GetObject(this));
+  return key == JSProto_EvalError || key == JSProto_RangeError ||
+         key == JSProto_ReferenceError || key == JSProto_SyntaxError ||
+         key == JSProto_TypeError || key == JSProto_URIError;
 }
 
-bool Value::IsExternal() const {
-  return External::IsExternal(this);
-}
-
+bool Value::IsExternal() const { return External::IsExternal(this); }
 }

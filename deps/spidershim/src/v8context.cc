@@ -27,19 +27,15 @@
 
 namespace v8 {
 
-Context::Context()
-  : pimpl_(new Impl()) {
-}
+Context::Context() : pimpl_(new Impl()) {}
 
-Context::~Context() {
-  delete pimpl_;
-}
+Context::~Context() { delete pimpl_; }
 
 Local<Context> Context::New(Isolate* isolate,
                             ExtensionConfiguration* extensions,
                             Handle<ObjectTemplate> global_template,
                             Handle<Value> global_object) {
-  //TODO: Implement extensions, global_template and global_object.
+  // TODO: Implement extensions, global_template and global_object.
   assert(isolate->Runtime());
   JSContext* cx = JS_NewContext(isolate->Runtime(), 32 * 1024);
   if (!cx) {
@@ -57,14 +53,9 @@ Local<Context> Context::New(Isolate* isolate,
 
 bool Context::CreateGlobal(Isolate* isolate) {
   static const JSClassOps cOps = {
-    nullptr, nullptr, nullptr, nullptr,
-    nullptr, nullptr, nullptr, nullptr,
-    nullptr, nullptr, nullptr,
-    JS_GlobalObjectTraceHook
-  };
-  static const JSClass globalClass = {
-    "global", JSCLASS_GLOBAL_FLAGS, &cOps
-  };
+      nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+      nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
+  static const JSClass globalClass = {"global", JSCLASS_GLOBAL_FLAGS, &cOps};
 
   JS::RootedObject newGlobal(pimpl_->cx);
   JS::CompartmentOptions options;
@@ -85,7 +76,8 @@ bool Context::CreateGlobal(Isolate* isolate) {
   pimpl_->global = newGlobal;
   JS::Value globalObj;
   globalObj.setObject(*newGlobal);
-  pimpl_->globalObj = internal::Local<Object>::New(Isolate::GetCurrent(), globalObj);
+  pimpl_->globalObj =
+      internal::Local<Object>::New(Isolate::GetCurrent(), globalObj);
 
   // Ensure that JS errors appear as exceptions to us.
   JS::ContextOptionsRef(pimpl_->cx).setAutoJSAPIOwnsErrorReporting(true);
@@ -96,7 +88,8 @@ bool Context::CreateGlobal(Isolate* isolate) {
     // Set all of the gc zeal modes for maximum verification!
     static bool warned = false;
     if (!warned) {
-      fprintf(stderr, "Warning: enabled max-zeal GC mode, this is super slow!\n");
+      fprintf(stderr,
+              "Warning: enabled max-zeal GC mode, this is super slow!\n");
       warned = true;
     }
     uint32_t frequency = JS_DEFAULT_ZEAL_FREQ;
@@ -117,9 +110,7 @@ bool Context::CreateGlobal(Isolate* isolate) {
   return true;
 }
 
-Local<Object> Context::Global() {
-  return pimpl_->globalObj;
-}
+Local<Object> Context::Global() { return pimpl_->globalObj; }
 
 void Context::Dispose() {
   assert(pimpl_);
@@ -135,8 +126,7 @@ void Context::Enter() {
   assert(pimpl_->global);
   assert(!pimpl_->oldCompartment);
   JS_BeginRequest(pimpl_->cx);
-  pimpl_->oldCompartment =
-    JS_EnterCompartment(pimpl_->cx, pimpl_->global);
+  pimpl_->oldCompartment = JS_EnterCompartment(pimpl_->cx, pimpl_->global);
   GetIsolate()->PushCurrentContext(this);
 }
 
@@ -149,12 +139,9 @@ void Context::Exit() {
   GetIsolate()->PopCurrentContext();
 }
 
-Isolate* Context::GetIsolate() {
-  return Isolate::GetCurrent();
-}
+Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }
 
 JSContext* JSContextFromContext(Context* context) {
   return context->pimpl_->cx;
 }
-
 }

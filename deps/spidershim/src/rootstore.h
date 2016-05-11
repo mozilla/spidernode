@@ -29,16 +29,16 @@ namespace v8 {
 namespace internal {
 
 class RootStore {
-private:
+ private:
   using ValueVector = GCList<JS::Value>;
   using ScriptVector = GCList<JSScript*>;
   using SymbolVector = GCList<JS::Symbol*>;
 
-public:
-  RootStore(Isolate* iso) :
-    values(JSContextFromIsolate(iso)),
-    scripts(JSContextFromIsolate(iso)),
-    symbols(JSContextFromIsolate(iso)) {}
+ public:
+  RootStore(Isolate* iso)
+      : values(JSContextFromIsolate(iso)),
+        scripts(JSContextFromIsolate(iso)),
+        symbols(JSContextFromIsolate(iso)) {}
 
   ~RootStore() {
     assert(scripts.size() == scriptObjects.size());
@@ -62,8 +62,7 @@ public:
 
   void Remove(Value* val) {
     typedef ValueVector::iterator Iter;
-    for (Iter begin = values.get().begin(),
-              end = values.get().end();
+    for (Iter begin = values.get().begin(), end = values.get().end();
          begin != end; ++begin) {
       if (&*begin == GetValue(val)) {
         values.erase(begin);
@@ -86,14 +85,12 @@ public:
     return privateObjects.back();
   }
 
-private:
+ private:
   JS::Rooted<ValueVector> values;
   JS::Rooted<ScriptVector> scripts;
   std::vector<Script*> scriptObjects;
   JS::Rooted<SymbolVector> symbols;
   std::vector<Private*> privateObjects;
 };
-
 }
-
 }

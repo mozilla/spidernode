@@ -29,12 +29,10 @@
 namespace v8 {
 namespace internal {
 
-template<class T>
+template <class T>
 class GCList : public std::list<T> {
-public:
-  static void trace(GCList* list, JSTracer* trc) {
-    list->trace(trc);
-  }
+ public:
+  static void trace(GCList* list, JSTracer* trc) { list->trace(trc); }
 
   void trace(JSTracer* trc) {
     for (auto& item : *this) {
@@ -45,47 +43,32 @@ public:
 
 template <class Outer, class T>
 class GCListOperations {
-protected:
+ protected:
   using List = GCList<T>;
-  const List& list() const {
-    return static_cast<const Outer*>(this)->get();
-  }
+  const List& list() const { return static_cast<const Outer*>(this)->get(); }
 
-public:
-  size_t size() const {
-    return list().size();
-  }
-  typename List::const_reference back() const {
-    return list().back();
-  }
+ public:
+  size_t size() const { return list().size(); }
+  typename List::const_reference back() const { return list().back(); }
 };
 
 template <class Outer, class T>
 class MutableGCListOperations : public GCListOperations<Outer, T> {
   using typename GCListOperations<Outer, T>::List;
-  List& list() {
-    return static_cast<Outer*>(this)->get();
-  }
-public:
-  typename List::reference back() {
-    return list().back();
-  }
-  void push_back(const T& elem) {
-    return list().push_back(elem);
-  }
-  void erase(const typename List::iterator position) {
-    list().erase(position);
-  }
-};
+  List& list() { return static_cast<Outer*>(this)->get(); }
 
+ public:
+  typename List::reference back() { return list().back(); }
+  void push_back(const T& elem) { return list().push_back(elem); }
+  void erase(const typename List::iterator position) { list().erase(position); }
+};
 }
 }
 
 namespace js {
 
 template <class T>
-class RootedBase<v8::internal::GCList<T>> :
-  public v8::internal::MutableGCListOperations<JS::Rooted<v8::internal::GCList<T>>, T>
-{};
-
+class RootedBase<v8::internal::GCList<T>>
+    : public v8::internal::MutableGCListOperations<
+          JS::Rooted<v8::internal::GCList<T>>, T> {};
 }

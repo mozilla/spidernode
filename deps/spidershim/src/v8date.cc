@@ -56,5 +56,4 @@ double Date::ValueOf() const {
   }
   return unboxedVal.toDouble();
 }
-
 }

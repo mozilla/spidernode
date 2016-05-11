@@ -24,5 +24,4 @@
 namespace v8 {
 
 JSContext* JSContextFromIsolate(v8::Isolate* isolate);
-
 }

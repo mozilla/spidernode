@@ -29,9 +29,7 @@
 namespace v8 {
 
 struct Message::Impl {
-  Impl(JS::Value* exception) :
-    lineNumber_(0),
-    columnNumber_(0) {
+  Impl(JS::Value* exception) : lineNumber_(0), columnNumber_(0) {
     Isolate* isolate = Isolate::GetCurrent();
     JSContext* cx = JSContextFromIsolate(isolate);
     JS::RootedValue exc(cx, *exception);
@@ -41,13 +39,12 @@ struct Message::Impl {
       assert(report);
 
       if (report->linebuf() && report->linebufLength()) {
-        sourceLine_ = String::NewFromTwoByte(isolate,
-                                             reinterpret_cast<const uint16_t*>(report->linebuf()),
-                                             NewStringType::kNormal,
-                                             report->linebufLength());
+        sourceLine_ = String::NewFromTwoByte(
+            isolate, reinterpret_cast<const uint16_t*>(report->linebuf()),
+            NewStringType::kNormal, report->linebufLength());
       }
-      resourceName_ = String::NewFromOneByte(isolate,
-                                             reinterpret_cast<const uint8_t*>(report->filename));
+      resourceName_ = String::NewFromOneByte(
+          isolate, reinterpret_cast<const uint8_t*>(report->filename));
       lineNumber_ = report->lineno;
       columnNumber_ = report->column;
     }
@@ -59,9 +56,8 @@ struct Message::Impl {
   int columnNumber_;
 };
 
-Message::Message(Local<Value> exception) :
-  pimpl_(new Impl(GetValue(exception))) {
-}
+Message::Message(Local<Value> exception)
+    : pimpl_(new Impl(GetValue(exception))) {}
 
 MaybeLocal<String> Message::GetSourceLine(Local<Context> context) const {
   return pimpl_->sourceLine_;
@@ -69,7 +65,7 @@ MaybeLocal<String> Message::GetSourceLine(Local<Context> context) const {
 
 Local<String> Message::GetSourceLine() const {
   return GetSourceLine(Isolate::GetCurrent()->GetCurrentContext())
-           .FromMaybe(Local<String>());
+      .FromMaybe(Local<String>());
 }
 
 Handle<Value> Message::GetScriptResourceName() const {
@@ -81,8 +77,7 @@ Maybe<int> Message::GetLineNumber(Local<Context> context) const {
 }
 
 int Message::GetLineNumber() const {
-  return GetLineNumber(Isolate::GetCurrent()->GetCurrentContext())
-           .FromMaybe(0);
+  return GetLineNumber(Isolate::GetCurrent()->GetCurrentContext()).FromMaybe(0);
 }
 
 Maybe<int> Message::GetStartColumn(Local<Context> context) const {
@@ -91,7 +86,7 @@ Maybe<int> Message::GetStartColumn(Local<Context> context) const {
 
 int Message::GetStartColumn() const {
   return GetStartColumn(Isolate::GetCurrent()->GetCurrentContext())
-           .FromMaybe(0);
+      .FromMaybe(0);
 }
 
 Maybe<int> Message::GetEndColumn(Local<Context> context) const {
@@ -105,5 +100,4 @@ int Message::GetEndColumn() const {
   //       https://github.com/mozilla/spidernode/issues/54
   return -1;
 }
-
 }

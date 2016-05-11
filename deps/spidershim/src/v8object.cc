@@ -30,21 +30,24 @@
 
 namespace {
 
-// For now, we implement the hidden values table using a property with a symbol key.
-// This is observable to script, so if this becomes an issue in the future we'd need
+// For now, we implement the hidden values table using a property with a symbol
+// key.
+// This is observable to script, so if this becomes an issue in the future we'd
+// need
 // to do something more sophisticated.
 JS::Symbol* GetHiddenValuesTableSymbol(JSContext* cx) {
-  JS::RootedString name(cx, JS_NewStringCopyZ(cx, "__spidershim_hidden_values_table__"));
+  JS::RootedString name(
+      cx, JS_NewStringCopyZ(cx, "__spidershim_hidden_values_table__"));
   return JS::GetSymbolFor(cx, name);
 }
 
-JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self, bool create = false) {
+JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self,
+                               bool create = false) {
   JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenValuesTableSymbol(cx)));
   JS::RootedValue table(cx);
   bool hasOwn = false;
   if (JS_HasOwnPropertyById(cx, self, id, &hasOwn) && hasOwn &&
-      JS_GetPropertyById(cx, self, id, &table) &&
-      table.isObject()) {
+      JS_GetPropertyById(cx, self, id, &table) && table.isObject()) {
     return &table.toObject();
   }
   if (create) {
@@ -59,7 +62,6 @@ JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self, bool create
   }
   return nullptr;
 }
-
 }
 
 namespace v8 {
@@ -91,16 +93,18 @@ Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
   return Just(JS_DefinePropertyById(cx, thisVal, id, valueVal, attrs));
 }
 
-Maybe<bool> Object::Set(Local<Context> context, Local<Value> key, Local<Value> value) {
+Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
+                        Local<Value> value) {
   return Set(context, key, value, None, false);
 }
 
 bool Object::Set(Handle<Value> key, Handle<Value> value) {
-  return Set(Isolate::GetCurrent()->GetCurrentContext(), key, value).
-           FromMaybe(false);
+  return Set(Isolate::GetCurrent()->GetCurrentContext(), key, value)
+      .FromMaybe(false);
 }
 
-Maybe<bool> Object::Set(Local<Context> context, uint32_t index, Local<Value> value) {
+Maybe<bool> Object::Set(Local<Context> context, uint32_t index,
+                        Local<Value> value) {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedObject thisVal(cx, &GetValue(this)->toObject());
   JS::RootedValue valueVal(cx, *GetValue(value));
@@ -108,8 +112,8 @@ Maybe<bool> Object::Set(Local<Context> context, uint32_t index, Local<Value> val
 }
 
 bool Object::Set(uint32_t index, Handle<Value> value) {
-  return Set(Isolate::GetCurrent()->GetCurrentContext(), index, value).
-           FromMaybe(false);
+  return Set(Isolate::GetCurrent()->GetCurrentContext(), index, value)
+      .FromMaybe(false);
 }
 
 Maybe<bool> Object::DefineOwnProperty(Local<Context> context, Local<Name> key,
@@ -118,18 +122,16 @@ Maybe<bool> Object::DefineOwnProperty(Local<Context> context, Local<Name> key,
   return Set(context, key, value, attributes, /* force = */ true);
 }
 
-Maybe<bool> Object::ForceSet(Local<Context> context,
-                             Local<Value> key,
-                             Local<Value> value,
-                             PropertyAttribute attributes) {
+Maybe<bool> Object::ForceSet(Local<Context> context, Local<Value> key,
+                             Local<Value> value, PropertyAttribute attributes) {
   return Set(context, key, value, attributes, /* force = */ true);
 }
 
 bool Object::ForceSet(Handle<Value> key, Handle<Value> value,
                       PropertyAttribute attributes) {
-  return ForceSet(Isolate::GetCurrent()->GetCurrentContext(),
-                  key, value, attributes).
-           FromMaybe(false);
+  return ForceSet(Isolate::GetCurrent()->GetCurrentContext(), key, value,
+                  attributes)
+      .FromMaybe(false);
 }
 
 MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) {
@@ -144,12 +146,13 @@ MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) {
   if (!JS_GetPropertyById(cx, thisVal, id, &valueVal)) {
     return MaybeLocal<Value>();
   }
-  return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), valueVal));
+  return MaybeLocal<Value>(
+      internal::Local<Value>::New(context->GetIsolate(), valueVal));
 }
 
 Local<Value> Object::Get(Handle<Value> key) {
-  return Get(Isolate::GetCurrent()->GetCurrentContext(), key).
-           FromMaybe(Local<Value>());
+  return Get(Isolate::GetCurrent()->GetCurrentContext(), key)
+      .FromMaybe(Local<Value>());
 }
 
 MaybeLocal<Value> Object::Get(Local<Context> context, uint32_t index) {
@@ -159,12 +162,13 @@ MaybeLocal<Value> Object::Get(Local<Context> context, uint32_t index) {
   if (!JS_GetElement(cx, thisVal, index, &valueVal)) {
     return MaybeLocal<Value>();
   }
-  return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), valueVal));
+  return MaybeLocal<Value>(
+      internal::Local<Value>::New(context->GetIsolate(), valueVal));
 }
 
 Local<Value> Object::Get(uint32_t index) {
-  return Get(Isolate::GetCurrent()->GetCurrentContext(), index).
-           FromMaybe(Local<Value>());
+  return Get(Isolate::GetCurrent()->GetCurrentContext(), index)
+      .FromMaybe(Local<Value>());
 }
 
 Maybe<PropertyAttribute> Object::GetPropertyAttributes(Local<Context> context,
@@ -194,8 +198,8 @@ Maybe<PropertyAttribute> Object::GetPropertyAttributes(Local<Context> context,
 }
 
 PropertyAttribute Object::GetPropertyAttributes(Local<Value> key) {
-  return GetPropertyAttributes(Isolate::GetCurrent()->GetCurrentContext(), key).
-           FromMaybe(None);
+  return GetPropertyAttributes(Isolate::GetCurrent()->GetCurrentContext(), key)
+      .FromMaybe(None);
 }
 
 MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context,
@@ -211,12 +215,14 @@ MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context,
   if (!JS::FromPropertyDescriptor(cx, desc, &result)) {
     return MaybeLocal<Value>();
   }
-  return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
+  return MaybeLocal<Value>(
+      internal::Local<Value>::New(context->GetIsolate(), result));
 }
 
 Local<Value> Object::GetOwnPropertyDescriptor(Local<String> key) {
-  return GetOwnPropertyDescriptor(Isolate::GetCurrent()->GetCurrentContext(), key).
-           FromMaybe(Local<Value>());
+  return GetOwnPropertyDescriptor(Isolate::GetCurrent()->GetCurrentContext(),
+                                  key)
+      .FromMaybe(Local<Value>());
 }
 
 Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) {
@@ -235,8 +241,7 @@ Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) {
 }
 
 bool Object::Has(Local<Value> key) {
-  return Has(Isolate::GetCurrent()->GetCurrentContext(), key).
-           FromMaybe(false);
+  return Has(Isolate::GetCurrent()->GetCurrentContext(), key).FromMaybe(false);
 }
 
 Maybe<bool> Object::Has(Local<Context> context, uint32_t index) {
@@ -250,8 +255,8 @@ Maybe<bool> Object::Has(Local<Context> context, uint32_t index) {
 }
 
 bool Object::Has(uint32_t index) {
-  return Has(Isolate::GetCurrent()->GetCurrentContext(), index).
-           FromMaybe(false);
+  return Has(Isolate::GetCurrent()->GetCurrentContext(), index)
+      .FromMaybe(false);
 }
 
 Maybe<bool> Object::Delete(Local<Context> context, Local<Value> key) {
@@ -270,8 +275,8 @@ Maybe<bool> Object::Delete(Local<Context> context, Local<Value> key) {
 }
 
 bool Object::Delete(Local<Value> key) {
-  return Delete(Isolate::GetCurrent()->GetCurrentContext(), key).
-           FromMaybe(false);
+  return Delete(Isolate::GetCurrent()->GetCurrentContext(), key)
+      .FromMaybe(false);
 }
 
 Maybe<bool> Object::Delete(Local<Context> context, uint32_t index) {
@@ -285,12 +290,13 @@ Maybe<bool> Object::Delete(Local<Context> context, uint32_t index) {
 }
 
 bool Object::Delete(uint32_t index) {
-  return Delete(Isolate::GetCurrent()->GetCurrentContext(), index).
-           FromMaybe(false);
+  return Delete(Isolate::GetCurrent()->GetCurrentContext(), index)
+      .FromMaybe(false);
 }
 
 Isolate* Object::GetIsolate() {
-  // TODO: We need to return something useful here when an isolate has not been entered too.
+  // TODO: We need to return something useful here when an isolate has not been
+  // entered too.
   // Since JSRuntime is a per-thread singleton, consider using a TLS entry.
   return Isolate::GetCurrent();
 }
@@ -340,8 +346,8 @@ Maybe<bool> Object::SetPrototype(Local<Context> context,
 }
 
 bool Object::SetPrototype(Handle<Value> prototype) {
-  return SetPrototype(Isolate::GetCurrent()->GetCurrentContext(), prototype).
-           FromMaybe(false);
+  return SetPrototype(Isolate::GetCurrent()->GetCurrentContext(), prototype)
+      .FromMaybe(false);
 }
 
 Local<Object> Object::Clone() {
@@ -362,7 +368,8 @@ Local<Object> Object::Clone() {
   return internal::Local<Object>::New(isolate, cloneVal);
 }
 
-MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context, unsigned flags) {
+MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context,
+                                           unsigned flags) {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::AutoIdVector idv(cx);
@@ -394,8 +401,8 @@ MaybeLocal<Array> Object::GetPropertyNames(Local<Context> context) {
 }
 
 Local<Array> Object::GetPropertyNames() {
-  return GetPropertyNames(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(Local<Array>());
+  return GetPropertyNames(Isolate::GetCurrent()->GetCurrentContext())
+      .FromMaybe(Local<Array>());
 }
 
 MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context) {
@@ -403,8 +410,8 @@ MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context) {
 }
 
 Local<Array> Object::GetOwnPropertyNames() {
-  return GetOwnPropertyNames(Isolate::GetCurrent()->GetCurrentContext()).
-           FromMaybe(Local<Array>());
+  return GetOwnPropertyNames(Isolate::GetCurrent()->GetCurrentContext())
+      .FromMaybe(Local<Array>());
 }
 
 Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
@@ -453,7 +460,8 @@ Maybe<bool> Object::DeletePrivate(Local<Context> context, Local<Private> key) {
   return Just(result.succeed());
 }
 
-MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key) {
+MaybeLocal<Value> Object::GetPrivate(Local<Context> context,
+                                     Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
@@ -465,7 +473,8 @@ MaybeLocal<Value> Object::GetPrivate(Local<Context> context, Local<Private> key)
   if (!JS_GetPropertyById(cx, table, keyId, &result)) {
     return MaybeLocal<Value>();
   }
-  return MaybeLocal<Value>(internal::Local<Value>::New(context->GetIsolate(), result));
+  return MaybeLocal<Value>(
+      internal::Local<Value>::New(context->GetIsolate(), result));
 }
 
 Local<String> Object::GetConstructorName() {
@@ -488,5 +497,4 @@ Local<String> Object::GetConstructorName() {
   retVal.setString(JS_GetFunctionDisplayId(func));
   return internal::Local<String>::New(isolate, retVal);
 }
-
 }

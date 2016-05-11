@@ -25,10 +25,7 @@
 namespace v8 {
 
 struct Context::Impl {
-  explicit Impl()
-    : cx(nullptr),
-      oldCompartment(nullptr) {
-  }
+  explicit Impl() : cx(nullptr), oldCompartment(nullptr) {}
   JSContext* cx;
   JS::PersistentRootedObject global;
   Local<Object> globalObj;
@@ -36,5 +33,4 @@ struct Context::Impl {
 };
 
 JSContext* JSContextFromContext(Context* context);
-
 }

@@ -28,10 +28,8 @@
 
 namespace v8 {
 
-MaybeLocal<Object>
-Function::NewInstance(Local<Context> context,
-                      int argc, Handle<Value> argv[]) const
-{
+MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
+                                         Handle<Value> argv[]) const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedObject thisObj(cx, GetObject(this));
@@ -54,9 +52,8 @@ Function::NewInstance(Local<Context> context,
   return internal::Local<Object>::New(isolate, ret);
 }
 
-MaybeLocal<Value>
-Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
-{
+MaybeLocal<Value> Function::Call(Local<Context>, Local<Value> recv, int argc,
+                                 Local<Value> argv[]) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedValue val(cx, *GetValue(recv));
@@ -78,18 +75,13 @@ Function::Call(Local<Context>, Local<Value> recv, int argc, Local<Value> argv[])
   return internal::Local<Value>::New(isolate, ret);
 }
 
-Local<Value>
-Function::Call(Local<Value> obj, int argc, Local<Value> argv[])
-{
+Local<Value> Function::Call(Local<Value> obj, int argc, Local<Value> argv[]) {
   Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
   return Call(ctx, obj, argc, argv).ToLocalChecked();
 }
 
-Function*
-Function::Cast(Value* v)
-{
+Function* Function::Cast(Value* v) {
   assert(v->IsFunction());
   return static_cast<Function*>(v);
 }
-
 }

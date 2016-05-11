@@ -40,9 +40,8 @@ Local<Boolean> False(Isolate* isolate) {
   return internal::Local<Boolean>::New(isolate, JS::FalseValue());
 }
 
-bool SetResourceConstraints(ResourceConstraints *constraints) {
+bool SetResourceConstraints(ResourceConstraints* constraints) {
   // TODO: Not yet implemented.
   return true;
 }
-
 }

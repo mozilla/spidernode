@@ -29,11 +29,7 @@
 namespace v8 {
 
 struct TryCatch::Impl {
-  Impl(class Isolate* iso)
-    : isolate_(iso),
-      verbose_(false) {
-    Reset();
-  }
+  Impl(class Isolate* iso) : isolate_(iso), verbose_(false) { Reset(); }
   ~Impl() {
     JSContext* cx = JSContextFromIsolate(isolate_);
     if (!rethrow_ && JS_IsExceptionPending(cx)) {
@@ -42,19 +38,18 @@ struct TryCatch::Impl {
     // TODO: Propagate exceptions to the caller
     //       https://github.com/mozilla/spidernode/issues/51
   }
-  class Isolate* Isolate() const { return isolate_; }
+  class Isolate* Isolate() const {
+    return isolate_;
+  }
   bool HasException() const {
-    if (!hasExceptionSet_ &&
-        !GetAndClearExceptionIfNeeded()) {
+    if (!hasExceptionSet_ && !GetAndClearExceptionIfNeeded()) {
       // TODO: Report the error in a some way.
       return false;
     }
     assert(hasExceptionSet_);
     return hasException_;
   }
-  bool HasExceptionSet() const {
-    return hasExceptionSet_;
-  }
+  bool HasExceptionSet() const { return hasExceptionSet_; }
   static bool HasExceptionPending(JSContext* cx) {
     return JS_IsExceptionPending(cx);
   }
@@ -110,7 +105,7 @@ struct TryCatch::Impl {
     return false;
   }
 
-private:
+ private:
   class Isolate* isolate_;
   mutable JS::Heap<JS::Value> exception_;
   mutable bool hasException_;
@@ -119,17 +114,11 @@ private:
   bool verbose_;
 };
 
-TryCatch::TryCatch(Isolate* iso)
-  : pimpl_(new Impl(iso)) {
-}
+TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso)) {}
 
-TryCatch::~TryCatch() {
-  delete pimpl_;
-}
+TryCatch::~TryCatch() { delete pimpl_; }
 
-bool TryCatch::HasCaught() const {
-  return pimpl_->HasException();
-}
+bool TryCatch::HasCaught() const { return pimpl_->HasException(); }
 
 bool TryCatch::HasTerminated() const {
   // TODO: Expose SpiderMonkey uncatchable exceptions
@@ -149,13 +138,9 @@ Local<Value> TryCatch::Exception() const {
   return internal::Local<Value>::New(pimpl_->Isolate(), *pimpl_->Exception());
 }
 
-void TryCatch::Reset() {
-  pimpl_->Reset();
-}
+void TryCatch::Reset() { pimpl_->Reset(); }
 
-void TryCatch::SetVerbose(bool verbose) {
-  pimpl_->SetVerbose(verbose);
-}
+void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
 
 Local<Message> TryCatch::Message() const {
   auto msg = new class Message(Exception());
@@ -187,7 +172,6 @@ MaybeLocal<Value> TryCatch::StackTrace(Local<Context> context) const {
 
 Local<Value> TryCatch::StackTrace() const {
   return StackTrace(Isolate::GetCurrent()->GetCurrentContext())
-           .FromMaybe(Local<Value>());
+      .FromMaybe(Local<Value>());
 }
-
 }

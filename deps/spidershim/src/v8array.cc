@@ -56,5 +56,4 @@ uint32_t Array::Length() const {
   JS_GetArrayLength(cx, thisObj, &length);
   return length;
 }
-
 }

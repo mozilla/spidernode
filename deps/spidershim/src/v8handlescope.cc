@@ -31,11 +31,7 @@ namespace v8 {
 static HandleScope* sCurrentScope = nullptr;
 
 struct HandleScope::Impl : internal::RootStore {
-  Impl(Isolate* iso) :
-    RootStore(iso),
-    isolate(iso)
-  {
-  }
+  Impl(Isolate* iso) : RootStore(iso), isolate(iso) {}
   HandleScope* prev;
   Isolate* isolate;
 };
@@ -89,9 +85,7 @@ Private* HandleScope::AddToScope(JS::Symbol* symbol) {
 }
 
 bool EscapableHandleScope::AddToParentScope(Value* val) {
-  return sCurrentScope &&
-         sCurrentScope->pimpl_->prev &&
+  return sCurrentScope && sCurrentScope->pimpl_->prev &&
          !!sCurrentScope->pimpl_->prev->pimpl_->Add(val);
 }
-
 }

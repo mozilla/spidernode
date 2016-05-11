@@ -32,7 +32,7 @@
 namespace v8 {
 
 String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
-  : str_(nullptr), length_(0) {
+    : str_(nullptr), length_(0) {
   Local<String> strVal = obj->ToString();
   JSString* str = nullptr;
   if (*strVal) {
@@ -44,18 +44,16 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
     if (flat) {
       length_ = JS::GetDeflatedUTF8StringLength(flat);
       str_ = new char[length_ + 1];
-      JS::DeflateStringToUTF8Buffer(flat, mozilla::RangedPtr<char>(str_, length_));
+      JS::DeflateStringToUTF8Buffer(flat,
+                                    mozilla::RangedPtr<char>(str_, length_));
       str_[length_] = '\0';
     }
   }
 }
 
-String::Utf8Value::~Utf8Value() {
-  delete[] str_;
-}
+String::Utf8Value::~Utf8Value() { delete[] str_; }
 
-String::Value::Value(Handle<v8::Value> obj)
-  : str_(nullptr), length_(0) {
+String::Value::Value(Handle<v8::Value> obj) : str_(nullptr), length_(0) {
   Local<String> strVal = obj->ToString();
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   JS::UniqueTwoByteChars buffer = internal::GetFlatString(cx, strVal, &length_);
@@ -66,14 +64,13 @@ String::Value::Value(Handle<v8::Value> obj)
   }
 }
 
-String::Value::~Value() {
-  js_free(str_);
-}
+String::Value::~Value() { js_free(str_); }
 
 Local<String> String::NewFromUtf8(Isolate* isolate, const char* data,
                                   NewStringType type, int length) {
   return NewFromUtf8(isolate, data, static_cast<v8::NewStringType>(type),
-                     length).FromMaybe(Local<String>());
+                     length)
+      .FromMaybe(Local<String>());
 }
 
 MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
@@ -92,15 +89,18 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
   size_t twoByteLen;
   JS::UniqueTwoByteChars twoByteChars(
-    JS::LossyUTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length), &twoByteLen).get());
+      JS::LossyUTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(data, length),
+                                           &twoByteLen)
+          .get());
   if (!twoByteChars) {
     return MaybeLocal<String>();
   }
 
   JSString* str =
-    type == v8::NewStringType::kInternalized ?
-      JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(twoByteChars.release())) :
-      JS_NewUCString(cx, twoByteChars.release(), twoByteLen);
+      type == v8::NewStringType::kInternalized
+          ? JS_AtomizeAndPinUCString(
+                cx, reinterpret_cast<const char16_t*>(twoByteChars.release()))
+          : JS_NewUCString(cx, twoByteChars.release(), twoByteLen);
 
   if (!str) {
     return MaybeLocal<String>();
@@ -122,13 +122,15 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
   JSContext* cx = JSContextFromIsolate(isolate);
 
   JSString* str =
-    type == v8::NewStringType::kInternalized ?
-      length >= 0 ?
-        JS_AtomizeAndPinStringN(cx, reinterpret_cast<const char*>(data), length) :
-        JS_AtomizeAndPinString(cx, reinterpret_cast<const char*>(data)) :
-      length >= 0 ?
-        JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data), length) :
-        JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data));
+      type == v8::NewStringType::kInternalized
+          ? length >= 0 ? JS_AtomizeAndPinStringN(
+                              cx, reinterpret_cast<const char*>(data), length)
+                        : JS_AtomizeAndPinString(
+                              cx, reinterpret_cast<const char*>(data))
+          : length >= 0
+                ? JS_NewStringCopyN(cx, reinterpret_cast<const char*>(data),
+                                    length)
+                : JS_NewStringCopyZ(cx, reinterpret_cast<const char*>(data));
 
   if (!str) {
     return MaybeLocal<String>();
@@ -142,10 +144,12 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
 Local<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
                                      NewStringType type, int length) {
   return NewFromOneByte(isolate, data, static_cast<v8::NewStringType>(type),
-                        length).FromMaybe(Local<String>());
+                        length)
+      .FromMaybe(Local<String>());
 }
 
-MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
+MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate,
+                                          const uint16_t* data,
                                           v8::NewStringType type, int length) {
   // In V8's api.cc, this conditional block is annotated with the comment:
   //    TODO(dcarney): throw a context free exception.
@@ -156,13 +160,17 @@ MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data
   JSContext* cx = JSContextFromIsolate(isolate);
 
   JSString* str =
-    type == v8::NewStringType::kInternalized ?
-      length >= 0 ?
-        JS_AtomizeAndPinUCStringN(cx, reinterpret_cast<const char16_t*>(data), length) :
-        JS_AtomizeAndPinUCString(cx, reinterpret_cast<const char16_t*>(data)) :
-      length >= 0 ?
-        JS_NewUCStringCopyN(cx, reinterpret_cast<const char16_t*>(data), length) :
-        JS_NewUCStringCopyZ(cx, reinterpret_cast<const char16_t*>(data));
+      type == v8::NewStringType::kInternalized
+          ? length >= 0
+                ? JS_AtomizeAndPinUCStringN(
+                      cx, reinterpret_cast<const char16_t*>(data), length)
+                : JS_AtomizeAndPinUCString(
+                      cx, reinterpret_cast<const char16_t*>(data))
+          : length >= 0
+                ? JS_NewUCStringCopyN(
+                      cx, reinterpret_cast<const char16_t*>(data), length)
+                : JS_NewUCStringCopyZ(cx,
+                                      reinterpret_cast<const char16_t*>(data));
 
   if (!str) {
     return MaybeLocal<String>();
@@ -176,11 +184,12 @@ MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data
 Local<String> String::NewFromTwoByte(Isolate* isolate, const uint16_t* data,
                                      NewStringType type, int length) {
   return NewFromTwoByte(isolate, data, static_cast<v8::NewStringType>(type),
-                        length).FromMaybe(Local<String>());
+                        length)
+      .FromMaybe(Local<String>());
 }
 
-MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
-                                              ExternalStringResource* resource) {
+MaybeLocal<String> String::NewExternalTwoByte(
+    Isolate* isolate, ExternalStringResource* resource) {
   // In V8's api.cc, this conditional block is annotated with the comment:
   //    TODO(dcarney): throw a context free exception.
   if (resource->length() > static_cast<size_t>(String::kMaxLength)) {
@@ -194,9 +203,9 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
 
-  JSString* str =
-    JS_NewExternalString(cx, reinterpret_cast<const char16_t*>(resource->data()),
-                         resource->length(), fin.release());
+  JSString* str = JS_NewExternalString(
+      cx, reinterpret_cast<const char16_t*>(resource->data()),
+      resource->length(), fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }
@@ -205,8 +214,8 @@ MaybeLocal<String> String::NewExternalTwoByte(Isolate* isolate,
   return internal::Local<String>::New(isolate, strVal);
 }
 
-MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
-                                              ExternalOneByteStringResource* resource) {
+MaybeLocal<String> String::NewExternalOneByte(
+    Isolate* isolate, ExternalOneByteStringResource* resource) {
   // In V8's api.cc, this conditional block is annotated with the comment:
   //    TODO(dcarney): throw a context free exception.
   if (resource->length() > static_cast<size_t>(String::kMaxLength)) {
@@ -215,7 +224,8 @@ MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
 
   JSContext* cx = JSContextFromIsolate(isolate);
 
-  auto fin = mozilla::MakeUnique<internal::ExternalOneByteStringFinalizer>(resource);
+  auto fin =
+      mozilla::MakeUnique<internal::ExternalOneByteStringFinalizer>(resource);
   if (!fin) {
     return MaybeLocal<String>();
   }
@@ -232,12 +242,11 @@ MaybeLocal<String> String::NewExternalOneByte(Isolate* isolate,
     return MaybeLocal<String>();
   }
   const char* oneByteData = resource->data();
-  for (size_t i = 0; i < length; ++i)
-      data[i] = (unsigned char) oneByteData[i];
+  for (size_t i = 0; i < length; ++i) data[i] = (unsigned char)oneByteData[i];
   data[length] = 0;
 
   JSString* str =
-    JS_NewExternalString(cx, data.release(), length, fin.release());
+      JS_NewExternalString(cx, data.release(), length, fin.release());
   if (!str) {
     return MaybeLocal<String>();
   }
@@ -300,15 +309,19 @@ Local<String> String::Concat(Handle<String> left, Handle<String> right) {
 }
 
 int String::Write(uint16_t* buffer, int start, int length, int options) const {
-  return internal::Write(this, reinterpret_cast<char16_t*>(buffer), start, length, options);
+  return internal::Write(this, reinterpret_cast<char16_t*>(buffer), start,
+                         length, options);
 }
 
-int String::WriteOneByte(uint8_t* buffer, int start, int length, int options) const {
-  return internal::Write(this, reinterpret_cast<char*>(buffer), start, length, options);
+int String::WriteOneByte(uint8_t* buffer, int start, int length,
+                         int options) const {
+  return internal::Write(this, reinterpret_cast<char*>(buffer), start, length,
+                         options);
 }
 
 // Based on String::WriteUtf8 in V8's api.cc.
-int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) const {
+int String::WriteUtf8(char* buffer, int capacity, int* numChars,
+                      int options) const {
   bool nullTermination = !(options & NO_NULL_TERMINATION);
 
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
@@ -330,7 +343,8 @@ int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) co
     *numChars = 0;
   }
 
-  bool completed = internal::DeflateStringToUTF8Buffer(linearStr, buffer, &numBytes, numChars, options);
+  bool completed = internal::DeflateStringToUTF8Buffer(
+      linearStr, buffer, &numBytes, numChars, options);
 
   if (completed) {
     // If the caller requested null termination, but the buffer doesn't have
@@ -357,8 +371,9 @@ int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) co
 
 namespace internal {
 
-JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, size_t* length) {
-	JS::Value* sourceJsVal = GetValue(source);
+JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source,
+                                     size_t* length) {
+  JS::Value* sourceJsVal = GetValue(source);
   auto sourceStr = sourceJsVal->toString();
   size_t len = JS_GetStringLength(sourceStr);
   if (length) {
@@ -373,13 +388,14 @@ JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source, si
   return buffer;
 }
 
-template<typename T>
-ExternalStringFinalizerBase<T>::ExternalStringFinalizerBase(String::ExternalStringResourceBase* resource)
-  : resource_(resource) {
-    static_cast<T*>(this)->finalize = T::FinalizeExternalString;
-  }
+template <typename T>
+ExternalStringFinalizerBase<T>::ExternalStringFinalizerBase(
+    String::ExternalStringResourceBase* resource)
+    : resource_(resource) {
+  static_cast<T*>(this)->finalize = T::FinalizeExternalString;
+}
 
-template<typename T>
+template <typename T>
 void ExternalStringFinalizerBase<T>::dispose() {
   // Based on V8's Heap::FinalizeExternalString.
 
@@ -394,20 +410,26 @@ void ExternalStringFinalizerBase<T>::dispose() {
   delete this;
 };
 
-ExternalStringFinalizer::ExternalStringFinalizer(String::ExternalStringResourceBase* resource)
-  : ExternalStringFinalizerBase(resource) {}
+ExternalStringFinalizer::ExternalStringFinalizer(
+    String::ExternalStringResourceBase* resource)
+    : ExternalStringFinalizerBase(resource) {}
 
-void ExternalStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
+void ExternalStringFinalizer::FinalizeExternalString(
+    const JSStringFinalizer* fin, char16_t* chars) {
   const_cast<internal::ExternalStringFinalizer*>(
-    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
+      static_cast<const internal::ExternalStringFinalizer*>(fin))
+      ->dispose();
 }
 
-ExternalOneByteStringFinalizer::ExternalOneByteStringFinalizer(String::ExternalStringResourceBase* resource)
-  : ExternalStringFinalizerBase(resource) {}
+ExternalOneByteStringFinalizer::ExternalOneByteStringFinalizer(
+    String::ExternalStringResourceBase* resource)
+    : ExternalStringFinalizerBase(resource) {}
 
-void ExternalOneByteStringFinalizer::FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars) {
+void ExternalOneByteStringFinalizer::FinalizeExternalString(
+    const JSStringFinalizer* fin, char16_t* chars) {
   const_cast<internal::ExternalStringFinalizer*>(
-    static_cast<const internal::ExternalStringFinalizer*>(fin))->dispose();
+      static_cast<const internal::ExternalStringFinalizer*>(fin))
+      ->dispose();
 
   // NewExternalOneByte made a two-byte copy of the data in the resource,
   // and this is that copy. The resource will handle deleting its original
@@ -416,7 +438,7 @@ void ExternalOneByteStringFinalizer::FinalizeExternalString(const JSStringFinali
 }
 
 // Based on WriteHelper in V8's api.cc.
-template<typename CharType>
+template <typename CharType>
 static inline int Write(const String* string, CharType* buffer, int start,
                         int length, int options) {
   MOZ_ASSERT(start >= 0 && length >= -1);
@@ -451,8 +473,7 @@ static inline int Write(const String* string, CharType* buffer, int start,
 //
 // TODO: expose that function and get rid of this one.
 //
-uint32_t
-OneUcs4ToUtf8Char(uint8_t* utf8Buffer, uint32_t ucs4Char) {
+uint32_t OneUcs4ToUtf8Char(uint8_t* utf8Buffer, uint32_t ucs4Char) {
   MOZ_ASSERT(ucs4Char <= 0x10FFFF);
 
   if (ucs4Char < 0x80) {
@@ -496,10 +517,8 @@ const char16_t UTF8_REPLACEMENT_CHAR = u'\uFFFD';
 // TODO: that.
 //
 template <typename CharT>
-bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
-                               char* dst, size_t* dstlenp, int* numchrp,
-                               int options)
-{
+bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen, char* dst,
+                               size_t* dstlenp, int* numchrp, int options) {
   size_t i, utf8Len;
   char16_t c, c2;
   uint32_t v;
@@ -515,8 +534,7 @@ bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
     if (c >= 0xDC00 && c <= 0xDFFF) {
       // bad surrogate pair (trailing surrogate at first byte of pair)
       v = replaceInvalidUtf8 ? UTF8_REPLACEMENT_CHAR : c;
-    }
-    else if (c < 0xD800 || c > 0xDBFF) {
+    } else if (c < 0xD800 || c > 0xDBFF) {
       // non-surrogate
       v = c;
     } else {
@@ -542,7 +560,7 @@ bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
       if (dstlen == 0) {
         goto bufferTooSmall;
       }
-      *dst++ = (char) v;
+      *dst++ = (char)v;
       utf8Len = 1;
     } else {
       utf8Len = OneUcs4ToUtf8Char(utf8buf, v);
@@ -550,7 +568,7 @@ bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
         goto bufferTooSmall;
       }
       for (i = 0; i < utf8Len; i++) {
-        *dst++ = (char) utf8buf[i];
+        *dst++ = (char)utf8buf[i];
       }
     }
     dstlen -= utf8Len;
@@ -561,34 +579,32 @@ bool DeflateStringToUTF8Buffer(const CharT* src, size_t srclen,
   *dstlenp = (origDstlen - dstlen);
   return true;
 
-  bufferTooSmall:
-    *dstlenp = (origDstlen - dstlen);
-    return false;
+bufferTooSmall:
+  *dstlenp = (origDstlen - dstlen);
+  return false;
 }
 
-template
-bool DeflateStringToUTF8Buffer(const JS::Latin1Char* src, size_t srclen,
-                               char* dst, size_t* dstlenp, int* numchrp,
-                               int options);
+template bool DeflateStringToUTF8Buffer(const JS::Latin1Char* src,
+                                        size_t srclen, char* dst,
+                                        size_t* dstlenp, int* numchrp,
+                                        int options);
 
-template
-bool DeflateStringToUTF8Buffer(const char16_t* src, size_t srclen,
-                               char* dst, size_t* dstlenp, int* numchrp,
-                               int options);
+template bool DeflateStringToUTF8Buffer(const char16_t* src, size_t srclen,
+                                        char* dst, size_t* dstlenp,
+                                        int* numchrp, int options);
 
 bool DeflateStringToUTF8Buffer(JSLinearString* str, char* dst, size_t* dstlenp,
-                               int* numchrp, int options)
-{
+                               int* numchrp, int options) {
   size_t length = js::GetLinearStringLength(str);
 
   JS::AutoCheckCannotGC nogc;
   return js::LinearStringHasLatin1Chars(str)
-         ? DeflateStringToUTF8Buffer(js::GetLatin1LinearStringChars(nogc, str),
-                                     length, dst, dstlenp, numchrp, options)
-         : DeflateStringToUTF8Buffer(js::GetTwoByteLinearStringChars(nogc, str),
-                                     length, dst, dstlenp, numchrp, options);
+             ? DeflateStringToUTF8Buffer(
+                   js::GetLatin1LinearStringChars(nogc, str), length, dst,
+                   dstlenp, numchrp, options)
+             : DeflateStringToUTF8Buffer(
+                   js::GetTwoByteLinearStringChars(nogc, str), length, dst,
+                   dstlenp, numchrp, options);
 }
-
 }
-
 }

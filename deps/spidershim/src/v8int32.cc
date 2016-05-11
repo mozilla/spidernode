@@ -26,17 +26,14 @@
 namespace v8 {
 
 int32_t Int32::Value() const {
-  assert(IsNumber() &&
-         Integer::Value() <= INT32_MAX &&
+  assert(IsNumber() && Integer::Value() <= INT32_MAX &&
          Integer::Value() >= INT32_MIN);
   return static_cast<int32_t>(Integer::Value());
 }
 
 Int32* Int32::Cast(class Value* obj) {
-  assert(obj->IsNumber() &&
-         Integer::Cast(obj)->Value() <= INT32_MAX &&
+  assert(obj->IsNumber() && Integer::Cast(obj)->Value() <= INT32_MAX &&
          Integer::Cast(obj)->Value() >= INT32_MIN);
   return static_cast<Int32*>(obj);
 }
-
 }

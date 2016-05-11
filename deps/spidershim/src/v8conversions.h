@@ -76,6 +76,5 @@ inline double FastUI2D(unsigned x) {
   // any FPU pipeline stalls.
   return static_cast<double>(x);
 }
-
 }
 }

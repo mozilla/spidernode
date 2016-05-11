@@ -60,5 +60,4 @@ Integer* Integer::Cast(class Value* obj) {
   assert(obj->IsNumber());
   return static_cast<Integer*>(obj);
 }
-
 }

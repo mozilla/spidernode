@@ -54,5 +54,4 @@ bool BooleanObject::ValueOf() const {
   }
   return unboxedVal.toBoolean();
 }
-
 }

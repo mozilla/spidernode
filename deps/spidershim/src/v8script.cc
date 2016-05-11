@@ -27,8 +27,7 @@
 
 namespace v8 {
 
-MaybeLocal<Script> Script::Compile(Local<Context> context,
-                                   Local<String> source,
+MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
                                    ScriptOrigin* origin) {
   JSContext* cx = JSContextFromContext(*context);
   size_t length = 0;
@@ -41,17 +40,18 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   JS::CompileOptions options(cx);
   mozilla::UniquePtr<String::Utf8Value> utf8;
   options.setVersion(JSVERSION_DEFAULT)
-         .setNoScriptRval(false)
-         .setUTF8(true)
-         .setSourceIsLazy(false)
-         .setLine(1)
-         .setColumn(0)
-         .forceAsync = true;;
+      .setNoScriptRval(false)
+      .setUTF8(true)
+      .setSourceIsLazy(false)
+      .setLine(1)
+      .setColumn(0)
+      .forceAsync = true;
+  ;
   if (origin) {
-    MaybeLocal<String> resourceName =
-      origin->ResourceName()->ToString(context);
+    MaybeLocal<String> resourceName = origin->ResourceName()->ToString(context);
     if (!resourceName.IsEmpty()) {
-      utf8 = mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
+      utf8 =
+          mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
       options.setFile(**utf8);
     }
     if (!origin->ResourceLineOffset().IsEmpty()) {
@@ -68,10 +68,9 @@ MaybeLocal<Script> Script::Compile(Local<Context> context,
   return internal::Local<Script>::New(context->GetIsolate(), jsScript);
 }
 
-Local<Script> Script::Compile(Local<String> source,
-                              ScriptOrigin* origin) {
-  MaybeLocal<Script> maybe = Compile(Isolate::GetCurrent()->GetCurrentContext(),
-                                     source, origin);
+Local<Script> Script::Compile(Local<String> source, ScriptOrigin* origin) {
+  MaybeLocal<Script> maybe =
+      Compile(Isolate::GetCurrent()->GetCurrentContext(), source, origin);
   if (!maybe.IsEmpty()) {
     return maybe.ToLocalChecked();
   }
@@ -82,7 +81,8 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   assert(script_);
   JSContext* cx = JSContextFromContext(*context);
   JS::Rooted<JS::Value> result(cx);
-  if (!JS_ExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_), &result)) {
+  if (!JS_ExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_),
+                        &result)) {
     return MaybeLocal<Value>();
   }
   return internal::Local<Value>::New(context->GetIsolate(), result);
@@ -95,5 +95,4 @@ Local<Value> Script::Run() {
   }
   return Local<Value>();
 }
-
 }

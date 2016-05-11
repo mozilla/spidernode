@@ -55,5 +55,4 @@ Local<String> StringObject::ValueOf() const {
   }
   return internal::Local<String>::New(isolate, unboxedVal);
 }
-
 }

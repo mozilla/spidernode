@@ -29,42 +29,47 @@ namespace v8 {
 
 int StackFrame::GetLineNumber() const {
   return Int32::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                      "lineNumber")))->Value();
+                                                      "lineNumber")))
+      ->Value();
 }
 
 int StackFrame::GetColumn() const {
-  return Int32::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                      "column")))->Value();
+  return Int32::Cast(
+             *frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "column")))
+      ->Value();
 }
 
 int StackFrame::GetScriptId() const {
   return Int32::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                      "scriptId")))->Value();
+                                                      "scriptId")))
+      ->Value();
 }
 
 Local<String> StackFrame::GetScriptName() const {
-  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                         "scriptName"))->ToString();
+  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "scriptName"))
+      ->ToString();
 }
 
 Local<String> StackFrame::GetScriptNameOrSourceURL() const {
   return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                         "scriptNameOrSourceURL"))->ToString();
+                                         "scriptNameOrSourceURL"))
+      ->ToString();
 }
 
 Local<String> StackFrame::GetFunctionName() const {
-  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                         "functionName"))->ToString();
+  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "functionName"))
+      ->ToString();
 }
 
 bool StackFrame::IsEval() const {
-  return Boolean::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                        "isEval")))->Value();
+  return Boolean::Cast(
+             *frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "isEval")))
+      ->Value();
 }
 
 bool StackFrame::IsConstructor() const {
   return Boolean::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                        "isConstructor")))->Value();
+                                                        "isConstructor")))
+      ->Value();
 }
-
 }

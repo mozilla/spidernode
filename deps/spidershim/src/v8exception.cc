@@ -42,9 +42,7 @@ static v8::Local<v8::Value> CreateError(const char* type,
     JS::RootedValue ctorVal(cx, *GetValue(ctor));
     JS::RootedValue msgVal(cx, *GetValue(message));
     JS::RootedObject obj(cx);
-    if (JS::Construct(cx, ctorVal,
-                      JS::HandleValueArray(msgVal),
-                      &obj)) {
+    if (JS::Construct(cx, ctorVal, JS::HandleValueArray(msgVal), &obj)) {
       JS::Value val;
       val.setObject(*obj);
       retVal = internal::Local<Value>::New(isolate, val);
@@ -52,7 +50,6 @@ static v8::Local<v8::Value> CreateError(const char* type,
   }
   return retVal;
 }
-
 }
 
 namespace v8 {
@@ -76,5 +73,4 @@ Local<Value> Exception::TypeError(Handle<String> message) {
 Local<Value> Exception::Error(Handle<String> message) {
   return CreateError("Error", message);
 }
-
 }

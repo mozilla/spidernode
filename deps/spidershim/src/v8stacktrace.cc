@@ -31,9 +31,7 @@
 namespace v8 {
 
 struct StackTrace::Impl {
-  Impl() :
-    resolved_(false) {
-  }
+  Impl() : resolved_(false) {}
   void SetStack(Isolate* isolate, JSObject* stack) {
     JS::Value stackVal;
     stackVal.setObject(*stack);
@@ -63,7 +61,8 @@ struct StackTrace::Impl {
 
     do {
       FrameInfo info;
-      if (options_ & (StackTrace::kScriptName | StackTrace::kScriptNameOrSourceURL)) {
+      if (options_ &
+          (StackTrace::kScriptName | StackTrace::kScriptNameOrSourceURL)) {
         JS::RootedString source(cx);
         if (JS::SavedFrameResult::Ok ==
             JS::GetSavedFrameSource(cx, current, &source,
@@ -76,8 +75,8 @@ struct StackTrace::Impl {
       if (options_ & StackTrace::kFunctionName) {
         JS::RootedString name(cx);
         if (JS::SavedFrameResult::Ok ==
-            JS::GetSavedFrameFunctionDisplayName(cx, current, &name,
-                                                 JS::SavedFrameSelfHosted::Exclude)) {
+            JS::GetSavedFrameFunctionDisplayName(
+                cx, current, &name, JS::SavedFrameSelfHosted::Exclude)) {
           JS::Value val;
           val.setString(name);
           info.displayName_ = internal::Local<String>::New(isolate, val);
@@ -101,18 +100,20 @@ struct StackTrace::Impl {
       }
       frames.push_back(info);
     } while (JS::SavedFrameResult::Ok ==
-             JS::GetSavedFrameParent(cx, current, &current,
-                                     JS::SavedFrameSelfHosted::Exclude) &&
+                 JS::GetSavedFrameParent(cx, current, &current,
+                                         JS::SavedFrameSelfHosted::Exclude) &&
              current);
 
     Local<Value> nameKey = String::NewFromUtf8(isolate, "scriptName");
-    Local<Value> sourceKey = String::NewFromUtf8(isolate, "scriptNameOrSourceURL");
+    Local<Value> sourceKey =
+        String::NewFromUtf8(isolate, "scriptNameOrSourceURL");
     Local<Value> functionKey = String::NewFromUtf8(isolate, "functionName");
     Local<Value> lineKey = String::NewFromUtf8(isolate, "lineNumber");
     Local<Value> columnKey = String::NewFromUtf8(isolate, "column");
     Local<Value> scriptIdKey = String::NewFromUtf8(isolate, "scriptId");
     Local<Value> isEvalKey = String::NewFromUtf8(isolate, "isEval");
-    Local<Value> isConstructorKey = String::NewFromUtf8(isolate, "isConstructor");
+    Local<Value> isConstructorKey =
+        String::NewFromUtf8(isolate, "isConstructor");
     Local<Array> finalFrames = Array::New(isolate, frames.size());
     uint32_t index = 0;
     for (const auto& info : frames) {
@@ -130,19 +131,23 @@ struct StackTrace::Impl {
         }
       }
       if (options_ & StackTrace::kFunctionName) {
-        Maybe<bool> result = frame->Set(context, functionKey, info.displayName_);
+        Maybe<bool> result =
+            frame->Set(context, functionKey, info.displayName_);
         if (!result.FromMaybe(false)) {
           return false;
         }
       }
       if (options_ & StackTrace::kLineNumber) {
-        Maybe<bool> result = frame->Set(context, lineKey, Integer::NewFromUnsigned(isolate, info.line_));
+        Maybe<bool> result = frame->Set(
+            context, lineKey, Integer::NewFromUnsigned(isolate, info.line_));
         if (!result.FromMaybe(false)) {
           return false;
         }
       }
       if (options_ & StackTrace::kColumnOffset) {
-        Maybe<bool> result = frame->Set(context, columnKey, Integer::NewFromUnsigned(isolate, info.column_));
+        Maybe<bool> result =
+            frame->Set(context, columnKey,
+                       Integer::NewFromUnsigned(isolate, info.column_));
         if (!result.FromMaybe(false)) {
           return false;
         }
@@ -150,19 +155,22 @@ struct StackTrace::Impl {
 
       // Fill in the properties that we don't yet support too!
       if (options_ & StackTrace::kIsEval) {
-        Maybe<bool> result = frame->Set(context, isEvalKey, Boolean::New(isolate, false));
+        Maybe<bool> result =
+            frame->Set(context, isEvalKey, Boolean::New(isolate, false));
         if (!result.FromMaybe(false)) {
           return false;
         }
       }
       if (options_ & StackTrace::kIsConstructor) {
-        Maybe<bool> result = frame->Set(context, isConstructorKey, Boolean::New(isolate, false));
+        Maybe<bool> result =
+            frame->Set(context, isConstructorKey, Boolean::New(isolate, false));
         if (!result.FromMaybe(false)) {
           return false;
         }
       }
       if (options_ & StackTrace::kScriptId) {
-        Maybe<bool> result = frame->Set(context, scriptIdKey, Integer::NewFromUnsigned(isolate, 0));
+        Maybe<bool> result = frame->Set(context, scriptIdKey,
+                                        Integer::NewFromUnsigned(isolate, 0));
         if (!result.FromMaybe(false)) {
           return false;
         }
@@ -184,13 +192,9 @@ struct StackTrace::Impl {
   Local<Array> frames_;
 };
 
-StackTrace::StackTrace()
-  : pimpl_(new Impl()) {
-}
+StackTrace::StackTrace() : pimpl_(new Impl()) {}
 
-StackTrace::~StackTrace() {
-  delete pimpl_;
-}
+StackTrace::~StackTrace() { delete pimpl_; }
 
 Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
                                                 int frame_limit,
@@ -198,7 +202,7 @@ Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
   // SpiderMonkey doesn't have the concept of options, so we ignore that here.
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedObject stack(cx);
-  frame_limit = std::max(frame_limit, 0); // no negative values
+  frame_limit = std::max(frame_limit, 0);  // no negative values
   if (!JS::CaptureCurrentStack(cx, &stack, unsigned(frame_limit))) {
     return Local<StackTrace>();
   }
@@ -232,5 +236,4 @@ Local<StackFrame> StackTrace::GetFrame(uint32_t index) const {
   isolate->AddStackFrame(frame);
   return Local<StackFrame>::New(isolate, frame);
 }
-
 }

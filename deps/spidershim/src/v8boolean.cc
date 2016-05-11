@@ -46,5 +46,4 @@ Boolean* Boolean::Cast(v8::Value* obj) {
   assert(GetValue(obj)->isBoolean());
   return static_cast<Boolean*>(obj);
 }
-
 }

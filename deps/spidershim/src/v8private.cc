@@ -56,5 +56,4 @@ Local<Value> Private::Name() const {
   retVal.setString(description);
   return internal::Local<Value>::New(isolate, retVal);
 }
-
 }

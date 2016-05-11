@@ -26,7 +26,7 @@ namespace internal {
 
 template <class T>
 class Local {
-public:
+ public:
   static v8::Local<T> New(Isolate* isolate, JS::Value val) {
     return v8::Local<T>::New(isolate, GetV8Value(&val));
   }
@@ -37,6 +37,5 @@ public:
     return v8::Local<T>::New(isolate, symbol);
   }
 };
-
 }
 }

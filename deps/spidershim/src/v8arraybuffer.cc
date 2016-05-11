@@ -28,16 +28,12 @@
 
 namespace v8 {
 
-ArrayBuffer*
-ArrayBuffer::Cast(Value* val)
-{
+ArrayBuffer* ArrayBuffer::Cast(Value* val) {
   assert(val->IsArrayBuffer());
   return static_cast<ArrayBuffer*>(val);
 }
 
-Local<ArrayBuffer>
-ArrayBuffer::New(Isolate* isolate, size_t size)
-{
+Local<ArrayBuffer> ArrayBuffer::New(Isolate* isolate, size_t size) {
   JSContext* cx = JSContextFromIsolate(isolate);
   JSObject* buf = JS_NewArrayBuffer(cx, size);
   JS::Value val;
@@ -45,36 +41,30 @@ ArrayBuffer::New(Isolate* isolate, size_t size)
   return internal::Local<ArrayBuffer>::New(isolate, val);
 }
 
-Local<ArrayBuffer>
-ArrayBuffer::New(Isolate* isolate, void* data, size_t size,
-	       	ArrayBufferCreationMode mode)
-{
+Local<ArrayBuffer> ArrayBuffer::New(Isolate* isolate, void* data, size_t size,
+                                    ArrayBufferCreationMode mode) {
   JSContext* cx = JSContextFromIsolate(isolate);
   JSObject* buf;
   if (mode == ArrayBufferCreationMode::kExternalized) {
-	  buf = JS_NewArrayBufferWithExternalContents(cx, size, data);
+    buf = JS_NewArrayBufferWithExternalContents(cx, size, data);
   } else {
-	  buf = JS_NewArrayBufferWithContents(cx, size, data);
+    buf = JS_NewArrayBufferWithContents(cx, size, data);
   }
   JS::Value val;
   val.setObject(*buf);
   return internal::Local<ArrayBuffer>::New(isolate, val);
 }
 
-size_t
-ArrayBuffer::ByteLength() const
-{
+size_t ArrayBuffer::ByteLength() const {
   const JS::Value* val = GetValue(this);
   JSObject& obj = val->toObject();
   return JS_GetArrayBufferByteLength(&obj);
 }
 
-ArrayBuffer::Contents
-ArrayBuffer::GetContents()
-{
+ArrayBuffer::Contents ArrayBuffer::GetContents() {
   const JS::Value thisVal = *GetValue(this);
   JSObject* obj = &thisVal.toObject();
-  uint8_t *data;
+  uint8_t* data;
   bool shared;
   uint32_t length;
   js::GetArrayBufferLengthAndData(obj, &length, &shared, &data);
@@ -84,9 +74,7 @@ ArrayBuffer::GetContents()
   return contents;
 }
 
-Local<ArrayBuffer>
-ArrayBufferView::Buffer()
-{
+Local<ArrayBuffer> ArrayBufferView::Buffer() {
   Isolate* isolate = GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedObject view(cx, GetObject(this));
@@ -101,9 +89,7 @@ ArrayBufferView::Buffer()
   return internal::Local<ArrayBuffer>::New(isolate, bufVal);
 }
 
-size_t
-ArrayBufferView::ByteOffset()
-{
+size_t ArrayBufferView::ByteOffset() {
   JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteOffset(view);
@@ -112,9 +98,7 @@ ArrayBufferView::ByteOffset()
   return JS_GetDataViewByteOffset(view);
 }
 
-size_t
-ArrayBufferView::ByteLength()
-{
+size_t ArrayBufferView::ByteLength() {
   JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteLength(view);
@@ -123,9 +107,7 @@ ArrayBufferView::ByteLength()
   return JS_GetDataViewByteLength(view);
 }
 
-void
-ArrayBuffer::Neuter()
-{
+void ArrayBuffer::Neuter() {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   JS::RootedObject obj(cx, GetObject(this));
   JS_DetachArrayBuffer(cx, obj, KeepData);
@@ -133,27 +115,24 @@ ArrayBuffer::Neuter()
 
 #define ES_BUILTIN(X, Y)
 #define COMMON_VALUE(X)
-#define TYPED_ARRAY(TYPE) \
-  Local<TYPE ## Array> \
-  TYPE ## Array::New(Handle<ArrayBuffer> buffer, size_t offset, size_t length) \
-  { \
-    Isolate* isolate = buffer->GetIsolate(); \
-    JSContext* cx = JSContextFromIsolate(isolate); \
-    JS::RootedObject buf(cx, GetObject(buffer)); \
-    JSObject* array = JS_New ## TYPE ## ArrayWithBuffer(cx, buf, offset, length); \
-    if (!array) { \
-      return Local<TYPE ## Array>(); \
-    } \
-    JS::Value arrayVal; \
-    arrayVal.setObject(*array); \
-    return internal::Local<TYPE ## Array>::New(isolate, arrayVal); \
-  } \
-\
-  TYPE ## Array* \
-  TYPE ## Array::Cast(Value* v) \
-  { \
-    assert(v->Is ## TYPE ## Array()); \
-    return static_cast<TYPE ## Array*>(v); \
+#define TYPED_ARRAY(TYPE)                                                     \
+  Local<TYPE##Array> TYPE##Array::New(Handle<ArrayBuffer> buffer,             \
+                                      size_t offset, size_t length) {         \
+    Isolate* isolate = buffer->GetIsolate();                                  \
+    JSContext* cx = JSContextFromIsolate(isolate);                            \
+    JS::RootedObject buf(cx, GetObject(buffer));                              \
+    JSObject* array = JS_New##TYPE##ArrayWithBuffer(cx, buf, offset, length); \
+    if (!array) {                                                             \
+      return Local<TYPE##Array>();                                            \
+    }                                                                         \
+    JS::Value arrayVal;                                                       \
+    arrayVal.setObject(*array);                                               \
+    return internal::Local<TYPE##Array>::New(isolate, arrayVal);              \
+  }                                                                           \
+                                                                              \
+  TYPE##Array* TYPE##Array::Cast(Value* v) {                                  \
+    assert(v->Is##TYPE##Array());                                             \
+    return static_cast<TYPE##Array*>(v);                                      \
   }
 
 #include "valuemap.inc"
