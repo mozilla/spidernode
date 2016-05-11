@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
+#include "conversions.h"
 #include "v8local.h"
 #include "jsapi.h"
 
@@ -30,7 +31,7 @@ Local<Private> Private::New(Isolate* isolate, Local<String> name) {
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedString description(cx);
   if (!name.IsEmpty()) {
-    description = reinterpret_cast<JS::Value*>(*name)->toString();
+    description = GetString(name);
   }
   JS::Symbol* symbol = JS::NewSymbol(cx, description);
   return internal::Local<Private>::New(isolate, symbol);
@@ -38,7 +39,7 @@ Local<Private> Private::New(Isolate* isolate, Local<String> name) {
 
 Local<Private> Private::ForApi(Isolate* isolate, Local<String> name) {
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString description(cx, reinterpret_cast<JS::Value*>(*name)->toString());
+  JS::RootedString description(cx, GetString(name));
   JS::Symbol* symbol = JS::GetSymbolFor(cx, description);
   return internal::Local<Private>::New(isolate, symbol);
 }

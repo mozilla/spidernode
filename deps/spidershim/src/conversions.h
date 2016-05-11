@@ -62,4 +62,24 @@ GetObject(const Local<Value>& val)
   return GetObject(*val);
 }
 
+static inline JSString*
+GetString(Value* val)
+{
+  JS::Value* v = GetValue(val);
+  return v->isString() ? v->toString() : nullptr;
+}
+
+static inline JSString*
+GetString(const Value* val)
+{
+  const JS::Value* v = GetValue(val);
+  return v->isString() ? v->toString() : nullptr;
+}
+
+static inline JSString*
+GetString(const Local<Value>& val)
+{
+  return GetString(*val);
+}
+
 }

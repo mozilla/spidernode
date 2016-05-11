@@ -36,7 +36,7 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
   Local<String> strVal = obj->ToString();
   JSString* str = nullptr;
   if (*strVal) {
-    str = reinterpret_cast<JS::Value*>(*strVal)->toString();
+    str = GetString(strVal);
   }
   if (str) {
     JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
@@ -263,13 +263,13 @@ String* String::Cast(v8::Value* obj) {
 }
 
 int String::Length() const {
-  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  JSString* thisStr = GetString(this);
   return JS_GetStringLength(thisStr);
 }
 
 int String::Utf8Length() const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  JSString* thisStr = GetString(this);
   JSFlatString* flat = JS_FlattenString(cx, thisStr);
   if (!flat) {
     return 0;
@@ -288,8 +288,8 @@ Local<String> String::Concat(Handle<String> left, Handle<String> right) {
 
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedString leftStr(cx, reinterpret_cast<JS::Value*>(*left)->toString());
-  JS::RootedString rightStr(cx, reinterpret_cast<JS::Value*>(*right)->toString());
+  JS::RootedString leftStr(cx, GetString(left));
+  JS::RootedString rightStr(cx, GetString(right));
   JSString* result = JS_ConcatStrings(cx, leftStr, rightStr);
   if (!result) {
     return Empty(isolate);
@@ -312,7 +312,7 @@ int String::WriteUtf8(char* buffer, int capacity, int* numChars, int options) co
   bool nullTermination = !(options & NO_NULL_TERMINATION);
 
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JSString* thisStr = reinterpret_cast<const JS::Value*>(this)->toString();
+  JSString* thisStr = GetString(this);
   JSLinearString* linearStr = js::StringToLinearString(cx, thisStr);
   if (!linearStr) {
     return 0;
@@ -421,7 +421,7 @@ static inline int Write(const String* string, CharType* buffer, int start,
                         int length, int options) {
   MOZ_ASSERT(start >= 0 && length >= -1);
 
-  JSString* str = reinterpret_cast<const JS::Value*>(string)->toString();
+  JSString* str = GetString(string);
   int strLength = JS_GetStringLength(str);
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
