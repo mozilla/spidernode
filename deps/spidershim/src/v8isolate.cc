@@ -187,12 +187,8 @@ Private* Isolate::AddEternal(Private* val) {
 
 bool Isolate::AddMessageListener(MessageCallback that, Handle<Value> data) {
   // Ignore data parameter.  Node doesn't use it.
-  try {
-    pimpl_->messageListeners.push_back((void*) that);
-    return true;
-  } catch(...) {
-    return false;
-  }
+  pimpl_->messageListeners.push_back((void*) that);
+  return true;
 }
 
 void Isolate::RemoveMessageListeners(MessageCallback that) {
