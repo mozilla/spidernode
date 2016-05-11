@@ -196,4 +196,19 @@ void Isolate::RemoveMessageListeners(MessageCallback that) {
   pimpl_->messageListeners.erase(i, pimpl_->messageListeners.end());
 }
 
+uint32_t Isolate::GetNumberOfDataSlots() {
+  return internal::kNumIsolateDataSlots;
+}
+
+void Isolate::SetData(uint32_t slot, void* data) {
+  if (slot >= mozilla::ArrayLength(pimpl_->embeddedData)) {
+    MOZ_CRASH("Invalid embedded data index");
+  }
+  pimpl_->embeddedData[slot] = data;
+}
+
+void* Isolate::GetData(uint32_t slot) {
+  return slot < mozilla::ArrayLength(pimpl_->embeddedData) ? pimpl_->embeddedData[slot] : nullptr;
+}
+
 }

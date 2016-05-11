@@ -29,6 +29,11 @@
 
 namespace v8 {
 
+namespace internal {
+// Node only has 4 slots
+static const uint32_t kNumIsolateDataSlots = 4;
+}
+
 struct Isolate::Impl {
   JSRuntime* rt;
   std::vector<Context*> contexts;
@@ -38,6 +43,7 @@ struct Isolate::Impl {
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;
+  void* embeddedData[internal::kNumIsolateDataSlots];
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
