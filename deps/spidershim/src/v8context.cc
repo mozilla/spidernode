@@ -88,6 +88,21 @@ bool Context::CreateGlobal(Isolate* isolate) {
   // Ensure that JS errors appear as exceptions to us.
   JS::ContextOptionsRef(pimpl_->cx).setAutoJSAPIOwnsErrorReporting(true);
 
+#ifdef JS_GC_ZEAL
+  const char* env = getenv("JS_GC_MAX_ZEAL");
+  if (env && *env) {
+    // Set all of the gc zeal modes for maximum verification!
+    static bool warned = false;
+    if (!warned) {
+      fprintf(stderr, "Warning: enabled max-zeal GC mode, this is super slow!\n");
+      warned = true;
+    }
+    for (uint32_t i = 1; i <= 14; ++i) {
+      JS_SetGCZeal(pimpl_->cx, i, JS_DEFAULT_ZEAL_FREQ);
+    }
+  }
+#endif
+
   return true;
 }
 

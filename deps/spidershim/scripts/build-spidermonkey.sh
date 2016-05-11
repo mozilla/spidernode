@@ -24,6 +24,12 @@ case "$1" in
     ;;
 esac
 
+case "$2" in
+  --enable-gczeal)
+    args="$args --enable-gczeal"
+    ;;
+esac
+
 test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so

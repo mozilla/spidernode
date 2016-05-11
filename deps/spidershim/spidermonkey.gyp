@@ -5,6 +5,7 @@
     'component%': 'static_library',   # link crt statically or dynamically
     'spidermonkey_dir%': 'spidermonkey',
     'spidermonkey_debug%': 0,
+    'spidermonkey_gczeal%': 0,
 
     'conditions': [
       ['target_arch=="ia32"', { 'Platform': 'x86' }],
@@ -42,6 +43,10 @@
           {
             'spidermonkey_args': ['--enable-opt'],
             'spidermonkey_defines': ['NDEBUG'],
+          }],
+          ['spidermonkey_gczeal==1', {
+            'spidermonkey_args': ['--enable-gczeal'],
+            'spidermonkey_defines': ['JS_GC_ZEAL'],
           }],
         ],
       },

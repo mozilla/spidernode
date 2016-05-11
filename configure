@@ -400,6 +400,11 @@ parser.add_option('--no-browser-globals',
     help='do not export browser globals like setTimeout, console, etc. ' +
          '(This mode is not officially supported for regular applications)')
 
+parser.add_option('--enable-gczeal',
+    action='store_true',
+    dest='enable_gczeal',
+    help='enable SpiderMonkey gczeal')
+
 parser.add_option('--engine',
     action='store',
     dest='engine',
@@ -847,6 +852,7 @@ def configure_v8(o):
 
 def configure_spidermonkey(o):
   o['variables']['spidermonkey_debug'] = 1 if options.debug else 0
+  o['variables']['spidermonkey_gczeal'] = 1 if options.enable_gczeal else 0
 
 
 def configure_openssl(o):
