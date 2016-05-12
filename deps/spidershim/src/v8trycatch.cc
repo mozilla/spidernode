@@ -144,12 +144,12 @@ void TryCatch::Reset() { pimpl_->Reset(); }
 void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
 
 void TryCatch::CheckReportExternalException() {
-  // TODO: once propagating exceptions is implemented this will need extra logic
-  // to only report the exception if this is the topmost TryCatch or if verbose
-  // reporting is enabled.
+  // TODO: update this when proprogating exceptions is implemented:
+  // https://github.com/mozilla/spidernode/issues/51
+  // https://github.com/mozilla/spidernode/issues/89
   auto isolateImpl = reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
   auto messageListeners = isolateImpl->messageListeners;
-  for (auto i = messageListeners.begin(); i != messageListeners.end(); i++) {
+  for (auto i : messageListeners) {
       ((v8::MessageCallback)*i)(this->Message(),
                                 this->Exception());
   }

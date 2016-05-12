@@ -37,7 +37,7 @@ struct Isolate::Impl {
   std::vector<StackTrace*> stackTraces;
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
-  std::vector<void *> messageListeners;
+  std::vector<MessageCallback *> messageListeners;
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
