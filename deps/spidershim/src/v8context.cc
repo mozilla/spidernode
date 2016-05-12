@@ -160,6 +160,30 @@ Context::GetEmbedderData(int idx)
   return Local<Value>::New(Isolate::GetCurrent(), GetV8Value(pimpl_->embedderData[idx]));
 }
 
+void
+Context::SetAlignedPointerInEmbedderData(int idx, void* data)
+{
+  assert((reinterpret_cast<uintptr_t>(data) & 0x1) == 0);
+  assert(idx >= 0);
+  if (static_cast<unsigned int>(idx) >= pimpl_->embedderData.length() &&
+		  !pimpl_->embedderData.resize(idx + 1)) {
+    return;
+  }
+
+  pimpl_->embedderData[idx].set(JS::PrivateValue(data));
+}
+
+void*
+Context::GetAlignedPointerFromEmbedderData(int idx)
+{
+	assert(idx >= 0);
+  if (static_cast<unsigned int>(idx) >= pimpl_->embedderData.length()) {
+    return nullptr;
+  }
+
+  return pimpl_->embedderData[idx].get().toPrivate();
+}
+
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }
 
 JSContext* JSContextFromContext(Context* context) {
