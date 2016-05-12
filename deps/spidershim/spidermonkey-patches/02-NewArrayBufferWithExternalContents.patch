@@ -1,7 +1,7 @@
-diff --git a/deps/spidershim/spidermonkey/js/src/jsapi.h b/deps/spidershim/spidermonkey/js/src/jsapi.h
+diff --git a/js/src/jsapi.h b/js/src/jsapi.h
 index 5ae71a7..91ad900 100644
---- a/deps/spidershim/spidermonkey/js/src/jsapi.h
-+++ b/deps/spidershim/spidermonkey/js/src/jsapi.h
+--- a/js/src/jsapi.h
++++ b/js/src/jsapi.h
 @@ -3500,6 +3500,13 @@ extern JS_PUBLIC_API(JSObject*)
  JS_NewArrayBufferWithContents(JSContext* cx, size_t nbytes, void* contents);
  
@@ -16,10 +16,10 @@ index 5ae71a7..91ad900 100644
   * Steal the contents of the given array buffer. The array buffer has its
   * length set to 0 and its contents array cleared. The caller takes ownership
   * of the return value and must free it or transfer ownership via
-diff --git a/deps/spidershim/spidermonkey/js/src/vm/ArrayBufferObject.cpp b/deps/spidershim/spidermonkey/js/src/vm/ArrayBufferObject.cpp
+diff --git a/js/src/vm/ArrayBufferObject.cpp b/js/src/vm/ArrayBufferObject.cpp
 index a8f4604..4623afc 100644
---- a/deps/spidershim/spidermonkey/js/src/vm/ArrayBufferObject.cpp
-+++ b/deps/spidershim/spidermonkey/js/src/vm/ArrayBufferObject.cpp
+--- a/js/src/vm/ArrayBufferObject.cpp
++++ b/js/src/vm/ArrayBufferObject.cpp
 @@ -1228,6 +1228,16 @@ JS_NewArrayBufferWithContents(JSContext* cx, size_t nbytes, void* data)
                                       /* proto = */ nullptr, TenuredObject);
  }
