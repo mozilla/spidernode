@@ -153,10 +153,10 @@ static const ClassOps DebuggerObject_classOps = {
     DebuggerObject_trace
 };
 
-static const Class DebuggerObject_class = {
+const Class DebuggerObject::class_ = {
     "Object",
     JSCLASS_HAS_PRIVATE |
-    JSCLASS_HAS_RESERVED_SLOTS(JSSLOT_DEBUGOBJECT_COUNT),
+    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS),
     &DebuggerObject_classOps
 };
 
@@ -590,7 +590,7 @@ Debugger::fromChildJSObject(JSObject* obj)
     MOZ_ASSERT(obj->getClass() == &DebuggerFrame_class ||
                obj->getClass() == &DebuggerScript_class ||
                obj->getClass() == &DebuggerSource_class ||
-               obj->getClass() == &DebuggerObject_class ||
+               obj->getClass() == &DebuggerObject::class_ ||
                obj->getClass() == &DebuggerEnv_class);
     JSObject* dbgobj = &obj->as<NativeObject>().getReservedSlot(JSSLOT_DEBUGOBJECT_OWNER).toObject();
     return fromJSObject(dbgobj);
@@ -980,14 +980,11 @@ Debugger::wrapDebuggeeValue(JSContext* cx, MutableHandleValue vp)
             vp.setObject(*p->value());
         } else {
             /* Create a new Debugger.Object for obj. */
+            RootedNativeObject debugger(cx, object);
             RootedObject proto(cx, &object->getReservedSlot(JSSLOT_DEBUG_OBJECT_PROTO).toObject());
-            NativeObject* dobj =
-                NewNativeObjectWithGivenProto(cx, &DebuggerObject_class, proto,
-                                              TenuredObject);
+            NativeObject* dobj = DebuggerObject::create(cx, proto, obj, debugger);
             if (!dobj)
                 return false;
-            dobj->setPrivateGCThing(obj);
-            dobj->setReservedSlot(JSSLOT_DEBUGOBJECT_OWNER, ObjectValue(*object));
 
             if (!p.add(cx, objects, obj, dobj)) {
                 NukeDebuggerWrapper(dobj);
@@ -1040,7 +1037,7 @@ Debugger::wrapDebuggeeValue(JSContext* cx, MutableHandleValue vp)
 static NativeObject*
 ToNativeDebuggerObject(JSContext* cx, MutableHandleObject obj)
 {
-    if (obj->getClass() != &DebuggerObject_class) {
+    if (obj->getClass() != &DebuggerObject::class_) {
         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr,
                              JSMSG_NOT_EXPECTED_TYPE, "Debugger",
                              "Debugger.Object", obj->getClass()->name);
@@ -3313,7 +3310,7 @@ Debugger::unwrapDebuggeeArgument(JSContext* cx, const Value& v)
     RootedObject obj(cx, &v.toObject());
 
     /* If it's a Debugger.Object belonging to this debugger, dereference that. */
-    if (obj->getClass() == &DebuggerObject_class) {
+    if (obj->getClass() == &DebuggerObject::class_) {
         RootedValue rv(cx, v);
         if (!unwrapDebuggeeValue(cx, &rv))
             return nullptr;
@@ -4958,6 +4955,7 @@ const JSPropertySpec Debugger::properties[] = {
     JS_PSG("memory", Debugger::getMemory, 0),
     JS_PS_END
 };
+
 const JSFunctionSpec Debugger::methods[] = {
     JS_FN("addDebuggee", Debugger::addDebuggee, 1, 0),
     JS_FN("addAllGlobalsAsDebuggees", Debugger::addAllGlobalsAsDebuggees, 0, 0),
@@ -7623,24 +7621,24 @@ DebuggerObject_trace(JSTracer* trc, JSObject* obj)
     }
 }
 
-static NativeObject*
+static DebuggerObject*
 DebuggerObject_checkThis(JSContext* cx, const CallArgs& args, const char* fnname)
 {
     JSObject* thisobj = NonNullObject(cx, args.thisv());
     if (!thisobj)
         return nullptr;
-    if (thisobj->getClass() != &DebuggerObject_class) {
+    if (thisobj->getClass() != &DebuggerObject::class_) {
         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_INCOMPATIBLE_PROTO,
                              "Debugger.Object", fnname, thisobj->getClass()->name);
         return nullptr;
     }
 
     /*
-     * Forbid Debugger.Object.prototype, which is of class DebuggerObject_class
+     * Forbid Debugger.Object.prototype, which is of class DebuggerObject::class_
      * but isn't a real working Debugger.Object. The prototype object is
      * distinguished by having no referent.
      */
-    NativeObject* nthisobj = &thisobj->as<NativeObject>();
+    DebuggerObject* nthisobj = &thisobj->as<DebuggerObject>();
     if (!nthisobj->getPrivate()) {
         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_INCOMPATIBLE_PROTO,
                              "Debugger.Object", fnname, "prototype object");
@@ -7648,6 +7646,13 @@ DebuggerObject_checkThis(JSContext* cx, const CallArgs& args, const char* fnname
     }
     return nthisobj;
 }
+
+#define THIS_DEBUGOBJECT(cx, argc, vp, fnname, args, obj, object)     \
+    CallArgs args = CallArgsFromVp(argc, vp);                         \
+    RootedObject obj(cx, DebuggerObject_checkThis(cx, args, fnname)); \
+    if (!obj)                                                         \
+        return false;                                                 \
+    DebuggerObject& object = obj->as<DebuggerObject>();               \
 
 #define THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, fnname, args, obj)            \
     CallArgs args = CallArgsFromVp(argc, vp);                                 \
@@ -8175,14 +8180,16 @@ DebuggerObject_getErrorMessageName(JSContext *cx, unsigned argc, Value* vp)
 
     if (report) {
         const JSErrorFormatString* efs = GetErrorMessage(nullptr, report->errorNumber);
-        RootedString str(cx, JS_NewStringCopyZ(cx, efs->name));
-        if (!cx->compartment()->wrap(cx, &str))
-            return false;
-        args.rval().setString(str);
-    } else {
-        args.rval().setUndefined();
+        if (efs) {
+            RootedString str(cx, JS_NewStringCopyZ(cx, efs->name));
+            if (!cx->compartment()->wrap(cx, &str))
+                return false;
+            args.rval().setString(str);
+            return true;
+        }
     }
 
+    args.rval().setUndefined();
     return true;
 }
 
@@ -8430,45 +8437,39 @@ DebuggerObject_preventExtensions(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
-DebuggerObject_isSealedHelper(JSContext* cx, unsigned argc, Value* vp, SealHelperOp op,
-                              const char* name)
-{
-    THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, name, args, obj);
-
-    Maybe<AutoCompartment> ac;
-    ac.emplace(cx, obj);
-    ErrorCopier ec(ac);
-    bool r;
-    if (op == OpSeal) {
-        if (!TestIntegrityLevel(cx, obj, IntegrityLevel::Sealed, &r))
-            return false;
-    } else if (op == OpFreeze) {
-        if (!TestIntegrityLevel(cx, obj, IntegrityLevel::Frozen, &r))
-            return false;
-    } else {
-        if (!IsExtensible(cx, obj, &r))
-            return false;
-    }
-    args.rval().setBoolean(r);
-    return true;
-}
-
-static bool
 DebuggerObject_isSealed(JSContext* cx, unsigned argc, Value* vp)
 {
-    return DebuggerObject_isSealedHelper(cx, argc, vp, OpSeal, "isSealed");
+    THIS_DEBUGOBJECT(cx, argc, vp, "isSealed", args, obj, object);
+
+    bool result;
+    if (!object.isSealed(cx, &result))
+      return false;
+    args.rval().setBoolean(result);
+    return true;
 }
 
 static bool
 DebuggerObject_isFrozen(JSContext* cx, unsigned argc, Value* vp)
 {
-    return DebuggerObject_isSealedHelper(cx, argc, vp, OpFreeze, "isFrozen");
+    THIS_DEBUGOBJECT(cx, argc, vp, "isFrozen", args, obj, object);
+
+    bool result;
+    if (!object.isFrozen(cx, &result))
+      return false;
+    args.rval().setBoolean(result);
+    return true;
 }
 
 static bool
 DebuggerObject_isExtensible(JSContext* cx, unsigned argc, Value* vp)
 {
-    return DebuggerObject_isSealedHelper(cx, argc, vp, OpPreventExtensions, "isExtensible");
+    THIS_DEBUGOBJECT(cx, argc, vp, "isExtensible", args, obj, object);
+
+    bool result;
+    if (!object.isExtensible(cx, &result))
+      return false;
+    args.rval().setBoolean(result);
+    return true;
 }
 
 enum ApplyOrCallMode { ApplyMode, CallMode };
@@ -8772,7 +8773,7 @@ DebuggerObject_unsafeDereference(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-static const JSPropertySpec DebuggerObject_properties[] = {
+const JSPropertySpec DebuggerObject::properties_[] = {
     JS_PSG("proto", DebuggerObject_getProto, 0),
     JS_PSG("class", DebuggerObject_getClass, 0),
     JS_PSG("callable", DebuggerObject_getCallable, 0),
@@ -8793,7 +8794,7 @@ static const JSPropertySpec DebuggerObject_properties[] = {
 };
 
 #ifdef SPIDERMONKEY_PROMISE
-static const JSPropertySpec DebuggerObject_promiseProperties[] = {
+const JSPropertySpec DebuggerObject::promiseProperties_[] = {
     JS_PSG("isPromise", DebuggerObject_getIsPromise, 0),
     JS_PSG("promiseState", DebuggerObject_getPromiseState, 0),
     JS_PSG("promiseLifetime", DebuggerObject_getPromiseLifetime, 0),
@@ -8806,7 +8807,7 @@ static const JSPropertySpec DebuggerObject_promiseProperties[] = {
 };
 #endif // SPIDERMONKEY_PROMISE
 
-static const JSFunctionSpec DebuggerObject_methods[] = {
+const JSFunctionSpec DebuggerObject::methods_[] = {
     JS_FN("getOwnPropertyDescriptor", DebuggerObject_getOwnPropertyDescriptor, 1, 0),
     JS_FN("getOwnPropertyNames", DebuggerObject_getOwnPropertyNames, 0, 0),
     JS_FN("getOwnPropertySymbols", DebuggerObject_getOwnPropertySymbols, 0, 0),
@@ -8830,6 +8831,69 @@ static const JSFunctionSpec DebuggerObject_methods[] = {
     JS_FN("unsafeDereference", DebuggerObject_unsafeDereference, 0, 0),
     JS_FS_END
 };
+
+/* static */ NativeObject*
+DebuggerObject::initClass(JSContext* cx, HandleObject obj, HandleObject debugCtor)
+{
+    Rooted<GlobalObject*> global(cx, &obj->as<GlobalObject>());
+    RootedObject objProto(cx, global->getOrCreateObjectPrototype(cx));
+
+    RootedNativeObject objectProto(cx, InitClass(cx, debugCtor, objProto, &class_,
+                                                 DebuggerObject_construct, 0, properties_,
+                                                 methods_, nullptr, nullptr));
+
+#ifdef SPIDERMONKEY_PROMISE
+    if (!DefinePropertiesAndFunctions(cx, objectProto, promiseProperties_, nullptr))
+        return false;
+#endif // SPIDERMONKEY_PROMISE
+
+    return objectProto;
+}
+
+/* static */ DebuggerObject*
+DebuggerObject::create(JSContext* cx, HandleObject proto, HandleObject referent,
+                       HandleNativeObject debugger)
+{
+  JSObject* obj = NewObjectWithGivenProto(cx, &DebuggerObject::class_, proto, TenuredObject);
+  if (!obj)
+    return nullptr;
+
+  DebuggerObject& object = obj->as<DebuggerObject>();
+  object.setPrivateGCThing(referent);
+  object.setReservedSlot(JSSLOT_DEBUGOBJECT_OWNER, ObjectValue(*debugger));
+
+  return &object;
+}
+
+bool
+DebuggerObject::isExtensible(JSContext* cx, bool* result) const
+{
+  RootedObject obj(cx, referent());
+
+  Maybe<AutoCompartment> ac;
+  ac.emplace(cx, obj);
+  ErrorCopier ec(ac);
+  return IsExtensible(cx, obj, result);
+}
+
+bool
+DebuggerObject::isSealedHelper(JSContext* cx, SealHelperOp op, const char* name,
+                               bool* result) const
+{
+    RootedObject obj(cx, referent());
+
+    Maybe<AutoCompartment> ac;
+    ac.emplace(cx, obj);
+    ErrorCopier ec(ac);
+    if (op == OpSeal) {
+        if (!TestIntegrityLevel(cx, obj, IntegrityLevel::Sealed, result))
+            return false;
+    } else {
+        if (!TestIntegrityLevel(cx, obj, IntegrityLevel::Frozen, result))
+            return false;
+    }
+    return true;
+}
 
 
 /*** Debugger.Environment ************************************************************************/
@@ -8916,11 +8980,12 @@ IsDeclarative(Env* env)
     return env->is<DebugScopeObject>() && env->as<DebugScopeObject>().isForDeclarative();
 }
 
+template <typename T>
 static bool
-IsWith(Env* env)
+IsDebugScopeWrapper(Env* env)
 {
     return env->is<DebugScopeObject>() &&
-           env->as<DebugScopeObject>().scope().is<DynamicWithObject>();
+           env->as<DebugScopeObject>().scope().is<T>();
 }
 
 static bool
@@ -8932,7 +8997,7 @@ DebuggerEnv_getType(JSContext* cx, unsigned argc, Value* vp)
     const char* s;
     if (IsDeclarative(env))
         s = "declarative";
-    else if (IsWith(env))
+    else if (IsDebugScopeWrapper<DynamicWithObject>(env))
         s = "with";
     else
         s = "object";
@@ -8969,8 +9034,10 @@ DebuggerEnv_getObject(JSContext* cx, unsigned argc, Value* vp)
     }
 
     JSObject* obj;
-    if (IsWith(env)) {
+    if (IsDebugScopeWrapper<DynamicWithObject>(env)) {
         obj = &env->as<DebugScopeObject>().scope().as<DynamicWithObject>().object();
+    } else if (IsDebugScopeWrapper<NonSyntacticVariablesObject>(env)) {
+        obj = &env->as<DebugScopeObject>().scope().as<NonSyntacticVariablesObject>();
     } else {
         obj = env;
         MOZ_ASSERT(!obj->is<DebugScopeObject>());
@@ -9359,15 +9426,12 @@ JS_DefineDebuggerObject(JSContext* cx, HandleObject obj)
     if (!sourceProto)
         return false;
 
-    objectProto = InitClass(cx, debugCtor, objProto, &DebuggerObject_class,
-                            DebuggerObject_construct, 0,
-                            DebuggerObject_properties, DebuggerObject_methods,
-                            nullptr, nullptr);
+    objectProto = DebuggerObject::initClass(cx, obj, debugCtor);
     if (!objectProto)
         return false;
 
 #ifdef SPIDERMONKEY_PROMISE
-    if (!DefinePropertiesAndFunctions(cx, objectProto, DebuggerObject_promiseProperties, nullptr))
+    if (!DefinePropertiesAndFunctions(cx, objectProto, DebuggerObject::promiseProperties_, nullptr))
         return false;
 #endif // SPIDERMONKEY_PROMISE
 

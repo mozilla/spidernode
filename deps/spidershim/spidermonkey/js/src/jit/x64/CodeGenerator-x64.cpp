@@ -19,6 +19,8 @@
 using namespace js;
 using namespace js::jit;
 
+using mozilla::DebugOnly;
+
 CodeGeneratorX64::CodeGeneratorX64(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm)
   : CodeGeneratorX86Shared(gen, graph, masm)
 {
@@ -432,29 +434,21 @@ CodeGeneratorX64::visitDivOrModI64(LDivOrModI64* lir)
     if (lhs != rax)
         masm.mov(lhs, rax);
 
-    // Handle divide by zero. For now match asm.js and return 0, but
-    // eventually this should trap.
+    // Handle divide by zero.
     if (lir->canBeDivideByZero()) {
-        Label nonZero;
-        masm.branchTestPtr(Assembler::NonZero, rhs, rhs, &nonZero);
-        masm.xorl(output, output);
-        masm.jump(&done);
-        masm.bind(&nonZero);
+        masm.testPtr(rhs, rhs);
+        masm.j(Assembler::Zero, wasm::JumpTarget::IntegerDivideByZero);
     }
 
-    // Handle an integer overflow exception from INT64_MIN / -1. Eventually
-    // signed integer division should trap, instead of returning the
-    // LHS (INT64_MIN).
+    // Handle an integer overflow exception from INT64_MIN / -1.
     if (lir->canBeNegativeOverflow()) {
         Label notmin;
         masm.branchPtr(Assembler::NotEqual, lhs, ImmWord(INT64_MIN), &notmin);
         masm.branchPtr(Assembler::NotEqual, rhs, ImmWord(-1), &notmin);
-        if (lir->mir()->isMod()) {
+        if (lir->mir()->isMod())
             masm.xorl(output, output);
-        } else {
-            if (lhs != output)
-                masm.mov(lhs, output);
-        }
+        else
+            masm.jump(wasm::JumpTarget::IntegerOverflow);
         masm.jump(&done);
         masm.bind(&notmin);
     }
@@ -471,12 +465,12 @@ CodeGeneratorX64::visitUDivOrMod64(LUDivOrMod64* lir)
 {
     Register lhs = ToRegister(lir->lhs());
     Register rhs = ToRegister(lir->rhs());
-    Register output = ToRegister(lir->output());
 
+    DebugOnly<Register> output = ToRegister(lir->output());
     MOZ_ASSERT_IF(lhs != rhs, rhs != rax);
     MOZ_ASSERT(rhs != rdx);
-    MOZ_ASSERT_IF(output == rax, ToRegister(lir->remainder()) == rdx);
-    MOZ_ASSERT_IF(output == rdx, ToRegister(lir->remainder()) == rax);
+    MOZ_ASSERT_IF(output.value == rax, ToRegister(lir->remainder()) == rdx);
+    MOZ_ASSERT_IF(output.value == rdx, ToRegister(lir->remainder()) == rax);
 
     // Put the lhs in rax.
     if (lhs != rax)
@@ -484,14 +478,10 @@ CodeGeneratorX64::visitUDivOrMod64(LUDivOrMod64* lir)
 
     Label done;
 
-    // Prevent divide by zero. For now match asm.js and return 0, but
-    // eventually this should trap.
+    // Prevent divide by zero.
     if (lir->canBeDivideByZero()) {
-        Label nonZero;
-        masm.branchTestPtr(Assembler::NonZero, rhs, rhs, &nonZero);
-        masm.xorl(output, output);
-        masm.jump(&done);
-        masm.bind(&nonZero);
+        masm.testPtr(rhs, rhs);
+        masm.j(Assembler::Zero, wasm::JumpTarget::IntegerDivideByZero);
     }
 
     // Zero extend the lhs into rdx to make (rdx:rax).
@@ -580,7 +570,7 @@ CodeGeneratorX64::loadSimd(Scalar::Type type, unsigned numElems, const Operand& 
           case 1: masm.loadFloat32(srcAddr, out); break;
           // See comment above, which also applies to movsd.
           case 2: masm.loadDouble(srcAddr, out); break;
-          case 4: masm.loadUnalignedFloat32x4(srcAddr, out); break;
+          case 4: masm.loadUnalignedSimd128Float(srcAddr, out); break;
           default: MOZ_CRASH("unexpected size for partial load");
         }
         break;
@@ -591,7 +581,7 @@ CodeGeneratorX64::loadSimd(Scalar::Type type, unsigned numElems, const Operand& 
           case 1: masm.vmovd(srcAddr, out); break;
           // See comment above, which also applies to movq.
           case 2: masm.vmovq(srcAddr, out); break;
-          case 4: masm.loadUnalignedInt32x4(srcAddr, out); break;
+          case 4: masm.loadUnalignedSimd128Int(srcAddr, out); break;
           default: MOZ_CRASH("unexpected size for partial load");
         }
         break;
@@ -726,7 +716,7 @@ CodeGeneratorX64::storeSimd(Scalar::Type type, unsigned numElems, FloatRegister 
           case 1: masm.storeFloat32(in, dstAddr); break;
           // See comment above, which also applies to movsd.
           case 2: masm.storeDouble(in, dstAddr); break;
-          case 4: masm.storeUnalignedFloat32x4(in, dstAddr); break;
+          case 4: masm.storeUnalignedSimd128Float(in, dstAddr); break;
           default: MOZ_CRASH("unexpected size for partial load");
         }
         break;
@@ -737,7 +727,7 @@ CodeGeneratorX64::storeSimd(Scalar::Type type, unsigned numElems, FloatRegister 
           case 1: masm.vmovd(in, dstAddr); break;
           // See comment above, which also applies to movq.
           case 2: masm.vmovq(in, dstAddr); break;
-          case 4: masm.storeUnalignedInt32x4(in, dstAddr); break;
+          case 4: masm.storeUnalignedSimd128Int(in, dstAddr); break;
           default: MOZ_CRASH("unexpected size for partial load");
         }
         break;

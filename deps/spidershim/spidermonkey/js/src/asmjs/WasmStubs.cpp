@@ -187,10 +187,10 @@ wasm::GenerateEntry(MacroAssembler& masm, unsigned target, const Sig& sig, bool 
             switch (type) {
               case MIRType::Int32x4:
               case MIRType::Bool32x4:
-                masm.loadUnalignedInt32x4(src, iter->fpu());
+                masm.loadUnalignedSimd128Int(src, iter->fpu());
                 break;
               case MIRType::Float32x4:
-                masm.loadUnalignedFloat32x4(src, iter->fpu());
+                masm.loadUnalignedSimd128Float(src, iter->fpu());
                 break;
               case MIRType::Double:
                 masm.loadDouble(src, iter->fpu());
@@ -216,22 +216,24 @@ wasm::GenerateEntry(MacroAssembler& masm, unsigned target, const Sig& sig, bool 
                 break;
               case MIRType::Double:
                 masm.loadDouble(src, ScratchDoubleReg);
-                masm.storeDouble(ScratchDoubleReg, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                masm.storeDouble(ScratchDoubleReg,
+                                 Address(masm.getStackPointer(), iter->offsetFromArgBase()));
                 break;
               case MIRType::Float32:
                 masm.loadFloat32(src, ScratchFloat32Reg);
-                masm.storeFloat32(ScratchFloat32Reg, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                masm.storeFloat32(ScratchFloat32Reg,
+                                  Address(masm.getStackPointer(), iter->offsetFromArgBase()));
                 break;
               case MIRType::Int32x4:
               case MIRType::Bool32x4:
-                masm.loadUnalignedInt32x4(src, ScratchSimd128Reg);
-                masm.storeAlignedInt32x4(ScratchSimd128Reg,
-                                         Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                masm.loadUnalignedSimd128Int(src, ScratchSimd128Reg);
+                masm.storeAlignedSimd128Int(
+                  ScratchSimd128Reg, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
                 break;
               case MIRType::Float32x4:
-                masm.loadUnalignedFloat32x4(src, ScratchSimd128Reg);
-                masm.storeAlignedFloat32x4(ScratchSimd128Reg,
-                                           Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                masm.loadUnalignedSimd128Float(src, ScratchSimd128Reg);
+                masm.storeAlignedSimd128Float(
+                  ScratchSimd128Reg, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
                 break;
               default:
                 MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("unexpected stack arg type");
@@ -273,11 +275,11 @@ wasm::GenerateEntry(MacroAssembler& masm, unsigned target, const Sig& sig, bool 
       case ExprType::I32x4:
       case ExprType::B32x4:
         // We don't have control on argv alignment, do an unaligned access.
-        masm.storeUnalignedInt32x4(ReturnSimd128Reg, Address(argv, 0));
+        masm.storeUnalignedSimd128Int(ReturnSimd128Reg, Address(argv, 0));
         break;
       case ExprType::F32x4:
         // We don't have control on argv alignment, do an unaligned access.
-        masm.storeUnalignedFloat32x4(ReturnSimd128Reg, Address(argv, 0));
+        masm.storeUnalignedSimd128Float(ReturnSimd128Reg, Address(argv, 0));
         break;
       case ExprType::Limit:
         MOZ_CRASH("Limit");
@@ -834,9 +836,9 @@ GenerateStackOverflow(MacroAssembler& masm)
     return offsets;
 }
 
-// Generate a stub that is jumped to from function bodies to throw an exception.
+// Generate a stub that calls into HandleTrap with the right trap reason.
 static Offsets
-GenerateErrorStub(MacroAssembler& masm, SymbolicAddress address)
+GenerateTrapStub(MacroAssembler& masm, Trap reason)
 {
     masm.haltingAlign(CodeAlignment);
 
@@ -847,9 +849,24 @@ GenerateErrorStub(MacroAssembler& masm, SymbolicAddress address)
     // into C++.  We unconditionally jump to throw so don't worry about
     // restoring sp.
     masm.andToStackPtr(Imm32(~(ABIStackAlignment - 1)));
+    if (ShadowStackSpace)
+        masm.subFromStackPtr(Imm32(ShadowStackSpace));
 
-    masm.assertStackAlignment(ABIStackAlignment);
-    masm.call(address);
+    MIRTypeVector args;
+    JS_ALWAYS_TRUE(args.append(MIRType::Int32));
+
+    ABIArgMIRTypeIter i(args);
+    if (i->kind() == ABIArg::GPR) {
+        masm.move32(Imm32(int32_t(reason)), i->gpr());
+    } else {
+        masm.store32(Imm32(int32_t(reason)),
+                     Address(masm.getStackPointer(), i->offsetFromArgBase()));
+    }
+
+    i++;
+    MOZ_ASSERT(i.done());
+
+    masm.call(SymbolicAddress::HandleTrap);
     masm.jump(JumpTarget::Throw);
 
     offsets.end = masm.currentOffset();
@@ -895,43 +912,20 @@ wasm::GenerateJumpTarget(MacroAssembler& masm, JumpTarget target)
     switch (target) {
       case JumpTarget::StackOverflow:
         return GenerateStackOverflow(masm);
-      case JumpTarget::ConversionError:
-        return GenerateErrorStub(masm, SymbolicAddress::OnImpreciseConversion);
-      case JumpTarget::OutOfBounds:
-        return GenerateErrorStub(masm, SymbolicAddress::OnOutOfBounds);
-      case JumpTarget::BadIndirectCall:
-        return GenerateErrorStub(masm, SymbolicAddress::BadIndirectCall);
-      case JumpTarget::UnreachableTrap:
-        return GenerateErrorStub(masm, SymbolicAddress::UnreachableTrap);
-      case JumpTarget::InvalidConversionToIntegerTrap:
-        return GenerateErrorStub(masm, SymbolicAddress::InvalidConversionToIntegerTrap);
-      case JumpTarget::IntegerOverflowTrap:
-        return GenerateErrorStub(masm, SymbolicAddress::IntegerOverflowTrap);
       case JumpTarget::Throw:
         return GenerateThrow(masm);
+      case JumpTarget::BadIndirectCall:
+      case JumpTarget::OutOfBounds:
+      case JumpTarget::Unreachable:
+      case JumpTarget::IntegerOverflow:
+      case JumpTarget::InvalidConversionToInteger:
+      case JumpTarget::IntegerDivideByZero:
+      case JumpTarget::ImpreciseSimdConversion:
+        return GenerateTrapStub(masm, Trap(target));
       case JumpTarget::Limit:
         break;
     }
     MOZ_CRASH("bad JumpTarget");
-}
-
-ProfilingOffsets
-wasm::GenerateBadIndirectCallExit(MacroAssembler& masm)
-{
-    MIRTypeVector args;
-    unsigned framePushed = StackDecrementForCall(masm, ABIStackAlignment, args);
-
-    ProfilingOffsets offsets;
-    GenerateExitPrologue(masm, framePushed, ExitReason::Error, &offsets);
-
-    AssertStackAlignment(masm, ABIStackAlignment);
-    masm.call(SymbolicAddress::BadIndirectCall);
-    masm.jump(JumpTarget::Throw);
-
-    GenerateExitEpilogue(masm, framePushed, ExitReason::Error, &offsets);
-
-    offsets.end = masm.currentOffset();
-    return offsets;
 }
 
 static const LiveRegisterSet AllRegsExceptSP(

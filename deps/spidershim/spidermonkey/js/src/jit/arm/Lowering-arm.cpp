@@ -314,6 +314,7 @@ LIRGeneratorARM::lowerModI(MMod* mod)
             return;
         }
         if (shift < 31 && (1 << (shift+1)) - 1 == rhs) {
+            MOZ_ASSERT(rhs);
             LModMaskI* lir = new(alloc()) LModMaskI(useRegister(mod->lhs()), temp(), temp(), shift+1);
             if (mod->fallible())
                 assignSnapshot(lir, Bailout_DoubleOutput);
@@ -579,7 +580,7 @@ LIRGeneratorARM::visitSimdSelect(MSimdSelect* ins)
 }
 
 void
-LIRGeneratorARM::visitSimdSplatX4(MSimdSplatX4* ins)
+LIRGeneratorARM::visitSimdSplat(MSimdSplat* ins)
 {
     MOZ_CRASH("NYI");
 }

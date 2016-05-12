@@ -83,6 +83,8 @@ class FunctionCompiler
     const CompileInfo&         info_;
     MIRGenerator&              mirGen_;
 
+    MInstruction*              dummyIns_;
+
     MBasicBlock*               curBlock_;
     CallVector                 callStack_;
     uint32_t                   maxStackArgBytes_;
@@ -109,6 +111,7 @@ class FunctionCompiler
         graph_(mirGen.graph()),
         info_(mirGen.info()),
         mirGen_(mirGen),
+        dummyIns_(nullptr),
         curBlock_(nullptr),
         maxStackArgBytes_(0),
         loopDepth_(0),
@@ -175,6 +178,9 @@ class FunctionCompiler
             if (!mirGen_.ensureBallast())
                 return false;
         }
+
+        dummyIns_ = MConstant::NewAsmJS(alloc(), Int32Value(0), MIRType::Int32);
+        curBlock_->add(dummyIns_);
 
         addInterruptCheck();
 
@@ -340,31 +346,30 @@ class FunctionCompiler
         return ins;
     }
 
-    MDefinition* swizzleSimd(MDefinition* vector, int32_t X, int32_t Y, int32_t Z, int32_t W,
-                             MIRType type)
+    MDefinition* swizzleSimd(MDefinition* vector, const uint8_t lanes[], MIRType type)
     {
         if (inDeadCode())
             return nullptr;
 
         MOZ_ASSERT(vector->type() == type);
-        MSimdSwizzle* ins = MSimdSwizzle::New(alloc(), vector, X, Y, Z, W);
+        MSimdSwizzle* ins = MSimdSwizzle::New(alloc(), vector, lanes);
         curBlock_->add(ins);
         return ins;
     }
 
-    MDefinition* shuffleSimd(MDefinition* lhs, MDefinition* rhs, int32_t X, int32_t Y,
-                             int32_t Z, int32_t W, MIRType type)
+    MDefinition* shuffleSimd(MDefinition* lhs, MDefinition* rhs, const uint8_t lanes[],
+                             MIRType type)
     {
         if (inDeadCode())
             return nullptr;
 
         MOZ_ASSERT(lhs->type() == type);
-        MInstruction* ins = MSimdShuffle::New(alloc(), lhs, rhs, X, Y, Z, W);
+        MInstruction* ins = MSimdShuffle::New(alloc(), lhs, rhs, lanes);
         curBlock_->add(ins);
         return ins;
     }
 
-    MDefinition* insertElementSimd(MDefinition* vec, MDefinition* val, SimdLane lane, MIRType type)
+    MDefinition* insertElementSimd(MDefinition* vec, MDefinition* val, unsigned lane, MIRType type)
     {
         if (inDeadCode())
             return nullptr;
@@ -439,7 +444,7 @@ class FunctionCompiler
 
         MOZ_ASSERT(IsSimdType(type));
         MOZ_ASSERT(SimdTypeToLaneArgumentType(type) == v->type());
-        MSimdSplatX4* ins = MSimdSplatX4::New(alloc(), v, type);
+        MSimdSplat* ins = MSimdSplat::New(alloc(), v, type);
         curBlock_->add(ins);
         return ins;
     }
@@ -461,20 +466,22 @@ class FunctionCompiler
         return ins;
     }
 
-    MDefinition* div(MDefinition* lhs, MDefinition* rhs, MIRType type, bool unsignd)
+    MDefinition* div(MDefinition* lhs, MDefinition* rhs, MIRType type, bool unsignd,
+                     bool trapOnError)
     {
         if (inDeadCode())
             return nullptr;
-        MDiv* ins = MDiv::NewAsmJS(alloc(), lhs, rhs, type, unsignd);
+        MDiv* ins = MDiv::NewAsmJS(alloc(), lhs, rhs, type, unsignd, trapOnError);
         curBlock_->add(ins);
         return ins;
     }
 
-    MDefinition* mod(MDefinition* lhs, MDefinition* rhs, MIRType type, bool unsignd)
+    MDefinition* mod(MDefinition* lhs, MDefinition* rhs, MIRType type, bool unsignd,
+                     bool trapOnError)
     {
         if (inDeadCode())
             return nullptr;
-        MMod* ins = MMod::NewAsmJS(alloc(), lhs, rhs, type, unsignd);
+        MMod* ins = MMod::NewAsmJS(alloc(), lhs, rhs, type, unsignd, trapOnError);
         curBlock_->add(ins);
         return ins;
     }
@@ -699,7 +706,7 @@ class FunctionCompiler
         curBlock_->add(MAsmJSInterruptCheck::New(alloc()));
     }
 
-    MDefinition* extractSimdElement(SimdLane lane, MDefinition* base, MIRType type, SimdSign sign)
+    MDefinition* extractSimdElement(unsigned lane, MDefinition* base, MIRType type, SimdSign sign)
     {
         if (inDeadCode())
             return nullptr;
@@ -965,24 +972,24 @@ class FunctionCompiler
             curBlock_->push(def);
     }
 
-    MDefinition* popDefIfPushed()
+    MDefinition* popDefIfPushed(bool shouldReturn = true)
     {
         if (!hasPushed(curBlock_))
             return nullptr;
         MDefinition* def = curBlock_->pop();
-        MOZ_ASSERT(def->type() != MIRType::Value);
-        return def;
+        MOZ_ASSERT_IF(def->type() == MIRType::Value, !shouldReturn);
+        return shouldReturn ? def : nullptr;
     }
 
     template <typename GetBlock>
-    void ensurePushInvariants(const GetBlock& getBlock, size_t numBlocks)
+    bool ensurePushInvariants(const GetBlock& getBlock, size_t numBlocks)
     {
         // Preserve the invariant that, for every iterated MBasicBlock, either:
         // every MBasicBlock has a pushed expression with the same type (to
-        // prevent creating phis with type Value) OR no MBasicBlock has any
+        // prevent creating used phis with type Value) OR no MBasicBlock has any
         // pushed expression. This is required by MBasicBlock::addPredecessor.
         if (numBlocks < 2)
-            return;
+            return true;
 
         MBasicBlock* block = getBlock(0);
 
@@ -998,10 +1005,12 @@ class FunctionCompiler
         if (!allPushed) {
             for (size_t i = 0; i < numBlocks; i++) {
                 block = getBlock(i);
-                if (hasPushed(block))
-                    block->pop();
+                if (!hasPushed(block))
+                    block->push(dummyIns_);
             }
         }
+
+        return allPushed;
     }
 
   private:
@@ -1072,7 +1081,7 @@ class FunctionCompiler
                 blocks[numJoinPreds++] = elseJoinPred;
 
             auto getBlock = [&](size_t i) -> MBasicBlock* { return blocks[i]; };
-            ensurePushInvariants(getBlock, numJoinPreds);
+            bool yieldsValue = ensurePushInvariants(getBlock, numJoinPreds);
 
             if (numJoinPreds == 0) {
                 *def = nullptr;
@@ -1088,7 +1097,7 @@ class FunctionCompiler
             }
 
             curBlock_ = join;
-            *def = popDefIfPushed();
+            *def = popDefIfPushed(yieldsValue);
         }
 
         return true;
@@ -1399,7 +1408,8 @@ class FunctionCompiler
                 return patches[i].ins->block();
             return curBlock_;
         };
-        ensurePushInvariants(getBlock, patches.length() + !!curBlock_);
+
+        bool yieldsValue = ensurePushInvariants(getBlock, patches.length() + !!curBlock_);
 
         MBasicBlock* join = nullptr;
         MControlInstruction* ins = patches[0].ins;
@@ -1429,9 +1439,10 @@ class FunctionCompiler
 
         if (curBlock_ && !goToExistingBlock(curBlock_, join))
             return false;
+
         curBlock_ = join;
 
-        *def = popDefIfPushed();
+        *def = popDefIfPushed(yieldsValue);
 
         patches.clear();
         return true;
@@ -1975,7 +1986,8 @@ EmitDiv(FunctionCompiler& f, ValType operandType, MIRType mirType, bool isUnsign
     if (!f.iter().readBinary(operandType, &lhs, &rhs))
         return false;
 
-    f.iter().setResult(f.div(lhs, rhs, mirType, isUnsigned));
+    bool trapOnError = f.mg().kind == ModuleKind::Wasm;
+    f.iter().setResult(f.div(lhs, rhs, mirType, isUnsigned, trapOnError));
     return true;
 }
 
@@ -1987,7 +1999,8 @@ EmitRem(FunctionCompiler& f, ValType operandType, MIRType mirType, bool isUnsign
     if (!f.iter().readBinary(operandType, &lhs, &rhs))
         return false;
 
-    f.iter().setResult(f.mod(lhs, rhs, mirType, isUnsigned));
+    bool trapOnError = f.mg().kind == ModuleKind::Wasm;
+    f.iter().setResult(f.mod(lhs, rhs, mirType, isUnsigned, trapOnError));
     return true;
 }
 
@@ -2373,7 +2386,7 @@ SimdToLaneType(ValType type)
 static bool
 EmitExtractLane(FunctionCompiler& f, ValType operandType, SimdSign sign)
 {
-    jit::SimdLane lane;
+    uint8_t lane;
     MDefinition* vector;
     if (!f.iter().readExtractLane(operandType, &lane, &vector))
         return false;
@@ -2398,7 +2411,7 @@ EmitSimdReplaceLane(FunctionCompiler& f, ValType simdType)
     if (IsSimdBoolType(simdType))
         f.iter().setResult(EmitSimdBooleanLaneExpr(f, f.iter().getResult()));
 
-    jit::SimdLane lane;
+    uint8_t lane;
     MDefinition* vector;
     MDefinition* scalar;
     if (!f.iter().readReplaceLane(simdType, &lane, &vector, &scalar))
@@ -2433,27 +2446,25 @@ EmitSimdConvert(FunctionCompiler& f, ValType fromType, ValType toType, SimdSign 
 static bool
 EmitSimdSwizzle(FunctionCompiler& f, ValType simdType)
 {
-    uint8_t lanes[4];
+    uint8_t lanes[16];
     MDefinition* vector;
     if (!f.iter().readSwizzle(simdType, &lanes, &vector))
         return false;
 
-    f.iter().setResult(f.swizzleSimd(vector, lanes[0], lanes[1], lanes[2], lanes[3],
-                                     ToMIRType(simdType)));
+    f.iter().setResult(f.swizzleSimd(vector, lanes, ToMIRType(simdType)));
     return true;
 }
 
 static bool
 EmitSimdShuffle(FunctionCompiler& f, ValType simdType)
 {
-    uint8_t lanes[4];
+    uint8_t lanes[16];
     MDefinition* lhs;
     MDefinition* rhs;
     if (!f.iter().readShuffle(simdType, &lanes, &lhs, &rhs))
         return false;
 
-    f.iter().setResult(f.shuffleSimd(lhs, rhs, lanes[0], lanes[1], lanes[2], lanes[3],
-                                     ToMIRType(simdType)));
+    f.iter().setResult(f.shuffleSimd(lhs, rhs, lanes, ToMIRType(simdType)));
     return true;
 }
 

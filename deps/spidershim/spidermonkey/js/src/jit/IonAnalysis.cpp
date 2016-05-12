@@ -2525,9 +2525,13 @@ IsResumableMIRType(MIRType type)
       case MIRType::MagicOptimizedOut:
       case MIRType::MagicUninitializedLexical:
       case MIRType::Value:
-      case MIRType::Float32x4:
       case MIRType::Int32x4:
+      case MIRType::Int16x8:
+      case MIRType::Int8x16:
+      case MIRType::Float32x4:
       case MIRType::Bool32x4:
+      case MIRType::Bool16x8:
+      case MIRType::Bool8x16:
         return true;
 
       case MIRType::MagicHole:
@@ -3518,8 +3522,10 @@ jit::ConvertLinearInequality(TempAllocator& alloc, MBasicBlock* block, const Lin
     MDefinition* rhsDef = nullptr;
     for (size_t i = 0; i < lhs.numTerms(); i++) {
         if (lhs.term(i).scale == -1) {
+            AutoEnterOOMUnsafeRegion oomUnsafe;
             rhsDef = lhs.term(i).term;
-            lhs.add(rhsDef, 1);
+            if (!lhs.add(rhsDef, 1))
+               oomUnsafe.crash("ConvertLinearInequality");
             break;
         }
     }
