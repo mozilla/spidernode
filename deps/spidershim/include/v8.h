@@ -93,6 +93,7 @@ class Private;
 class ResourceConstraints;
 class RegExp;
 class Promise;
+class Proxy;
 class Script;
 class Signature;
 class StartupData;
@@ -298,6 +299,7 @@ class Local {
   friend struct ObjectData;
   friend class ObjectTemplate;
   friend class Private;
+  friend class Proxy;
   friend class Signature;
   friend class Script;
   friend class StackFrame;
@@ -1048,6 +1050,7 @@ class V8_EXPORT Value : public Data {
   bool IsMap() const;
   bool IsSet() const;
   bool IsPromise() const;
+  bool IsProxy() const;
 
   V8_WARN_UNUSED_RESULT MaybeLocal<Boolean> ToBoolean(
     Local<Context> context) const;
@@ -1848,6 +1851,24 @@ class V8_EXPORT Promise : public Object {
   static Promise* Cast(Value* obj);
  private:
   Promise();
+};
+
+class V8_EXPORT Proxy : public Object {
+public:
+  Local<Object> GetTarget();
+  Local<Value> GetHandler();
+  bool IsRevoked();
+  void Revoke();
+
+  static MaybeLocal<Proxy> New(Local<Context> context,
+                               Local<Object> local_target,
+                               Local<Object> local_handler);
+
+  V8_INLINE static Proxy* Cast(Value* obj);
+
+private:
+  Proxy();
+  static void CheckCast(Value* obj);
 };
 
 
