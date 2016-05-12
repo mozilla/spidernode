@@ -1821,7 +1821,7 @@ class V8_EXPORT Function : public Object {
                                                Handle<Value> argv[]);
 
   void SetName(Handle<String> name);
-  // Handle<Value> GetName() const;
+  Local<Value> GetName() const;
 
   static Function *Cast(Value *obj);
 };

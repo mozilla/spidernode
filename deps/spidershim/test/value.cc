@@ -1921,6 +1921,26 @@ TEST(SpiderShim, Function) {
   EXPECT_FALSE(object->IsFunction());
   EXPECT_TRUE(gen->IsFunction());
   EXPECT_FALSE(genObject->IsFunction());
+
+  {
+    Local<Value> name = Function::Cast(*normal)->GetName();
+    String::Utf8Value utf8(name->ToString());
+    EXPECT_STREQ("normal", *utf8);
+    Function::Cast(*normal)->SetName(v8_str("newName"));
+    name = Function::Cast(*normal)->GetName();
+    String::Utf8Value utf8_2(name->ToString());
+    EXPECT_STREQ("newName", *utf8_2);
+  }
+
+  {
+    Local<Value> name = Function::Cast(*gen)->GetName();
+    String::Utf8Value utf8(name->ToString());
+    EXPECT_STREQ("gen", *utf8);
+    Function::Cast(*gen)->SetName(v8_str("newName"));
+    name = Function::Cast(*gen)->GetName();
+    String::Utf8Value utf8_2(name->ToString());
+    EXPECT_STREQ("newName", *utf8_2);
+  }
 }
 
 template <typename TypedArray, int kElementSize>
