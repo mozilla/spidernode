@@ -49,3 +49,29 @@ TEST(SpiderShim, MessageHandler) {
   // clear out the message listener
   context->GetIsolate()->RemoveMessageListeners(check_message);
 }
+
+TEST(SpiderShim, IsolateEmbedderData) {
+  // This test is based on V8's IsolateEmbedderData.
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+    EXPECT_TRUE(!isolate->GetData(slot));
+  }
+  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+    void* data = reinterpret_cast<void*>(0xacce55ed + slot);
+    isolate->SetData(slot, data);
+  }
+  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+    void* data = reinterpret_cast<void*>(0xacce55ed + slot);
+    EXPECT_EQ(data, isolate->GetData(slot));
+  }
+  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+    void* data = reinterpret_cast<void*>(0xdecea5ed + slot);
+    isolate->SetData(slot, data);
+  }
+  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+    void* data = reinterpret_cast<void*>(0xdecea5ed + slot);
+    EXPECT_EQ(data, isolate->GetData(slot));
+  }
+}
+
