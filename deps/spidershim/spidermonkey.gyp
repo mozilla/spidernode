@@ -1,7 +1,7 @@
 {
   'variables': {
     'target_arch%': 'ia32',
-    'spidermonkey_args': [],
+    'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
     'spidermonkey_gczeal%': 0,
 
     'conditions': [

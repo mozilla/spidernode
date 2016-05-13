@@ -22,8 +22,10 @@ case "$BUILDTYPE" in
     ;;
 esac
 
-build="$BUILT_PRODUCTS_DIR/spidermonkey"
 srcdir="$PWD"
+build="$1"
+shift
+
 test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so
