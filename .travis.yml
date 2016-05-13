@@ -19,7 +19,7 @@ before_install:
 before_script:
   - ./configure --debug --engine=spidermonkey
 script:
-  - make V= -k || make V= -k || true
+  - make V= -k || true
   - ./deps/spidershim/scripts/run-tests.sh
 notifications:
   email: true

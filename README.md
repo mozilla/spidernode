@@ -13,8 +13,6 @@ To enable building and running Node.js with SpiderMonkey, a V8 API shim (SpiderS
 ### Current status
 This is a _work in progress_, and Node cannot be successfully built yet because of the missing V8 APIs causing linker errors when building the Node.js binary.  So far enough of the V8 API has been implemented to enable running a minimal JavaScript program on top of SpiderShim.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) currently pass.  Nothing else will work out of the box yet!
 
-The build system integration can be improved.
-
 We're actively working on this, so if you're interested in the status of this project, please check here again soon.
 
 In order to find what members of a class need to be implemented, run the following command in a built tree (replacing Isolate with the name of the class you are interested in):
@@ -36,11 +34,15 @@ Building on any OS other than Linux or OS X has not been tested.
 
 Build Command:
 ```bash
-./configure --engine=spidermonkey
+./configure --engine=spidermonkey [options]
 make
 ```
 
-Note that right now the build will fail as stated above when linking Node.  Building the SpiderShim test requires invoking the build system twice.  See [.travis.yml](https://github.com/mozilla/spidernode/blob/master/.travis.yml) for example.  To run the tests, do:
+Where `options` is one or more of:
+* `--debug`: Also build in debug mode.  The default build configuration is release.
+* `--enable-gczeal`: Enable SpiderMonkey gc-zeal support.  This is useful for debugging GC rooting correctness issues.
+
+Note that right now the build will fail as stated above when linking Node.  To run the tests, do:
 
 ```bash
 ./deps/spidershim/scripts/run-tests.sh
