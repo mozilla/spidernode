@@ -192,7 +192,8 @@ bool Isolate::AddMessageListener(MessageCallback that, Handle<Value> data) {
 }
 
 void Isolate::RemoveMessageListeners(MessageCallback that) {
-  auto i = std::remove(pimpl_->messageListeners.begin(), pimpl_->messageListeners.end(), that);
+  auto i = std::remove(pimpl_->messageListeners.begin(),
+                       pimpl_->messageListeners.end(), that);
   pimpl_->messageListeners.erase(i, pimpl_->messageListeners.end());
 }
 
@@ -208,7 +209,8 @@ void Isolate::SetData(uint32_t slot, void* data) {
 }
 
 void* Isolate::GetData(uint32_t slot) {
-  return slot < mozilla::ArrayLength(pimpl_->embeddedData) ? pimpl_->embeddedData[slot] : nullptr;
+  return slot < mozilla::ArrayLength(pimpl_->embeddedData)
+             ? pimpl_->embeddedData[slot]
+             : nullptr;
 }
-
 }

@@ -25,7 +25,10 @@
 namespace v8 {
 
 struct Context::Impl {
-  explicit Impl(JSContext* cx) : cx(cx), oldCompartment(nullptr), embedderData(cx, JS::ValueVector(cx)) {}
+  explicit Impl(JSContext* cx)
+      : cx(cx),
+        oldCompartment(nullptr),
+        embedderData(cx, JS::ValueVector(cx)) {}
   JSContext* cx;
   JS::PersistentRootedObject global;
   Local<Object> globalObj;

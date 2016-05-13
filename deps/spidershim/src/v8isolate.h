@@ -65,9 +65,7 @@ struct Isolate::Impl {
             report->filename ? report->filename : "<no filename>",
             (unsigned int)report->lineno, message);
   }
-
 };
 
 JSContext* JSContextFromIsolate(v8::Isolate* isolate);
-
 }

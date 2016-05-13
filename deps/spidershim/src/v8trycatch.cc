@@ -147,7 +147,8 @@ void TryCatch::CheckReportExternalException() {
   // TODO: update this when proprogating exceptions is implemented:
   // https://github.com/mozilla/spidernode/issues/51
   // https://github.com/mozilla/spidernode/issues/89
-  auto isolateImpl = reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
+  auto isolateImpl =
+      reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
   auto messageListeners = isolateImpl->messageListeners;
   for (auto i : messageListeners) {
     (*i)(this->Message(), this->Exception());
