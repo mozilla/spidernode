@@ -46,7 +46,6 @@
           }],
           ['spidermonkey_gczeal==1', {
             'spidermonkey_args': ['--enable-gczeal'],
-            'spidermonkey_defines': ['JS_GC_ZEAL'],
           }],
         ],
       },
