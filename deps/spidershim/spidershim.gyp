@@ -1,9 +1,4 @@
 {
-  'variables': {
-    'spidermonkey_dir%': 'spidermonkey',
-    'spidermonkey_debug%': 0,
-  },
-
   'targets': [
     {
       'target_name': 'spidershim',

@@ -1,10 +1,6 @@
 {
   'variables': {
     'target_arch%': 'ia32',
-    'library%': 'static_library',     # build spidermonkey as static library
-    'component%': 'static_library',   # link crt statically or dynamically
-    'spidermonkey_dir%': 'spidermonkey',
-    'spidermonkey_debug%': 0,
     'spidermonkey_args': [],
     'spidermonkey_gczeal%': 0,
 

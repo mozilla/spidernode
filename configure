@@ -859,7 +859,6 @@ def configure_v8(o):
 
 
 def configure_spidermonkey(o):
-  o['variables']['spidermonkey_debug'] = 1 if options.debug else 0
   o['variables']['spidermonkey_gczeal'] = 1 if options.enable_gczeal else 0
 
 
