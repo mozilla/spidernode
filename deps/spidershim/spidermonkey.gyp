@@ -20,6 +20,15 @@
       'target_name': 'spidermonkey',
       'type': 'none',
 
+      'configurations': {
+        'Release': {
+          'defines': ['NDEBUG'],
+        },
+        'Debug': {
+          'defines': ['DEBUG'],
+        },
+      },
+
       'variables': {
         'spidermonkey_binaries': [
           '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
@@ -34,12 +43,6 @@
             'spidermonkey_binaries': [
               '<(PRODUCT_DIR)/spidermonkey/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
             ],
-          }],
-          ['spidermonkey_debug==1', {
-            'spidermonkey_defines': ['DEBUG'],
-          },
-          {
-            'spidermonkey_defines': ['NDEBUG'],
           }],
           ['spidermonkey_gczeal==1', {
             'spidermonkey_args': ['--enable-gczeal'],
@@ -71,7 +74,14 @@
 
       'direct_dependent_settings': {
         'library_dirs': [ '<(PRODUCT_DIR)' ],
-        'defines': [ '<@(spidermonkey_defines)' ],
+        'configurations': {
+          'Release': {
+            'defines': ['NDEBUG'],
+          },
+          'Debug': {
+            'defines': ['DEBUG'],
+          },
+        },
         'include_dirs': [
           '<(PRODUCT_DIR)/spidermonkey/dist/include',
         ],
