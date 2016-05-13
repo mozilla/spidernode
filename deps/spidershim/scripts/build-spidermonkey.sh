@@ -16,17 +16,15 @@ fi
 case "$BUILDTYPE" in
   Debug)
     args="--enable-debug --disable-optimize"
-    build=build-debug
     ;;
   Release)
     args="--disable-debug --enable-optimize"
-    build=build-opt
-    ;;
     ;;
 esac
 
+build="$BUILT_PRODUCTS_DIR/spidermonkey"
 test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make -s || (cd ../spidermonkey/js/src && $AUTOCONF && cd - && ../spidermonkey/js/src/configure --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)
+make -s || (cd "$SRCROOT/spidermonkey/js/src" && $AUTOCONF && cd - && "$SRCROOT/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)

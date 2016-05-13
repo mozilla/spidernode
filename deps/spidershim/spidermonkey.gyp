@@ -12,8 +12,6 @@
       ['target_arch=="ia32"', { 'Platform': 'x86' }],
       ['target_arch=="x64"', { 'Platform': 'x64' }],
       ['target_arch=="arm"', { 'Platform': 'arm' }],
-      ['spidermonkey_debug==1', { 'spidermonkey_build_dir': 'build-debug' },
-                                { 'spidermonkey_build_dir': 'build-opt'   }],
     ],
   },
 
@@ -24,17 +22,17 @@
 
       'variables': {
         'spidermonkey_binaries': [
-          '<(spidermonkey_build_dir)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
+          '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
         ],
         'conditions': [
           ['OS == "linux"', {
             'spidermonkey_binaries+': [
-              '<(spidermonkey_build_dir)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+              '<(PRODUCT_DIR)/spidermonkey/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
             ],
           }],
           ['OS == "mac"', {
             'spidermonkey_binaries': [
-              '<(spidermonkey_build_dir)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
+              '<(PRODUCT_DIR)/spidermonkey/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
             ],
           }],
           ['spidermonkey_debug==1', {
@@ -75,7 +73,7 @@
         'library_dirs': [ '<(PRODUCT_DIR)' ],
         'defines': [ '<@(spidermonkey_defines)' ],
         'include_dirs': [
-          '<(spidermonkey_build_dir)/dist/include',
+          '<(PRODUCT_DIR)/spidermonkey/dist/include',
         ],
       },
 
