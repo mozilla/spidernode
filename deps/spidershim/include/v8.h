@@ -1864,7 +1864,7 @@ public:
                                Local<Object> local_target,
                                Local<Object> local_handler);
 
-  V8_INLINE static Proxy* Cast(Value* obj);
+  static Proxy* Cast(Value* obj);
 
 private:
   Proxy();
