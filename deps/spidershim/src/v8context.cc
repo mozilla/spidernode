@@ -27,7 +27,7 @@
 
 namespace v8 {
 
-Context::Context() : pimpl_(new Impl()) {}
+Context::Context(JSContext* cx) : pimpl_(new Impl(cx)) {}
 
 Context::~Context() { delete pimpl_; }
 
@@ -41,8 +41,7 @@ Local<Context> Context::New(Isolate* isolate,
   if (!cx) {
     return Local<Context>();
   }
-  Context* context = new Context();
-  context->pimpl_->cx = cx;
+  Context* context = new Context(cx);
   JSAutoRequest ar(cx);
   if (!context->CreateGlobal(isolate)) {
     return Local<Context>();
@@ -137,6 +136,52 @@ void Context::Exit() {
   JS_LeaveCompartment(pimpl_->cx, pimpl_->oldCompartment);
   JS_EndRequest(pimpl_->cx);
   GetIsolate()->PopCurrentContext();
+}
+
+void Context::SetEmbedderData(int idx, Local<Value> data)
+{
+	assert(idx >= 0);
+  if (pimpl_->embedderData.length() <= static_cast<unsigned int>(idx) &&
+      !pimpl_->embedderData.resize(idx + 1)) {
+    return;
+  }
+
+  pimpl_->embedderData[idx].set(*GetValue(data));
+}
+
+Local<Value>
+Context::GetEmbedderData(int idx)
+{
+	assert(idx >= 0);
+  if (static_cast<unsigned int>(idx) >= pimpl_->embedderData.length()) {
+    return Local<Value>();
+  }
+
+  return Local<Value>::New(Isolate::GetCurrent(), GetV8Value(pimpl_->embedderData[idx]));
+}
+
+void
+Context::SetAlignedPointerInEmbedderData(int idx, void* data)
+{
+  assert((reinterpret_cast<uintptr_t>(data) & 0x1) == 0);
+  assert(idx >= 0);
+  if (static_cast<unsigned int>(idx) >= pimpl_->embedderData.length() &&
+		  !pimpl_->embedderData.resize(idx + 1)) {
+    return;
+  }
+
+  pimpl_->embedderData[idx].set(JS::PrivateValue(data));
+}
+
+void*
+Context::GetAlignedPointerFromEmbedderData(int idx)
+{
+	assert(idx >= 0);
+  if (static_cast<unsigned int>(idx) >= pimpl_->embedderData.length()) {
+    return nullptr;
+  }
+
+  return pimpl_->embedderData[idx].get().toPrivate();
 }
 
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }

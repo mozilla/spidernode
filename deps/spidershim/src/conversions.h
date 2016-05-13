@@ -40,6 +40,10 @@ static inline Value* GetV8Value(JS::Value* val) {
   return reinterpret_cast<Value*>(val);
 }
 
+static inline Value* GetV8Value(JS::MutableHandleValue val) {
+  return GetV8Value(val.address());
+}
+
 static inline JSObject* GetObject(Value* val) {
   JS::Value* v = GetValue(val);
   return v->isObject() ? &v->toObject() : nullptr;

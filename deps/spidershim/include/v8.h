@@ -2639,7 +2639,7 @@ class V8_EXPORT Context {
   ~Context();
 
 private:
-  Context();
+  Context(JSContext* cx);
 
   bool CreateGlobal(Isolate* isolate);
   void Dispose();

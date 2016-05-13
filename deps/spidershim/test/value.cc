@@ -2582,3 +2582,70 @@ TEST(SpiderShim, External) {
   EXPECT_EQ('3', *char_ptr);
   free(data);
 }
+
+static void CheckEmbedderData(Local<Context>* env, int index,
+                              Local<Value> data) {
+  (*env)->SetEmbedderData(index, data);
+  EXPECT_TRUE((*env)->GetEmbedderData(index)->StrictEquals(data));
+}
+
+TEST(SpiderShim, EmbedderData) {
+  // This test is based on V8's EmbedderData test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Isolate* isolate = context->GetIsolate();
+
+  CheckEmbedderData(&context, 3, v8_str("The quick brown fox jumps"));
+  CheckEmbedderData(&context, 2, v8_str("over the lazy dog."));
+  CheckEmbedderData(&context, 1, Number::New(isolate, 1.2345));
+  CheckEmbedderData(&context, 0, Boolean::New(isolate, true));
+}
+
+static void CheckAlignedPointerInEmbedderData(Local<Context>* env, int index,
+                                              void* value) {
+  EXPECT_EQ(0, static_cast<int>(reinterpret_cast<uintptr_t>(value) & 0x1));
+  (*env)->SetAlignedPointerInEmbedderData(index, value);
+  EXPECT_EQ(value, (*env)->GetAlignedPointerFromEmbedderData(index));
+}
+
+static void* AlignedTestPointer(int i) {
+  return reinterpret_cast<void*>(i * 1234);
+}
+
+TEST(SpiderShim, EmbedderDataAlignedPointers) {
+  // This test is based on V8's EmbedderDataAlignedPointers test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = context->GetIsolate();
+
+  CheckAlignedPointerInEmbedderData(&context, 0, NULL);
+
+  int* heap_allocated = new int[100];
+  CheckAlignedPointerInEmbedderData(&context, 1, heap_allocated);
+  delete[] heap_allocated;
+
+  int stack_allocated[100];
+  CheckAlignedPointerInEmbedderData(&context, 2, stack_allocated);
+
+  void* huge = reinterpret_cast<void*>(~static_cast<uintptr_t>(1));
+  CheckAlignedPointerInEmbedderData(&context, 3, huge);
+
+  // Test growing of the embedder data's backing store.
+  for (int i = 0; i < 100; i++) {
+    context->SetAlignedPointerInEmbedderData(i, AlignedTestPointer(i));
+  }
+
+  for (int i = 0; i < 100; i++) {
+    EXPECT_EQ(AlignedTestPointer(i), context->GetAlignedPointerFromEmbedderData(i));
+  }
+}
