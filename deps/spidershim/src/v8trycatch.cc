@@ -150,8 +150,7 @@ void TryCatch::CheckReportExternalException() {
   auto isolateImpl = reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
   auto messageListeners = isolateImpl->messageListeners;
   for (auto i : messageListeners) {
-      ((v8::MessageCallback)*i)(this->Message(),
-                                this->Exception());
+    (*i)(this->Message(), this->Exception());
   }
 }
 
