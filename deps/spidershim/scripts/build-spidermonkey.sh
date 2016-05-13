@@ -22,9 +22,12 @@ case "$BUILDTYPE" in
     ;;
 esac
 
-build="$BUILT_PRODUCTS_DIR/spidermonkey"
+srcdir="$PWD"
+build="$1"
+shift
+
 test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make -s || (cd "$SRCROOT/spidermonkey/js/src" && $AUTOCONF && cd - && "$SRCROOT/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)
+make -s || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)
