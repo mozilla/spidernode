@@ -75,6 +75,9 @@
       'direct_dependent_settings': {
         'library_dirs': [ '<(PRODUCT_DIR)' ],
         'defines': [ '<@(spidermonkey_defines)' ],
+        'include_dirs': [
+          '<(spidermonkey_build_dir)/dist/include',
+        ],
       },
 
     },

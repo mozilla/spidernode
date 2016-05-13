@@ -2,11 +2,6 @@
   'variables': {
     'spidermonkey_dir%': 'spidermonkey',
     'spidermonkey_debug%': 0,
-
-    'conditions': [
-      ['spidermonkey_debug==1', { 'spidermonkey_build_dir': 'build-debug' },
-                                { 'spidermonkey_build_dir': 'build-opt'   }],
-    ],
   },
 
   'targets': [
@@ -14,10 +9,9 @@
       'target_name': 'spidershim',
       'type': '<(library)',
 
-      'include_dirs': [
-        'include',
-        '<(spidermonkey_build_dir)/dist/include',
-      ],
+        'include_dirs': [
+          'include',
+        ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],
         [ 'target_arch=="x64"', { 'defines': [ '__x86_64__=1' ] } ],
