@@ -13,20 +13,15 @@ if test -z "$AUTOCONF"; then
   exit 1
 fi
 
-case "$1" in
-  --enable-debug)
+case "$BUILDTYPE" in
+  Debug)
     args="--enable-debug --disable-optimize"
     build=build-debug
     ;;
-  --enable-opt)
+  Release)
     args="--disable-debug --enable-optimize"
     build=build-opt
     ;;
-esac
-
-case "$2" in
-  --enable-gczeal)
-    args="$args --enable-gczeal"
     ;;
 esac
 
@@ -34,4 +29,4 @@ test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make -s || (cd ../spidermonkey/js/src && $AUTOCONF && cd - && ../spidermonkey/js/src/configure --disable-shared-js --disable-export-js --disable-js-shell $args && make -s)
+make -s || (cd ../spidermonkey/js/src && $AUTOCONF && cd - && ../spidermonkey/js/src/configure --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)

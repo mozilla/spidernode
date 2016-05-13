@@ -5,6 +5,7 @@
     'component%': 'static_library',   # link crt statically or dynamically
     'spidermonkey_dir%': 'spidermonkey',
     'spidermonkey_debug%': 0,
+    'spidermonkey_args': [],
     'spidermonkey_gczeal%': 0,
 
     'conditions': [
@@ -37,11 +38,9 @@
             ],
           }],
           ['spidermonkey_debug==1', {
-            'spidermonkey_args': ['--enable-debug'],
             'spidermonkey_defines': ['DEBUG'],
           },
           {
-            'spidermonkey_args': ['--enable-opt'],
             'spidermonkey_defines': ['NDEBUG'],
           }],
           ['spidermonkey_gczeal==1', {
