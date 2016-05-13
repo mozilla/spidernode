@@ -20,14 +20,12 @@
 
 #include <stdlib.h>
 #include <vector>
-#include <stack>
+#include <algorithm>
 
 #include "v8.h"
-#include "v8context.h"
+#include "v8isolate.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Maybe.h"
-#include "rootstore.h"
 
 namespace {
 
@@ -51,37 +49,6 @@ void OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
 }
 
 namespace v8 {
-
-struct Isolate::Impl {
-  JSRuntime* rt;
-  std::vector<Context*> contexts;
-  std::stack<Context*> currentContexts;
-  std::vector<StackFrame*> stackFrames;
-  std::vector<StackTrace*> stackTraces;
-  mozilla::Maybe<internal::RootStore> persistents;
-  mozilla::Maybe<internal::RootStore> eternals;
-
-  internal::RootStore& EnsurePersistents(Isolate* iso) {
-    if (!persistents) {
-      persistents.emplace(iso);
-    }
-    return *persistents;
-  }
-
-  internal::RootStore& EnsureEternals(Isolate* iso) {
-    if (!eternals) {
-      eternals.emplace(iso);
-    }
-    return *eternals;
-  }
-
-  static void ErrorReporter(JSContext* cx, const char* message,
-                            JSErrorReport* report) {
-    fprintf(stderr, "JS error at %s:%u: %s\n",
-            report->filename ? report->filename : "<no filename>",
-            (unsigned int)report->lineno, message);
-  }
-};
 
 Isolate* Isolate::current_ = nullptr;
 
@@ -217,4 +184,16 @@ Value* Isolate::AddEternal(Value* val) {
 Private* Isolate::AddEternal(Private* val) {
   return pimpl_->EnsureEternals(this).Add(val->symbol_);
 }
+
+bool Isolate::AddMessageListener(MessageCallback that, Handle<Value> data) {
+  // Ignore data parameter.  Node doesn't use it.
+  pimpl_->messageListeners.push_back(that);
+  return true;
+}
+
+void Isolate::RemoveMessageListeners(MessageCallback that) {
+  auto i = std::remove(pimpl_->messageListeners.begin(), pimpl_->messageListeners.end(), that);
+  pimpl_->messageListeners.erase(i, pimpl_->messageListeners.end());
+}
+
 }

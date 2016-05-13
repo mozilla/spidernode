@@ -23,6 +23,7 @@
 #include "v8.h"
 #include "conversions.h"
 #include "v8local.h"
+#include "v8isolate.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
 
@@ -141,6 +142,17 @@ Local<Value> TryCatch::Exception() const {
 void TryCatch::Reset() { pimpl_->Reset(); }
 
 void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
+
+void TryCatch::CheckReportExternalException() {
+  // TODO: update this when proprogating exceptions is implemented:
+  // https://github.com/mozilla/spidernode/issues/51
+  // https://github.com/mozilla/spidernode/issues/89
+  auto isolateImpl = reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
+  auto messageListeners = isolateImpl->messageListeners;
+  for (auto i : messageListeners) {
+    (*i)(this->Message(), this->Exception());
+  }
+}
 
 Local<Message> TryCatch::Message() const {
   auto msg = new class Message(Exception());
