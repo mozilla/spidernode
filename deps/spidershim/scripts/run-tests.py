@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-# This script reads the SpiderShim tests gyp file, and prints out
-# the names of all of the targets defined there.
 
-import gyp
 import subprocess
 import os
 import sys
@@ -46,6 +43,7 @@ def is_executable(f):
 
 def get_targets(base_dir):
     sys.path.append("%s/tools/gyp/pylib" % base_dir)
+    import gyp
 
     path = "deps/spidershim/tests.gyp"
     params = {
