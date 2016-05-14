@@ -55,6 +55,7 @@
       'sources': [
         'src/v8array.cc',
         'src/v8arraybuffer.cc',
+        'src/v8arraybufferview.cc',
         'src/v8boolean.cc',
         'src/v8booleanobject.cc',
         'src/v8context.cc',

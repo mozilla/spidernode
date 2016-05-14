@@ -74,39 +74,6 @@ ArrayBuffer::Contents ArrayBuffer::GetContents() {
   return contents;
 }
 
-Local<ArrayBuffer> ArrayBufferView::Buffer() {
-  Isolate* isolate = GetIsolate();
-  JSContext* cx = JSContextFromIsolate(isolate);
-  JS::RootedObject view(cx, GetObject(this));
-  bool shared;
-  JSObject* buf = JS_GetArrayBufferViewBuffer(cx, view, &shared);
-  if (!buf) {
-    return Local<ArrayBuffer>();
-  }
-
-  JS::Value bufVal;
-  bufVal.setObject(*buf);
-  return internal::Local<ArrayBuffer>::New(isolate, bufVal);
-}
-
-size_t ArrayBufferView::ByteOffset() {
-  JSObject* view = GetObject(this);
-  if (JS_IsTypedArrayObject(view)) {
-    return JS_GetTypedArrayByteOffset(view);
-  }
-
-  return JS_GetDataViewByteOffset(view);
-}
-
-size_t ArrayBufferView::ByteLength() {
-  JSObject* view = GetObject(this);
-  if (JS_IsTypedArrayObject(view)) {
-    return JS_GetTypedArrayByteLength(view);
-  }
-
-  return JS_GetDataViewByteLength(view);
-}
-
 void ArrayBuffer::Neuter() {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   JS::RootedObject obj(cx, GetObject(this));
