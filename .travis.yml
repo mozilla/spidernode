@@ -1,6 +1,8 @@
 language: cpp
 sudo: false
-compiler: clang
+compiler:
+  - gcc
+  - clang
 env:
   - BUILD_CONFIG=normal
   - BUILD_CONFIG=gczeal
