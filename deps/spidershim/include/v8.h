@@ -1931,8 +1931,6 @@ class V8_EXPORT TypedArray : public ArrayBufferView {
  public:
   size_t Length();
   static TypedArray* Cast(Value* obj);
- private:
-  TypedArray();
 };
 
 class V8_EXPORT Uint8Array : public TypedArray {

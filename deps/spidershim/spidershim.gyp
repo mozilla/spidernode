@@ -81,6 +81,7 @@
         'src/v8stringobject.cc',
         'src/v8template.cc',
         'src/v8trycatch.cc',
+        'src/v8typedarray.cc',
         'src/v8uint32.cc',
         'src/v8v8.cc',
         'src/v8value.cc',

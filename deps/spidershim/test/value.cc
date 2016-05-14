@@ -1943,14 +1943,17 @@ TEST(SpiderShim, Function) {
   }
 }
 
-template <typename TypedArray, int kElementSize>
-static Local<TypedArray> CreateAndCheck(Local<ArrayBuffer> ab,
-                                        int byteOffset, int length) {
-  Local<TypedArray> ta = TypedArray::New(ab, byteOffset, length);
+template <typename TypedArrayType, int kElementSize>
+static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
+                                            int byteOffset, int length) {
+  Local<TypedArrayType> ta = TypedArrayType::New(ab, byteOffset, length);
   EXPECT_EQ(byteOffset, static_cast<int>(ta->ByteOffset()));
   EXPECT_EQ(length * kElementSize, static_cast<int>(ta->ByteLength()));
+  EXPECT_EQ(length, static_cast<int>(ta->Length()));
   EXPECT_EQ(ab->GetContents().Data(), ta->Buffer()->GetContents().Data());
-  EXPECT_EQ(ta->ByteOffset(), TypedArray::Cast(*ta->ToObject())->ByteOffset());
+  EXPECT_EQ(ta->ByteOffset(), TypedArrayType::Cast(*ta->ToObject())->ByteOffset());
+  EXPECT_TRUE(ta->IsTypedArray());
+  EXPECT_TRUE(TypedArray::Cast(*ta));
   return ta;
 }
 
