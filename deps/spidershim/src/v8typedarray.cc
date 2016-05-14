@@ -36,4 +36,31 @@ TypedArray* TypedArray::Cast(Value* obj) {
   assert(obj->IsTypedArray());
   return static_cast<TypedArray*>(obj);
 }
+
+#define ES_BUILTIN(X, Y)
+#define COMMON_VALUE(X)
+#define TYPED_ARRAY(TYPE)                                                     \
+  Local<TYPE##Array> TYPE##Array::New(Handle<ArrayBuffer> buffer,             \
+                                      size_t offset, size_t length) {         \
+    Isolate* isolate = buffer->GetIsolate();                                  \
+    JSContext* cx = JSContextFromIsolate(isolate);                            \
+    JS::RootedObject buf(cx, GetObject(buffer));                              \
+    JSObject* array = JS_New##TYPE##ArrayWithBuffer(cx, buf, offset, length); \
+    if (!array) {                                                             \
+      return Local<TYPE##Array>();                                            \
+    }                                                                         \
+    JS::Value arrayVal;                                                       \
+    arrayVal.setObject(*array);                                               \
+    return internal::Local<TYPE##Array>::New(isolate, arrayVal);              \
+  }                                                                           \
+                                                                              \
+  TYPE##Array* TYPE##Array::Cast(Value* v) {                                  \
+    assert(v->Is##TYPE##Array());                                             \
+    return static_cast<TYPE##Array*>(v);                                      \
+  }
+
+#include "valuemap.inc"
+#undef TYPED_ARRAY
+#undef ES_BUILTIN
+#undef COMMON_VALUE
 }
