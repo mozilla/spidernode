@@ -1,7 +1,6 @@
 {
   'variables': {
     'target_arch%': 'ia32',
-    'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
     'spidermonkey_gczeal%': 0,
 
     'conditions': [
@@ -29,6 +28,7 @@
         'spidermonkey_binaries': [
           '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
         ],
+        'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
         'conditions': [
           ['OS == "linux"', {
             'spidermonkey_binaries+': [
