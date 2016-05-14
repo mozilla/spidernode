@@ -36,12 +36,24 @@ static inline JS::Value* GetValue(const Local<Value>& val) {
   return GetValue(*val);
 }
 
+static inline JS::Value* GetValue(Template* val) {
+  return reinterpret_cast<JS::Value*>(val);
+}
+
 static inline Value* GetV8Value(JS::Value* val) {
   return reinterpret_cast<Value*>(val);
 }
 
 static inline Value* GetV8Value(JS::MutableHandleValue val) {
   return GetV8Value(val.address());
+}
+
+static inline Value* GetV8Value(Template* val) {
+  return GetV8Value(GetValue(val));
+}
+
+static inline Template* GetV8Template(JS::Value* val) {
+  return reinterpret_cast<Template*>(val);
 }
 
 static inline JSObject* GetObject(Value* val) {

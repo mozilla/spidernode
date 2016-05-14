@@ -736,6 +736,7 @@ private:
   template <class T> friend class Local;
 
   static Value* AddToScope(Value* val);
+  static Template* AddToScope(Template* val);
   static Script* AddToScope(JSScript* script);
   static Private* AddToScope(JS::Symbol* priv);
   static Context* AddToScope(Context* context) {
@@ -2036,9 +2037,19 @@ class V8_EXPORT Template : public Data {
   void Set(Isolate* isolate, const char* name, Handle<Data> value) {
     Set(v8::String::NewFromUtf8(isolate, name), value);
   }
+
+ protected:
+  static Local<Template> New(Isolate* isolate);
+
  private:
-  Template();
+  // We treat Templates as JS::Values containing a JSObject* that we can
+  // access properties on, etc, and we root them in the same way that we
+  // root v8::Value.
+  // TODO: Consider lifting this up into v8::Data once we have implemented
+  // all of the Data subclasses.
+  char spidershim_padding[8];
 };
+static_assert(sizeof(v8::Template) == 8, "v8::Template must be the same size as JS::Value");
 
 class V8_EXPORT FunctionTemplate : public Template {
  public:
@@ -2390,6 +2401,8 @@ private:
 
   Value* AddPersistent(Value* val);
   void RemovePersistent(Value* val);
+  Template* AddPersistent(Template* val);
+  void RemovePersistent(Template* val);
   Private* AddPersistent(Private* val); // not supported yet
   void RemovePersistent(Private* val);  // not supported yet
   Context* AddPersistent(Context* val) {
@@ -2399,8 +2412,6 @@ private:
   void RemovePersistent(Context* val) {
     // Contexts are not currently tracked by HandleScopes.
   }
-  Template* AddPersistent(Template* val); // not supported yet
-  void RemovePersistent(Template* val);   // not supported yet
   UnboundScript* AddPersistent(UnboundScript* val); // not supported yet
   void RemovePersistent(UnboundScript* val);        // not supported yet
 
@@ -2408,8 +2419,8 @@ private:
 
   Value* AddEternal(Value* val);
   Private* AddEternal(Private* val);
+  Template* AddEternal(Template* val);
   Context* AddEternal(Context* val);             // not supported yet
-  Template* AddEternal(Template* val);           // not supported yet
   UnboundScript* AddEternal(UnboundScript* val); // not supported yet
 
   JSRuntime* Runtime() const;

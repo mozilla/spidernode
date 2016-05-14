@@ -18,27 +18,28 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
+#include <assert.h>
+
 #include "conversions.h"
+#include "v8local.h"
 
 namespace v8 {
-namespace internal {
 
-template <class T>
-class Local {
- public:
-  static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Value(&val));
+Local<Template> Template::New(Isolate* isolate) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JSObject* obj = JS_NewObject(cx, nullptr);
+  if (!obj) {
+    return Local<Template>();
   }
-  static v8::Local<T> New(Isolate* isolate, JSScript* script) {
-    return v8::Local<T>::New(isolate, script);
-  }
-  static v8::Local<T> New(Isolate* isolate, JS::Symbol* symbol) {
-    return v8::Local<T>::New(isolate, symbol);
-  }
-  static v8::Local<T> NewTemplate(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Template(&val));
-  }
-};
+  JS::Value objVal;
+  objVal.setObject(*obj);
+  return internal::Local<Template>::NewTemplate(isolate, objVal);
+}
+
+void Template::Set(Local<String> name, Local<Data> value,
+                   PropertyAttribute attributes) {
+  // We have to ignore the return value since the V8 API returns void here.
+  Object* thisObj = Object::Cast(GetV8Value(this));
+  thisObj->ForceSet(name, value.As<Value>(), attributes);
 }
 }

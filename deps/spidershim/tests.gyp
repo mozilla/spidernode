@@ -36,5 +36,9 @@
       'target_name': 'isolate',
       'sources': [ 'test/isolate.cc' ],
     },
+    {
+      'target_name': 'template',
+      'sources': [ 'test/template.cc' ],
+    },
   ],
 }

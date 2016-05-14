@@ -62,7 +62,15 @@ class RootStore {
     return GetV8Value(&values.back());
   }
 
-  void Remove(Value* val) {
+  Template* Add(Template* val) {
+    values.push_back(*GetValue(val));
+    return GetV8Template(&values.back());
+  }
+
+  // T can be any type that GetValue() can convert to a JS::Value*,
+  // for example v8::Value or v8::Template.
+  template <class T>
+  void Remove(T* val) {
     typedef ValueVector::iterator Iter;
     for (Iter begin = values.get().begin(), end = values.get().end();
          begin != end; ++begin) {

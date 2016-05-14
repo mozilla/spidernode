@@ -70,6 +70,13 @@ Value* HandleScope::AddToScope(Value* val) {
   return sCurrentScope->pimpl_->Add(val);
 }
 
+Template* HandleScope::AddToScope(Template* val) {
+  if (!sCurrentScope) {
+    return nullptr;
+  }
+  return sCurrentScope->pimpl_->Add(val);
+}
+
 Script* HandleScope::AddToScope(JSScript* script) {
   if (!sCurrentScope) {
     return nullptr;

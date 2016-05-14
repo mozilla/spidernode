@@ -206,4 +206,50 @@ TEST(SpiderShim, Eternal) {
   Eternal<String> eternal2(isolate, v8_str("baz"));
   EXPECT_FALSE(eternal2.IsEmpty());
   EXPECT_EQ(3, eternal2.Get(isolate)->Length());
+
+  Eternal<Template> templ;
+  EXPECT_TRUE(templ.IsEmpty());
+  templ.Set(isolate, ObjectTemplate::New(isolate));
+  EXPECT_TRUE(!templ.IsEmpty());
+}
+
+TEST(SpiderShim, ResettingGlobalTemplateHandleToEmpty) {
+  // This test is based on ResettingGlobalHandleToEmpty test above, using Template.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = Isolate::GetCurrent();
+
+  size_t initial_handle_count = engine.GlobalHandleCount();
+  Persistent<Template> global;
+  {
+    HandleScope scope(isolate);
+    global.Reset(isolate, ObjectTemplate::New(isolate));
+  }
+  EXPECT_EQ(engine.GlobalHandleCount(), initial_handle_count + 1);
+  {
+    HandleScope scope(isolate);
+    Local<Template> empty;
+    global.Reset(isolate, empty);
+  }
+  EXPECT_TRUE(global.IsEmpty());
+  EXPECT_EQ(engine.GlobalHandleCount(), initial_handle_count);
+
+  Persistent<ObjectTemplate> globalObj;
+  {
+    HandleScope scope(isolate);
+    globalObj.Reset(isolate, ObjectTemplate::New(isolate));
+  }
+  EXPECT_EQ(engine.GlobalHandleCount(), initial_handle_count + 1);
+  {
+    HandleScope scope(isolate);
+    Local<ObjectTemplate> empty;
+    globalObj.Reset(isolate, empty);
+  }
+  EXPECT_TRUE(globalObj.IsEmpty());
+  EXPECT_EQ(engine.GlobalHandleCount(), initial_handle_count);
 }

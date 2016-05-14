@@ -18,27 +18,15 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
+#include <assert.h>
+
 #include "conversions.h"
+#include "v8local.h"
 
 namespace v8 {
-namespace internal {
 
-template <class T>
-class Local {
- public:
-  static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Value(&val));
-  }
-  static v8::Local<T> New(Isolate* isolate, JSScript* script) {
-    return v8::Local<T>::New(isolate, script);
-  }
-  static v8::Local<T> New(Isolate* isolate, JS::Symbol* symbol) {
-    return v8::Local<T>::New(isolate, symbol);
-  }
-  static v8::Local<T> NewTemplate(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Template(&val));
-  }
-};
+Local<ObjectTemplate> ObjectTemplate::New(Isolate* isolate) {
+  Local<Template> templ = Template::New(isolate);
+  return Local<ObjectTemplate>(static_cast<ObjectTemplate*>(*templ));
 }
 }

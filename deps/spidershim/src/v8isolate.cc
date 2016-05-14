@@ -170,6 +170,14 @@ void Isolate::RemovePersistent(Value* val) {
   return pimpl_->EnsurePersistents(this).Remove(val);
 }
 
+Template* Isolate::AddPersistent(Template* val) {
+  return pimpl_->EnsurePersistents(this).Add(val);
+}
+
+void Isolate::RemovePersistent(Template* val) {
+  return pimpl_->EnsurePersistents(this).Remove(val);
+}
+
 size_t Isolate::PersistentCount() const {
   if (pimpl_->persistents.isNothing()) {
     return 0;
@@ -183,6 +191,10 @@ Value* Isolate::AddEternal(Value* val) {
 
 Private* Isolate::AddEternal(Private* val) {
   return pimpl_->EnsureEternals(this).Add(val->symbol_);
+}
+
+Template* Isolate::AddEternal(Template* val) {
+  return pimpl_->EnsureEternals(this).Add(val);
 }
 
 bool Isolate::AddMessageListener(MessageCallback that, Handle<Value> data) {
