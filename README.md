@@ -45,7 +45,7 @@ Where `options` is one or more of:
 Note that right now the build will fail as stated above when linking Node.  To run the tests, do:
 
 ```bash
-./deps/spidershim/scripts/run-tests.sh
+./deps/spidershim/scripts/run-tests.py
 ```
 
 ### Repository structure

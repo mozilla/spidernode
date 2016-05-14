@@ -28,7 +28,7 @@ before_script:
 script:
   - make V= -k || true
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
-  - ./deps/spidershim/scripts/run-tests.sh
+  - ./deps/spidershim/scripts/run-tests.py
 notifications:
   email: true
 env:
