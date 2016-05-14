@@ -18,8 +18,8 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#include "include/libplatform/libplatform.h"
-#include "include/v8.h"
+#include "libplatform/libplatform.h"
+#include "v8.h"
 
 #include <memory>
 #include <string.h>

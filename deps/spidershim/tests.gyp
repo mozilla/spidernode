@@ -1,7 +1,7 @@
 {
   'target_defaults': {
     'type': 'executable',
-    'include_dirs': [ '.' ],
+    'include_dirs': [ 'test' ],
     'dependencies': [
       'spidershim.gyp:spidershim',
       '../gtest/gtest.gyp:gtest',
