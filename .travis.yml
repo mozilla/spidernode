@@ -6,7 +6,7 @@ compiler:
 env:
   - BUILD_CONFIG=normal
   - BUILD_CONFIG=gczeal
-dist: trusty
+dist: precise
 os:
   - linux
   - osx
