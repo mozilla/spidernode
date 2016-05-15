@@ -46,6 +46,27 @@ TEST(SpiderShim, MessageHandler) {
   EXPECT_TRUE(result.IsEmpty());
 
   EXPECT_TRUE(message_received);
+
+  // Now try again with a TryCatch on the stack!
+  {
+    message_received = false;
+    TryCatch try_catch(engine.isolate());
+    MaybeLocal<Value> result = Foo->Call(context, Foo, 0, args0);
+    EXPECT_TRUE(result.IsEmpty());
+    EXPECT_TRUE(!message_received);
+  }
+  EXPECT_TRUE(!message_received);
+
+  // Now try again with a verbose TryCatch on the stack!
+  {
+    message_received = false;
+    TryCatch try_catch(engine.isolate());
+    try_catch.SetVerbose(true);
+    MaybeLocal<Value> result = Foo->Call(context, Foo, 0, args0);
+    EXPECT_TRUE(result.IsEmpty());
+    EXPECT_TRUE(message_received);
+  }
+
   // clear out the message listener
   context->GetIsolate()->RemoveMessageListeners(check_message);
 }

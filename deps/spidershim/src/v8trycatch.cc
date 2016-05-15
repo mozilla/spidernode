@@ -82,6 +82,7 @@ struct TryCatch::Impl {
     return exception_.unsafeGet();
   }
   void SetVerbose(bool verbose) { verbose_ = verbose; }
+  bool IsVerbose() const { return verbose_; }
   void SetInternal() { internal_ = true; }
   bool IsInternal() const { return internal_; }
   TryCatch* Previous() const { return prev_; }
@@ -186,12 +187,13 @@ void TryCatch::CheckReportExternalException() {
     nonInternal->pimpl_->GetAndClearExceptionIfNeeded();
   }
 
-  if (!pimpl_->Previous()) {
+  if (!pimpl_->Previous() || pimpl_->Previous()->pimpl_->IsVerbose()) {
+    auto exceptionHolder = pimpl_->Previous() ? nonInternal : this;
     auto isolateImpl =
         reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
     auto messageListeners = isolateImpl->messageListeners;
     for (auto i : messageListeners) {
-      (*i)(this->Message(), this->Exception());
+      (*i)(exceptionHolder->Message(), exceptionHolder->Exception());
     }
   } else {
     pimpl_->IgnoreException();
