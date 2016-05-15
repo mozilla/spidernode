@@ -22,13 +22,21 @@
 #include <vector>
 
 #include "v8.h"
+#include "v8handlescope.h"
 #include "jsapi.h"
 #include "rootstore.h"
+#include "mozilla/ThreadLocal.h"
 
 namespace v8 {
 
-// TODO: This needs to be allocated in TLS.
-static HandleScope* sCurrentScope = nullptr;
+static MOZ_THREAD_LOCAL(HandleScope*) sCurrentScope;
+
+namespace internal {
+
+bool InitializeHandleScope() {
+  return sCurrentScope.init();
+}
+}
 
 struct HandleScope::Impl : internal::RootStore {
   Impl(Isolate* iso) : RootStore(iso), isolate(iso) {}
@@ -40,18 +48,18 @@ HandleScope::HandleScope(Isolate* isolate) {
   Local<Context> context = Context::New(isolate);
   Context::Scope scope(context);
   pimpl_ = new Impl(isolate);
-  pimpl_->prev = sCurrentScope;
-  sCurrentScope = this;
+  pimpl_->prev = sCurrentScope.get();
+  sCurrentScope.set(this);
 }
 
 HandleScope::~HandleScope() {
   assert(pimpl_);
-  sCurrentScope = pimpl_->prev;
+  sCurrentScope.set(pimpl_->prev);
   delete pimpl_;
 }
 
 int HandleScope::NumberOfHandles(Isolate* isolate) {
-  HandleScope* current = sCurrentScope;
+  HandleScope* current = sCurrentScope.get();
   size_t count = 0;
   while (current) {
     assert(current->pimpl_);
@@ -64,35 +72,35 @@ int HandleScope::NumberOfHandles(Isolate* isolate) {
 }
 
 Value* HandleScope::AddToScope(Value* val) {
-  if (!sCurrentScope) {
+  if (!sCurrentScope.get()) {
     return nullptr;
   }
-  return sCurrentScope->pimpl_->Add(val);
+  return sCurrentScope.get()->pimpl_->Add(val);
 }
 
 Template* HandleScope::AddToScope(Template* val) {
-  if (!sCurrentScope) {
+  if (!sCurrentScope.get()) {
     return nullptr;
   }
-  return sCurrentScope->pimpl_->Add(val);
+  return sCurrentScope.get()->pimpl_->Add(val);
 }
 
 Script* HandleScope::AddToScope(JSScript* script) {
-  if (!sCurrentScope) {
+  if (!sCurrentScope.get()) {
     return nullptr;
   }
-  return sCurrentScope->pimpl_->Add(script);
+  return sCurrentScope.get()->pimpl_->Add(script);
 }
 
 Private* HandleScope::AddToScope(JS::Symbol* symbol) {
-  if (!sCurrentScope) {
+  if (!sCurrentScope.get()) {
     return nullptr;
   }
-  return sCurrentScope->pimpl_->Add(symbol);
+  return sCurrentScope.get()->pimpl_->Add(symbol);
 }
 
 bool EscapableHandleScope::AddToParentScope(Value* val) {
-  return sCurrentScope && sCurrentScope->pimpl_->prev &&
-         !!sCurrentScope->pimpl_->prev->pimpl_->Add(val);
+  return sCurrentScope.get() && sCurrentScope.get()->pimpl_->prev &&
+         !!sCurrentScope.get()->pimpl_->prev->pimpl_->Add(val);
 }
 }
