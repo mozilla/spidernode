@@ -12,14 +12,16 @@ FOOTER = "    ],\n  }\n}"
 def main():
     base_dir = get_base_dir()
     spidermonkey_dir = '%s/deps/spidershim/spidermonkey' % base_dir
+    ignored = get_ignored_files(base_dir)
 
     target = open('%s/deps/spidershim/spidermonkey-files.gypi' % base_dir, 'w')
     target.truncate()
     target.write(HEADER)
 
     for f in get_all_files(spidermonkey_dir):
-        f = os.path.relpath(f, '%s/deps/spidershim' % base_dir)
-        target.write("      '%s',\n" % f);
+        if os.path.relpath(f, base_dir) not in ignored:
+            f = os.path.relpath(f, '%s/deps/spidershim' % base_dir)
+            target.write("      '%s',\n" % f);
 
     target.write(FOOTER)
 
@@ -32,6 +34,20 @@ def get_base_dir():
         return process.communicate()[0].strip()
     except e:
         return None
+
+def get_ignored_files(base_dir):
+    files = set()
+    pwd = os.getcwd()
+    try:
+        os.chdir(base_dir)
+        process = subprocess.Popen("git ls-files --others --ignored --exclude-standard".split(" "),
+                                   stdout=subprocess.PIPE)
+        files = set(process.communicate()[0].strip().split("\n"))
+    except e:
+        pass
+    finally:
+        os.chdir(pwd)
+    return files
 
 def get_all_files(current_path):
     files = []
