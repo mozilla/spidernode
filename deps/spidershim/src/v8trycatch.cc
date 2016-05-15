@@ -24,6 +24,7 @@
 #include "conversions.h"
 #include "v8local.h"
 #include "v8isolate.h"
+#include "v8trycatch.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
 
@@ -31,7 +32,8 @@ namespace v8 {
 
 struct TryCatch::Impl {
   Impl(class Isolate* iso, TryCatch* self)
-      : isolate_(iso), prev_(iso->GetTopmostTryCatch()), verbose_(false) {
+      : isolate_(iso), prev_(iso->GetTopmostTryCatch()), verbose_(false),
+        internal_(false) {
     iso->SetTopmostTryCatch(self);
     Reset();
   }
@@ -79,6 +81,8 @@ struct TryCatch::Impl {
     return exception_.unsafeGet();
   }
   void SetVerbose(bool verbose) { verbose_ = verbose; }
+  void SetInternal() { internal_ = true; }
+  bool IsInternal() const { return internal_; }
 
   void Reset() {
     hasException_ = false;
@@ -119,9 +123,14 @@ struct TryCatch::Impl {
   mutable bool hasExceptionSet_;
   mutable bool rethrow_;
   bool verbose_;
+  bool internal_;
 };
 
 TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso, this)) {}
+
+internal::TryCatch::TryCatch(Isolate* iso) : v8::TryCatch(iso) {
+  pimpl_->SetInternal();
+}
 
 TryCatch::~TryCatch() {
   assert(pimpl_->Isolate()->GetTopmostTryCatch() == this);

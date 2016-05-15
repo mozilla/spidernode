@@ -22,6 +22,7 @@
 #include "v8.h"
 #include "v8conversions.h"
 #include "v8local.h"
+#include "v8trycatch.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
@@ -68,7 +69,7 @@ MaybeLocal<Value> Function::Call(Local<Context>, Local<Value> recv, int argc,
 
   JS::RootedValue func(cx, *GetValue(this));
   JS::RootedValue ret(cx);
-  TryCatch tryCatch(isolate);
+  internal::TryCatch tryCatch(isolate);
   if (!JS::Call(cx, val, func, args, &ret)) {
     tryCatch.CheckReportExternalException();
     return Local<Value>();

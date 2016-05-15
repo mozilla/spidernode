@@ -2602,7 +2602,7 @@ class V8_EXPORT TryCatch {
   void SetVerbose(bool value);
   void SetCaptureMessage(bool value);
 
- private:
+ protected:
   friend class Function;
 
   void CheckReportExternalException();
