@@ -22,6 +22,7 @@
 
 #include "v8.h"
 #include "v8handlescope.h"
+#include "v8isolate.h"
 #include "jsapi.h"
 #include "js/Initialization.h"
 
@@ -33,7 +34,8 @@ bool gDisposed = false;
 
 bool V8::Initialize() {
   assert(!internal::gDisposed);
-  return v8::internal::InitializeHandleScope() &&
+  return v8::internal::InitializeIsolate() &&
+         v8::internal::InitializeHandleScope() &&
          JS_Init();
 }
 

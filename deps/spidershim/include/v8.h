@@ -2379,8 +2379,6 @@ class V8_EXPORT Isolate {
   ~Isolate();
 
 private:
-  static Isolate* current_;
-
   Isolate();
 
   void AddContext(Context* context);

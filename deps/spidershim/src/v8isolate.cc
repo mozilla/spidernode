@@ -26,6 +26,7 @@
 #include "v8isolate.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/ThreadLocal.h"
 
 namespace {
 
@@ -50,7 +51,14 @@ void OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
 
 namespace v8 {
 
-Isolate* Isolate::current_ = nullptr;
+static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
+
+namespace internal {
+
+bool InitializeIsolate() {
+  return sCurrentIsolate.init();
+}
+}
 
 Isolate::Isolate() : pimpl_(new Impl()) {
   const uint32_t defaultHeapSize = sizeof(void*) == 8 ? 1024 * 1024 * 1024
@@ -95,18 +103,18 @@ Isolate* Isolate::New(const CreateParams& params) {
 
 Isolate* Isolate::New() { return new Isolate(); }
 
-Isolate* Isolate::GetCurrent() { return current_; }
+Isolate* Isolate::GetCurrent() { return sCurrentIsolate.get(); }
 
 void Isolate::Enter() {
   // TODO: Multiple isolates not currently supported.
-  assert(!current_);
-  current_ = this;
+  assert(!sCurrentIsolate.get());
+  sCurrentIsolate.set(this);
 }
 
 void Isolate::Exit() {
   // TODO: Multiple isolates not currently supported.
-  assert(current_ == this);
-  current_ = nullptr;
+  assert(sCurrentIsolate.get() == this);
+  sCurrentIsolate.set(nullptr);
 }
 
 void Isolate::Dispose() {

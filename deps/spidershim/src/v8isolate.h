@@ -32,6 +32,8 @@ namespace v8 {
 namespace internal {
 // Node only has 4 slots
 static const uint32_t kNumIsolateDataSlots = 4;
+
+bool InitializeIsolate();
 }
 
 struct Isolate::Impl {
