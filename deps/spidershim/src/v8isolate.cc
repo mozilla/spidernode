@@ -55,9 +55,7 @@ static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
 
 namespace internal {
 
-bool InitializeIsolate() {
-  return sCurrentIsolate.init();
-}
+bool InitializeIsolate() { return sCurrentIsolate.init(); }
 }
 
 Isolate::Isolate() : pimpl_(new Impl()) {

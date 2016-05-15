@@ -58,5 +58,4 @@ size_t ArrayBufferView::ByteLength() {
 
   return JS_GetDataViewByteLength(view);
 }
-
 }

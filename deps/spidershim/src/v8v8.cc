@@ -35,8 +35,7 @@ bool gDisposed = false;
 bool V8::Initialize() {
   assert(!internal::gDisposed);
   return v8::internal::InitializeIsolate() &&
-         v8::internal::InitializeHandleScope() &&
-         JS_Init();
+         v8::internal::InitializeHandleScope() && JS_Init();
 }
 
 bool V8::Dispose() {

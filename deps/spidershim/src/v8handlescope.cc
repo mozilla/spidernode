@@ -33,9 +33,7 @@ static MOZ_THREAD_LOCAL(HandleScope*) sCurrentScope;
 
 namespace internal {
 
-bool InitializeHandleScope() {
-  return sCurrentScope.init();
-}
+bool InitializeHandleScope() { return sCurrentScope.init(); }
 }
 
 struct HandleScope::Impl : internal::RootStore {

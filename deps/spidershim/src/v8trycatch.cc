@@ -32,13 +32,16 @@ namespace v8 {
 
 struct TryCatch::Impl {
   Impl(class Isolate* iso, TryCatch* self)
-      : isolate_(iso), prev_(iso->GetTopmostTryCatch()), verbose_(false),
+      : isolate_(iso),
+        prev_(iso->GetTopmostTryCatch()),
+        verbose_(false),
         internal_(false) {
     iso->SetTopmostTryCatch(self);
     Reset();
   }
   ~Impl() {
-    // Internal TryCatch should never catch exceptions unless there is an outer one.
+    // Internal TryCatch should never catch exceptions unless there is an outer
+    // one.
     assert(!internal_ || !prev_ || !hasExceptionSet_);
 
     isolate_->SetTopmostTryCatch(prev_);
@@ -140,7 +143,8 @@ struct TryCatch::Impl {
   bool internal_;
 };
 
-TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso ? iso : Isolate::GetCurrent(), this)) {}
+TryCatch::TryCatch(Isolate* iso)
+    : pimpl_(new Impl(iso ? iso : Isolate::GetCurrent(), this)) {}
 
 internal::TryCatch::TryCatch(Isolate* iso) : v8::TryCatch(iso) {
   pimpl_->SetInternal();
@@ -180,7 +184,8 @@ void TryCatch::CheckReportExternalException() {
   // TODO: update this when proprogating exceptions is implemented:
   // https://github.com/mozilla/spidernode/issues/89
 
-  // Transfer the exception to the previous non-internal TryCatch if there is one.
+  // Transfer the exception to the previous non-internal TryCatch if there is
+  // one.
   TryCatch* nonInternal = pimpl_->PreviousNonInternal();
   if (nonInternal) {
     nonInternal->pimpl_->Reset();
