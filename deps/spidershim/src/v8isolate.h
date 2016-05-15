@@ -37,7 +37,9 @@ bool InitializeIsolate();
 }
 
 struct Isolate::Impl {
-  Impl() : rt(nullptr), topTryCatch(nullptr) {}
+  Impl() : rt(nullptr), topTryCatch(nullptr) {
+    memset(embeddedData, 0, sizeof(embeddedData));
+  }
 
   JSRuntime* rt;
   TryCatch* topTryCatch;
