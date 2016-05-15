@@ -140,7 +140,7 @@ struct TryCatch::Impl {
   bool internal_;
 };
 
-TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso, this)) {}
+TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso ? iso : Isolate::GetCurrent(), this)) {}
 
 internal::TryCatch::TryCatch(Isolate* iso) : v8::TryCatch(iso) {
   pimpl_->SetInternal();

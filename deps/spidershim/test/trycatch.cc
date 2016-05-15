@@ -209,7 +209,7 @@ static void CheckTryCatchSourceInfo(const V8Engine& engine,
                                     const char* resource_name,
                                     int line_offset) {
   HandleScope scope(engine.isolate());
-  TryCatch try_catch(engine.isolate());
+  TryCatch try_catch;
   EXPECT_TRUE(try_catch.Message().IsEmpty());
   Local<Context> context = engine.isolate()->GetCurrentContext();
   EXPECT_TRUE(script->Run(context).IsEmpty());
