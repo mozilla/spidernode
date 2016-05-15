@@ -201,6 +201,9 @@ void TryCatch::CheckReportExternalException() {
 }
 
 Local<Message> TryCatch::Message() const {
+  if (!pimpl_->HasException()) {
+    return Local<class Message>();
+  }
   auto msg = new class Message(Exception());
   return Local<class Message>::New(Isolate::GetCurrent(), msg);
 }
