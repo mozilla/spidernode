@@ -37,7 +37,10 @@ bool InitializeIsolate();
 }
 
 struct Isolate::Impl {
+  Impl() : rt(nullptr), topTryCatch(nullptr) {}
+
   JSRuntime* rt;
+  TryCatch* topTryCatch;
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
   std::vector<StackFrame*> stackFrames;

@@ -30,8 +30,13 @@
 namespace v8 {
 
 struct TryCatch::Impl {
-  Impl(class Isolate* iso) : isolate_(iso), verbose_(false) { Reset(); }
+  Impl(class Isolate* iso, TryCatch* self)
+      : isolate_(iso), prev_(iso->GetTopmostTryCatch()), verbose_(false) {
+    iso->SetTopmostTryCatch(self);
+    Reset();
+  }
   ~Impl() {
+    isolate_->SetTopmostTryCatch(prev_);
     JSContext* cx = JSContextFromIsolate(isolate_);
     if (!rethrow_ && JS_IsExceptionPending(cx)) {
       JS_ClearPendingException(cx);
@@ -108,6 +113,7 @@ struct TryCatch::Impl {
 
  private:
   class Isolate* isolate_;
+  class TryCatch* prev_;
   mutable JS::Heap<JS::Value> exception_;
   mutable bool hasException_;
   mutable bool hasExceptionSet_;
@@ -115,9 +121,12 @@ struct TryCatch::Impl {
   bool verbose_;
 };
 
-TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso)) {}
+TryCatch::TryCatch(Isolate* iso) : pimpl_(new Impl(iso, this)) {}
 
-TryCatch::~TryCatch() { delete pimpl_; }
+TryCatch::~TryCatch() {
+  assert(pimpl_->Isolate()->GetTopmostTryCatch() == this);
+  delete pimpl_;
+}
 
 bool TryCatch::HasCaught() const { return pimpl_->HasException(); }
 

@@ -102,6 +102,7 @@ class StackTrace;
 class String;
 class StringObject;
 class Template;
+class TryCatch;
 class Uint32;
 class UnboundScript;
 template <class T> class Local;
@@ -2420,6 +2421,9 @@ private:
   UnboundScript* AddEternal(UnboundScript* val); // not supported yet
 
   JSRuntime* Runtime() const;
+
+  TryCatch* GetTopmostTryCatch() const;
+  void SetTopmostTryCatch(TryCatch* val);
 
   struct Impl;
   Impl* pimpl_;

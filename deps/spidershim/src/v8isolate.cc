@@ -233,4 +233,8 @@ void* Isolate::GetData(uint32_t slot) {
              ? pimpl_->embeddedData[slot]
              : nullptr;
 }
+
+TryCatch* Isolate::GetTopmostTryCatch() const { return pimpl_->topTryCatch; }
+
+void Isolate::SetTopmostTryCatch(TryCatch* val) { pimpl_->topTryCatch = val; }
 }
