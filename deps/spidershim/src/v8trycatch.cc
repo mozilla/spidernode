@@ -38,13 +38,14 @@ struct TryCatch::Impl {
     Reset();
   }
   ~Impl() {
+    // Internal TryCatch should never catch exceptions unless there is an outer one.
+    assert(!internal_ || !prev_ || !hasExceptionSet_);
+
     isolate_->SetTopmostTryCatch(prev_);
     JSContext* cx = JSContextFromIsolate(isolate_);
     if (!rethrow_ && JS_IsExceptionPending(cx)) {
       JS_ClearPendingException(cx);
     }
-    // TODO: Propagate exceptions to the caller
-    //       https://github.com/mozilla/spidernode/issues/51
   }
   class Isolate* Isolate() const {
     return isolate_;
@@ -83,6 +84,18 @@ struct TryCatch::Impl {
   void SetVerbose(bool verbose) { verbose_ = verbose; }
   void SetInternal() { internal_ = true; }
   bool IsInternal() const { return internal_; }
+  TryCatch* Previous() const { return prev_; }
+  TryCatch* PreviousNonInternal() const {
+    TryCatch* tc = prev_;
+    while (tc && tc->pimpl_->IsInternal()) {
+      tc = tc->pimpl_->prev_;
+    }
+    return tc;
+  }
+  void IgnoreException() {
+    assert(!hasExceptionSet_);
+    rethrow_ = true;
+  }
 
   void Reset() {
     hasException_ = false;
@@ -162,14 +175,26 @@ void TryCatch::Reset() { pimpl_->Reset(); }
 void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
 
 void TryCatch::CheckReportExternalException() {
+  assert(pimpl_->IsInternal());
   // TODO: update this when proprogating exceptions is implemented:
-  // https://github.com/mozilla/spidernode/issues/51
   // https://github.com/mozilla/spidernode/issues/89
-  auto isolateImpl =
-      reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
-  auto messageListeners = isolateImpl->messageListeners;
-  for (auto i : messageListeners) {
-    (*i)(this->Message(), this->Exception());
+
+  // Transfer the exception to the previous non-internal TryCatch if there is one.
+  TryCatch* nonInternal = pimpl_->PreviousNonInternal();
+  if (nonInternal) {
+    nonInternal->pimpl_->Reset();
+    nonInternal->pimpl_->GetAndClearExceptionIfNeeded();
+  }
+
+  if (!pimpl_->Previous()) {
+    auto isolateImpl =
+        reinterpret_cast<Isolate::Impl*>(pimpl_->Isolate()->pimpl_);
+    auto messageListeners = isolateImpl->messageListeners;
+    for (auto i : messageListeners) {
+      (*i)(this->Message(), this->Exception());
+    }
+  } else {
+    pimpl_->IgnoreException();
   }
 }
 

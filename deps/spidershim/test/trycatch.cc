@@ -336,3 +336,30 @@ TEST(SpiderShim, TryCatchStackTrace) {
   String::Utf8Value stackTrace(try_catch.StackTrace());
   EXPECT_STREQ(expectedStack, *stackTrace);
 }
+
+TEST(SpiderShim, TryCatchFunctionCall) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  engine.CompileRun(context,
+      "function Foo() {\n"
+      "  throw new Error('quirk');\n"
+      "}");
+  Local<Function> Foo = Local<Function>::Cast(
+      context->Global()->Get(context, v8_str("Foo")).ToLocalChecked());
+  TryCatch try_catch(context->GetIsolate());
+  Local<Value>* args0 = NULL;
+  MaybeLocal<Value> a0 = Foo->Call(context, Foo, 0, args0);
+  EXPECT_TRUE(a0.IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  EXPECT_TRUE(*try_catch.Exception());
+  String::Utf8Value str_value(try_catch.Exception());
+  EXPECT_STREQ("Error: quirk", *str_value);
+  String::Utf8Value stackTrace(try_catch.StackTrace());
+  EXPECT_STREQ("Foo@:2:9\n", *stackTrace);
+}
