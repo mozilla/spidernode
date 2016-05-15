@@ -46,10 +46,16 @@
         ],
       },
 
+      'includes': [
+        'spidermonkey-files.gypi',
+      ],
+
       'actions': [
         {
           'action_name': 'build_spidermonkey',
-          'inputs': [],
+          'inputs': [
+            '<@(spidermonkey_files)',
+          ],
           'outputs': [
             '<@(spidermonkey_binaries)',
           ],
