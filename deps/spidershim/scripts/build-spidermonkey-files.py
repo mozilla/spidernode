@@ -27,27 +27,34 @@ def main():
 
     return 0
 
-def get_base_dir():
+def run_cmd(cmd):
     try:
-        process = subprocess.Popen("git rev-parse --show-toplevel".split(" "),
-                                   stdout=subprocess.PIPE)
-        return process.communicate()[0].strip()
+        process = subprocess.Popen(cmd.split(" "), stdout=subprocess.PIPE)
+        return process.communicate()[0]
     except e:
         return None
 
+def get_base_dir():
+    result = run_cmd("git rev-parse --show-toplevel")
+    if result is not None:
+        return result.strip()
+    return None
+
 def get_ignored_files(base_dir):
-    files = set()
     pwd = os.getcwd()
-    try:
-        os.chdir(base_dir)
-        process = subprocess.Popen("git ls-files --others --ignored --exclude-standard".split(" "),
-                                   stdout=subprocess.PIPE)
-        files = set(process.communicate()[0].strip().split("\n"))
-    except e:
-        pass
-    finally:
-        os.chdir(pwd)
-    return files
+    os.chdir(base_dir)
+    ignored = run_cmd("git ls-files --others --ignored --exclude-standard")
+    if ignored is None:
+        ignored = set()
+    else:
+        ignored = set(ignored.strip().split("\n"))
+    others = run_cmd("git ls-files --others --exclude-standard")
+    if others is None:
+        others = set()
+    else:
+        others = set(others.strip().split("\n"))
+    os.chdir(pwd)
+    return ignored | others
 
 def get_all_files(current_path):
     files = []
