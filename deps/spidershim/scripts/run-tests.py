@@ -18,10 +18,10 @@ def main():
         cmd = "%s/out/%s/%s" % (base_dir, config, test)
         if is_executable(cmd):
             try:
-                subprocess.Popen(cmd).communicate()
-            except e:
+                subprocess.check_call(cmd)
+            except:
                 print >> sys.stderr, '%s failed, see the log above' % cmd
-                return e.returncode
+                return 1
             ran_test = True
         else:
             print >> sys.stderr, 'Skipping %s since it does not exist' % cmd
