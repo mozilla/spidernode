@@ -35,4 +35,14 @@ Proxy::Cast(Value* v)
   assert(v->IsProxy());
   return static_cast<Proxy*>(v);
 }
+
+Local<Object>
+Proxy::GetTarget()
+{
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedObject obj(cx, GetObject(this));
+  JS::Value target;
+  target.setObject(*GetProxyTargetObject(obj));
+  return internal::Local<Object>::New(Isolate::GetCurrent(), target);
+}
 }
