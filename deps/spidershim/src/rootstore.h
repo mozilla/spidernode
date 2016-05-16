@@ -51,6 +51,9 @@ class RootStore {
     for (auto priv : privateObjects) {
       delete priv;
     }
+    for (auto message : messages) {
+      delete message;
+    }
   }
 
   size_t RootedCount() const {
@@ -95,12 +98,18 @@ class RootStore {
     return privateObjects.back();
   }
 
+  Message* Add(Message* message) {
+    messages.push_back(message);
+    return message;
+  }
+
  private:
   JS::Rooted<ValueVector> values;
   JS::Rooted<ScriptVector> scripts;
   std::vector<Script*> scriptObjects;
   JS::Rooted<SymbolVector> symbols;
   std::vector<Private*> privateObjects;
+  std::vector<Message*> messages;
 };
 }
 }

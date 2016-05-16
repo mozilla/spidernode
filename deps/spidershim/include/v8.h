@@ -740,13 +740,10 @@ private:
   static Template* AddToScope(Template* val);
   static Script* AddToScope(JSScript* script);
   static Private* AddToScope(JS::Symbol* priv);
+  static Message* AddToScope(Message* msg);
   static Context* AddToScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return context;
-  }
-  static Message* AddToScope(Message* msg) {
-    // Messages are not currently tracked by HandleScopes.
-    return msg;
   }
   static StackFrame* AddToScope(StackFrame* frame) {
     // StackFrames are not currently tracked by HandleScopes.
@@ -937,6 +934,7 @@ class V8_EXPORT Message {
 
 private:
   friend class TryCatch;
+  friend class internal::RootStore;
   explicit Message(Local<Value> exception);
   ~Message();
 

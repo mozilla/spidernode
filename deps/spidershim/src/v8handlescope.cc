@@ -97,6 +97,13 @@ Private* HandleScope::AddToScope(JS::Symbol* symbol) {
   return sCurrentScope.get()->pimpl_->Add(symbol);
 }
 
+Message* HandleScope::AddToScope(Message* message) {
+  if (!sCurrentScope.get()) {
+    return nullptr;
+  }
+  return sCurrentScope.get()->pimpl_->Add(message);
+}
+
 bool EscapableHandleScope::AddToParentScope(Value* val) {
   return sCurrentScope.get() && sCurrentScope.get()->pimpl_->prev &&
          !!sCurrentScope.get()->pimpl_->prev->pimpl_->Add(val);
