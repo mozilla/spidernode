@@ -1,32 +1,89 @@
 language: cpp
 sudo: false
-compiler:
-  #- gcc
-  - clang
-env:
-  - BUILD_CONFIG=normal
-  - BUILD_CONFIG=gczeal
-dist: trusty
-os:
-  - linux
-  - osx
 cache:
   - ccache
   - apt
 addons:
-  apt:
+  apt: &apt
+    sources:
+      - ubuntu-toolchain-r-test
     packages:
       - autoconf2.13
       - yasm
-      #- gcc-4.8
-      #- g++-4.8
+      - texinfo
+matrix:
+  include:
+    - os: linux
+      compiler: clang
+      dist: trusty
+      env: BUILD_CONFIG=normal
+
+    - os: linux
+      compiler: gcc-4.8
+      dist: trusty
+      env: BUILD_CONFIG=normal
+      addons:
+        apt:
+          <<: *apt
+          packages:
+            - autoconf2.13
+            - yasm
+            - texinfo
+            - g++-4.8
+      install: export CC=gcc-4.8 CXX=g++-4.8
+
+    - os: linux
+      compiler: gcc-5
+      dist: trusty
+      env: BUILD_CONFIG=normal
+      addons:
+        apt:
+          <<: *apt
+          packages:
+            - autoconf2.13
+            - yasm
+            - texinfo
+            - g++-5
+      install: export CC=gcc-5 CXX=g++-5
+
+    - os: linux
+      compiler: clang
+      dist: trusty
+      env: BUILD_CONFIG=gczeal
+
+    - os: linux
+      compiler: clang
+      dist: trusty
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true
+
+    - os: osx
+      compiler: clang
+      env: BUILD_CONFIG=normal
+
+    - os: osx
+      compiler: clang
+      env: BUILD_CONFIG=gczeal
+
+    - os: osx
+      compiler: clang-3.8
+      osx_image: xcode7.3
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true
+      before_install:
+        - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+        - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+        - brew update
+        - brew tap homebrew/versions
+        - brew unlink autoconf
+        - brew install autoconf213
+        - brew install yasm gawk ccache python
+      install: export CC=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang CXX=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; fi
 before_script:
-  - ./configure --debug --engine=spidermonkey $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
+  - ./configure --debug --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
 script:
-  - make V= -k || true
+  - travis_wait 30 make V= -k || true
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
   - ./deps/spidershim/scripts/run-tests.py
 notifications:
