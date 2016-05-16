@@ -2629,7 +2629,6 @@ TEST(SpiderShim, EmbedderDataAlignedPointers) {
   HandleScope handle_scope(engine.isolate());
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
-  Isolate* isolate = context->GetIsolate();
 
   CheckAlignedPointerInEmbedderData(&context, 0, NULL);
 
