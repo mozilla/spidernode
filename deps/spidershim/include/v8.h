@@ -938,6 +938,7 @@ class V8_EXPORT Message {
 private:
   friend class TryCatch;
   explicit Message(Local<Value> exception);
+  ~Message();
 
 private:
   struct Impl;

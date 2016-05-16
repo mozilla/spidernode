@@ -59,6 +59,8 @@ struct Message::Impl {
 Message::Message(Local<Value> exception)
     : pimpl_(new Impl(GetValue(exception))) {}
 
+Message::~Message() { delete pimpl_; }
+
 MaybeLocal<String> Message::GetSourceLine(Local<Context> context) const {
   return pimpl_->sourceLine_;
 }
