@@ -1701,7 +1701,7 @@ TEST(SpiderShim, NewStringRangeError) {
     TryCatch try_catch(isolate);
     uint16_t* data = reinterpret_cast<uint16_t*>(buffer);
     // Satisfy JSExternalString::new_ constraint that data is null-terminated.
-    data[buffer_size/sizeof(uint16_t)] = '\0';
+    data[buffer_size/sizeof(uint16_t) - 1] = '\0';
     TestExternalStringResource* testResource =
       new TestExternalStringResource(data, length);
     CHECK(String::NewExternalTwoByte(isolate, testResource).IsEmpty());
@@ -1711,7 +1711,7 @@ TEST(SpiderShim, NewStringRangeError) {
     TryCatch try_catch(isolate);
     char* data = reinterpret_cast<char*>(buffer);
     // Satisfy JSExternalString::new_ constraint that data is null-terminated.
-    data[buffer_size/sizeof(char)] = '\0';
+    data[buffer_size/sizeof(char) - 1] = '\0';
     TestExternalOneByteStringResource* testResource =
       new TestExternalOneByteStringResource(data, length);
     CHECK(String::NewExternalOneByte(isolate, testResource).IsEmpty());
