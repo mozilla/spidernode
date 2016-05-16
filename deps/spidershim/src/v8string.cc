@@ -434,7 +434,7 @@ void ExternalOneByteStringFinalizer::FinalizeExternalString(
   // NewExternalOneByte made a two-byte copy of the data in the resource,
   // and this is that copy. The resource will handle deleting its original
   // data, but we have to delete this copy.
-  delete chars;
+  js_free(chars);
 }
 
 // Based on WriteHelper in V8's api.cc.
