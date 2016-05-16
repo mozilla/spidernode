@@ -28,6 +28,7 @@ UNIFIED_SOURCES += [
     'testEnclosingFunction.cpp',
     'testErrorCopying.cpp',
     'testException.cpp',
+    'testExternalArrayBuffer.cpp',
     'testExternalStrings.cpp',
     'testFindSCCs.cpp',
     'testForceLexicalInitialization.cpp',
@@ -140,6 +141,9 @@ USE_LIBS += [
 ]
 
 OS_LIBS += CONFIG['MOZ_ZLIB_LIBS']
+
+if CONFIG['GNU_CXX']:
+    CXXFLAGS += ['-Wno-shadow']
 
 # This is intended as a temporary workaround to enable VS2015.
 if CONFIG['_MSC_VER']:

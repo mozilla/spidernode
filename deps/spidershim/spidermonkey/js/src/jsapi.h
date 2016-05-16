@@ -3499,7 +3499,7 @@ JS_NewArrayBufferWithContents(JSContext* cx, size_t nbytes, void* contents);
 
 /**
  * Create a new array buffer with the given contents.  The array buffer does not take ownership of
- * contents, and JS_DetachArrayBuffer must be called befor the contents are disposed of.
+ * contents, and JS_DetachArrayBuffer must be called before the contents are disposed of.
  */
 extern JS_PUBLIC_API(JSObject*)
 JS_NewArrayBufferWithExternalContents(JSContext* cx, size_t nbytes, void* contents);
