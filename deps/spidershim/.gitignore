@@ -1,5 +1,6 @@
 spidermonkey/python/psutil/build/
 spidermonkey/python/psutil/psutil/_psutil_osx.so
 spidermonkey/python/psutil/psutil/_psutil_posix.so
+spidermonkey/python/psutil/psutil/_psutil_linux.so
 spidermonkey/js/src/configure
 spidermonkey/js/src/old-configure
