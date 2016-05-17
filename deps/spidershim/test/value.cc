@@ -1642,7 +1642,7 @@ class TestOneByteResource : public String::ExternalOneByteStringResource {
         counter_(counter) {}
 
   ~TestOneByteResource() {
-    free(orig_data_);
+    free(const_cast<char*>(orig_data_));
     if (counter_ != NULL) ++*counter_;
   }
 
