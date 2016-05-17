@@ -31,7 +31,7 @@ matrix:
         - brew update
         - brew tap homebrew/versions
         - brew install llvm38
-      install: export CC=clang-3.8 CXX=clang++-3.8
+      install: export CC=clang-3.8 CXX=clang++-3.8 LDFLAGS=-L/usr/local/opt/llvm38/lib/llvm-3.8/lib
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; fi
