@@ -63,7 +63,7 @@ def get_all_files(current_path):
             files.append(f)
         elif os.path.isdir(f):
             files += get_all_files(f)
-    return files
+    return sorted(files)
 
 if __name__ == '__main__':
     sys.exit(main())
