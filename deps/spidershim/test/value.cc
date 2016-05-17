@@ -1642,7 +1642,7 @@ class TestOneByteResource : public String::ExternalOneByteStringResource {
         counter_(counter) {}
 
   ~TestOneByteResource() {
-    DeleteArray(orig_data_);
+    free(orig_data_);
     if (counter_ != NULL) ++*counter_;
   }
 
