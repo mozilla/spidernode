@@ -51,6 +51,8 @@ struct Isolate::Impl {
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;
   void* embeddedData[internal::kNumIsolateDataSlots];
+  mozilla::Atomic<bool> serviceInterrupt;
+  mozilla::Atomic<bool> terminatingExecution;
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
@@ -72,6 +74,9 @@ struct Isolate::Impl {
             report->filename ? report->filename : "<no filename>",
             (unsigned int)report->lineno, message);
   }
+
+  static bool OnInterrupt(JSContext* cx);
+
 };
 
 JSContext* JSContextFromIsolate(v8::Isolate* isolate);

@@ -58,6 +58,20 @@ namespace internal {
 bool InitializeIsolate() { return sCurrentIsolate.init(); }
 }
 
+bool Isolate::Impl::OnInterrupt(JSContext* cx) {
+  auto isolateImpl = Isolate::GetCurrent()->pimpl_;
+  // Prevent re-entering while handler is running.
+  if (!isolateImpl->serviceInterrupt) {
+    return true;
+  }
+  isolateImpl->serviceInterrupt = false;
+
+  if (isolateImpl->terminatingExecution) {
+    return false;
+  }
+  return true;
+}
+
 Isolate::Isolate() : pimpl_(new Impl()) {
   const uint32_t defaultHeapSize = sizeof(void*) == 8 ? 1024 * 1024 * 1024
                                                       :    // 1GB
@@ -83,6 +97,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 #endif
 
   JS_SetGCCallback(pimpl_->rt, OnGC, NULL);
+  JS_SetInterruptCallback(pimpl_->rt, Isolate::Impl::OnInterrupt);
 }
 
 Isolate::~Isolate() {
@@ -154,6 +169,22 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
   return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+}
+
+bool Isolate::IsExecutionTerminating() {
+  return pimpl_->terminatingExecution;
+}
+
+void Isolate::TerminateExecution() {
+  assert(pimpl_->rt);
+  pimpl_->terminatingExecution = true;
+  pimpl_->serviceInterrupt = true;
+  JS_RequestInterruptCallback(pimpl_->rt);
+}
+
+void Isolate::CancelTerminateExecution() {
+  assert(pimpl_->rt);
+  pimpl_->terminatingExecution = false;
 }
 
 void Isolate::AddStackFrame(StackFrame* frame) {
