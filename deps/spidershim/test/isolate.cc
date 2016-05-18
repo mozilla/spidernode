@@ -289,3 +289,39 @@ TEST(SpiderShim, TerminateExecution) {
   MaybeLocal<Value> result = engine.CompileRun(context, "loop();");
   EXPECT_TRUE(result.IsEmpty());
 }
+
+bool on_fulfilled_called;
+
+bool OnFulfilled(JSContext *cx, unsigned argc, JS::Value *vp) {
+  EXPECT_FALSE(on_fulfilled_called);
+  on_fulfilled_called = true;
+
+  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
+  args.rval().setUndefined();
+  return true;
+}
+
+TEST(SpiderShim, Microtask) {
+  on_fulfilled_called = false;
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Object> globalObj = context->Global();
+  auto smContext = JSContextFromContext(*context);
+  JS::RootedObject smGlobal(smContext, &reinterpret_cast<JS::Value*>(*globalObj)->toObject());
+
+  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "onFulfilled", &OnFulfilled, 0, 0));
+  EXPECT_FALSE(on_fulfilled_called);
+  MaybeLocal<Value> result = engine.CompileRun(context, "Promise.resolve(43).then(onFulfilled);");
+  EXPECT_FALSE(on_fulfilled_called);
+  engine.isolate()->RunMicrotasks();
+  EXPECT_TRUE(on_fulfilled_called);
+  // Make sure the queue of micro tasks was drained.
+  on_fulfilled_called = false;
+  engine.isolate()->RunMicrotasks();
+  EXPECT_FALSE(on_fulfilled_called);
+}

@@ -83,6 +83,11 @@ bool Isolate::Impl::OnInterrupt(JSContext* cx) {
   return true;
 }
 
+bool Isolate::Impl::EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job, void* data) {
+  Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
+  return context->pimpl_->jobQueue.append(job);
+}
+
 Isolate::Isolate() : pimpl_(new Impl()) {
   const uint32_t defaultHeapSize = sizeof(void*) == 8 ? 1024 * 1024 * 1024
                                                       :    // 1GB
@@ -107,6 +112,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
       .setNativeRegExp(true);
 #endif
 
+  JS::SetEnqueuePromiseJobCallback(pimpl_->rt, Isolate::Impl::EnqueuePromiseJobCallback);
   JS_SetInterruptCallback(pimpl_->rt, Isolate::Impl::OnInterrupt);
   JS_SetGCCallback(pimpl_->rt, Isolate::Impl::OnGC, NULL);
 }
@@ -182,6 +188,19 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
   return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+}
+
+void Isolate::SetAutorunMicrotasks(bool autorun) {
+  // Node only sets this to false.
+  // TODO: fully implement this https://github.com/mozilla/spidernode/issues/110
+  if (autorun) {
+    MOZ_CRASH("Only autorun false is supported.");
+  }
+}
+
+void Isolate::RunMicrotasks() {
+  Local<Context> context = GetCurrentContext();
+  context->pimpl_->RunMicrotasks();
 }
 
 bool Isolate::IsExecutionTerminating() {

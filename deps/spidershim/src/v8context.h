@@ -22,18 +22,24 @@
 #include "v8.h"
 #include "jsapi.h"
 
+using JobQueue = JS::GCVector<JSObject*, 0, js::SystemAllocPolicy>;
+
 namespace v8 {
 
 struct Context::Impl {
   explicit Impl(JSContext* cx)
       : cx(cx),
         oldCompartment(nullptr),
-        embedderData(cx, JS::ValueVector(cx)) {}
+        embedderData(cx, JS::ValueVector(cx)) {
+    jobQueue.init(cx, JobQueue(js::SystemAllocPolicy()));
+  }
   JSContext* cx;
   JS::PersistentRootedObject global;
   Local<Object> globalObj;
   JSCompartment* oldCompartment;
   JS::PersistentRooted<JS::ValueVector> embedderData;
+  JS::PersistentRooted<JobQueue> jobQueue;
+  void RunMicrotasks();
 };
 
 JSContext* JSContextFromContext(Context* context);
