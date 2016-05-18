@@ -2262,6 +2262,11 @@ typedef void* (*CreateHistogramCallback)(
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
 
+enum GarbageCollectionType {
+  kFullGarbageCollection,
+  kMinorGarbageCollection
+};
+
 enum GCType {
   kGCTypeScavenge = 1 << 0,
   kGCTypeMarkSweepCompact = 1 << 1,
@@ -2361,6 +2366,7 @@ class V8_EXPORT Isolate {
   void AddGCEpilogueCallback(
     GCCallback callback, GCType gc_type_filter = kGCTypeAll);
   void RemoveGCEpilogueCallback(GCCallback callback);
+  void RequestGarbageCollectionForTesting(GarbageCollectionType type);
 
   bool IsExecutionTerminating();
   void CancelTerminateExecution();

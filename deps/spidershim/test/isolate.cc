@@ -12,6 +12,100 @@
 #include "gtest/gtest.h"
 #include "jsapi.h"
 
+Isolate* gc_callbacks_isolate = NULL;
+int prologue_call_count = 0;
+int epilogue_call_count = 0;
+int prologue_call_count_second = 0;
+int epilogue_call_count_second = 0;
+
+void PrologueCallback(Isolate* isolate,
+                      GCType,
+                      GCCallbackFlags flags) {
+  EXPECT_EQ(flags, kNoGCCallbackFlags);
+  EXPECT_EQ(gc_callbacks_isolate, isolate);
+  ++prologue_call_count;
+}
+
+void EpilogueCallback(Isolate* isolate,
+                      GCType,
+                      GCCallbackFlags flags) {
+  EXPECT_EQ(flags, kNoGCCallbackFlags);
+  EXPECT_EQ(gc_callbacks_isolate, isolate);
+  ++epilogue_call_count;
+}
+
+void PrologueCallbackSecond(Isolate* isolate,
+                            GCType,
+                            GCCallbackFlags flags) {
+  EXPECT_EQ(flags, kNoGCCallbackFlags);
+  EXPECT_EQ(gc_callbacks_isolate, isolate);
+  ++prologue_call_count_second;
+}
+
+
+void EpilogueCallbackSecond(Isolate* isolate,
+                            GCType,
+                            GCCallbackFlags flags) {
+  EXPECT_EQ(flags, kNoGCCallbackFlags);
+  EXPECT_EQ(gc_callbacks_isolate, isolate);
+  ++epilogue_call_count_second;
+}
+
+TEST(SpiderShim, GCCallbacks) {
+  // This test is based on V8's GCCallbacks.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  auto isolate = engine.isolate();
+
+  gc_callbacks_isolate = isolate;
+  isolate->AddGCPrologueCallback(PrologueCallback);
+  isolate->AddGCEpilogueCallback(EpilogueCallback);
+  EXPECT_EQ(0, prologue_call_count);
+  EXPECT_EQ(0, epilogue_call_count);
+  isolate->RequestGarbageCollectionForTesting(kFullGarbageCollection);
+  EXPECT_EQ(1, prologue_call_count);
+  EXPECT_EQ(1, epilogue_call_count);
+  isolate->AddGCPrologueCallback(PrologueCallbackSecond);
+  isolate->AddGCEpilogueCallback(EpilogueCallbackSecond);
+  isolate->RequestGarbageCollectionForTesting(kFullGarbageCollection);
+  EXPECT_EQ(2, prologue_call_count);
+  EXPECT_EQ(2, epilogue_call_count);
+  EXPECT_EQ(1, prologue_call_count_second);
+  EXPECT_EQ(1, epilogue_call_count_second);
+  isolate->RemoveGCPrologueCallback(PrologueCallback);
+  isolate->RemoveGCEpilogueCallback(EpilogueCallback);
+  isolate->RequestGarbageCollectionForTesting(kFullGarbageCollection);
+  EXPECT_EQ(2, prologue_call_count);
+  EXPECT_EQ(2, epilogue_call_count);
+  EXPECT_EQ(2, prologue_call_count_second);
+  EXPECT_EQ(2, epilogue_call_count_second);
+  isolate->RemoveGCPrologueCallback(PrologueCallbackSecond);
+  isolate->RemoveGCEpilogueCallback(EpilogueCallbackSecond);
+  isolate->RequestGarbageCollectionForTesting(kFullGarbageCollection);
+  EXPECT_EQ(2, prologue_call_count);
+  EXPECT_EQ(2, epilogue_call_count);
+  EXPECT_EQ(2, prologue_call_count_second);
+  EXPECT_EQ(2, epilogue_call_count_second);
+
+  // TODO: enable these when we have a way to simulate a full heap
+  // https://github.com/mozilla/spidernode/issues/107
+  // EXPECT_EQ(0, prologue_call_count_alloc);
+  // EXPECT_EQ(0, epilogue_call_count_alloc);
+  // isolate->AddGCPrologueCallback(PrologueCallbackAlloc);
+  // isolate->AddGCEpilogueCallback(EpilogueCallbackAlloc);
+  // CcTest::heap()->CollectAllGarbage(
+  //     i::Heap::kAbortIncrementalMarkingMask);
+  // EXPECT_EQ(1, prologue_call_count_alloc);
+  // EXPECT_EQ(1, epilogue_call_count_alloc);
+  // isolate->RemoveGCPrologueCallback(PrologueCallbackAlloc);
+  // isolate->RemoveGCEpilogueCallback(EpilogueCallbackAlloc);
+}
+
 bool message_received;
 
 static void check_message(v8::Local<v8::Message> message,
