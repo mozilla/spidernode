@@ -267,4 +267,11 @@ void* Isolate::GetData(uint32_t slot) {
 TryCatch* Isolate::GetTopmostTryCatch() const { return pimpl_->topTryCatch; }
 
 void Isolate::SetTopmostTryCatch(TryCatch* val) { pimpl_->topTryCatch = val; }
+
+size_t NumberOfHeapSpaces() {
+  // Spidermonkey doesn't expose this and it's only used by node to allocate
+  // the heap's name to avoid creating it multiple times.
+  return 0;
+}
+
 }
