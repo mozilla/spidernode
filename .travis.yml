@@ -30,7 +30,7 @@ matrix:
       before_install:
         - brew update
         - brew tap homebrew/versions
-        - brew install llvm38 --with-asan
+        - travis_wait brew install llvm38 --with-asan
       install: export CC=clang-3.8 CXX=clang++-3.8
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
