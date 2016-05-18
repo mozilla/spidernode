@@ -102,6 +102,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
 Isolate::~Isolate() {
   assert(pimpl_->rt);
+  JS_SetInterruptCallback(pimpl_->rt, NULL);
   JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }

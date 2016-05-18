@@ -37,7 +37,11 @@ bool InitializeIsolate();
 }
 
 struct Isolate::Impl {
-  Impl() : rt(nullptr), topTryCatch(nullptr) {
+  Impl()
+      : rt(nullptr),
+        topTryCatch(nullptr),
+        serviceInterrupt(false),
+        terminatingExecution(false) {
     memset(embeddedData, 0, sizeof(embeddedData));
   }
 
@@ -51,8 +55,8 @@ struct Isolate::Impl {
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;
   void* embeddedData[internal::kNumIsolateDataSlots];
-  mozilla::Atomic<bool> serviceInterrupt;
-  mozilla::Atomic<bool> terminatingExecution;
+  bool serviceInterrupt;
+  bool terminatingExecution;
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
