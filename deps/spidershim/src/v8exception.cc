@@ -29,26 +29,17 @@
 namespace {
 
 static v8::Local<v8::Value> CreateError(const char* type,
-                                        v8::Handle<v8::String> message) {
+                                        v8::Handle<v8::Value> message) {
   using namespace v8;
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   Local<Object> globalObj = isolate->GetCurrentContext()->Global();
   Local<String> ctorName = String::NewFromUtf8(isolate, type);
   Local<Value> ctor = globalObj->Get(ctorName);
-  Local<Value> retVal = Undefined(isolate);
-  if (*ctor) {
-    // TODO: Reimplement on top of CallAsConstructor().
-    JS::RootedValue ctorVal(cx, *GetValue(ctor));
-    JS::RootedValue msgVal(cx, *GetValue(message));
-    JS::RootedObject obj(cx);
-    if (JS::Construct(cx, ctorVal, JS::HandleValueArray(msgVal), &obj)) {
-      JS::Value val;
-      val.setObject(*obj);
-      retVal = internal::Local<Value>::New(isolate, val);
-    }
+  if (!ctor->IsObject()) {
+    return Local<Value>();
   }
-  return retVal;
+  return Object::Cast(*ctor)->CallAsConstructor(1, &message);
 }
 }
 

@@ -2603,6 +2603,7 @@ class V8_EXPORT TryCatch {
 
  protected:
   friend class Function;
+  friend class Object;
 
   void CheckReportExternalException();
 

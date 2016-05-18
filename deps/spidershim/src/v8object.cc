@@ -27,6 +27,7 @@
 #include "conversions.h"
 #include "v8local.h"
 #include "v8string.h"
+#include "v8trycatch.h"
 
 namespace {
 
@@ -496,5 +497,36 @@ Local<String> Object::GetConstructorName() {
   JS::Value retVal;
   retVal.setString(JS_GetFunctionDisplayId(func));
   return internal::Local<String>::New(isolate, retVal);
+}
+
+MaybeLocal<Value> Object::CallAsConstructor(Local<Context> context, int argc,
+                                            Local<Value> argv[]) {
+  Isolate* isolate = context->GetIsolate();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::AutoValueVector args(cx);
+  if (!args.reserve(argc)) {
+    return Local<Value>();
+  }
+
+  for (int i = 0; i < argc; i++) {
+    args.infallibleAppend(*GetValue(argv[i]));
+  }
+
+  JS::RootedValue ctor(cx, *GetValue(this));
+  JS::RootedObject obj(cx);
+  internal::TryCatch tryCatch(isolate);
+  if (!JS::Construct(cx, ctor, args, &obj)) {
+    tryCatch.CheckReportExternalException();
+    return Local<Value>();
+  }
+
+  JS::Value val;
+  val.setObject(*obj);
+  return internal::Local<Value>::New(isolate, val);
+}
+
+Local<Value> Object::CallAsConstructor(int argc, Local<Value> argv[]) {
+  Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
+  return CallAsConstructor(ctx, argc, argv).ToLocalChecked();
 }
 }
