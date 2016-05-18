@@ -2362,6 +2362,7 @@ class V8_EXPORT Isolate {
     GCCallback callback, GCType gc_type_filter = kGCTypeAll);
   void RemoveGCEpilogueCallback(GCCallback callback);
 
+  bool IsExecutionTerminating();
   void CancelTerminateExecution();
   void TerminateExecution();
 
