@@ -53,9 +53,9 @@ MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
   return internal::Local<Object>::New(isolate, ret);
 }
 
-MaybeLocal<Value> Function::Call(Local<Context>, Local<Value> recv, int argc,
-                                 Local<Value> argv[]) {
-  Isolate* isolate = Isolate::GetCurrent();
+MaybeLocal<Value> Function::Call(Local<Context> context, Local<Value> recv,
+                                 int argc, Local<Value> argv[]) {
+  Isolate* isolate = context->GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedValue val(cx, *GetValue(recv));
   JS::AutoValueVector args(cx);
