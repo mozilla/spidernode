@@ -30,6 +30,7 @@ matrix:
       before_install:
         - brew update
         - cp ./deps/spidershim/scripts/llvm38.rb /usr/local/Library/Formula
+        - brew install libffi
         - brew install llvm38
       install: export CC=clang-3.8 CXX=clang++-3.8
 before_install:
