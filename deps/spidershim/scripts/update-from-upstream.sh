@@ -24,7 +24,6 @@ rsync -av --delete "$SM_DIR"/Makefile.in spidermonkey/
 rsync -av --delete "$SM_DIR"/configure.py spidermonkey/
 rsync -av --delete "$SM_DIR"/build spidermonkey/
 rsync -av --delete "$SM_DIR"/testing/mozbase spidermonkey/testing/
-rsync -av --delete "$SM_DIR"/testing/moz.build spidermonkey/testing/
 rsync -av --delete "$SM_DIR"/config spidermonkey/
 rsync -av --delete "$SM_DIR"/intl/icu spidermonkey/intl/
 test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
