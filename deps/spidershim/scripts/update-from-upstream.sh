@@ -29,6 +29,8 @@ rsync -av --delete "$SM_DIR"/intl/icu spidermonkey/intl/
 test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
 test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
 test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
+test -d spidermonkey/taskcluster || mkdir -p spidermonkey/taskcluster
+rsync -av --delete "$SM_DIR"/taskcluster/moz.build spidermonkey/taskcluster/
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
 rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete "$SM_DIR"/js/src spidermonkey/js/
