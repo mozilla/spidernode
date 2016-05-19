@@ -309,7 +309,7 @@ TEST(SpiderShim, Microtask) {
   HandleScope handle_scope(engine.isolate());
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
-
+  
   Local<Object> globalObj = context->Global();
   auto smContext = JSContextFromContext(*context);
   JS::RootedObject smGlobal(smContext, &reinterpret_cast<JS::Value*>(*globalObj)->toObject());
@@ -324,4 +324,21 @@ TEST(SpiderShim, Microtask) {
   on_fulfilled_called = false;
   engine.isolate()->RunMicrotasks();
   EXPECT_FALSE(on_fulfilled_called);
+}
+
+TEST(SpiderShim, GetHeapStatistics) {
+  // This test is based on V8's GetHeapStatistics.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  HeapStatistics heap_statistics;
+  EXPECT_EQ(0u, heap_statistics.total_heap_size());
+  EXPECT_EQ(0u, heap_statistics.used_heap_size());
+  engine.isolate()->GetHeapStatistics(&heap_statistics);
+  EXPECT_NE(static_cast<int>(heap_statistics.total_heap_size()), 0);
+  EXPECT_NE(static_cast<int>(heap_statistics.used_heap_size()), 0);
 }

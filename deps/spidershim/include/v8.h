@@ -2480,19 +2480,21 @@ class V8_EXPORT Exception {
 
 class V8_EXPORT HeapStatistics {
  private:
-  size_t heapSize;
+  size_t total_heap_size_;
+  size_t used_heap_size_;
+
 
  public:
-  void set_heap_size(size_t heapSize) {
-    this->heapSize = heapSize;
-  }
+  HeapStatistics() : total_heap_size_(0), used_heap_size_(0) {};
 
-  size_t total_heap_size() { return this->heapSize; }
+  size_t total_heap_size() { return this->total_heap_size_; }
   size_t total_heap_size_executable() { return 0; }
   size_t total_physical_size() { return 0; }
   size_t total_available_size() { return 0; }
-  size_t used_heap_size() { return this->heapSize; }
+  size_t used_heap_size() { return this->used_heap_size_; }
   size_t heap_size_limit() { return 0; }
+
+  friend class Isolate;
 };
 
 class V8_EXPORT HeapSpaceStatistics {
