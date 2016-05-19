@@ -33,6 +33,7 @@ matrix:
         - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
         - brew update
         - brew tap homebrew/versions
+        - brew unlink autoconf
         - brew install autoconf213
       install: export CC=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang CXX=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++
 before_install:
