@@ -28,9 +28,7 @@ rsync -av --delete "$SM_DIR"/testing/moz.build spidermonkey/testing/
 rsync -av --delete "$SM_DIR"/config spidermonkey/
 rsync -av --delete "$SM_DIR"/intl/icu spidermonkey/intl/
 test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
-rsync -av --delete "$SM_DIR"/layout/tools/reftest/reftest spidermonkey/layout/tools/reftest/
 test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
-rsync -av --delete "$SM_DIR"/dom/bindings/mozwebidlcodegen spidermonkey/dom/bindings/
 test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
 rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
