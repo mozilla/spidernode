@@ -24,14 +24,13 @@ rsync -av --delete "$SM_DIR"/Makefile.in spidermonkey/
 rsync -av --delete "$SM_DIR"/configure.py spidermonkey/
 rsync -av --delete "$SM_DIR"/build spidermonkey/
 rsync -av --delete "$SM_DIR"/testing/mozbase spidermonkey/testing/
-rsync -av --delete "$SM_DIR"/testing/moz.build spidermonkey/testing/
 rsync -av --delete "$SM_DIR"/config spidermonkey/
 rsync -av --delete "$SM_DIR"/intl/icu spidermonkey/intl/
 test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
-rsync -av --delete "$SM_DIR"/layout/tools/reftest/reftest spidermonkey/layout/tools/reftest/
 test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
-rsync -av --delete "$SM_DIR"/dom/bindings/mozwebidlcodegen spidermonkey/dom/bindings/
 test -d spidermonkey/toolkit/mozapps || mkdir -p spidermonkey/toolkit/mozapps
+test -d spidermonkey/taskcluster || mkdir -p spidermonkey/taskcluster
+rsync -av --delete "$SM_DIR"/taskcluster/moz.build spidermonkey/taskcluster/
 rsync -av --delete "$SM_DIR"/toolkit/mozapps/installer spidermonkey/toolkit/mozapps/
 rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete "$SM_DIR"/js/src spidermonkey/js/
@@ -42,12 +41,13 @@ for patch in `ls spidermonkey-patches/* | sort`; do
   (cd spidermonkey && patch -p1 < "../$patch")
 done
 
-scripts/build-spidermonkey-files.py && git add spidermonkey-files.gypi
-
 git add spidermonkey
 # The following will fail if there are no deleted files, so || with true.
 git rm -r `git ls-files --deleted spidermonkey` || true
 # The following will fail if there are no added files, so || with true.
 git add -f `git ls-files --others spidermonkey` || true
+
+scripts/build-spidermonkey-files.py && git add spidermonkey-files.gypi
+
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
 git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
