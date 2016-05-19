@@ -35,6 +35,7 @@ matrix:
         - brew tap homebrew/versions
         - brew unlink autoconf
         - brew install autoconf213
+        - brew install yasm mercurial gawk ccache python
       install: export CC=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang CXX=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
