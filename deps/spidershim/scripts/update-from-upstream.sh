@@ -41,12 +41,13 @@ for patch in `ls spidermonkey-patches/* | sort`; do
   (cd spidermonkey && patch -p1 < "../$patch")
 done
 
-scripts/build-spidermonkey-files.py && git add spidermonkey-files.gypi
-
 git add spidermonkey
 # The following will fail if there are no deleted files, so || with true.
 git rm -r `git ls-files --deleted spidermonkey` || true
 # The following will fail if there are no added files, so || with true.
 git add -f `git ls-files --others spidermonkey` || true
+
+scripts/build-spidermonkey-files.py && git add spidermonkey-files.gypi
+
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
 git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
