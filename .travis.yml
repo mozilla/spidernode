@@ -1,14 +1,5 @@
 language: cpp
 sudo: false
-#compiler:
-  #- gcc
-  #- clang
-env:
-  - BUILD_CONFIG=normal
-  - BUILD_CONFIG=gczeal
-#os:
-  #- linux
-  #- osx
 cache:
   - ccache
   - apt
