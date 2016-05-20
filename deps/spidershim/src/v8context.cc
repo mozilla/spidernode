@@ -201,4 +201,14 @@ Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }
 JSContext* JSContextFromContext(Context* context) {
   return context->pimpl_->cx;
 }
+
+void Context::SetSecurityToken(Handle<Value> token) {
+  // TODO: https://github.com/mozilla/spidernode/issues/87
 }
+
+Handle<Value> Context::GetSecurityToken() {
+  // TODO: https://github.com/mozilla/spidernode/issues/87
+  return Handle<Value>();
+}
+
+} // namespace v8
