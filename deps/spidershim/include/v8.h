@@ -2262,6 +2262,11 @@ typedef void* (*CreateHistogramCallback)(
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
 
+enum GarbageCollectionType {
+  kFullGarbageCollection,
+  kMinorGarbageCollection
+};
+
 enum GCType {
   kGCTypeScavenge = 1 << 0,
   kGCTypeMarkSweepCompact = 1 << 1,
@@ -2361,7 +2366,9 @@ class V8_EXPORT Isolate {
   void AddGCEpilogueCallback(
     GCCallback callback, GCType gc_type_filter = kGCTypeAll);
   void RemoveGCEpilogueCallback(GCCallback callback);
+  void RequestGarbageCollectionForTesting(GarbageCollectionType type);
 
+  bool IsExecutionTerminating();
   void CancelTerminateExecution();
   void TerminateExecution();
 
@@ -2473,19 +2480,21 @@ class V8_EXPORT Exception {
 
 class V8_EXPORT HeapStatistics {
  private:
-  size_t heapSize;
+  size_t total_heap_size_;
+  size_t used_heap_size_;
+
 
  public:
-  void set_heap_size(size_t heapSize) {
-    this->heapSize = heapSize;
-  }
+  HeapStatistics() : total_heap_size_(0), used_heap_size_(0) {};
 
-  size_t total_heap_size() { return this->heapSize; }
+  size_t total_heap_size() { return this->total_heap_size_; }
   size_t total_heap_size_executable() { return 0; }
   size_t total_physical_size() { return 0; }
   size_t total_available_size() { return 0; }
-  size_t used_heap_size() { return this->heapSize; }
+  size_t used_heap_size() { return this->used_heap_size_; }
   size_t heap_size_limit() { return 0; }
+
+  friend class Isolate;
 };
 
 class V8_EXPORT HeapSpaceStatistics {
@@ -2603,6 +2612,7 @@ class V8_EXPORT TryCatch {
 
  protected:
   friend class Function;
+  friend class Object;
 
   void CheckReportExternalException();
 

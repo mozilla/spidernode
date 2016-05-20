@@ -30,4 +30,4 @@ test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make -s || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell $args $* && make -s)
+make -s || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $args $* && make -s)

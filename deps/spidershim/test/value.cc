@@ -1642,7 +1642,7 @@ class TestOneByteResource : public String::ExternalOneByteStringResource {
         counter_(counter) {}
 
   ~TestOneByteResource() {
-    free(orig_data_);
+    free(const_cast<char*>(orig_data_));
     if (counter_ != NULL) ++*counter_;
   }
 
@@ -2255,6 +2255,201 @@ TEST(SpiderShim, ConstructCall) {
                       .ToLocalChecked()
                       ->NumberValue(context)
                       .FromJust());
+}
+
+TEST(SpiderShim, ConstructorForObject) {
+  // This is based on the V8 ConstructorForObject test, rewritten to not use ObjectTemplate.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  {
+    engine.CompileRun(context,
+        "function obj(arg) {"
+        "  var ret;"
+        "  if (new.target) {"
+        "    ret = new Object();"
+        "    Object.setPrototypeOf(ret, obj.prototype);"
+        "  } else {"
+        "    ret = this;"
+        "  }"
+        "  ret.a = arg;"
+        "  return ret;"
+        "}");
+    Local<Object> instance = Local<Object>::Cast(
+        context->Global()->Get(context, v8_str("obj")).ToLocalChecked());
+
+    v8::TryCatch try_catch(isolate);
+    Local<Value> value;
+    CHECK(!try_catch.HasCaught());
+
+    // Call the Object's constructor with a 32-bit signed integer.
+    value = engine.CompileRun(context,
+        "(function() { var o = new obj(28); return o.a; })()");
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsInt32());
+    CHECK_EQ(28, value->Int32Value(context).FromJust());
+
+    Local<Value> args1[] = {v8_num(28)};
+    Local<Value> value_obj1 =
+        instance->CallAsConstructor(context, 1, args1).ToLocalChecked();
+    CHECK(value_obj1->IsObject());
+    Local<Object> object1 = Local<Object>::Cast(value_obj1);
+    value = object1->Get(context, v8_str("a")).ToLocalChecked();
+    CHECK(value->IsInt32());
+    CHECK(!try_catch.HasCaught());
+    CHECK_EQ(28, value->Int32Value(context).FromJust());
+
+    // Call the Object's constructor with a String.
+    value = engine.CompileRun(context,
+        "(function() { var o = new obj('tipli'); return o.a; })()");
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsString());
+    String::Utf8Value string_value1(
+        value->ToString(context).ToLocalChecked());
+    CHECK_EQ(0, strcmp("tipli", *string_value1));
+
+    Local<Value> args2[] = {v8_str("tipli")};
+    Local<Value> value_obj2 =
+        instance->CallAsConstructor(context, 1, args2).ToLocalChecked();
+    CHECK(value_obj2->IsObject());
+    Local<Object> object2 = Local<Object>::Cast(value_obj2);
+    value = object2->Get(context, v8_str("a")).ToLocalChecked();
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsString());
+    String::Utf8Value string_value2(
+        value->ToString(context).ToLocalChecked());
+    CHECK_EQ(0, strcmp("tipli", *string_value2));
+
+    // Call the Object's constructor with a Boolean.
+    value = engine.CompileRun(context,
+        "(function() { var o = new obj(true); return o.a; })()");
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsBoolean());
+    CHECK_EQ(true, value->BooleanValue(context).FromJust());
+
+    Local<Value> args3[] = {v8::True(isolate)};
+    Local<Value> value_obj3 =
+        instance->CallAsConstructor(context, 1, args3).ToLocalChecked();
+    CHECK(value_obj3->IsObject());
+    Local<Object> object3 = Local<Object>::Cast(value_obj3);
+    value = object3->Get(context, v8_str("a")).ToLocalChecked();
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsBoolean());
+    CHECK_EQ(true, value->BooleanValue(context).FromJust());
+
+    // Call the Object's constructor with undefined.
+    Local<Value> args4[] = {v8::Undefined(isolate)};
+    Local<Value> value_obj4 =
+        instance->CallAsConstructor(context, 1, args4).ToLocalChecked();
+    CHECK(value_obj4->IsObject());
+    Local<Object> object4 = Local<Object>::Cast(value_obj4);
+    value = object4->Get(context, v8_str("a")).ToLocalChecked();
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsUndefined());
+
+    // Call the Object's constructor with null.
+    Local<Value> args5[] = {v8::Null(isolate)};
+    Local<Value> value_obj5 =
+        instance->CallAsConstructor(context, 1, args5).ToLocalChecked();
+    CHECK(value_obj5->IsObject());
+    Local<Object> object5 = Local<Object>::Cast(value_obj5);
+    value = object5->Get(context, v8_str("a")).ToLocalChecked();
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsNull());
+  }
+
+  // Check exception handling when there is no constructor set for the Object.
+  {
+    engine.CompileRun(context, "obj = new Object();");
+    Local<Object> instance = Local<Object>::Cast(
+        context->Global()->Get(context, v8_str("obj")).ToLocalChecked());
+
+    CHECK(context->Global()
+              ->Set(context, v8_str("obj2"), instance)
+              .FromJust());
+    v8::TryCatch try_catch(isolate);
+    Local<Value> value;
+    CHECK(!try_catch.HasCaught());
+
+    value = engine.CompileRun(context, "new obj2(28)");
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value1(try_catch.Exception());
+    EXPECT_STREQ("TypeError: obj2 is not a constructor", *exception_value1);
+    try_catch.Reset();
+
+    Local<Value> args[] = {v8_num(29)};
+    CHECK(instance->CallAsConstructor(context, 1, args).IsEmpty());
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value2(try_catch.Exception());
+    EXPECT_STREQ("TypeError: ({}) is not a constructor", *exception_value2);
+    try_catch.Reset();
+  }
+
+  // Check the case when constructor throws exception.
+  {
+    engine.CompileRun(context,
+        "function obj(arg) {"
+        "  throw arg;"
+        "}");
+    Local<Object> instance = Local<Object>::Cast(
+        context->Global()->Get(context, v8_str("obj")).ToLocalChecked());
+
+    CHECK(context->Global()
+              ->Set(context, v8_str("obj3"), instance)
+              .FromJust());
+    v8::TryCatch try_catch(isolate);
+    Local<Value> value;
+    CHECK(!try_catch.HasCaught());
+
+    value = engine.CompileRun(context, "new obj3(22)");
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value1(try_catch.Exception());
+    CHECK_EQ(0, strcmp("22", *exception_value1));
+    try_catch.Reset();
+
+    Local<Value> args[] = {v8_num(23)};
+    CHECK(instance->CallAsConstructor(context, 1, args).IsEmpty());
+    CHECK(try_catch.HasCaught());
+    String::Utf8Value exception_value2(try_catch.Exception());
+    CHECK_EQ(0, strcmp("23", *exception_value2));
+    try_catch.Reset();
+  }
+
+  // Check whether constructor returns with an object or non-object.
+  {
+    engine.CompileRun(context,
+        "function obj(arg) {"
+        "  return arg;"
+        "}");
+    Local<Object> instance1 = Local<Object>::Cast(
+        context->Global()->Get(context, v8_str("obj")).ToLocalChecked());
+
+    CHECK(context->Global()
+              ->Set(context, v8_str("obj4"), instance1)
+              .FromJust());
+    v8::TryCatch try_catch(isolate);
+    Local<Value> value;
+    CHECK(!try_catch.HasCaught());
+
+    CHECK(instance1->IsObject());
+    CHECK(instance1->IsFunction());
+
+    value = engine.CompileRun(context, "new obj4(28)");
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsObject());
+
+    Local<Value> args1[] = {v8_num(28)};
+    value = instance1->CallAsConstructor(context, 1, args1)
+                .ToLocalChecked();
+    CHECK(!try_catch.HasCaught());
+    CHECK(value->IsObject());
+  }
 }
 
 TEST(SpiderShim, Iterator) {

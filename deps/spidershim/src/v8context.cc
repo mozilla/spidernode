@@ -178,6 +178,24 @@ void* Context::GetAlignedPointerFromEmbedderData(int idx) {
   return pimpl_->embedderData[idx].get().toPrivate();
 }
 
+void Context::Impl::RunMicrotasks() {
+  // The following code was adapted from spidermonkey's shell.
+  JS::RootedObject job(cx);
+  JS::HandleValueArray args(JS::HandleValueArray::empty());
+  JS::RootedValue rval(cx);
+  // Execute jobs in a loop until we've reached the end of the queue.
+  // Since executing a job can trigger enqueuing of additional jobs,
+  // it's crucial to re-check the queue length during each iteration.
+  for (size_t i = 0; i < jobQueue.length(); i++) {
+      job = jobQueue[i];
+      JSAutoCompartment ac(cx, job);
+      if (!JS::Call(cx, JS::UndefinedHandleValue, job, args, &rval))
+          JS_ReportPendingException(cx);
+      jobQueue[i].set(nullptr);
+  }
+  jobQueue.clear();
+}
+
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }
 
 JSContext* JSContextFromContext(Context* context) {
