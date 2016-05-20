@@ -25,10 +25,8 @@
 #include "v8.h"
 #include "v8isolate.h"
 #include "jsapi.h"
-#include "js/MemoryMetrics.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
-#include "mozilla/mozalloc.h"
 
 namespace v8 {
 
@@ -340,29 +338,4 @@ size_t NumberOfHeapSpaces() {
   // the heap's name to avoid creating it multiple times.
   return 0;
 }
-
-class SimpleJSRuntimeStats : public JS::RuntimeStats {
-  public:
-    explicit SimpleJSRuntimeStats(mozilla::MallocSizeOf mallocSizeOf)
-      : JS::RuntimeStats(mallocSizeOf)
-    {}
-
-    virtual void initExtraZoneStats(JS::Zone* zone, JS::ZoneStats* zStats)
-        override
-    {}
-
-    virtual void initExtraCompartmentStats(
-        JSCompartment* c, JS::CompartmentStats* cStats) override
-    {}
-};
-
-void Isolate::GetHeapStatistics(HeapStatistics *heap_statistics) {
-  SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
-  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
-    return;
-  }
-  heap_statistics->total_heap_size_ = rtStats.gcHeapChunkTotal;
-  heap_statistics->used_heap_size_ = rtStats.gcHeapGCThings;
-}
-
 }
