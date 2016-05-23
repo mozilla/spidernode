@@ -61,6 +61,10 @@ static inline JSObject* GetObject(Value* val) {
   return v->isObject() ? &v->toObject() : nullptr;
 }
 
+static inline JSObject* GetObject(Template* val) {
+  return GetObject(GetV8Value(val));
+}
+
 static inline JSObject* GetObject(const Value* val) {
   const JS::Value* v = GetValue(val);
   return v->isObject() ? &v->toObject() : nullptr;

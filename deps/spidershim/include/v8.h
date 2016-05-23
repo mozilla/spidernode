@@ -56,6 +56,7 @@ struct JSRuntime;
 struct JSContext;
 class JSScript;
 class V8Engine;
+struct JSClass;
 
 namespace JS {
 class Symbol;
@@ -1822,6 +1823,17 @@ class V8_EXPORT Function : public Object {
   Local<Value> GetName() const;
 
   static Function *Cast(Value *obj);
+
+ protected:
+  static MaybeLocal<Function> New(Local<Context> context,
+                                  FunctionCallback callback,
+                                  Local<Value> data,
+                                  int length,
+                                  Local<FunctionTemplate> templ,
+                                  Local<String> name);
+
+ private:
+  friend class FunctionTemplate;
 };
 
 class V8_EXPORT Promise : public Object {
@@ -2031,7 +2043,8 @@ class V8_EXPORT Template : public Data {
   }
 
  protected:
-  static Local<Template> New(Isolate* isolate);
+  static Local<Template> New(Isolate* isolate,
+                             const JSClass* jsclass = nullptr);
 
  private:
   // We treat Templates as JS::Values containing a JSObject* that we can
@@ -2064,6 +2077,14 @@ class V8_EXPORT FunctionTemplate : public Template {
                       Handle<Value> data = Handle<Value>());
   bool HasInstance(Handle<Value> object);
   void Inherit(Handle<FunctionTemplate> parent);
+
+  // XXXbz This is public because we call it from inside some static functions
+  // over in Function.  Maybe those should become Function members and then we
+  // can just friend Function and make this protected.
+  Local<Object> CreateNewInstance();
+
+ private:
+  Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
 };
 
 enum class PropertyHandlerFlags {
@@ -2183,6 +2204,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   friend struct FunctionCallbackData;
   friend struct FunctionTemplateData;
   friend class Utils;
+  friend class FunctionTemplate;
 
   Local<Object> NewInstance(Handle<Object> prototype);
   Handle<String> GetClassName();

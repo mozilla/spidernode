@@ -63,6 +63,7 @@
         'src/v8exception.cc',
         'src/v8external.cc',
         'src/v8function.cc',
+        'src/v8functiontemplate.cc',
         'src/v8global.cc',
         'src/v8handlescope.cc',
         'src/v8int32.cc',

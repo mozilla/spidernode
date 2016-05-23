@@ -494,8 +494,12 @@ Local<String> Object::GetConstructorName() {
       !(func = JS_GetObjectFunction(constructor))) {
     return Local<String>();
   }
+  JSString* displayID = JS_GetFunctionDisplayId(func);
+  if (!displayID) {
+    displayID = JS_GetEmptyString(JS_GetRuntime(cx));
+  }
   JS::Value retVal;
-  retVal.setString(JS_GetFunctionDisplayId(func));
+  retVal.setString(displayID);
   return internal::Local<String>::New(isolate, retVal);
 }
 
