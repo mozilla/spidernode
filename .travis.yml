@@ -4,15 +4,13 @@ cache:
   - ccache
   - apt
 addons:
-  apt:
+  apt: &apt
     sources:
       - ubuntu-toolchain-r-test
     packages:
       - autoconf2.13
       - yasm
       - texinfo
-      - g++-4.8
-      - g++-5
 matrix:
   include:
     - os: linux
@@ -24,12 +22,20 @@ matrix:
       compiler: gcc-4.8
       dist: trusty
       env: BUILD_CONFIG=normal
+      addons:
+        apt:
+          <<: *apt
+          packages: g++-4.8
       install: export CC=gcc-4.8 CXX=g++-4.8
 
     - os: linux
       compiler: gcc-5
       dist: trusty
       env: BUILD_CONFIG=normal
+      addons:
+        apt:
+          <<: *apt
+          packages: g++-5
       install: export CC=gcc-5 CXX=g++-5
 
     - os: linux
