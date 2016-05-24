@@ -327,6 +327,10 @@ void Isolate::SetData(uint32_t slot, void* data) {
   pimpl_->embeddedData[slot] = data;
 }
 
+void Isolate::SetPromiseRejectCallback(PromiseRejectCallback callback) {
+  // TODO: https://github.com/mozilla/spidernode/issues/127
+}
+
 void* Isolate::GetData(uint32_t slot) {
   return slot < mozilla::ArrayLength(pimpl_->embeddedData)
              ? pimpl_->embeddedData[slot]
