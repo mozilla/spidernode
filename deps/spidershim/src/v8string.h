@@ -54,8 +54,5 @@ struct ExternalOneByteStringFinalizer
 template <typename CharType>
 static inline int Write(const String* string, CharType* buffer, int start,
                         int length, int options);
-
-bool DeflateStringToUTF8Buffer(JSLinearString* str, char* dst, size_t* dstlenp,
-                               int* numchrp, int options);
 }
 }
