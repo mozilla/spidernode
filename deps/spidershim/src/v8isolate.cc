@@ -23,12 +23,16 @@
 #include <algorithm>
 
 #include "v8.h"
+#include "v8-profiler.h"
 #include "v8isolate.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
 
 namespace v8 {
+
+HeapProfiler dummyHeapProfiler;
+CpuProfiler dummyCpuProfiler;
 
 static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
 
@@ -323,6 +327,10 @@ void Isolate::SetData(uint32_t slot, void* data) {
   pimpl_->embeddedData[slot] = data;
 }
 
+void Isolate::SetPromiseRejectCallback(PromiseRejectCallback callback) {
+  // TODO: https://github.com/mozilla/spidernode/issues/127
+}
+
 void* Isolate::GetData(uint32_t slot) {
   return slot < mozilla::ArrayLength(pimpl_->embeddedData)
              ? pimpl_->embeddedData[slot]
@@ -337,5 +345,21 @@ size_t Isolate::NumberOfHeapSpaces() {
   // Spidermonkey doesn't expose this and it's only used by node to allocate
   // the heap's name to avoid creating it multiple times.
   return 0;
+}
+
+bool Isolate::GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
+                                     size_t index) {
+  // TODO: https://github.com/mozilla/spidernode/issues/132
+  return true;
+}
+
+HeapProfiler* Isolate::GetHeapProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/131
+  return &dummyHeapProfiler;
+}
+
+CpuProfiler* Isolate::GetCpuProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/130
+  return &dummyCpuProfiler;
 }
 }
