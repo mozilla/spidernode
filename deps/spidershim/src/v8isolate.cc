@@ -223,6 +223,13 @@ void Isolate::CancelTerminateExecution() {
   pimpl_->terminatingExecution = false;
 }
 
+Local<Value> Isolate::ThrowException(Local<Value> exception) {
+  auto context = JSContextFromIsolate(this);
+  JS::RootedValue rval(context, *GetValue(exception));
+  JS_SetPendingException(context, rval);
+  return Undefined(this);
+}
+
 void Isolate::AddStackFrame(StackFrame* frame) {
   assert(pimpl_);
   pimpl_->stackFrames.push_back(frame);
