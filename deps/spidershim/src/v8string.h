@@ -55,68 +55,6 @@ template <typename CharType>
 static inline int Write(const String* string, CharType* buffer, int start,
                         int length, int options);
 
-// This is similar to the function of the same name in jsfriendapi, except that
-// it accepts an extra parameter, "start", that specifies the index in the "s"
-// string from which to begin copying.  And it's a template with specializations
-// so that CopyStringChars can call CopyLinearStringChars for both char16_t*
-// and char* "dest" arrays.
-//
-// TODO: upstream these enhancements into jsfriendapi.
-//
-template <typename CharType>
-MOZ_ALWAYS_INLINE void CopyLinearStringChars(CharType* dest, JSLinearString* s,
-                                             size_t len, size_t start);
-
-MOZ_ALWAYS_INLINE void CopyLinearStringChars(char16_t* dest, JSLinearString* s,
-                                             size_t len, size_t start) {
-  JS::AutoCheckCannotGC nogc;
-  if (js::LinearStringHasLatin1Chars(s)) {
-    const JS::Latin1Char* src = js::GetLatin1LinearStringChars(nogc, s);
-    for (size_t i = 0; i < len; i++) {
-      dest[i] = src[start + i];
-    }
-  } else {
-    const char16_t* src = js::GetTwoByteLinearStringChars(nogc, s);
-    mozilla::PodCopy(dest, src + start, len);
-  }
-}
-
-// There are two functions that do something similar, the public jsapi function
-// JS_EncodeStringToBuffer and the private jsstr function DeflateStringToBuffer.
-// But neither does quite what we want.  This version is mostly based on
-// the char16_t* specialization of CopyLinearStringChars, with some inspiration
-// from those other functions.
-MOZ_ALWAYS_INLINE void CopyLinearStringChars(char* dest, JSLinearString* s,
-                                             size_t len, size_t start) {
-  JS::AutoCheckCannotGC nogc;
-  if (js::LinearStringHasLatin1Chars(s)) {
-    const JS::Latin1Char* src = js::GetLatin1LinearStringChars(nogc, s);
-    for (size_t i = 0; i < len; i++) {
-      dest[i] = char(src[start + i]);
-    }
-  } else {
-    const char16_t* src = js::GetTwoByteLinearStringChars(nogc, s);
-    for (size_t i = 0; i < len; i++) {
-      dest[i] = char(src[start + i]);
-    }
-  }
-}
-
-// Based on CopyStringChars in jsfriendapi, except for the "start" parameter
-// (as described above CopyLinearStringChars) and templatization (so it can take
-// both char16_t* and char* "dest" arrays).
-template <typename CharType>
-inline bool CopyStringChars(JSContext* cx, CharType* dest, JSString* s,
-                            size_t len, size_t start) {
-  JSLinearString* linear = js::StringToLinearString(cx, s);
-  if (!linear) {
-    return false;
-  }
-
-  CopyLinearStringChars(dest, linear, len, start);
-  return true;
-}
-
 bool DeflateStringToUTF8Buffer(JSLinearString* str, char* dst, size_t* dstlenp,
                                int* numchrp, int options);
 }
