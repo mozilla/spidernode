@@ -54,7 +54,7 @@ class GCListOperations {
 
 template <class Outer, class T>
 class MutableGCListOperations : public GCListOperations<Outer, T> {
-  using typename GCListOperations<Outer, T>::List;
+  using List = typename GCListOperations<Outer, T>::List;
   List& list() { return static_cast<Outer*>(this)->get(); }
 
  public:
