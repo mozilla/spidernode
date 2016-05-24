@@ -23,12 +23,14 @@ matrix:
     - os: linux
       compiler: gcc-4.8
       dist: trusty
-      env: BUILD_CONFIG=normal CC=gcc-4.8 CXX=g++-4.8
+      env: BUILD_CONFIG=normal
+      install: export CC=gcc-4.8 CXX=g++-4.8
 
     - os: linux
       compiler: gcc-6
       dist: trusty
-      env: BUILD_CONFIG=normal CC=gcc-6 CXX=g++-6
+      env: BUILD_CONFIG=normal
+      install: export CC=gcc-6 CXX=g++-6
 
     - os: linux
       compiler: clang
