@@ -11,6 +11,7 @@ addons:
       - autoconf2.13
       - yasm
       - g++-4.8
+      - g++-6
 matrix:
   include:
     - os: linux
@@ -19,7 +20,12 @@ matrix:
       env: BUILD_CONFIG=normal
 
     - os: linux
-      compiler: gcc
+      compiler: gcc-4.8
+      dist: trusty
+      env: BUILD_CONFIG=normal
+
+    - os: linux
+      compiler: gcc-6
       dist: trusty
       env: BUILD_CONFIG=normal
 
