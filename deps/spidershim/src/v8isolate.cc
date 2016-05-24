@@ -343,6 +343,12 @@ size_t Isolate::NumberOfHeapSpaces() {
   return 0;
 }
 
+bool Isolate::GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
+                                     size_t index) {
+  // TODO: https://github.com/mozilla/spidernode/issues/132
+  return true;
+}
+
 HeapProfiler* Isolate::GetHeapProfiler() {
   // TODO: https://github.com/mozilla/spidernode/issues/131
   return &dummyHeapProfiler;
