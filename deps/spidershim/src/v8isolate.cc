@@ -31,6 +31,7 @@
 
 namespace v8 {
 
+HeapProfiler dummyHeapProfiler;
 CpuProfiler dummyCpuProfiler;
 
 static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
@@ -340,6 +341,11 @@ size_t Isolate::NumberOfHeapSpaces() {
   // Spidermonkey doesn't expose this and it's only used by node to allocate
   // the heap's name to avoid creating it multiple times.
   return 0;
+}
+
+HeapProfiler* Isolate::GetHeapProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/131
+  return &dummyHeapProfiler;
 }
 
 CpuProfiler* Isolate::GetCpuProfiler() {
