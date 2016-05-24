@@ -191,6 +191,24 @@ TEST(SpiderShim, IsolateEmbedderData) {
   }
 }
 
+TEST(SpiderShim, ExternalAllocatedMemory) {
+  // This test is based on V8's ExternalAllocatedMemory.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  auto isolate = engine.isolate();
+
+  const int64_t kSize = 1024*1024;
+  int64_t baseline = isolate->AdjustAmountOfExternalAllocatedMemory(0);
+  EXPECT_EQ(baseline + kSize,
+            isolate->AdjustAmountOfExternalAllocatedMemory(kSize));
+  EXPECT_EQ(baseline,
+            isolate->AdjustAmountOfExternalAllocatedMemory(-kSize));
+}
+
 bool Terminate(JSContext *cx, unsigned argc, JS::Value *vp) {
   auto isolate = Isolate::GetCurrent();
   EXPECT_TRUE(!isolate->IsExecutionTerminating());

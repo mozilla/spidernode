@@ -327,6 +327,19 @@ uint32_t Isolate::GetNumberOfDataSlots() {
   return internal::kNumIsolateDataSlots;
 }
 
+int64_t Isolate::AdjustAmountOfExternalAllocatedMemory(
+    int64_t change_in_bytes) {
+  // XXX SpiderMonkey and V8 have different ways of doing memory pressure. V8's
+  // value is persistent whereas SpiderMonkey's malloc counter is reset on GC's,
+  // so we only report increases in memory to SpiderMonkey, but we track the
+  // the persistent value in case an embedder relies on it.
+  if (change_in_bytes > 0) {
+    auto context = JSContextFromIsolate(this);
+    JS_updateMallocCounter(context, change_in_bytes);
+  }
+  return pimpl_->amountOfExternallyAllocatedMemory += change_in_bytes;
+}
+
 void Isolate::SetData(uint32_t slot, void* data) {
   if (slot >= mozilla::ArrayLength(pimpl_->embeddedData)) {
     MOZ_CRASH("Invalid embedded data index");

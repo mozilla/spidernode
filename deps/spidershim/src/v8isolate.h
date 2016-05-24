@@ -41,7 +41,8 @@ struct Isolate::Impl {
       : rt(nullptr),
         topTryCatch(nullptr),
         serviceInterrupt(false),
-        terminatingExecution(false) {
+        terminatingExecution(false),
+        amountOfExternallyAllocatedMemory(0) {
     memset(embeddedData, 0, sizeof(embeddedData));
   }
 
@@ -59,6 +60,7 @@ struct Isolate::Impl {
   void* embeddedData[internal::kNumIsolateDataSlots];
   bool serviceInterrupt;
   bool terminatingExecution;
+  int64_t amountOfExternallyAllocatedMemory;
 
   internal::RootStore& EnsurePersistents(Isolate* iso) {
     if (!persistents) {
