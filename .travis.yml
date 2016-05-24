@@ -25,7 +25,11 @@ matrix:
       addons:
         apt:
           <<: *apt
-          packages: g++-4.8
+          packages:
+            - autoconf2.13
+            - yasm
+            - texinfo
+            - g++-4.8
       install: export CC=gcc-4.8 CXX=g++-4.8
 
     - os: linux
@@ -35,7 +39,11 @@ matrix:
       addons:
         apt:
           <<: *apt
-          packages: g++-5
+          packages:
+            - autoconf2.13
+            - yasm
+            - texinfo
+            - g++-5
       install: export CC=gcc-5 CXX=g++-5
 
     - os: linux
