@@ -10,6 +10,7 @@ addons:
     packages:
       - autoconf2.13
       - yasm
+      - texinfo
       - g++-4.8
       - g++-6
 matrix:
