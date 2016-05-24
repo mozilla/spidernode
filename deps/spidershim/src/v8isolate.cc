@@ -23,12 +23,15 @@
 #include <algorithm>
 
 #include "v8.h"
+#include "v8-profiler.h"
 #include "v8isolate.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
 
 namespace v8 {
+
+CpuProfiler dummyCpuProfiler;
 
 static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
 
@@ -337,5 +340,10 @@ size_t Isolate::NumberOfHeapSpaces() {
   // Spidermonkey doesn't expose this and it's only used by node to allocate
   // the heap's name to avoid creating it multiple times.
   return 0;
+}
+
+CpuProfiler* Isolate::GetCpuProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/130
+  return &dummyCpuProfiler;
 }
 }
