@@ -23,12 +23,16 @@
 #include <algorithm>
 
 #include "v8.h"
+#include "v8-profiler.h"
 #include "v8isolate.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
 
 namespace v8 {
+
+HeapProfiler dummyHeapProfiler;
+CpuProfiler dummyCpuProfiler;
 
 static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
 
@@ -219,6 +223,13 @@ void Isolate::CancelTerminateExecution() {
   pimpl_->terminatingExecution = false;
 }
 
+Local<Value> Isolate::ThrowException(Local<Value> exception) {
+  auto context = JSContextFromIsolate(this);
+  JS::RootedValue rval(context, *GetValue(exception));
+  JS_SetPendingException(context, rval);
+  return Undefined(this);
+}
+
 void Isolate::AddStackFrame(StackFrame* frame) {
   assert(pimpl_);
   pimpl_->stackFrames.push_back(frame);
@@ -316,11 +327,28 @@ uint32_t Isolate::GetNumberOfDataSlots() {
   return internal::kNumIsolateDataSlots;
 }
 
+int64_t Isolate::AdjustAmountOfExternalAllocatedMemory(
+    int64_t change_in_bytes) {
+  // XXX SpiderMonkey and V8 have different ways of doing memory pressure. V8's
+  // value is persistent whereas SpiderMonkey's malloc counter is reset on GC's,
+  // so we only report increases in memory to SpiderMonkey, but we track the
+  // the persistent value in case an embedder relies on it.
+  if (change_in_bytes > 0) {
+    auto context = JSContextFromIsolate(this);
+    JS_updateMallocCounter(context, change_in_bytes);
+  }
+  return pimpl_->amountOfExternallyAllocatedMemory += change_in_bytes;
+}
+
 void Isolate::SetData(uint32_t slot, void* data) {
   if (slot >= mozilla::ArrayLength(pimpl_->embeddedData)) {
     MOZ_CRASH("Invalid embedded data index");
   }
   pimpl_->embeddedData[slot] = data;
+}
+
+void Isolate::SetPromiseRejectCallback(PromiseRejectCallback callback) {
+  // TODO: https://github.com/mozilla/spidernode/issues/127
 }
 
 void* Isolate::GetData(uint32_t slot) {
@@ -333,9 +361,25 @@ TryCatch* Isolate::GetTopmostTryCatch() const { return pimpl_->topTryCatch; }
 
 void Isolate::SetTopmostTryCatch(TryCatch* val) { pimpl_->topTryCatch = val; }
 
-size_t NumberOfHeapSpaces() {
+size_t Isolate::NumberOfHeapSpaces() {
   // Spidermonkey doesn't expose this and it's only used by node to allocate
   // the heap's name to avoid creating it multiple times.
   return 0;
+}
+
+bool Isolate::GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
+                                     size_t index) {
+  // TODO: https://github.com/mozilla/spidernode/issues/132
+  return true;
+}
+
+HeapProfiler* Isolate::GetHeapProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/131
+  return &dummyHeapProfiler;
+}
+
+CpuProfiler* Isolate::GetCpuProfiler() {
+  // TODO: https://github.com/mozilla/spidernode/issues/130
+  return &dummyCpuProfiler;
 }
 }
