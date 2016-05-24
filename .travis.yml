@@ -5,11 +5,12 @@ cache:
   - apt
 addons:
   apt:
+    sources:
+      - ubuntu-toolchain-r-test
     packages:
       - autoconf2.13
       - yasm
-      #- gcc-4.8
-      #- g++-4.8
+      - g++-4.8
 matrix:
   include:
     - os: linux
