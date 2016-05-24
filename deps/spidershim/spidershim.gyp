@@ -39,9 +39,9 @@
           ['OS == "linux"', {
             'libraries': [
               '-ldl',
-              '-lrt',
               '-lzlib',
               '<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+              '-lrt',
             ],
           }],
           ['OS == "mac"', {
