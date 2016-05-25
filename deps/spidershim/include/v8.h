@@ -1699,10 +1699,7 @@ class ReturnValue {
   void SetUndefined() { Set(Undefined(nullptr)); }
   void SetEmptyString() { Set(String::Empty(nullptr)); }
   // Convenience getter for Isolate
-  Isolate* GetIsolate();
-#if 0
-  { return Isolate::GetCurrent(); }
-#endif
+  V8_INLINE Isolate* GetIsolate();
 
   Value* Get() const { return *_value; }
  private:
@@ -1728,10 +1725,7 @@ class FunctionCallbackInfo {
   Local<Object> Holder() const { return _holder; }
   bool IsConstructCall() const { return _isConstructorCall; }
   Local<Value> Data() const { return _data; }
-  Isolate* GetIsolate() const;
-#if 0
-  { return Isolate::GetCurrent(); }
-#endif
+  V8_INLINE Isolate* GetIsolate() const;
   ReturnValue<T> GetReturnValue() const {
     return ReturnValue<T>(
       &(const_cast<FunctionCallbackInfo<T>*>(this)->_returnValue));
@@ -1752,17 +1746,17 @@ class FunctionCallbackInfo {
          _isConstructorCall(isConstructorCall),
          _data(data),
          _callee(callee),
-         _returnValue(static_cast<Value*>(JS_INVALID_REFERENCE)) {
+         _returnValue(nullptr) {
   }
 
  private:
+  Value** _args;
   int _length;
   Local<Object> _thisPointer;
   Local<Object> _holder;
-  Local<Function> _callee;
-  Local<Value> _data;
   bool _isConstructorCall;
-  Value** _args;
+  Local<Value> _data;
+  Local<Function> _callee;
   Value* _returnValue;
 };
 
@@ -1770,10 +1764,7 @@ class FunctionCallbackInfo {
 template<typename T>
 class PropertyCallbackInfo {
  public:
-  Isolate* GetIsolate() const;
-#if 0
-  { return Isolate::GetCurrent(); }
-#endif
+  V8_INLINE Isolate* GetIsolate() const;
   Local<Value> Data() const { return _data; }
   Local<Object> This() const { return _thisObject; }
   Local<Object> Holder() const { return _holder; }
@@ -1787,7 +1778,7 @@ class PropertyCallbackInfo {
        : _data(data),
          _thisObject(thisObject),
          _holder(holder),
-         _returnValue(static_cast<Value*>(JS_INVALID_REFERENCE)) {
+         _returnValue(nullptr) {
   }
  private:
   Local<Value> _data;
@@ -1800,6 +1791,10 @@ typedef void (*FunctionCallback)(const FunctionCallbackInfo<Value>& info);
 
 class V8_EXPORT Function : public Object {
  public:
+  static MaybeLocal<Function> New(Local<Context> context,
+                                  FunctionCallback callback,
+                                  Local<Value> data = Local<Value>(),
+                                  int length = 0);
   static Local<Function> New(Isolate* isolate,
                              FunctionCallback callback,
                              Local<Value> data = Local<Value>(),
@@ -2868,4 +2863,18 @@ Local<T> MaybeLocal<T>::ToLocalChecked() {
   return Local<T>(val_);
 }
 
+template <class T>
+Isolate* FunctionCallbackInfo<T>::GetIsolate() const {
+  return Isolate::GetCurrent();
+}
+
+template <class T>
+Isolate* PropertyCallbackInfo<T>::GetIsolate() const {
+  return Isolate::GetCurrent();
+}
+
+template <class T>
+Isolate* ReturnValue<T>::GetIsolate() {
+  return Isolate::GetCurrent();
+}
 }  // namespace v8

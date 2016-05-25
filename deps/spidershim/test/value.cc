@@ -1945,6 +1945,45 @@ TEST(SpiderShim, Function) {
   }
 }
 
+static Local<Value> function_new_expected_env;
+static void FunctionNewCallback(const v8::FunctionCallbackInfo<Value>& info) {
+  CHECK(
+      function_new_expected_env->Equals(info.GetIsolate()->GetCurrentContext(),
+                                        info.Data())
+          .FromJust());
+  info.GetReturnValue().Set(17);
+}
+
+TEST(SpiderShim, FunctionNew) {
+  // This test is adopted from the V8 FunctionNew test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<Object> data = v8::Object::New(isolate);
+  function_new_expected_env = data;
+  Local<Function> func =
+      Function::New(context, FunctionNewCallback, data).ToLocalChecked();
+  CHECK(context->Global()->Set(context, v8_str("func"), func).FromJust());
+  Local<Value> result = engine.CompileRun(context, "func();");
+  CHECK(v8::Integer::New(isolate, 17)->Equals(context, result).FromJust());
+  // Verify that each Function::New creates a new function instance
+  Local<Object> data2 = v8::Object::New(isolate);
+  function_new_expected_env = data2;
+  Local<Function> func2 =
+      Function::New(context, FunctionNewCallback, data2).ToLocalChecked();
+  CHECK(!func2->IsNull());
+  CHECK(!func->Equals(context, func2).FromJust());
+  CHECK(context->Global()->Set(context, v8_str("func2"), func2).FromJust());
+  Local<Value> result2 = engine.CompileRun(context, "func2();");
+  CHECK(v8::Integer::New(isolate, 17)->Equals(context, result2).FromJust());
+}
+
 template <typename TypedArrayType, int kElementSize>
 static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
                                             int byteOffset, int length) {
