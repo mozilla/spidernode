@@ -96,9 +96,9 @@ BaselineCompiler::compile()
     if (!script->ensureHasTypes(cx) || !script->ensureHasAnalyzedArgsUsage(cx))
         return Method_Error;
 
-    // When a Debugger set the collectCoverageInfo flag, we recompile baseline
-    // scripts without entering the interpreter again. We have to create the
-    // ScriptCounts if they do not exist.
+    // When code coverage is only enabled for optimizations, or when a Debugger
+    // set the collectCoverageInfo flag, we have to create the ScriptCounts if
+    // they do not exist.
     if (!script->hasScriptCounts() && cx->compartment()->collectCoverage()) {
         if (!script->initScriptCounts(cx))
             return Method_Error;
@@ -990,6 +990,13 @@ BaselineCompiler::emitBody()
             break;
 OPCODE_LIST(EMIT_OP)
 #undef EMIT_OP
+        }
+
+        // If the main instruction is not a jump target, then we emit the
+        //  corresponding code coverage counter.
+        if (pc == script->main() && !BytecodeIsJumpTarget(op)) {
+            if (!emit_JSOP_JUMPTARGET())
+                return Method_Error;
         }
 
         // Test if last instructions and stop emitting in that case.
