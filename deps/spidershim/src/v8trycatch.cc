@@ -181,9 +181,6 @@ void TryCatch::SetVerbose(bool verbose) { pimpl_->SetVerbose(verbose); }
 
 void TryCatch::CheckReportExternalException() {
   assert(pimpl_->IsInternal());
-  // TODO: update this when proprogating exceptions is implemented:
-  // https://github.com/mozilla/spidernode/issues/89
-
   // Transfer the exception to the previous non-internal TryCatch if there is
   // one.
   TryCatch* nonInternal = pimpl_->PreviousNonInternal();
