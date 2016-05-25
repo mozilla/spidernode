@@ -386,4 +386,9 @@ CpuProfiler* Isolate::GetCpuProfiler() {
 void Isolate::SetFatalErrorHandler(FatalErrorCallback that) {
   // TODO: https://github.com/mozilla/spidernode/issues/125
 }
+
+void Isolate::SetAbortOnUncaughtExceptionCallback(
+  AbortOnUncaughtExceptionCallback callback) {
+  // TODO: https://github.com/mozilla/spidernode/issues/126
+}
 }
