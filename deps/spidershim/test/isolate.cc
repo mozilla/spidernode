@@ -265,7 +265,6 @@ bool DoLoop(JSContext *cx, unsigned argc, JS::Value *vp) {
                  "}"
                  "f()");
   EXPECT_TRUE(result.IsEmpty());
-  JS_IsExceptionPending(cx);
   // TODO: enable these https://github.com/mozilla/spidernode/issues/96
   // EXPECT_TRUE(try_catch.HasCaught());
   // EXPECT_TRUE(try_catch.Exception()->IsNull());
@@ -327,7 +326,7 @@ TEST(SpiderShim, Microtask) {
   HandleScope handle_scope(engine.isolate());
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
-  
+
   Local<Object> globalObj = context->Global();
   auto smContext = JSContextFromContext(*context);
   JS::RootedObject smGlobal(smContext, &reinterpret_cast<JS::Value*>(*globalObj)->toObject());
@@ -335,6 +334,7 @@ TEST(SpiderShim, Microtask) {
   EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "onFulfilled", &OnFulfilled, 0, 0));
   EXPECT_FALSE(on_fulfilled_called);
   MaybeLocal<Value> result = engine.CompileRun(context, "Promise.resolve(43).then(onFulfilled);");
+  EXPECT_FALSE(result.IsEmpty());
   EXPECT_FALSE(on_fulfilled_called);
   engine.isolate()->RunMicrotasks();
   EXPECT_TRUE(on_fulfilled_called);
