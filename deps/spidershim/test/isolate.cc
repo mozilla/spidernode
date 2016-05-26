@@ -209,19 +209,14 @@ TEST(SpiderShim, ExternalAllocatedMemory) {
             isolate->AdjustAmountOfExternalAllocatedMemory(-kSize));
 }
 
-bool Terminate(JSContext *cx, unsigned argc, JS::Value *vp) {
+static void Terminate(const FunctionCallbackInfo<Value>& info) {
   auto isolate = Isolate::GetCurrent();
   EXPECT_TRUE(!isolate->IsExecutionTerminating());
   isolate->TerminateExecution();
-
-  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  args.rval().setUndefined();
-  return true;
 }
 
-bool Fail(JSContext *cx, unsigned argc, JS::Value *vp) {
+static void Fail(const FunctionCallbackInfo<Value>& info) {
   EXPECT_TRUE(false);
-  return true;
 }
 
 Local<Value> CompileRun(const char* script) {
@@ -232,7 +227,7 @@ Local<Value> CompileRun(const char* script) {
   return Local<Value>();
 }
 
-bool Loop(JSContext *cx, unsigned argc, JS::Value *vp) {
+static void Loop(const FunctionCallbackInfo<Value>& info) {
   auto isolate = Isolate::GetCurrent();
   EXPECT_FALSE(isolate->IsExecutionTerminating());
 
@@ -240,13 +235,9 @@ bool Loop(JSContext *cx, unsigned argc, JS::Value *vp) {
       CompileRun("try { doloop(); fail(); } catch(e) { fail(); }");
   EXPECT_TRUE(result.IsEmpty());
   EXPECT_TRUE(isolate->IsExecutionTerminating());
-
-  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  args.rval().setUndefined();
-  return false;
 }
 
-bool DoLoop(JSContext *cx, unsigned argc, JS::Value *vp) {
+static void DoLoop(const FunctionCallbackInfo<Value>& info) {
   auto isolate = Isolate::GetCurrent();
   TryCatch try_catch(isolate);
   EXPECT_FALSE(isolate->IsExecutionTerminating());
@@ -271,19 +262,23 @@ bool DoLoop(JSContext *cx, unsigned argc, JS::Value *vp) {
   // EXPECT_TRUE(try_catch.Message().IsEmpty());
   // EXPECT_FALSE(try_catch.CanContinue());
   EXPECT_TRUE(isolate->IsExecutionTerminating());
-
-  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  args.rval().setUndefined();
-  return false;
 }
 
-void CreateGlobalTemplate(
-    JSContext *smContext, JS::Handle<JSObject *> smGlobal, JSNative doloop) {
+void CreateGlobalTemplate(Local<Context> context) {
+  Local<Object> global = context->Global();
 
-  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "terminate", &Terminate, 0, 0));
-  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "fail", &Fail, 0, 0));
-  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "loop", &Loop, 0, 0));
-  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "doloop", doloop, 0, 0));
+  EXPECT_TRUE(global->Set(context, v8_str("terminate"),
+                          Function::New(context, Terminate).ToLocalChecked())
+              .FromJust());
+  EXPECT_TRUE(global->Set(context, v8_str("fail"),
+                          Function::New(context, Fail).ToLocalChecked())
+              .FromJust());
+  EXPECT_TRUE(global->Set(context, v8_str("loop"),
+                          Function::New(context, Loop).ToLocalChecked())
+              .FromJust());
+  EXPECT_TRUE(global->Set(context, v8_str("doloop"),
+                          Function::New(context, DoLoop).ToLocalChecked())
+              .FromJust());
 }
 
 TEST(SpiderShim, TerminateExecution) {
@@ -297,11 +292,7 @@ TEST(SpiderShim, TerminateExecution) {
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
 
-  Local<Object> globalObj = context->Global();
-  auto smContext = JSContextFromContext(*context);
-  JS::RootedObject smGlobal(smContext, &reinterpret_cast<JS::Value*>(*globalObj)->toObject());
-
-  CreateGlobalTemplate(smContext, smGlobal, DoLoop);
+  CreateGlobalTemplate(context);
 
   MaybeLocal<Value> result = engine.CompileRun(context, "loop();");
   EXPECT_TRUE(result.IsEmpty());
