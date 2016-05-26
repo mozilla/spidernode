@@ -51,7 +51,6 @@
 // header to compile.  We need to replace them with SM based stuff.
 typedef void* JsRef;
 typedef JsRef JsValueRef;
-const JsRef JS_INVALID_REFERENCE = NULL;
 
 struct JSRuntime;
 struct JSContext;
