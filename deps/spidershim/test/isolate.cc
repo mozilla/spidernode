@@ -300,13 +300,9 @@ TEST(SpiderShim, TerminateExecution) {
 
 bool on_fulfilled_called;
 
-bool OnFulfilled(JSContext *cx, unsigned argc, JS::Value *vp) {
+static void OnFulfilled(const FunctionCallbackInfo<Value>& info) {
   EXPECT_FALSE(on_fulfilled_called);
   on_fulfilled_called = true;
-
-  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  args.rval().setUndefined();
-  return true;
 }
 
 TEST(SpiderShim, Microtask) {
@@ -318,11 +314,11 @@ TEST(SpiderShim, Microtask) {
   Local<Context> context = Context::New(engine.isolate());
   Context::Scope context_scope(context);
 
-  Local<Object> globalObj = context->Global();
-  auto smContext = JSContextFromContext(*context);
-  JS::RootedObject smGlobal(smContext, &reinterpret_cast<JS::Value*>(*globalObj)->toObject());
+  Local<Object> global = context->Global();
 
-  EXPECT_TRUE(JS_DefineFunction(smContext, smGlobal, "onFulfilled", &OnFulfilled, 0, 0));
+  EXPECT_TRUE(global->Set(context, v8_str("onFulfilled"),
+                          Function::New(context, OnFulfilled).ToLocalChecked())
+              .FromJust());
   EXPECT_FALSE(on_fulfilled_called);
   MaybeLocal<Value> result = engine.CompileRun(context, "Promise.resolve(43).then(onFulfilled);");
   EXPECT_FALSE(result.IsEmpty());
