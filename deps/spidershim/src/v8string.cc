@@ -24,6 +24,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/CharacterEncoding.h"
+#include "mozilla/unused.h"
 #include "conversions.h"
 #include "v8isolate.h"
 #include "v8local.h"
@@ -99,12 +100,15 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   JSString* str =
       type == v8::NewStringType::kInternalized
           ? JS_AtomizeAndPinUCString(
-                cx, reinterpret_cast<const char16_t*>(twoByteChars.release()))
-          : JS_NewUCString(cx, twoByteChars.release(), twoByteLen);
+                cx, reinterpret_cast<const char16_t*>(twoByteChars.get()))
+          : JS_NewUCString(cx, twoByteChars.get(), twoByteLen);
 
   if (!str) {
     return MaybeLocal<String>();
   }
+
+  // If creating the string was successful, relinquish ownership.
+  mozilla::Unused << twoByteChars.release();
 
   JS::Value strVal;
   strVal.setString(str);
