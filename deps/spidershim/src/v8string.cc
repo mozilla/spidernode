@@ -99,8 +99,8 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
 
   JSString* str =
       type == v8::NewStringType::kInternalized
-          ? JS_AtomizeAndPinUCString(
-                cx, reinterpret_cast<const char16_t*>(twoByteChars.get()))
+          ? JS_AtomizeAndPinUCStringN(
+                cx, reinterpret_cast<const char16_t*>(twoByteChars.get()), twoByteLen)
           : JS_NewUCString(cx, twoByteChars.get(), twoByteLen);
 
   if (!str) {

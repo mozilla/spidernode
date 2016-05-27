@@ -1135,6 +1135,27 @@ TEST(SpiderShim, ExternalStringResourceDestructorCalled) {
   EXPECT_TRUE(externalOneByteStringResourceDestructorCalled);
 }
 
+TEST(SpiderShim, StringNullChar) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<String> str1 =
+      String::NewFromUtf8(context->GetIsolate(), "abc\0def",
+                              NewStringType::kNormal, 7)
+          .ToLocalChecked();
+  EXPECT_EQ(7, str1->Length());
+  Local<String> str2 =
+      String::NewFromUtf8(context->GetIsolate(), "abc\0def",
+                              NewStringType::kInternalized, 7)
+          .ToLocalChecked();
+  EXPECT_EQ(7, str2->Length());
+}
+
 TEST(SpiderShim, StringWrite) {
   // This test is based on V8's StringWrite test.
   V8Engine engine;
