@@ -2,6 +2,7 @@
   'variables': {
     'target_arch%': 'ia32',
     'spidermonkey_gczeal%': 0,
+    'asan%': 0,
 
     'conditions': [
       ['target_arch=="ia32"', { 'Platform': 'x86' }],
@@ -42,6 +43,9 @@
           }],
           ['spidermonkey_gczeal==1', {
             'spidermonkey_args': ['--enable-gczeal'],
+          }],
+          ['asan==1', {
+            'spidermonkey_args': ['--enable-address-sanitizer'],
           }],
         ],
       },

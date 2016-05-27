@@ -26,6 +26,15 @@ srcdir="$PWD"
 build="$1"
 shift
 
+case "$*" in
+  *--enable-address-sanitizer*)
+    export ASANFLAGS="-fsanitize=address -Dxmalloc=myxmalloc -fPIC"
+    export CFLAGS="$ASANFLAGS"
+    export CXXFLAGS="$ASANFLAGS"
+    export LDFLAGS="-fsanitize=address"
+    ;;
+esac
+
 test -d $build || mkdir $build
 cd $build
 # First try running Make.  If configure has changed, it will fail, so

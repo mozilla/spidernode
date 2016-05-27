@@ -83,7 +83,7 @@ before_install:
 before_script:
   - ./configure --debug --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
 script:
-  - travis_wait 30 make V= -k || true
+  - travis_wait 40 make V= -k || true
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
   - ./deps/spidershim/scripts/run-tests.py
 notifications:
