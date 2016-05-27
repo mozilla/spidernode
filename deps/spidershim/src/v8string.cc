@@ -107,8 +107,10 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
     return MaybeLocal<String>();
   }
 
-  // If creating the string was successful, relinquish ownership.
-  mozilla::Unused << twoByteChars.release();
+  // If creating the non-internalized string was successful, relinquish ownership.
+  if (type != v8::NewStringType::kInternalized) {
+    mozilla::Unused << twoByteChars.release();
+  }
 
   JS::Value strVal;
   strVal.setString(str);
