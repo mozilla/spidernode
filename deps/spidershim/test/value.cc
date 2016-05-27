@@ -1708,6 +1708,7 @@ TEST(SpiderShim, NewStringRangeError) {
       new TestExternalStringResource(data, length);
     CHECK(String::NewExternalTwoByte(isolate, testResource).IsEmpty());
     CHECK(!try_catch.HasCaught());
+    delete testResource;
   }
   {
     TryCatch try_catch(isolate);
@@ -1718,6 +1719,7 @@ TEST(SpiderShim, NewStringRangeError) {
       new TestExternalOneByteStringResource(data, length);
     CHECK(String::NewExternalOneByte(isolate, testResource).IsEmpty());
     CHECK(!try_catch.HasCaught());
+    delete testResource;
   }
   free(buffer);
 }
