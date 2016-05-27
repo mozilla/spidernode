@@ -44,4 +44,11 @@ Proxy::GetTarget()
   target.setObject(*js::GetProxyTargetObject(obj));
   return internal::Local<Object>::New(Isolate::GetCurrent(), target);
 }
+
+Local<Value>
+Proxy::GetHandler()
+{
+  // XXX implement this when spider monkey exposes it.
+  return Local<Value>();
+}
 }
