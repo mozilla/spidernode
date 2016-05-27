@@ -347,3 +347,62 @@ TEST(SpiderShim, GetHeapStatistics) {
   EXPECT_NE(static_cast<int>(heap_statistics.total_heap_size()), 0);
   EXPECT_NE(static_cast<int>(heap_statistics.used_heap_size()), 0);
 }
+
+void ThrowValue(const FunctionCallbackInfo<Value>& args) {
+  EXPECT_EQ(1, args.Length());
+  args.GetIsolate()->ThrowException(args[0]);
+}
+
+
+TEST(SpiderShim, ThrowValues) {
+  // This test is based on V8's ThrowValues.
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<Object> global = context->Global();
+
+  EXPECT_TRUE(global->Set(context, v8_str("Throw"),
+                          Function::New(context, ThrowValue).ToLocalChecked())
+              .FromJust());
+
+  Local<Array> result = Local<Array>::Cast(
+      engine.CompileRun(context, "function Run(obj) {"
+                 "  try {"
+                 "    Throw(obj);"
+                 "  } catch (e) {"
+                 "    return e;"
+                 "  }"
+                 "  return 'no exception';"
+                 "}"
+                 "[Run('str'), Run(1), Run(0), Run(null), Run(void 0)];"));
+  EXPECT_EQ(5u, result->Length());
+  EXPECT_TRUE(result->Get(context, Integer::New(isolate, 0))
+            .ToLocalChecked()
+            ->IsString());
+  EXPECT_TRUE(result->Get(context, Integer::New(isolate, 1))
+            .ToLocalChecked()
+            ->IsNumber());
+  EXPECT_EQ(1, result->Get(context, Integer::New(isolate, 1))
+                  .ToLocalChecked()
+                  ->Int32Value(context)
+                  .FromJust());
+  EXPECT_TRUE(result->Get(context, Integer::New(isolate, 2))
+            .ToLocalChecked()
+            ->IsNumber());
+  EXPECT_EQ(0, result->Get(context, Integer::New(isolate, 2))
+                  .ToLocalChecked()
+                  ->Int32Value(context)
+                  .FromJust());
+  EXPECT_TRUE(result->Get(context, Integer::New(isolate, 3))
+            .ToLocalChecked()
+            ->IsNull());
+  EXPECT_TRUE(result->Get(context, Integer::New(isolate, 4))
+            .ToLocalChecked()
+            ->IsUndefined());
+}
+
