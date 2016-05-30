@@ -30,8 +30,22 @@ namespace v8 {
 MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
                                    ScriptOrigin* origin) {
   JSContext* cx = JSContextFromContext(*context);
+  Isolate* isolate = context->GetIsolate();
   size_t length = 0;
-  auto buffer = internal::GetFlatString(cx, source, &length);
+  JS::UniqueTwoByteChars buffer;
+  {
+    // With UnboundScript, the source variable here may be a string allocated in the
+    // context of a different global, therefore from a different zone, so if we just
+    // pass it down to GetFlatString(), SpiderMonkey's zone assertion checks fail.
+    // Therefore we need to use JS_WrapValue to copy it into the current zone of
+    // cx before using it.
+    JS::RootedValue sourceVal(cx, *GetValue(source));
+    if (!JS_WrapValue(cx, &sourceVal)) {
+      return MaybeLocal<Script>();
+    }
+    Local<String> src = internal::Local<String>::New(isolate, sourceVal);
+    buffer = internal::GetFlatString(cx, src, &length);
+  }
   if (!buffer) {
     return MaybeLocal<Script>();
   }
@@ -48,11 +62,13 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
       .forceAsync = true;
   ;
   if (origin) {
-    MaybeLocal<String> resourceName = origin->ResourceName()->ToString(context);
-    if (!resourceName.IsEmpty()) {
-      utf8 =
-          mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
-      options.setFile(**utf8);
+    if (!origin->ResourceName().IsEmpty()) {
+      MaybeLocal<String> resourceName = origin->ResourceName()->ToString(context);
+      if (!resourceName.IsEmpty()) {
+        utf8 =
+            mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
+        options.setFile(**utf8);
+      }
     }
     if (!origin->ResourceLineOffset().IsEmpty()) {
       options.setLine(origin->ResourceLineOffset()->Value() + 1);
@@ -65,7 +81,7 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
   if (!JS::Compile(cx, options, sbh, &jsScript)) {
     return MaybeLocal<Script>();
   }
-  return internal::Local<Script>::New(context->GetIsolate(), jsScript, context);
+  return internal::Local<Script>::New(isolate, jsScript, context);
 }
 
 Local<Script> Script::Compile(Local<String> source, ScriptOrigin* origin) {

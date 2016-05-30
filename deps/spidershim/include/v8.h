@@ -95,6 +95,7 @@ class RegExp;
 class Promise;
 class Proxy;
 class Script;
+class ScriptCompiler;
 class Signature;
 class StartupData;
 class StackFrame;
@@ -304,6 +305,7 @@ class Local {
   friend class Proxy;
   friend class Signature;
   friend class Script;
+  friend class ScriptCompiler;
   friend class StackFrame;
   friend class StackTrace;
   friend class String;
@@ -761,7 +763,7 @@ private:
     return trace;
   }
   static UnboundScript* AddToScope(UnboundScript* us) {
-    // TODO: Add support for Local<UnboundScript>
+    // UnboundScripts are not currently tracked by HandleScopes.
     return us;
   }
 
@@ -817,11 +819,6 @@ class ScriptOrigin {
   Local<Value> resource_name_;
   Local<Integer> resource_line_offset_;
   Local<Integer> resource_column_offset_;
-};
-
-class V8_EXPORT UnboundScript {
- public:
-  Local<Script> BindToCurrentContext();
 };
 
 class V8_EXPORT Script {
@@ -891,6 +888,7 @@ class V8_EXPORT ScriptCompiler {
 
    private:
     friend ScriptCompiler;
+    friend class UnboundScript;
     Local<String> source_string;
     Handle<Value> resource_name;
   };
@@ -918,6 +916,22 @@ class V8_EXPORT ScriptCompiler {
   static V8_WARN_UNUSED_RESULT MaybeLocal<Script> Compile(
     Local<Context> context, Source* source,
     CompileOptions options = kNoCompileOptions);
+};
+
+class V8_EXPORT UnboundScript {
+ public:
+  Local<Script> BindToCurrentContext();
+
+ private:
+  UnboundScript(Isolate* isolate, ScriptCompiler::Source* source);
+  ~UnboundScript();
+
+  friend class Isolate;
+  friend class Script;
+  friend class ScriptCompiler;
+
+  struct Impl;
+  Impl* pimpl_;
 };
 
 class V8_EXPORT Message {
@@ -2424,10 +2438,12 @@ private:
   void PopCurrentContext();
   void AddStackFrame(StackFrame* frame);
   void AddStackTrace(StackTrace* trace);
+  void AddUnboundScript(UnboundScript* script);
   friend class Context;
   friend class StackFrame;
   friend class StackTrace;
   friend class TryCatch;
+  friend class UnboundScript;
   friend class ::V8Engine;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
   template <class T> friend class PersistentBase;
@@ -2446,8 +2462,13 @@ private:
   void RemovePersistent(Context* val) {
     // Contexts are not currently tracked by HandleScopes.
   }
-  UnboundScript* AddPersistent(UnboundScript* val); // not supported yet
-  void RemovePersistent(UnboundScript* val);        // not supported yet
+  UnboundScript* AddPersistent(UnboundScript* val) {
+    // UnboundScripts are not currently tracked by HandleScopes.
+    return val;
+  }
+  void RemovePersistent(UnboundScript* val) {
+    // UnboundScripts are not currently tracked by HandleScopes.
+  }
 
   size_t PersistentCount() const;
 

@@ -40,5 +40,9 @@
       'target_name': 'template',
       'sources': [ 'test/template.cc' ],
     },
+    {
+      'target_name': 'unboundscript',
+      'sources': [ 'test/unboundscript.cc' ],
+    },
   ],
 }

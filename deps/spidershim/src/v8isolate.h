@@ -54,6 +54,7 @@ struct Isolate::Impl {
   std::vector<StackTrace*> stackTraces;
   std::vector<GCCallback> gcProlougeCallbacks;
   std::vector<GCCallback> gcEpilogueCallbacks;
+  std::vector<UnboundScript*> unboundScripts;
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;

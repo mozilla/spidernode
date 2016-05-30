@@ -154,17 +154,22 @@ void Isolate::Exit() {
 }
 
 void Isolate::Dispose() {
-  pimpl_->persistents.reset();
-  pimpl_->eternals.reset();
+  Enter();
   JS_SetGCCallback(pimpl_->rt, NULL, NULL);
-  for (auto context : pimpl_->contexts) {
-    context->Dispose();
-  }
   for (auto frame : pimpl_->stackFrames) {
     delete frame;
   }
   for (auto trace : pimpl_->stackTraces) {
     delete trace;
+  }
+  for (auto script : pimpl_->unboundScripts) {
+    delete script;
+  }
+  pimpl_->persistents.reset();
+  pimpl_->eternals.reset();
+  Exit();
+  for (auto context : pimpl_->contexts) {
+    context->Dispose();
   }
   delete this;
 }
@@ -193,6 +198,11 @@ JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
   return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+}
+
+void Isolate::AddUnboundScript(UnboundScript* script) {
+  assert(pimpl_);
+  pimpl_->unboundScripts.push_back(script);
 }
 
 void Isolate::SetAutorunMicrotasks(bool autorun) {
