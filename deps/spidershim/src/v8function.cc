@@ -154,7 +154,7 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   } else {
     args.rval().setUndefined();
   }
-  return !isolate->IsExecutionTerminating();
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
 }
 }
 
