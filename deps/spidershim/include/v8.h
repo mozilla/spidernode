@@ -105,6 +105,7 @@ class Template;
 class TryCatch;
 class Uint32;
 class UnboundScript;
+template <class T> class Eternal;
 template <class T> class Local;
 template <class T> class Maybe;
 template <class T> class MaybeLocal;
@@ -330,12 +331,18 @@ class Local {
   V8_INLINE static Local<T> New(Isolate* isolate, S* that) {
     return New(that);
   }
+  template <class S>
+  V8_INLINE static Local<T> New(Isolate* isolate, S* that, Local<Context> context) {
+    return New(that, context);
+  }
 
   V8_INLINE Local(const PersistentBase<T>& that)
     : val_(that.val_) {
   }
   template <class S>
   V8_INLINE static Local<T> New(S* that);
+  template <class S>
+  V8_INLINE static Local<T> New(S* that, Local<Context> context);
 
   T* val_;
 };
@@ -738,7 +745,7 @@ private:
 
   static Value* AddToScope(Value* val);
   static Template* AddToScope(Template* val);
-  static Script* AddToScope(JSScript* script);
+  static Script* AddToScope(JSScript* script, Local<Context> context);
   static Private* AddToScope(JS::Symbol* priv);
   static Message* AddToScope(Message* msg);
   static Context* AddToScope(Context* context) {
@@ -839,10 +846,12 @@ class V8_EXPORT Script {
 private:
   friend class internal::RootStore;
 
-  Script(JSScript* script)
-    : script_(script) {}
+  Script(Local<Context> context, JSScript* script)
+    : script_(script),
+      context_(context) {}
 
   JSScript* script_;
+  Local<Context> context_;
 };
 
 class V8_EXPORT ScriptCompiler {
@@ -2708,6 +2717,16 @@ template <class T>
 template <class S>
 Local<T> Local<T>::New(S* that) {
   auto result = HandleScope::AddToScope(that);
+  if (!result) {
+    return Local<T>();
+  }
+  return Local<T>(static_cast<T*>(result));
+}
+
+template <class T>
+template <class S>
+Local<T> Local<T>::New(S* that, Local<Context> context) {
+  auto result = HandleScope::AddToScope(that, context);
   if (!result) {
     return Local<T>();
   }

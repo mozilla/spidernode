@@ -83,11 +83,11 @@ Template* HandleScope::AddToScope(Template* val) {
   return sCurrentScope.get()->pimpl_->Add(val);
 }
 
-Script* HandleScope::AddToScope(JSScript* script) {
+Script* HandleScope::AddToScope(JSScript* script, Local<Context> context) {
   if (!sCurrentScope.get()) {
     return nullptr;
   }
-  return sCurrentScope.get()->pimpl_->Add(script);
+  return sCurrentScope.get()->pimpl_->Add(script, context);
 }
 
 Private* HandleScope::AddToScope(JS::Symbol* symbol) {

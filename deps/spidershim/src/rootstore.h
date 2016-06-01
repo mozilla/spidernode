@@ -84,10 +84,10 @@ class RootStore {
     }
   }
 
-  Script* Add(JSScript* script) {
+  Script* Add(JSScript* script, v8::Local<Context> context) {
     assert(scripts.size() == scriptObjects.size());
     scripts.push_back(script);
-    scriptObjects.push_back(new Script(script));
+    scriptObjects.push_back(new Script(context, script));
     return scriptObjects.back();
   }
 

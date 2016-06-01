@@ -65,7 +65,7 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
   if (!JS::Compile(cx, options, sbh, &jsScript)) {
     return MaybeLocal<Script>();
   }
-  return internal::Local<Script>::New(context->GetIsolate(), jsScript);
+  return internal::Local<Script>::New(context->GetIsolate(), jsScript, context);
 }
 
 Local<Script> Script::Compile(Local<String> source, ScriptOrigin* origin) {

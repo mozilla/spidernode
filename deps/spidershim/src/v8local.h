@@ -30,8 +30,8 @@ class Local {
   static v8::Local<T> New(Isolate* isolate, JS::Value val) {
     return v8::Local<T>::New(isolate, GetV8Value(&val));
   }
-  static v8::Local<T> New(Isolate* isolate, JSScript* script) {
-    return v8::Local<T>::New(isolate, script);
+  static v8::Local<T> New(Isolate* isolate, JSScript* script, v8::Local<Context> context) {
+    return v8::Local<T>::New(isolate, script, context);
   }
   static v8::Local<T> New(Isolate* isolate, JS::Symbol* symbol) {
     return v8::Local<T>::New(isolate, symbol);
