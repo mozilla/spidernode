@@ -61,12 +61,6 @@ bool SetHiddenCalleeData(JSContext* cx, JS::HandleObject self,
   return JS_SetPropertyById(cx, self, id, val);
 }
 
-void* EncodeCallback(void* ptr1, void* ptr2) {
-  return reinterpret_cast<void*>
-    (reinterpret_cast<uintptr_t>(ptr1) |
-     (reinterpret_cast<uintptr_t>(ptr2) >> 1));
-}
-
 // For now, we implement the hidden callback using two properties with symbol
 // keys. This is observable to script, so if this becomes an issue in the future
 // we'd need to do something more sophisticated.
@@ -82,7 +76,7 @@ std::pair<JS::Symbol*, JS::Symbol*> GetHiddenCallbackSymbols(JSContext* cx) {
                         JS::GetSymbolFor(cx, name2));
 }
 
-void* GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
+FunctionCallback GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
   auto symbols = GetHiddenCallbackSymbols(cx);
   JS::RootedId id1(cx, SYMBOL_TO_JSID(symbols.first));
   JS::RootedId id2(cx, SYMBOL_TO_JSID(symbols.second));
@@ -93,25 +87,19 @@ void* GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
       JS_GetPropertyById(cx, self, id1, &data1) &&
       JS_HasOwnPropertyById(cx, self, id2, &hasOwn) && hasOwn &&
       JS_GetPropertyById(cx, self, id2, &data2)) {
-    assert(data2.toPrivate() == (void*)0x0 ||
-           data2.toPrivate() == (void*)(0x1 << 1));
-    return EncodeCallback(data1.toPrivate(), data2.toPrivate());
+    return ValuesToCallback<FunctionCallback>(data1, data2);
   }
   return nullptr;
 }
 
 bool SetHiddenCallback(JSContext* cx, JS::HandleObject self,
-                       void* callback) {
+                       FunctionCallback callback) {
   auto symbols = GetHiddenCallbackSymbols(cx);
   JS::RootedId id1(cx, SYMBOL_TO_JSID(symbols.first));
   JS::RootedId id2(cx, SYMBOL_TO_JSID(symbols.second));
-  void* ptr1 = reinterpret_cast<void*>
-    (reinterpret_cast<uintptr_t>(callback) & ~uintptr_t(0x1));
-  void* ptr2 = reinterpret_cast<void*>
-    (((reinterpret_cast<uintptr_t>(callback) & uintptr_t(0x1)) << 1));
-  assert(EncodeCallback(ptr1, ptr2) == callback);
-  JS::RootedValue val1(cx, JS::PrivateValue(ptr1));
-  JS::RootedValue val2(cx, JS::PrivateValue(ptr2));
+  JS::RootedValue val1(cx);
+  JS::RootedValue val2(cx);
+  CallbackToValues(callback, &val1, &val2);
   return JS_SetPropertyById(cx, self, id1, val1) &&
          JS_SetPropertyById(cx, self, id2, val2);
 }
@@ -140,8 +128,7 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
                                    args.isConstructing(),
                                    data, calleeFunction);
-  FunctionCallback callback =
-    reinterpret_cast<FunctionCallback>(GetHiddenCallback(cx, callee));
+  FunctionCallback callback = GetHiddenCallback(cx, callee);
   if (!callback) {
     return false;
   }
@@ -250,7 +237,7 @@ MaybeLocal<Function> Function::New(Local<Context> context,
   }
   JS::RootedObject funobj(cx, JS_GetFunctionObject(func));
   if (!SetHiddenCalleeData(cx, funobj, data) ||
-      !SetHiddenCallback(cx, funobj, reinterpret_cast<void*>(callback))) {
+      !SetHiddenCallback(cx, funobj, callback)) {
     return MaybeLocal<Function>();
   }
   JS::Value retVal;
