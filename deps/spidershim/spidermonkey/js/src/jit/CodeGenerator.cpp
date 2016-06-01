@@ -3470,20 +3470,8 @@ CodeGenerator::emitPostWriteBarrier(Register objreg)
 void
 CodeGenerator::visitOutOfLineCallPostWriteBarrier(OutOfLineCallPostWriteBarrier* ool)
 {
-    const LAllocation* obj = ool->object();
-
-    // Check whether the object is a global that we have already barriered
-    // before calling into the VM.
-    if (obj->isConstant()) {
-        JSObject* object = &obj->toConstant()->toObject();
-        if (object->is<GlobalObject>()) {
-            JSCompartment* comp = object->compartment();
-            AbsoluteAddress addr(&comp->globalWriteBarriered);
-            masm.branch32(Assembler::NotEqual, addr, Imm32(0), ool->rejoin());
-        }
-    }
-
     saveLiveVolatile(ool->lir());
+    const LAllocation* obj = ool->object();
     emitPostWriteBarrier(obj);
     restoreLiveVolatile(ool->lir());
 
@@ -8800,11 +8788,11 @@ CodeGenerator::visitRest(LRest* lir)
 }
 
 bool
-CodeGenerator::generateAsmJS(wasm::FuncOffsets* offsets)
+CodeGenerator::generateWasm(uint32_t sigIndex, wasm::FuncOffsets* offsets)
 {
     JitSpew(JitSpew_Codegen, "# Emitting asm.js code");
 
-    wasm::GenerateFunctionPrologue(masm, frameSize(), offsets);
+    wasm::GenerateFunctionPrologue(masm, frameSize(), sigIndex, offsets);
 
     // Overflow checks are omitted by CodeGenerator in some cases (leaf
     // functions with small framePushed). Perform overflow-checking after
