@@ -87,7 +87,8 @@ bool Isolate::Impl::OnInterrupt(JSContext* cx) {
   return true;
 }
 
-bool Isolate::Impl::EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job, void* data) {
+bool Isolate::Impl::EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job,
+                                              JS::HandleObject allocationSite, void* data) {
   Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
   return context->pimpl_->jobQueue.append(job);
 }
