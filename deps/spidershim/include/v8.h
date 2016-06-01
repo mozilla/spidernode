@@ -2200,6 +2200,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   void SetCallAsFunctionHandler(FunctionCallback callback,
                                 Handle<Value> data = Handle<Value>());
 
+  class InstanceClass;
  private:
   friend struct FunctionCallbackData;
   friend struct FunctionTemplateData;
@@ -2208,6 +2209,11 @@ class V8_EXPORT ObjectTemplate : public Template {
 
   Local<Object> NewInstance(Handle<Object> prototype);
   Handle<String> GetClassName();
+
+  // GetInstanceClass creates it if needed, otherwise returns the existing
+  // one.  Null is returned if objects should be created with the default
+  // plain-object JSClass.
+  InstanceClass* GetInstanceClass();
 };
 
 class V8_EXPORT External : public Value {
