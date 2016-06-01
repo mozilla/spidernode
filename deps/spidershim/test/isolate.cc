@@ -219,14 +219,6 @@ static void Fail(const FunctionCallbackInfo<Value>& info) {
   EXPECT_TRUE(false);
 }
 
-Local<Value> CompileRun(const char* script) {
-  auto scr = Script::Compile(v8_str(script));
-  if (*scr) {
-    return scr->Run();
-  }
-  return Local<Value>();
-}
-
 static void Loop(const FunctionCallbackInfo<Value>& info) {
   auto isolate = Isolate::GetCurrent();
   EXPECT_FALSE(isolate->IsExecutionTerminating());

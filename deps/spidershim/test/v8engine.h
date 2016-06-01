@@ -67,6 +67,22 @@ static inline Local<Number> v8_num(double num) {
   return Number::New(Isolate::GetCurrent(), num);
 }
 
+static inline Local<Script> v8_compile(const char* str) {
+  return Script::Compile(v8_str(str));
+}
+
+static inline Local<Value> CompileRun(const char* str) {
+  Local<Script> script = v8_compile(str);
+  if (script.IsEmpty()) {
+    return Local<Value>();
+  }
+  return script->Run();
+}
+
+static inline int32_t v8_run_int32value(Local<Script> script) {
+  return script->Run()->ToInt32()->Value();
+}
+
 class V8Engine {
 public:
   V8Engine() {
