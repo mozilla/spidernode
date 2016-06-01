@@ -13,11 +13,8 @@
 
 JSAPITest* JSAPITest::list;
 
-bool JSAPITest::init()
+bool JSAPITest::setup()
 {
-    rt = createRuntime();
-    if (!rt)
-        return false;
     cx = createContext();
     if (!cx)
         return false;
@@ -26,18 +23,22 @@ bool JSAPITest::init()
     createGlobal();
     if (!global)
         return false;
-    JS_EnterCompartment(cx, global);
+    oldCompartment = JS_EnterCompartment(cx, global);
     return true;
 }
 
-void JSAPITest::uninit()
+bool JSAPITest::init()
 {
-    if (oldCompartment) {
-        JS_LeaveCompartment(cx, oldCompartment);
-        oldCompartment = nullptr;
-    }
+    rt = createRuntime();
+    if (!rt)
+        return false;
+    return setup();
+}
+
+void JSAPITest::teardown()
+{
     if (global) {
-        JS_LeaveCompartment(cx, nullptr);
+        JS_LeaveCompartment(cx, oldCompartment);
         global = nullptr;
     }
     if (cx) {
@@ -45,6 +46,11 @@ void JSAPITest::uninit()
         JS_DestroyContext(cx);
         cx = nullptr;
     }
+}
+
+void JSAPITest::uninit()
+{
+    teardown();
     if (rt) {
         destroyRuntime();
         rt = nullptr;

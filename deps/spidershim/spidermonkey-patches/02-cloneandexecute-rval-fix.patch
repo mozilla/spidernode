@@ -1,0 +1,276 @@
+# HG changeset patch
+# User Ehsan Akhgari <ehsan@mozilla.com>
+
+Bug 1277135 - Add an rval argument to JS::CloneAndExecuteScript(); r=jorendorff
+
+diff --git a/js/src/builtin/TestingFunctions.cpp b/js/src/builtin/TestingFunctions.cpp
+index 3ae11a5..8b430a5 100644
+--- a/js/src/builtin/TestingFunctions.cpp
++++ b/js/src/builtin/TestingFunctions.cpp
+@@ -3030,17 +3030,18 @@ ShellCloneAndExecuteScript(JSContext* cx, unsigned argc, Value* vp)
+     }
+     if (!global->is<GlobalObject>()) {
+         JS_ReportError(cx, "Argument must be a global object");
+         return false;
+     }
+ 
+     AutoCompartment ac(cx, global);
+ 
+-    if (!JS::CloneAndExecuteScript(cx, script))
++    JS::RootedValue rval(cx);
++    if (!JS::CloneAndExecuteScript(cx, script, &rval))
+         return false;
+ 
+     args.rval().setUndefined();
+     return true;
+ }
+ 
+ static bool
+ IsSimdAvailable(JSContext* cx, unsigned argc, Value* vp)
+diff --git a/js/src/jsapi-tests/testScriptObject.cpp b/js/src/jsapi-tests/testScriptObject.cpp
+index 12f188d..24e1351 100644
+--- a/js/src/jsapi-tests/testScriptObject.cpp
++++ b/js/src/jsapi-tests/testScriptObject.cpp
+@@ -13,28 +13,46 @@ struct ScriptObjectFixture : public JSAPITest {
+     static char16_t uc_code[];
+ 
+     ScriptObjectFixture()
+     {
+         for (int i = 0; i < code_size; i++)
+             uc_code[i] = code[i];
+     }
+ 
++    using JSAPITest::setup;
++    using JSAPITest::teardown;
++
+     bool tryScript(JS::HandleScript script)
+     {
+         CHECK(script);
+ 
+         JS_GC(rt);
+ 
+         /* After a garbage collection, the script should still work. */
+         JS::RootedValue result(cx);
+         CHECK(JS_ExecuteScript(cx, script, &result));
+ 
+         return true;
+     }
++
++    bool makeScript(const char* code, const char* file, size_t line,
++                    JS::MutableHandleScript script)
++    {
++        JS::CompileOptions options(cx);
++        options.setFileAndLine(file, line);
++        return JS_CompileScript(cx, code, strlen(code), options, script);
++    }
++
++    bool runScript(const char* code, const char* file, size_t line)
++    {
++        JS::RootedScript script(cx);
++        CHECK(makeScript(code, file, line, &script));
++        return tryScript(script);
++    }
+ };
+ 
+ const char ScriptObjectFixture::code[] =
+     "(function(a, b){return a+' '+b;}('hello', 'world'))";
+ const int ScriptObjectFixture::code_size = sizeof(ScriptObjectFixture::code) - 1;
+ char16_t ScriptObjectFixture::uc_code[ScriptObjectFixture::code_size];
+ 
+ BEGIN_FIXTURE_TEST(ScriptObjectFixture, bug438633_CompileScript)
+@@ -164,8 +182,38 @@ BEGIN_FIXTURE_TEST(ScriptObjectFixture, bug438633_JS_CompileFileHandleForPrincip
+     CHECK(fseek(script_stream, 0, SEEK_SET) != EOF);
+     JS::CompileOptions options(cx);
+     options.setFileAndLine("temporary file", 1);
+     JS::RootedScript script(cx);
+     CHECK(JS::Compile(cx, options, script_stream, &script));
+     return tryScript(script);
+ }
+ END_FIXTURE_TEST(ScriptObjectFixture, bug438633_JS_CompileFileHandleForPrincipals)
++
++BEGIN_FIXTURE_TEST(ScriptObjectFixture, CloneAndExecuteScript)
++{
++    JS::RootedValue fortyTwo(cx);
++    fortyTwo.setInt32(42);
++    CHECK(JS_SetProperty(cx, global, "val", fortyTwo));
++    JS::RootedScript script(cx);
++    CHECK(makeScript("val", __FILE__, __LINE__, &script));
++    JS::RootedValue value(cx);
++    CHECK(JS_ExecuteScript(cx, script, &value));
++    CHECK(value.toInt32() == 42);
++    {
++        cls_CloneAndExecuteScript other;
++        other.rt = rt;
++        CHECK(other.setup());
++        {
++            JSAutoCompartment ac(cx, global);
++            JS::RootedValue value2(cx);
++            CHECK(JS::CloneAndExecuteScript(cx, script, &value2));
++            CHECK(value2.toInt32() == 42);
++        }
++        other.teardown();
++        other.rt = nullptr;
++    }
++    JS::RootedValue value3(cx);
++    CHECK(JS_ExecuteScript(cx, script, &value3));
++    CHECK(value3.toInt32() == 42);
++    return true;
++}
++END_FIXTURE_TEST(ScriptObjectFixture, CloneAndExecuteScript)
+diff --git a/js/src/jsapi-tests/tests.cpp b/js/src/jsapi-tests/tests.cpp
+index 0cc90ba..dcf40ede 100644
+--- a/js/src/jsapi-tests/tests.cpp
++++ b/js/src/jsapi-tests/tests.cpp
+@@ -8,48 +8,54 @@
+ 
+ #include <stdio.h>
+ 
+ #include "js/Initialization.h"
+ #include "js/RootingAPI.h"
+ 
+ JSAPITest* JSAPITest::list;
+ 
+-bool JSAPITest::init()
++bool JSAPITest::setup()
+ {
+-    rt = createRuntime();
+-    if (!rt)
+-        return false;
+     cx = createContext();
+     if (!cx)
+         return false;
+     JS_BeginRequest(cx);
+     global.init(rt);
+     createGlobal();
+     if (!global)
+         return false;
+-    JS_EnterCompartment(cx, global);
++    oldCompartment = JS_EnterCompartment(cx, global);
+     return true;
+ }
+ 
+-void JSAPITest::uninit()
++bool JSAPITest::init()
++{
++    rt = createRuntime();
++    if (!rt)
++        return false;
++    return setup();
++}
++
++void JSAPITest::teardown()
+ {
+-    if (oldCompartment) {
+-        JS_LeaveCompartment(cx, oldCompartment);
+-        oldCompartment = nullptr;
+-    }
+     if (global) {
+-        JS_LeaveCompartment(cx, nullptr);
++        JS_LeaveCompartment(cx, oldCompartment);
+         global = nullptr;
+     }
+     if (cx) {
+         JS_EndRequest(cx);
+         JS_DestroyContext(cx);
+         cx = nullptr;
+     }
++}
++
++void JSAPITest::uninit()
++{
++    teardown();
+     if (rt) {
+         destroyRuntime();
+         rt = nullptr;
+     }
+ }
+ 
+ bool JSAPITest::exec(const char* bytes, const char* filename, int lineno)
+ {
+diff --git a/js/src/jsapi-tests/tests.h b/js/src/jsapi-tests/tests.h
+index 0bdb622..5ea8b89 100644
+--- a/js/src/jsapi-tests/tests.h
++++ b/js/src/jsapi-tests/tests.h
+@@ -71,16 +71,19 @@ class JSAPITest
+         MOZ_RELEASE_ASSERT(!rt);
+         MOZ_RELEASE_ASSERT(!cx);
+         MOZ_RELEASE_ASSERT(!global);
+     }
+ 
+     virtual bool init();
+     virtual void uninit();
+ 
++    bool setup();
++    void teardown();
++
+     virtual const char * name() = 0;
+     virtual bool run(JS::HandleObject global) = 0;
+ 
+ #define EXEC(s) do { if (!exec(s, __FILE__, __LINE__)) return false; } while (false)
+ 
+     bool exec(const char* bytes, const char* filename, int lineno);
+ 
+ #define EVAL(s, vp) do { if (!evaluate(s, __FILE__, __LINE__, vp)) return false; } while (false)
+diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
+index a4b44f0..785b79a 100644
+--- a/js/src/jsapi.cpp
++++ b/js/src/jsapi.cpp
+@@ -4478,30 +4478,31 @@ JS_ExecuteScript(JSContext* cx, AutoObjectVector& scopeChain,
+ 
+ MOZ_NEVER_INLINE JS_PUBLIC_API(bool)
+ JS_ExecuteScript(JSContext* cx, AutoObjectVector& scopeChain, HandleScript scriptArg)
+ {
+     return ExecuteScript(cx, scopeChain, scriptArg, nullptr);
+ }
+ 
+ JS_PUBLIC_API(bool)
+-JS::CloneAndExecuteScript(JSContext* cx, HandleScript scriptArg)
++JS::CloneAndExecuteScript(JSContext* cx, HandleScript scriptArg,
++                          JS::MutableHandleValue rval)
+ {
+     CHECK_REQUEST(cx);
+     RootedScript script(cx, scriptArg);
+     Rooted<ClonedBlockObject*> globalLexical(cx, &cx->global()->lexicalScope());
+     if (script->compartment() != cx->compartment()) {
+         Rooted<StaticScope*> staticLexical(cx, &globalLexical->staticBlock());
+         script = CloneGlobalScript(cx, staticLexical, script);
+         if (!script)
+             return false;
+ 
+         js::Debugger::onNewScript(cx, script);
+     }
+-    return ExecuteScript(cx, globalLexical, script, nullptr);
++    return ExecuteScript(cx, globalLexical, script, rval.address());
+ }
+ 
+ static const unsigned LARGE_SCRIPT_LENGTH = 500*1024;
+ 
+ static bool
+ Evaluate(JSContext* cx, HandleObject scope, Handle<StaticScope*> staticScope,
+          const ReadOnlyCompileOptions& optionsArg,
+          SourceBufferHolder& srcBuf, MutableHandleValue rval)
+diff --git a/js/src/jsapi.h b/js/src/jsapi.h
+index bdb3f6e..9640c05 100644
+--- a/js/src/jsapi.h
++++ b/js/src/jsapi.h
+@@ -4263,17 +4263,18 @@ JS_ExecuteScript(JSContext* cx, JS::AutoObjectVector& scopeChain, JS::HandleScri
+ 
+ namespace JS {
+ 
+ /**
+  * Like the above, but handles a cross-compartment script. If the script is
+  * cross-compartment, it is cloned into the current compartment before executing.
+  */
+ extern JS_PUBLIC_API(bool)
+-CloneAndExecuteScript(JSContext* cx, JS::Handle<JSScript*> script);
++CloneAndExecuteScript(JSContext* cx, JS::Handle<JSScript*> script,
++                      JS::MutableHandleValue rval);
+ 
+ } /* namespace JS */
+ 
+ namespace JS {
+ 
+ /**
+  * Evaluate the given source buffer in the scope of the current global of cx.
+  */
+
