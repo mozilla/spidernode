@@ -79,10 +79,13 @@ Local<Script> Script::Compile(Local<String> source, ScriptOrigin* origin) {
 
 MaybeLocal<Value> Script::Run(Local<Context> context) {
   assert(script_);
-  JSContext* cx = JSContextFromContext(*context);
-  JS::Rooted<JS::Value> result(cx);
-  if (!JS_ExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_),
-                        &result)) {
+  JSContext* cx = JSContextFromContext(*context_);
+  JS::RootedValue result(cx);
+  JS::RootedObject global(cx, GetObject(context_->Global()));
+  JSAutoCompartment ac(cx, global);
+  if (!JS::CloneAndExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_),
+                                 &result) ||
+      !JS_WrapValue(cx, &result)) {
     return MaybeLocal<Value>();
   }
   return internal::Local<Value>::New(context->GetIsolate(), result);
