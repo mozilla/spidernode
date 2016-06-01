@@ -123,7 +123,6 @@ void Context::Enter() {
   assert(pimpl_);
   assert(pimpl_->cx);
   assert(pimpl_->global);
-  assert(!pimpl_->oldCompartment);
   JS_BeginRequest(pimpl_->cx);
   pimpl_->oldCompartment = JS_EnterCompartment(pimpl_->cx, pimpl_->global);
   GetIsolate()->PushCurrentContext(this);
