@@ -180,8 +180,11 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject callee(cx, &args.callee());
 
-  // XXXbz This seems busted conceptually: "thisv" can be a non-object!  But
-  // objects are all PropertyCallbackInfo accepts....
+  if (!args.thisv().isObject()) {
+    JS_ReportError(cx, "Non-object this value passed to accessor function; "
+		   "we can't handle that.");
+    return false;
+  }
   Local<Object> thisObject =
     internal::Local<Object>::New(isolate, args.thisv());
 
@@ -298,8 +301,10 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   InstanceClass* instanceClass = GetInstanceClass();
 
   // XXXbz this needs more fleshing out to deal with the whole business of
-  // indexed/named getters/setters and so forth.  But for now, let's just go
-  // ahead and do the simple thing.
+  // indexed/named getters/setters and so forth.  That will involve creating
+  // proxy objects if we've had any of the indexed/named callbacks defined on
+  // us.  For now, let's just go ahead and do the simple thing, since we don't
+  // implement those parts of the API yet..
   JS::RootedObject instanceObj(cx);
   instanceObj = JS_NewObjectWithGivenProto(cx, Jsvalify(instanceClass), protoObj);
   if (!instanceObj) {

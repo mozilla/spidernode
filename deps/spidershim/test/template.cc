@@ -25,6 +25,239 @@ TEST(SpiderShim, ObjectTemplate) {
   templ->Set(v8_str("name2"), v8_str("value2"), ReadOnly);
 }
 
+static void Returns42(const FunctionCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(42);
+}
+
+static void Gets42(Local<String> property,
+		   const PropertyCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(42);
+}
+
+TEST(SpiderShim, ObjectTemplateDetails) {
+  // Loosely based on the V8 test-api.cc ObjectTemplate test.  Very loosely,
+  // because a lot of the templating API has changed from the version Node uses
+  // to V8 tip...
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> acc = FunctionTemplate::New(isolate, Returns42);
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("acc"),
+                                     acc->GetFunction(context).ToLocalChecked())
+              .FromJust());
+
+  Local<String> class_name = v8_str("the_class_name");
+  Local<ObjectTemplate> templ1 = ObjectTemplate::New(isolate);
+  templ1->SetClassName(class_name);
+  templ1->Set(isolate, "x", v8_num(10));
+  templ1->Set(isolate, "y", v8_num(13));
+  // TEST_TODO: Accessors on Template are one of those new APIs that don't exist
+  // here yet.
+  //    templ1->Set(v8_str("foo"), acc);
+  Local<v8::Object> instance1 =
+      templ1->NewInstance(context).ToLocalChecked();
+  // TEST_TODO: We didn't create this from a constructor in any sane way, so
+  // don't have a useful GetConstructorName.
+  //   EXPECT_TRUE(class_name->StrictEquals(instance1->GetConstructorName()));
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("p"), instance1).FromJust());
+  EXPECT_TRUE(CompileRun("(p.x == 10)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(p.y == 13)")->BooleanValue(context).FromJust());
+  // TEST_TODO: See above about accessors.
+  //   EXPECT_TRUE(CompileRun("(p.foo() == 42)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(p.foo == acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(p.toString() == '[object the_class_name]')")->BooleanValue(context).FromJust());
+  // Ensure that foo become a data field.
+  CompileRun("p.foo = function() {}");
+
+  Local<FunctionTemplate> fun2 = FunctionTemplate::New(isolate);
+  fun2->PrototypeTemplate()->Set(isolate, "nirk", v8_num(123));
+  Local<ObjectTemplate> templ2 = fun2->InstanceTemplate();
+  templ2->Set(isolate, "a", v8_num(12));
+  // TEST_TODO: No Template-taking Set on Template
+  //   templ2->Set(isolate, "b", templ1);
+  // TEST_TODO: No accessors on Template
+  //   templ2->Set(v8_str("bar"), acc);
+  // TEST_TODO: accessors on ObjectTemplate are totally different in node vs tip
+  // V8, so test SetAccessor instead of SetAccessorProperty
+  //   templ2->SetAccessorProperty(v8_str("acc"), acc);
+  templ2->SetAccessor(v8_str("acc"), Gets42);
+  // TEST_TODO: The entire setup for how things are created from templates seems
+  // to be different in node vs tip V8.
+  //   Local<Object> instance2 =
+  //       templ2->NewInstance(context).ToLocalChecked();
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("ourCtor"),
+                                     fun2->GetFunction(context).ToLocalChecked())
+              .FromJust());
+  Local<Object> instance2 = CompileRun("(new ourCtor())")->ToObject(isolate);
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("q"), instance2).FromJust());
+  EXPECT_TRUE(CompileRun("(q.nirk == 123)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.a == 12)")->BooleanValue(context).FromJust());
+  // TEST_TODO: None of the q.b stuff can work without Template-taking Set on
+  // Template.
+  //   EXPECT_TRUE(CompileRun("(q.b.x == 10)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q.b.y == 13)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q.b.foo() == 42)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q.b.foo === acc)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q.b !== p)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.acc == 42)")->BooleanValue(context).FromJust());
+  // TEST_TODO: No accesors on Template
+  //   EXPECT_TRUE(CompileRun("(q.bar() == 42)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q.bar == acc)")->BooleanValue(context).FromJust());
+
+  // TEST_TODO: Different way to get the object
+  //    instance2 = templ2->NewInstance(context).ToLocalChecked();
+  instance2 = CompileRun("new ourCtor()")->ToObject(isolate);
+  EXPECT_TRUE(context->Global()->Set(context, v8_str("q2"), instance2).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.nirk == 123)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.a == 12)")->BooleanValue(context).FromJust());
+  // TEST_TODO: None of the q2.b stuff can work without Template-taking Set on
+  // Template.
+  //   EXPECT_TRUE(CompileRun("(q2.b.x == 10)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q2.b.y == 13)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q2.b.foo() == 42)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q2.b.foo === acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.acc == 42)")->BooleanValue(context).FromJust());
+  // TEST_TODO: No accesors on Template
+  //   EXPECT_TRUE(CompileRun("(q2.bar() == 42)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("(q2.bar === acc)")->BooleanValue(context).FromJust());
+
+  // TEST_TODO: None of the q.b/q2.b stuff can work without Template-taking Set on
+  // Template.
+  //   EXPECT_TRUE(CompileRun("(q.b !== q2.b)")->BooleanValue(context).FromJust());
+  //   EXPECT_TRUE(CompileRun("q.b.x = 17; (q2.b.x == 10)")
+  //             ->BooleanValue(context)
+  //             .FromJust());
+
+  // TEST_TODO: These tests only make sense when using a template for the
+  // accessor.
+  //  EXPECT_TRUE(engine.CompileRun(context,
+  //                      "desc1 = Object.getOwnPropertyDescriptor(q, 'acc');"
+  //                      "(desc1.get === acc)")
+  //                 ->BooleanValue(context)
+  //                 .FromJust());
+  //  EXPECT_TRUE(engine.CompileRun(context,
+  //                          "desc2 = Object.getOwnPropertyDescriptor(q2, 'acc');"
+  //                          "(desc2.get === acc)")
+  //            ->BooleanValue(context)
+  //            .FromJust());
+}
+
+static void GetNirk(Local<String> name,
+                    const PropertyCallbackInfo<v8::Value>& info) {
+  info.GetReturnValue().Set(v8_num(900));
+}
+
+static void GetRino(Local<String> name,
+                    const PropertyCallbackInfo<v8::Value>& info) {
+  info.GetReturnValue().Set(v8_num(560));
+}
+
+enum ObjectInstantiationMode {
+  // Create object using ObjectTemplate::NewInstance.
+  ObjectTemplate_NewInstance,
+  // Create object using FunctionTemplate::NewInstance on constructor.
+  Constructor_GetFunction_NewInstance,
+  // Create object using new operator on constructor.
+  Constructor_GetFunction_New
+};
+
+static void TestObjectTemplateInheritedWithPrototype(
+    ObjectInstantiationMode mode) {
+  // Loosely based on the V8 test-api.cc
+  // TestObjectTemplateInheritedWithPrototype test.  Very loosely, because a lot
+  // of the templating API has changed from the version Node uses to V8 tip...
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> fun_A = FunctionTemplate::New(isolate);
+  fun_A->SetClassName(v8_str("A"));
+  Local<ObjectTemplate> prototype_templ = fun_A->PrototypeTemplate();
+  prototype_templ->Set(isolate, "a", v8_num(113));
+  prototype_templ->SetAccessor(v8_str("nirk"), GetNirk);
+  prototype_templ->Set(isolate, "b", v8_num(153));
+
+  Local<FunctionTemplate> fun_B = FunctionTemplate::New(isolate);
+  Local<String> class_name = v8_str("B");
+  fun_B->SetClassName(class_name);
+  fun_B->Inherit(fun_A);
+  prototype_templ = fun_B->PrototypeTemplate();
+  prototype_templ->Set(isolate, "c", v8_num(713));
+  prototype_templ->SetAccessor(v8_str("rino"), GetRino);
+  prototype_templ->Set(isolate, "d", v8_num(753));
+
+  Local<ObjectTemplate> templ = fun_B->InstanceTemplate();
+  templ->Set(isolate, "x", v8_num(10));
+  templ->Set(isolate, "y", v8_num(13));
+
+  // Perform several iterations to trigger creation from cached boilerplate.
+  for (int i = 0; i < 3; i++) {
+    Local<Object> instance;
+    switch (mode) {
+      case ObjectTemplate_NewInstance:
+        instance = templ->NewInstance(context).ToLocalChecked();
+        break;
+
+      case Constructor_GetFunction_NewInstance: {
+        Local<Function> function_B =
+            fun_B->GetFunction(context).ToLocalChecked();
+        instance = function_B->NewInstance(context).ToLocalChecked();
+        break;
+      }
+      case Constructor_GetFunction_New: {
+        Local<Function> function_B =
+            fun_B->GetFunction(context).ToLocalChecked();
+        if (i == 0) {
+          EXPECT_TRUE(context->Global()
+		        ->Set(context, class_name, function_B)
+		        .FromJust());
+        }
+        instance =
+            CompileRun("new B()")->ToObject(context).ToLocalChecked();
+        break;
+      }
+      default:
+        EXPECT_TRUE(false);
+    }
+
+    EXPECT_TRUE(class_name->StrictEquals(instance->GetConstructorName()));
+    EXPECT_TRUE(context->Global()->Set(context, v8_str("o"), instance).FromJust());
+
+    EXPECT_EQ(10, CompileRun("o.x")->IntegerValue(context).FromJust());
+    EXPECT_EQ(13, CompileRun("o.y")->IntegerValue(context).FromJust());
+
+    EXPECT_EQ(113, CompileRun("o.a")->IntegerValue(context).FromJust());
+    EXPECT_EQ(900, CompileRun("o.nirk")->IntegerValue(context).FromJust());
+    EXPECT_EQ(153, CompileRun("o.b")->IntegerValue(context).FromJust());
+    EXPECT_EQ(713, CompileRun("o.c")->IntegerValue(context).FromJust());
+    EXPECT_EQ(560, CompileRun("o.rino")->IntegerValue(context).FromJust());
+    EXPECT_EQ(753, CompileRun("o.d")->IntegerValue(context).FromJust());
+  }
+}
+
+// TEST_TODO: Not clear that this is a thing in the V8 version we're using for
+// node.
+//TEST(SpiderShim, TestObjectTemplateInheritedWithAccessorsInPrototype1) {
+//  TestObjectTemplateInheritedWithPrototype(ObjectTemplate_NewInstance);
+//}
+
+TEST(SpiderShim, TestObjectTemplateInheritedWithAccessorsInPrototype2) {
+  TestObjectTemplateInheritedWithPrototype(Constructor_GetFunction_NewInstance);
+}
+
+TEST(SpiderShim, TestObjectTemplateInheritedWithAccessorsInPrototype3) {
+  TestObjectTemplateInheritedWithPrototype(Constructor_GetFunction_New);
+}
+
 static void handle_callback_1(const FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_num(102));
 }
