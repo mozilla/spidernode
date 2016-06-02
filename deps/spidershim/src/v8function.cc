@@ -132,7 +132,7 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   Local<Value> data = GetHiddenCalleeData(cx, callee);
   mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
   for (unsigned i = 0; i < argc; ++i) {
-    Local<Value> arg = internal::Local<Value>::New(isolate, args[0]);
+    Local<Value> arg = internal::Local<Value>::New(isolate, args[i]);
     if (arg.IsEmpty()) {
       return false;
     }
