@@ -119,9 +119,6 @@ bool SetHiddenCallback(JSContext* cx, JS::HandleObject self,
 bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   Isolate* isolate = Isolate::GetCurrent();
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  if (!args.calleev().isObject()) {
-    return false;
-  }
   JS::RootedObject callee(cx, &args.callee());
   JS::Value calleeVal;
   calleeVal.setObject(args.callee());
