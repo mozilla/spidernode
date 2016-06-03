@@ -135,12 +135,8 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
       }
     }
   } else {
-    if (!args.thisv().isObject()) {
-      JS_ReportError(cx, "Non-object this value passed to FunctionCallback; "
-		     "we can't handle that.");
-      return false;
-    }
-    _this = internal::Local<Object>::New(isolate, args.thisv());
+    // TODO: Verify that computeThis() here is the right thing to do!
+    _this = internal::Local<Object>::New(isolate, args.computeThis());
   }
 
   FunctionCallback callback = GetHiddenCallback(cx, callee);

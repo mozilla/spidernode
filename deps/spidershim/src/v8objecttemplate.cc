@@ -180,13 +180,9 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject callee(cx, &args.callee());
 
-  if (!args.thisv().isObject()) {
-    JS_ReportError(cx, "Non-object this value passed to accessor function; "
-		   "we can't handle that.");
-    return false;
-  }
+  // TODO: Verify that computeThis() here is the right thing to do!
   Local<Object> thisObject =
-    internal::Local<Object>::New(isolate, args.thisv());
+    internal::Local<Object>::New(isolate, args.computeThis());
 
   JS::RootedObject accessorData(cx,
     &js::GetFunctionNativeReserved(callee, 0).toObject());
