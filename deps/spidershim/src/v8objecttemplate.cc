@@ -182,7 +182,7 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
 
   // TODO: Verify that computeThis() here is the right thing to do!
   Local<Object> thisObject =
-    internal::Local<Object>::New(isolate, args.computeThis());
+    internal::Local<Object>::New(isolate, args.computeThis(cx));
 
   JS::RootedObject accessorData(cx,
     &js::GetFunctionNativeReserved(callee, 0).toObject());

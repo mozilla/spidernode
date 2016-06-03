@@ -136,7 +136,7 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
     }
   } else {
     // TODO: Verify that computeThis() here is the right thing to do!
-    _this = internal::Local<Object>::New(isolate, args.computeThis());
+    _this = internal::Local<Object>::New(isolate, args.computeThis(cx));
   }
 
   FunctionCallback callback = GetHiddenCallback(cx, callee);
