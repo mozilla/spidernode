@@ -73,3 +73,30 @@ TEST(SpiderShim, UnboundScript) {
              101);
   }
 }
+
+TEST(SpiderShim, StackTrace) {
+  // This test is based on V8's StackTrace test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  HandleScope handle_scope(engine.isolate());
+  TryCatch try_catch(engine.isolate());
+  const char *source = "function foo() { FAIL.FAIL; }; foo();";
+  Local<String> src = v8_str(source);
+  Local<String> origin = v8_str("stack-trace-test");
+  ScriptCompiler::Source script_source(src, ScriptOrigin(origin));
+  EXPECT_TRUE(ScriptCompiler::CompileUnboundScript(engine.isolate(),
+                                                 &script_source)
+            .ToLocalChecked()
+            ->BindToCurrentContext()
+            ->Run(context)
+            .IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  String::Utf8Value stack(
+      try_catch.StackTrace(context).ToLocalChecked());
+  EXPECT_STREQ("foo@stack-trace-test:1:18\n@stack-trace-test:1:41\n", *stack);
+}
