@@ -98,8 +98,11 @@ Isolate::Isolate() : pimpl_(new Impl()) {
                                                       :    // 1GB
                                        512 * 1024 * 1024;  // 512MB
   pimpl_->rt = JS_NewRuntime(defaultHeapSize, JS::DefaultNurseryBytes, nullptr);
+  if (pimpl_->rt) {
+    pimpl_->cx = JS_NewContext(pimpl_->rt, 32 * 1024);
+  }
   // Assert success for now!
-  if (!pimpl_->rt) {
+  if (!pimpl_->rt || !pimpl_->cx) {
     MOZ_CRASH("Creating the JS Runtime failed!");
   }
   JS_SetErrorReporter(pimpl_->rt, Impl::ErrorReporter);
@@ -120,11 +123,15 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   JS::SetEnqueuePromiseJobCallback(pimpl_->rt, Isolate::Impl::EnqueuePromiseJobCallback);
   JS_SetInterruptCallback(pimpl_->rt, Isolate::Impl::OnInterrupt);
   JS_SetGCCallback(pimpl_->rt, Isolate::Impl::OnGC, NULL);
+
+  pimpl_->EnsurePersistents(this);
+  pimpl_->EnsureEternals(this);
 }
 
 Isolate::~Isolate() {
   assert(pimpl_->rt);
   JS_SetInterruptCallback(pimpl_->rt, NULL);
+  JS_DestroyContext(pimpl_->cx);
   JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }
@@ -165,12 +172,12 @@ void Isolate::Dispose() {
   for (auto script : pimpl_->unboundScripts) {
     delete script;
   }
-  pimpl_->persistents.reset();
-  pimpl_->eternals.reset();
-  Exit();
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
+  pimpl_->eternals.reset();
+  pimpl_->persistents.reset();
+  Exit();
   delete this;
 }
 
@@ -197,7 +204,7 @@ Local<Context> Isolate::GetCurrentContext() {
 JSContext* JSContextFromIsolate(v8::Isolate* isolate) {
   assert(isolate);
   assert(isolate->pimpl_);
-  return isolate->pimpl_->currentContexts.top()->pimpl_->cx;
+  return isolate->pimpl_->cx;
 }
 
 void Isolate::AddUnboundScript(UnboundScript* script) {
@@ -288,19 +295,19 @@ void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
 JSRuntime* Isolate::Runtime() const { return pimpl_->rt; }
 
 Value* Isolate::AddPersistent(Value* val) {
-  return pimpl_->EnsurePersistents(this).Add(val);
+  return pimpl_->persistents->Add(val);
 }
 
 void Isolate::RemovePersistent(Value* val) {
-  return pimpl_->EnsurePersistents(this).Remove(val);
+  return pimpl_->persistents->Remove(val);
 }
 
 Template* Isolate::AddPersistent(Template* val) {
-  return pimpl_->EnsurePersistents(this).Add(val);
+  return pimpl_->persistents->Add(val);
 }
 
 void Isolate::RemovePersistent(Template* val) {
-  return pimpl_->EnsurePersistents(this).Remove(val);
+  return pimpl_->persistents->Remove(val);
 }
 
 size_t Isolate::PersistentCount() const {
@@ -311,15 +318,15 @@ size_t Isolate::PersistentCount() const {
 }
 
 Value* Isolate::AddEternal(Value* val) {
-  return pimpl_->EnsureEternals(this).Add(val);
+  return pimpl_->eternals->Add(val);
 }
 
 Private* Isolate::AddEternal(Private* val) {
-  return pimpl_->EnsureEternals(this).Add(val->symbol_);
+  return pimpl_->eternals->Add(val->symbol_);
 }
 
 Template* Isolate::AddEternal(Template* val) {
-  return pimpl_->EnsureEternals(this).Add(val);
+  return pimpl_->eternals->Add(val);
 }
 
 bool Isolate::AddMessageListener(MessageCallback that, Handle<Value> data) {

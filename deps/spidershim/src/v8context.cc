@@ -37,37 +37,34 @@ Local<Context> Context::New(Isolate* isolate,
                             Handle<Value> global_object) {
   // TODO: Implement extensions, global_template and global_object.
   assert(isolate->Runtime());
-  JSContext* cx = JS_NewContext(isolate->Runtime(), 32 * 1024);
-  if (!cx) {
-    return Local<Context>();
-  }
+  JSContext* cx = JSContextFromIsolate(isolate);
   Context* context = new Context(cx);
   JSAutoRequest ar(cx);
-  if (!context->CreateGlobal(isolate)) {
+  if (!context->CreateGlobal(cx, isolate)) {
     return Local<Context>();
   }
   isolate->AddContext(context);
   return Local<Context>::New(isolate, context);
 }
 
-bool Context::CreateGlobal(Isolate* isolate) {
+bool Context::CreateGlobal(JSContext* cx, Isolate* isolate) {
   static const JSClassOps cOps = {
       nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
       nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
   static const JSClass globalClass = {"global", JSCLASS_GLOBAL_FLAGS, &cOps};
 
-  JS::RootedObject newGlobal(pimpl_->cx);
+  JS::RootedObject newGlobal(cx);
   JS::CompartmentOptions options;
   options.behaviors().setVersion(JSVERSION_LATEST);
-  newGlobal = JS_NewGlobalObject(pimpl_->cx, &globalClass, nullptr,
+  newGlobal = JS_NewGlobalObject(cx, &globalClass, nullptr,
                                  JS::FireOnNewGlobalHook, options);
   if (!newGlobal) {
     return false;
   }
 
-  JSAutoCompartment ac(pimpl_->cx, newGlobal);
+  JSAutoCompartment ac(cx, newGlobal);
 
-  if (!JS_InitStandardClasses(pimpl_->cx, newGlobal)) {
+  if (!JS_InitStandardClasses(cx, newGlobal)) {
     return false;
   }
 
@@ -75,11 +72,12 @@ bool Context::CreateGlobal(Isolate* isolate) {
   pimpl_->global = newGlobal;
   JS::Value globalObj;
   globalObj.setObject(*newGlobal);
-  pimpl_->globalObj =
-      internal::Local<Object>::New(Isolate::GetCurrent(), globalObj);
+  HandleScope handleScope(isolate);
+  pimpl_->globalObj.Reset(isolate,
+      internal::Local<Object>::New(Isolate::GetCurrent(), globalObj));
 
   // Ensure that JS errors appear as exceptions to us.
-  JS::ContextOptionsRef(pimpl_->cx).setAutoJSAPIOwnsErrorReporting(true);
+  JS::ContextOptionsRef(cx).setAutoJSAPIOwnsErrorReporting(true);
 
 #ifdef JS_GC_ZEAL
   const char* env = getenv("JS_GC_MAX_ZEAL");
@@ -101,7 +99,7 @@ bool Context::CreateGlobal(Isolate* isolate) {
       }
     }
     for (uint32_t i = 1; i <= 14; ++i) {
-      JS_SetGCZeal(pimpl_->cx, i, frequency);
+      JS_SetGCZeal(cx, i, frequency);
     }
   }
 #endif
@@ -112,28 +110,24 @@ bool Context::CreateGlobal(Isolate* isolate) {
 Local<Object> Context::Global() { return pimpl_->globalObj; }
 
 void Context::Dispose() {
-  assert(pimpl_);
-  assert(pimpl_->cx);
-  JS_DestroyContext(pimpl_->cx);
-  pimpl_->cx = nullptr;
   delete this;
 }
 
 void Context::Enter() {
   assert(pimpl_);
-  assert(pimpl_->cx);
   assert(pimpl_->global);
-  JS_BeginRequest(pimpl_->cx);
-  pimpl_->oldCompartment = JS_EnterCompartment(pimpl_->cx, pimpl_->global);
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS_BeginRequest(cx);
+  pimpl_->oldCompartment = JS_EnterCompartment(cx, pimpl_->global);
   GetIsolate()->PushCurrentContext(this);
 }
 
 void Context::Exit() {
   assert(pimpl_);
-  assert(pimpl_->cx);
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   // pimpl_->oldCompartment can be nullptr.
-  JS_LeaveCompartment(pimpl_->cx, pimpl_->oldCompartment);
-  JS_EndRequest(pimpl_->cx);
+  JS_LeaveCompartment(cx, pimpl_->oldCompartment);
+  JS_EndRequest(cx);
   GetIsolate()->PopCurrentContext();
 }
 
@@ -178,6 +172,7 @@ void* Context::GetAlignedPointerFromEmbedderData(int idx) {
 }
 
 void Context::Impl::RunMicrotasks() {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   // The following code was adapted from spidermonkey's shell.
   JS::RootedObject job(cx);
   JS::HandleValueArray args(JS::HandleValueArray::empty());
@@ -198,7 +193,7 @@ void Context::Impl::RunMicrotasks() {
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }
 
 JSContext* JSContextFromContext(Context* context) {
-  return context->pimpl_->cx;
+  return JSContextFromIsolate(context->GetIsolate());
 }
 
 void Context::SetSecurityToken(Handle<Value> token) {

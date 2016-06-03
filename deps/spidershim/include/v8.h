@@ -2713,7 +2713,7 @@ class V8_EXPORT Context {
 private:
   Context(JSContext* cx);
 
-  bool CreateGlobal(Isolate* isolate);
+  bool CreateGlobal(JSContext* cx, Isolate* isolate);
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);

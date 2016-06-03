@@ -39,6 +39,7 @@ bool InitializeIsolate();
 struct Isolate::Impl {
   Impl()
       : rt(nullptr),
+        cx(nullptr),
         topTryCatch(nullptr),
         serviceInterrupt(false),
         terminatingExecution(false),
@@ -47,6 +48,7 @@ struct Isolate::Impl {
   }
 
   JSRuntime* rt;
+  JSContext* cx;
   TryCatch* topTryCatch;
   std::vector<Context*> contexts;
   std::stack<Context*> currentContexts;
@@ -63,18 +65,14 @@ struct Isolate::Impl {
   bool terminatingExecution;
   int64_t amountOfExternallyAllocatedMemory;
 
-  internal::RootStore& EnsurePersistents(Isolate* iso) {
-    if (!persistents) {
-      persistents.emplace(iso);
-    }
-    return *persistents;
+  void EnsurePersistents(Isolate* iso) {
+    assert(!persistents);
+    persistents.emplace(iso);
   }
 
-  internal::RootStore& EnsureEternals(Isolate* iso) {
-    if (!eternals) {
-      eternals.emplace(iso);
-    }
-    return *eternals;
+  void EnsureEternals(Isolate* iso) {
+    assert(!eternals);
+    eternals.emplace(iso);
   }
 
   static void ErrorReporter(JSContext* cx, const char* message,

@@ -43,8 +43,6 @@ struct HandleScope::Impl : internal::RootStore {
 };
 
 HandleScope::HandleScope(Isolate* isolate) {
-  Local<Context> context = Context::New(isolate);
-  Context::Scope scope(context);
   pimpl_ = new Impl(isolate);
   pimpl_->prev = sCurrentScope.get();
   sCurrentScope.set(this);
