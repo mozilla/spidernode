@@ -62,12 +62,12 @@ matrix:
 
     - os: osx
       compiler: clang
-      env: BUILD_CONFIG=gczeal
+      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2
 
     - os: osx
       compiler: clang-3.8
       osx_image: xcode7.3
-      env: BUILD_CONFIG=normal ENABLE_ASAN=true
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2
       before_install:
         - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
         - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
@@ -83,7 +83,7 @@ before_install:
 before_script:
   - ./configure --debug --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
 script:
-  - travis_wait 40 make V= -k || true
+  - travis_wait 40 make V= -k $MAKE_ARGS || true
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
   - ./deps/spidershim/scripts/run-tests.py
 notifications:
