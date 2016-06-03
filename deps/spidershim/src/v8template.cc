@@ -25,9 +25,9 @@
 
 namespace v8 {
 
-Local<Template> Template::New(Isolate* isolate) {
+Local<Template> Template::New(Isolate* isolate, const JSClass* jsclass) {
   JSContext* cx = JSContextFromIsolate(isolate);
-  JSObject* obj = JS_NewObject(cx, nullptr);
+  JSObject* obj = JS_NewObject(cx, jsclass);
   if (!obj) {
     return Local<Template>();
   }

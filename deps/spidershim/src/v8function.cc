@@ -61,12 +61,6 @@ bool SetHiddenCalleeData(JSContext* cx, JS::HandleObject self,
   return JS_SetPropertyById(cx, self, id, val);
 }
 
-void* EncodeCallback(void* ptr1, void* ptr2) {
-  return reinterpret_cast<void*>
-    (reinterpret_cast<uintptr_t>(ptr1) |
-     (reinterpret_cast<uintptr_t>(ptr2) >> 1));
-}
-
 // For now, we implement the hidden callback using two properties with symbol
 // keys. This is observable to script, so if this becomes an issue in the future
 // we'd need to do something more sophisticated.
@@ -82,7 +76,7 @@ std::pair<JS::Symbol*, JS::Symbol*> GetHiddenCallbackSymbols(JSContext* cx) {
                         JS::GetSymbolFor(cx, name2));
 }
 
-void* GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
+FunctionCallback GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
   auto symbols = GetHiddenCallbackSymbols(cx);
   JS::RootedId id1(cx, SYMBOL_TO_JSID(symbols.first));
   JS::RootedId id2(cx, SYMBOL_TO_JSID(symbols.second));
@@ -93,25 +87,19 @@ void* GetHiddenCallback(JSContext* cx, JS::HandleObject self) {
       JS_GetPropertyById(cx, self, id1, &data1) &&
       JS_HasOwnPropertyById(cx, self, id2, &hasOwn) && hasOwn &&
       JS_GetPropertyById(cx, self, id2, &data2)) {
-    assert(data2.toPrivate() == (void*)0x0 ||
-           data2.toPrivate() == (void*)(0x1 << 1));
-    return EncodeCallback(data1.toPrivate(), data2.toPrivate());
+    return ValuesToCallback<FunctionCallback>(data1, data2);
   }
   return nullptr;
 }
 
 bool SetHiddenCallback(JSContext* cx, JS::HandleObject self,
-                       void* callback) {
+                       FunctionCallback callback) {
   auto symbols = GetHiddenCallbackSymbols(cx);
   JS::RootedId id1(cx, SYMBOL_TO_JSID(symbols.first));
   JS::RootedId id2(cx, SYMBOL_TO_JSID(symbols.second));
-  void* ptr1 = reinterpret_cast<void*>
-    (reinterpret_cast<uintptr_t>(callback) & ~uintptr_t(0x1));
-  void* ptr2 = reinterpret_cast<void*>
-    (((reinterpret_cast<uintptr_t>(callback) & uintptr_t(0x1)) << 1));
-  assert(EncodeCallback(ptr1, ptr2) == callback);
-  JS::RootedValue val1(cx, JS::PrivateValue(ptr1));
-  JS::RootedValue val2(cx, JS::PrivateValue(ptr2));
+  JS::RootedValue val1(cx);
+  JS::RootedValue val2(cx);
+  CallbackToValues(callback, &val1, &val2);
   return JS_SetPropertyById(cx, self, id1, val1) &&
          JS_SetPropertyById(cx, self, id2, val2);
 }
@@ -124,33 +112,72 @@ bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   calleeVal.setObject(args.callee());
   Local<Function> calleeFunction =
     internal::Local<Function>::New(isolate, calleeVal);
-  Local<Object> _this =
-    internal::Local<Object>::New(isolate, args.thisv());
   Local<Value> data = GetHiddenCalleeData(cx, callee);
-  mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
-  for (unsigned i = 0; i < argc; ++i) {
-    Local<Value> arg = internal::Local<Value>::New(isolate, args[i]);
-    if (arg.IsEmpty()) {
+  JS::RootedValue templateVal(cx, js::GetFunctionNativeReserved(callee, 0));
+  Local<FunctionTemplate> templ;
+  if (!templateVal.isUndefined()) {
+    templ = internal::Local<FunctionTemplate>::NewTemplate(isolate,
+                                                           templateVal);
+  }
+
+  Local<Object> _this;
+  if (args.isConstructing()) {
+    if (templ.IsEmpty()) {
+      JS::RootedObject newObj(cx, JS_NewPlainObject(cx));
+      if (!newObj) {
+        return false;
+      }
+      _this = internal::Local<Object>::New(isolate, JS::ObjectValue(*newObj));
+    } else {
+      _this = templ->CreateNewInstance();
+      if (_this.IsEmpty()) {
+        return false;
+      }
+    }
+  } else {
+    if (!args.thisv().isObject()) {
+      JS_ReportError(cx, "Non-object this value passed to FunctionCallback; "
+		     "we can't handle that.");
       return false;
     }
-    v8args[i] = *arg;
+    _this = internal::Local<Object>::New(isolate, args.thisv());
   }
-  // TODO: Figure out what we want to do for holder.  See
-  // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
-  FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
-                                   args.isConstructing(),
-                                   data, calleeFunction);
-  FunctionCallback callback =
-    reinterpret_cast<FunctionCallback>(GetHiddenCallback(cx, callee));
-  if (!callback) {
-    return false;
+
+  FunctionCallback callback = GetHiddenCallback(cx, callee);
+  JS::RootedValue retval(cx);
+  if (callback) {
+    mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
+    for (unsigned i = 0; i < argc; ++i) {
+      Local<Value> arg = internal::Local<Value>::New(isolate, args[i]);
+      if (arg.IsEmpty()) {
+        return false;
+      }
+      v8args[i] = *arg;
+    }
+    // TODO: Figure out what we want to do for holder.  See
+    // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
+    FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
+                                     args.isConstructing(),
+                                     data, calleeFunction);
+    callback(info);
+
+    if (auto rval = info.GetReturnValue().Get()) {
+      retval.set(*GetValue(rval));
+    } else {
+      retval.setUndefined();
+    }
   }
-  callback(info);
-  if (auto rval = info.GetReturnValue().Get()) {
-    args.rval().set(*GetValue(rval));
+
+  if (args.isConstructing()) {
+    if (!retval.isNullOrUndefined()) {
+      args.rval().set(retval);
+    } else {
+      args.rval().set(*GetValue(_this));
+    }
   } else {
-    args.rval().setUndefined();
+    args.rval().set(retval);
   }
+
   return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
 }
 }
@@ -242,16 +269,45 @@ MaybeLocal<Function> Function::New(Local<Context> context,
                                    FunctionCallback callback,
                                    Local<Value> data,
                                    int length) {
-  assert(callback);
+  return New(context, callback, data, length, Local<FunctionTemplate>(),
+             Local<String>());
+}
+
+MaybeLocal<Function> Function::New(Local<Context> context,
+                                   FunctionCallback callback,
+                                   Local<Value> data,
+                                   int length,
+                                   Local<FunctionTemplate> templ,
+                                   Local<String> name) {
   JSContext* cx = JSContextFromContext(*context);
-  JSFunction* func = JS_NewFunction(cx, NativeFunctionCallback, length, 0, nullptr);
+  JSFunction* func;
+  // It's a bit weird to always pass JSFUN_CONSTRUCTOR, but it's not clear to me
+  // when we would want things we get from here to NOT be constructible...
+  // Maybe when templ.IsEmpty()?  Hard to tell what chackrashim does because
+  // they don't seem to implement Function::New at all and all their
+  // FunctionTemplate stuff seems constructible at first glance.
+  if (name.IsEmpty()) {
+    func = js::NewFunctionWithReserved(cx, NativeFunctionCallback, length,
+                                       JSFUN_CONSTRUCTOR, nullptr);
+  } else {
+    JS::RootedValue nameVal(cx, *GetValue(name));
+    JS::RootedId id(cx);
+    if (!JS_ValueToId(cx, nameVal, &id)) {
+      return MaybeLocal<Function>();
+    }
+    func = js::NewFunctionByIdWithReserved(cx, NativeFunctionCallback, length,
+                                           JSFUN_CONSTRUCTOR, id);
+  }
   if (!func) {
     return MaybeLocal<Function>();
   }
   JS::RootedObject funobj(cx, JS_GetFunctionObject(func));
   if (!SetHiddenCalleeData(cx, funobj, data) ||
-      !SetHiddenCallback(cx, funobj, reinterpret_cast<void*>(callback))) {
+      !SetHiddenCallback(cx, funobj, callback)) {
     return MaybeLocal<Function>();
+  }
+  if (!templ.IsEmpty()) {
+    js::SetFunctionNativeReserved(funobj, 0, *GetValue(*templ));
   }
   JS::Value retVal;
   retVal.setObject(*funobj);
