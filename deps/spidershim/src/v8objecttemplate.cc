@@ -23,6 +23,7 @@
 #include "conversions.h"
 #include "v8local.h"
 #include "jsfriendapi.h"
+#include "instanceslots.h"
 
 namespace v8 {
 
@@ -76,8 +77,9 @@ void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
 }
 
 enum class TemplateSlots {
-  ClassNameSlot,      // Stores our class name (see SetClassName).
-  InstanceClassSlot,  // Stores the InstanceClass* for our instances.
+  ClassNameSlot,          // Stores our class name (see SetClassName).
+  InstanceClassSlot,      // Stores the InstanceClass* for our instances.
+  InternalFieldCountSlot, // Stores the internal field count for our instances.
   NumSlots
 };
 
@@ -100,11 +102,6 @@ const JSClass objectTemplateClass = {
   "ObjectTemplate",
   JSCLASS_HAS_RESERVED_SLOTS(uint32_t(TemplateSlots::NumSlots)),
   &objectTemplateClassOps
-};
-
-enum class InstanceSlots {
-  InstanceClassSlot,  // Stores a refcounted pointer to our InstanceClass*.
-  NumSlots
 };
 
 const JSClassOps objectInstanceClassOps = {
@@ -424,7 +421,9 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   InstanceClass* instanceClass;
   JS::Value nameVal = js::GetReservedSlot(obj,
                                           size_t(TemplateSlots::ClassNameSlot));
-  if (nameVal.isUndefined()) {
+  JS::Value internalFieldCountVal = js::GetReservedSlot(obj,
+                                                        size_t(TemplateSlots::InternalFieldCountSlot));
+  if (nameVal.isUndefined() && internalFieldCountVal.isUndefined()) {
     instanceClass = nullptr;
   } else {
     instanceClass = new InstanceClass();
@@ -432,10 +431,20 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
       MOZ_CRASH();
     }
 
-    JS::RootedString str(cx, nameVal.toString());
-    instanceClass->name = JS_EncodeStringToUTF8(cx, str);
+    uint32_t internalFieldCount = 0;
+    if (!internalFieldCountVal.isUndefined()) {
+      internalFieldCount = internalFieldCountVal.toInt32();
+    }
+
+    if (nameVal.isUndefined()) {
+      instanceClass->name = "Object";
+    } else {
+      JS::RootedString str(cx, nameVal.toString());
+      instanceClass->name = JS_EncodeStringToUTF8(cx, str);
+    }
     instanceClass->flags =
-      JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots));
+      JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
+                                 internalFieldCount);
     instanceClass->cOps = nullptr;
     instanceClass->spec = nullptr;
     instanceClass->ext = nullptr;
@@ -447,6 +456,17 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   js::SetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot),
                       JS::PrivateValue(instanceClass));
   return instanceClass;
+}
+
+void ObjectTemplate::SetInternalFieldCount(int value) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  js::SetReservedSlot(obj, size_t(TemplateSlots::InternalFieldCountSlot),
+                      JS::Int32Value(value));
 }
 
 } // namespace v8

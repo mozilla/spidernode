@@ -28,6 +28,7 @@
 #include "v8local.h"
 #include "v8string.h"
 #include "v8trycatch.h"
+#include "instanceslots.h"
 
 namespace {
 
@@ -532,5 +533,26 @@ MaybeLocal<Value> Object::CallAsConstructor(Local<Context> context, int argc,
 Local<Value> Object::CallAsConstructor(int argc, Local<Value> argv[]) {
   Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
   return CallAsConstructor(ctx, argc, argv).ToLocalChecked();
+}
+
+int Object::InternalFieldCount() {
+  return JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(this))) -
+         uint32_t(InstanceSlots::NumSlots);
+}
+
+Local<Value> Object::GetInternalField(int index) {
+  assert(index < InternalFieldCount());
+  JS::Value retVal(js::GetReservedSlot(GetObject(this),
+                                       uint32_t(InstanceSlots::NumSlots) + index));
+  return internal::Local<Value>::New(Isolate::GetCurrent(), retVal);
+}
+
+void Object::SetInternalField(int index, Local<Value> value) {
+  assert(index < InternalFieldCount());
+  if (!value.IsEmpty()) {
+    js::SetReservedSlot(GetObject(this),
+                        uint32_t(InstanceSlots::NumSlots) + index,
+                        *GetValue(value));
+  }
 }
 }

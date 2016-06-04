@@ -546,3 +546,25 @@ TEST(SpiderShim, FunctionTemplateReceiverSignature) {
   }
 }
 #endif // FunctionTemplateReceiverSignature
+
+TEST(SpiderShim, InternalFields) {
+  // Loosely based on the V8 test-api.cc TestFunctionTemplateAccessor test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
+  Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  instance_templ->SetInternalFieldCount(1);
+  Local<v8::Object> obj = templ->GetFunction(context)
+                              .ToLocalChecked()
+                              ->NewInstance(context)
+                              .ToLocalChecked();
+  EXPECT_EQ(1, obj->InternalFieldCount());
+  EXPECT_TRUE(obj->GetInternalField(0)->IsUndefined());
+  obj->SetInternalField(0, v8_num(17));
+  EXPECT_EQ(17, obj->GetInternalField(0)->Int32Value(context).FromJust());
+}
