@@ -555,4 +555,19 @@ void Object::SetInternalField(int index, Local<Value> value) {
                         *GetValue(value));
   }
 }
+
+void* Object::GetAlignedPointerFromInternalField(int index) {
+  assert(index < InternalFieldCount());
+  JS::Value retVal(js::GetReservedSlot(GetObject(this),
+                                       uint32_t(InstanceSlots::NumSlots) + index));
+  // privates are stored as doubles.
+  return (retVal.isDouble()) ? retVal.toPrivate() : nullptr;
+}
+
+void Object::SetAlignedPointerInInternalField(int index, void* value) {
+  assert(index < InternalFieldCount());
+  js::SetReservedSlot(GetObject(this),
+                      uint32_t(InstanceSlots::NumSlots) + index,
+                      JS::PrivateValue(value));
+}
 }

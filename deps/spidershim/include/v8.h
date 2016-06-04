@@ -527,6 +527,7 @@ class PersistentBase {
   template<class F> friend class Global;
   template<class F> friend class Local;
   template<class F1, class F2> friend class Persistent;
+  friend class Object;
 
   explicit V8_INLINE PersistentBase(T* val) : val_(val) {}
   PersistentBase(PersistentBase& other) = delete;  // NOLINT
@@ -1540,9 +1541,19 @@ class V8_EXPORT Object : public Value {
 
   Local<String> GetConstructorName();
   int InternalFieldCount();
+  /** Same as above, but works for Persistents */
+  V8_INLINE static int InternalFieldCount(
+      const PersistentBase<Object>& object) {
+    return object.val_->InternalFieldCount();
+  }
   Local<Value> GetInternalField(int index);
   void SetInternalField(int index, Handle<Value> value);
   void* GetAlignedPointerFromInternalField(int index);
+  /** Same as above, but works for Persistents */
+  V8_INLINE static void* GetAlignedPointerFromInternalField(
+      const PersistentBase<Object>& object, int index) {
+    return object.val_->GetAlignedPointerFromInternalField(index);
+  }
   void SetAlignedPointerInInternalField(int index, void* value);
 
   V8_DEPRECATE_SOON("Use maybe version",

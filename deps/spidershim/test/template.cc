@@ -569,6 +569,50 @@ TEST(SpiderShim, InternalFields) {
   EXPECT_EQ(17, obj->GetInternalField(0)->Int32Value(context).FromJust());
 }
 
+static void CheckAlignedPointerInInternalField(Local<v8::Object> obj,
+                                               void* value) {
+  EXPECT_EQ(0, static_cast<int>(reinterpret_cast<uintptr_t>(value) & 0x1));
+  obj->SetAlignedPointerInInternalField(0, value);
+  Isolate::GetCurrent()->RequestGarbageCollectionForTesting(kFullGarbageCollection);
+  EXPECT_EQ(value, obj->GetAlignedPointerFromInternalField(0));
+}
+
+
+TEST(SpiderShim, InternalFieldsAlignedPointers) {
+  // Loosely based on the V8 test-api.cc InternalFieldsAlignedPointers test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
+  Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  instance_templ->SetInternalFieldCount(1);
+  Local<v8::Object> obj = templ->GetFunction(context)
+                              .ToLocalChecked()
+                              ->NewInstance(context)
+                              .ToLocalChecked();
+  EXPECT_EQ(1, obj->InternalFieldCount());
+
+  CheckAlignedPointerInInternalField(obj, NULL);
+
+  int* heap_allocated = new int[100];
+  CheckAlignedPointerInInternalField(obj, heap_allocated);
+  delete[] heap_allocated;
+
+  int stack_allocated[100];
+  CheckAlignedPointerInInternalField(obj, stack_allocated);
+
+  void* huge = reinterpret_cast<void*>(~static_cast<uintptr_t>(1));
+  CheckAlignedPointerInInternalField(obj, huge);
+
+  v8::Global<v8::Object> persistent(isolate, obj);
+  EXPECT_EQ(1, Object::InternalFieldCount(persistent));
+  EXPECT_EQ(huge, Object::GetAlignedPointerFromInternalField(persistent, 0));
+}
+
 static int instance_checked_getter_count = 0;
 static void InstanceCheckedGetter(
     Local<String> name,
