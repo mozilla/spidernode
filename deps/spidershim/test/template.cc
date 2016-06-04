@@ -568,3 +568,146 @@ TEST(SpiderShim, InternalFields) {
   obj->SetInternalField(0, v8_num(17));
   EXPECT_EQ(17, obj->GetInternalField(0)->Int32Value(context).FromJust());
 }
+
+static int instance_checked_getter_count = 0;
+static void InstanceCheckedGetter(
+    Local<String> name,
+    const v8::PropertyCallbackInfo<v8::Value>& info) {
+  EXPECT_TRUE(name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
+            .FromJust());
+  instance_checked_getter_count++;
+  info.GetReturnValue().Set(v8_num(11));
+}
+
+static int instance_checked_setter_count = 0;
+static void InstanceCheckedSetter(Local<String> name,
+                      Local<Value> value,
+                      const v8::PropertyCallbackInfo<void>& info) {
+  EXPECT_TRUE(name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
+            .FromJust());
+  EXPECT_TRUE(value->Equals(info.GetIsolate()->GetCurrentContext(), v8_num(23))
+            .FromJust());
+  instance_checked_setter_count++;
+}
+
+static void CheckInstanceCheckedResult(int getters, int setters,
+                                       bool expects_callbacks,
+                                       TryCatch* try_catch) {
+  if (expects_callbacks) {
+    EXPECT_TRUE(!try_catch->HasCaught());
+    EXPECT_EQ(getters, instance_checked_getter_count);
+    EXPECT_EQ(setters, instance_checked_setter_count);
+  } else {
+    EXPECT_TRUE(try_catch->HasCaught());
+    EXPECT_EQ(0, instance_checked_getter_count);
+    EXPECT_EQ(0, instance_checked_setter_count);
+  }
+  try_catch->Reset();
+}
+
+static void CheckInstanceCheckedAccessors(bool expects_callbacks) {
+  instance_checked_getter_count = 0;
+  instance_checked_setter_count = 0;
+  TryCatch try_catch(Isolate::GetCurrent());
+
+  // Test path through generic runtime code.
+  CompileRun("obj.foo");
+  CheckInstanceCheckedResult(1, 0, expects_callbacks, &try_catch);
+  CompileRun("obj.foo = 23");
+  CheckInstanceCheckedResult(1, 1, expects_callbacks, &try_catch);
+
+  // Test path through generated LoadIC and StoredIC.
+  CompileRun("function test_get(o) { o.foo; }"
+             "test_get(obj);");
+  CheckInstanceCheckedResult(2, 1, expects_callbacks, &try_catch);
+  CompileRun("test_get(obj);");
+  CheckInstanceCheckedResult(3, 1, expects_callbacks, &try_catch);
+  CompileRun("test_get(obj);");
+  CheckInstanceCheckedResult(4, 1, expects_callbacks, &try_catch);
+  CompileRun("function test_set(o) { o.foo = 23; }"
+             "test_set(obj);");
+  CheckInstanceCheckedResult(4, 2, expects_callbacks, &try_catch);
+  CompileRun("test_set(obj);");
+  CheckInstanceCheckedResult(4, 3, expects_callbacks, &try_catch);
+  CompileRun("test_set(obj);");
+  CheckInstanceCheckedResult(4, 4, expects_callbacks, &try_catch);
+}
+
+TEST(SpiderShim, InstanceCheckOnInstanceAccessor) {
+  // Loosely based on the V8 test-api.cc InstanceCheckOnInstanceAccessor test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
+  Local<ObjectTemplate> inst = templ->InstanceTemplate();
+  // TODO: Uncomment once we implement signatures.
+  // See https://github.com/mozilla/spidernode/issues/144.
+  inst->SetAccessor(v8_str("foo"), InstanceCheckedGetter, InstanceCheckedSetter,
+                    Local<Value>(), v8::DEFAULT, v8::None/*,
+                    v8::AccessorSignature::New(context->GetIsolate(), templ)*/);
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("f"),
+                  templ->GetFunction(context).ToLocalChecked())
+            .FromJust());
+
+  CompileRun("var obj = new f();");
+  EXPECT_TRUE(templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  CheckInstanceCheckedAccessors(true);
+
+  CompileRun("var obj = {};"
+             "obj.__proto__ = new f();");
+  EXPECT_TRUE(!templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  // TODO: Once we implement signatures, we should be passing false to CheckInstanceCheckedAccessors.
+  // CheckInstanceCheckedAccessors(false);
+  CheckInstanceCheckedAccessors(true);
+}
+
+TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
+  // Loosely based on the V8 test-api.cc InstanceCheckOnPrototypeAccessor test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
+  Local<ObjectTemplate> proto = templ->PrototypeTemplate();
+  // TODO: Uncomment once we implement signatures.
+  // See https://github.com/mozilla/spidernode/issues/144.
+  proto->SetAccessor(v8_str("foo"), InstanceCheckedGetter,
+                     InstanceCheckedSetter, Local<Value>(), v8::DEFAULT,
+                     v8::None/*,
+                     v8::AccessorSignature::New(context->GetIsolate(), templ)*/);
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("f"),
+                  templ->GetFunction(context).ToLocalChecked())
+            .FromJust());
+
+  CompileRun("var obj = new f();");
+  EXPECT_TRUE(templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  CheckInstanceCheckedAccessors(true);
+
+  CompileRun("var obj = {};"
+             "obj.__proto__ = new f();");
+  EXPECT_TRUE(!templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  // TODO: Once we implement signatures, we should be passing false to CheckInstanceCheckedAccessors.
+  // CheckInstanceCheckedAccessors(false);
+  CheckInstanceCheckedAccessors(true);
+
+  CompileRun("var obj = new f();"
+             "var pro = {};"
+             "pro.__proto__ = obj.__proto__;"
+             "obj.__proto__ = pro;");
+  EXPECT_TRUE(templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  CheckInstanceCheckedAccessors(true);
+}

@@ -54,6 +54,7 @@ typedef JsRef JsValueRef;
 
 struct JSRuntime;
 struct JSContext;
+class JSObject;
 class JSScript;
 class V8Engine;
 struct JSClass;
@@ -2237,6 +2238,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   // one.  Null is returned if objects should be created with the default
   // plain-object JSClass.
   InstanceClass* GetInstanceClass();
+  bool IsInstance(JSObject* obj);
 };
 
 class V8_EXPORT External : public Value {

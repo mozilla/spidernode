@@ -335,4 +335,39 @@ Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) 
   return templ;
 }
 
+bool FunctionTemplate::HasInstance(Local<Value> val) {
+  if (val.IsEmpty() || !val->IsObject()) {
+    return false;
+  }
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JS::RootedObject obj(cx, GetObject(val));
+  JS::RootedObject protoObj(cx);
+  if (!JS_GetPrototype(cx, obj, &protoObj)) {
+    return false;
+  }
+  JS::RootedValue funcVal(cx);
+  if (!JS_GetProperty(cx, protoObj, "constructor", &funcVal) ||
+      !funcVal.isObject() ||
+      !JS_ObjectIsFunction(cx, &funcVal.toObject())) {
+    return false;
+  }
+  JS::RootedValue thisVal(cx, *GetValue(this));
+  JS::RootedValue templateVal(cx,
+    js::GetFunctionNativeReserved(&funcVal.toObject(), 0));
+  while (templateVal.isObject()) {
+    bool equals = false;
+    if (JS_StrictlyEqual(cx, templateVal, thisVal, &equals) && equals) {
+      Local<ObjectTemplate> instanceTemplate = InstanceTemplate();
+      if (instanceTemplate.IsEmpty()) {
+        return false;
+      }
+      return instanceTemplate->IsInstance(obj);
+    }
+    assert(JS_GetClass(&templateVal.toObject()) == &functionTemplateClass);
+    templateVal = js::GetReservedSlot(&templateVal.toObject(), ParentSlot);
+  }
+  return false;
+}
+
 } // namespace v8
