@@ -584,6 +584,172 @@ TEST(SpiderShim, Object) {
   EXPECT_TRUE(cloneProto->Has(qux));
 }
 
+static void InstallContextId(Local<Context> context, int id) {
+  Context::Scope scope(context);
+  EXPECT_TRUE(CompileRun("Object.prototype")
+            .As<Object>()
+            ->Set(context, v8_str("context_id"),
+                  Integer::New(context->GetIsolate(), id))
+            .FromJust());
+}
+
+static void CheckContextId(Local<Object> object, int expected) {
+  Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
+  EXPECT_EQ(expected, object->Get(context, v8_str("context_id"))
+                         .ToLocalChecked()
+                         ->Int32Value(context)
+                         .FromJust());
+}
+
+TEST(SpiderShim, CreationContext) {
+  // This test is adopted from the V8 CreationContext test.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Isolate* isolate = engine.isolate();
+
+  Local<Context> context1 = Context::New(isolate);
+  InstallContextId(context1, 1);
+  Local<Context> context2 = Context::New(isolate);
+  InstallContextId(context2, 2);
+  Local<Context> context3 = Context::New(isolate);
+  InstallContextId(context3, 3);
+
+  Local<Object> object1;
+  Local<Function> func1;
+  {
+    Context::Scope scope(context1);
+    object1 = Object::New(isolate);
+    Local<FunctionTemplate> tmpl = FunctionTemplate::New(isolate);
+    func1 = tmpl->GetFunction(context1).ToLocalChecked();
+  }
+
+  Local<Object> object2;
+  Local<Function> func2;
+  {
+    Context::Scope scope(context2);
+    object2 = Object::New(isolate);
+    Local<FunctionTemplate> tmpl = FunctionTemplate::New(isolate);
+    func2 = tmpl->GetFunction(context2).ToLocalChecked();
+  }
+
+  Local<Object> instance1;
+  Local<Object> instance2;
+
+  {
+    Context::Scope scope(context3);
+    instance1 = func1->NewInstance(context3).ToLocalChecked();
+    instance2 = func2->NewInstance(context3).ToLocalChecked();
+  }
+
+  {
+    Local<Context> other_context = Context::New(isolate);
+    Context::Scope scope(other_context);
+    EXPECT_TRUE(object1->CreationContext() == context1);
+    CheckContextId(object1, 1);
+    EXPECT_TRUE(func1->CreationContext() == context1);
+    CheckContextId(func1, 1);
+    EXPECT_TRUE(instance1->CreationContext() == context1);
+    CheckContextId(instance1, 1);
+    EXPECT_TRUE(object2->CreationContext() == context2);
+    CheckContextId(object2, 2);
+    EXPECT_TRUE(func2->CreationContext() == context2);
+    CheckContextId(func2, 2);
+    EXPECT_TRUE(instance2->CreationContext() == context2);
+    CheckContextId(instance2, 2);
+  }
+
+  {
+    Context::Scope scope(context1);
+    EXPECT_TRUE(object1->CreationContext() == context1);
+    CheckContextId(object1, 1);
+    EXPECT_TRUE(func1->CreationContext() == context1);
+    CheckContextId(func1, 1);
+    EXPECT_TRUE(instance1->CreationContext() == context1);
+    CheckContextId(instance1, 1);
+    EXPECT_TRUE(object2->CreationContext() == context2);
+    CheckContextId(object2, 2);
+    EXPECT_TRUE(func2->CreationContext() == context2);
+    CheckContextId(func2, 2);
+    EXPECT_TRUE(instance2->CreationContext() == context2);
+    CheckContextId(instance2, 2);
+  }
+
+  {
+    Context::Scope scope(context2);
+    EXPECT_TRUE(object1->CreationContext() == context1);
+    CheckContextId(object1, 1);
+    EXPECT_TRUE(func1->CreationContext() == context1);
+    CheckContextId(func1, 1);
+    EXPECT_TRUE(instance1->CreationContext() == context1);
+    CheckContextId(instance1, 1);
+    EXPECT_TRUE(object2->CreationContext() == context2);
+    CheckContextId(object2, 2);
+    EXPECT_TRUE(func2->CreationContext() == context2);
+    CheckContextId(func2, 2);
+    EXPECT_TRUE(instance2->CreationContext() == context2);
+    CheckContextId(instance2, 2);
+  }
+}
+
+TEST(SpiderShim, CreationContextOfJsFunction) {
+  // This test is adopted from the V8 CreationContextOfJsFunction test.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+
+  Local<Context> context = Context::New(engine.isolate());
+  InstallContextId(context, 1);
+
+  Local<Object> function;
+  {
+    Context::Scope scope(context);
+    function = CompileRun("function foo() {}; foo").As<Object>();
+  }
+
+  Local<Context> other_context = Context::New(engine.isolate());
+  Context::Scope scope(other_context);
+  EXPECT_TRUE(function->CreationContext() == context);
+  CheckContextId(function, 1);
+}
+
+
+TEST(SpiderShim, CreationContextOfJsBoundFunction) {
+  // This test is adopted from the V8 CreationContextOfJsBoundFunction test.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+
+  Local<Context> context1 = Context::New(engine.isolate());
+  InstallContextId(context1, 1);
+  Local<Context> context2 = Context::New(engine.isolate());
+  InstallContextId(context2, 2);
+
+  Local<Function> target_function;
+  {
+    Context::Scope scope(context1);
+    target_function = CompileRun("function foo() {}; foo").As<Function>();
+  }
+
+  Local<Function> bound_function1, bound_function2;
+  {
+    Context::Scope scope(context2);
+    EXPECT_TRUE(context2->Global()
+              ->Set(context2, v8_str("foo"), target_function)
+              .FromJust());
+    bound_function1 = CompileRun("foo.bind(1)").As<Function>();
+    bound_function2 =
+        CompileRun("Function.prototype.bind.call(foo, 2)").As<Function>();
+  }
+
+  Local<Context> other_context = Context::New(engine.isolate());
+  Context::Scope scope(other_context);
+  EXPECT_TRUE(bound_function1->CreationContext() == context1);
+  CheckContextId(bound_function1, 1);
+  EXPECT_TRUE(bound_function2->CreationContext() == context1);
+  CheckContextId(bound_function2, 1);
+}
+
 void CheckProperties(Isolate* isolate, Local<Value> val,
                      unsigned elmc, const char* elmv[]) {
   Local<Context> context = isolate->GetCurrentContext();

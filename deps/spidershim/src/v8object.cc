@@ -23,12 +23,14 @@
 #include "v8.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "js/Proxy.h"
 #include "v8context.h"
 #include "conversions.h"
 #include "v8local.h"
 #include "v8string.h"
 #include "v8trycatch.h"
 #include "instanceslots.h"
+#include "globalslots.h"
 
 namespace {
 
@@ -576,5 +578,33 @@ void Object::SetAlignedPointerInInternalField(int index, void* value) {
   js::SetReservedSlot(GetObject(this),
                       uint32_t(InstanceSlots::NumSlots) + index,
                       JS::PrivateValue(value));
+}
+
+Local<Context> Object::CreationContext() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  JSObject* thisObj = GetObject(this);
+  if (js::IsProxy(thisObj)) {
+    thisObj = js::GetProxyTargetObject(thisObj);
+  }
+  JSAutoCompartment ac(cx, thisObj);
+  if (JS_ObjectIsFunction(cx, thisObj)) {
+    JS::RootedValue thisVal(cx, JS::ObjectValue(*thisObj));
+    JSFunction* fun = JS_ValueToFunction(cx, thisVal);
+    assert(fun);
+    if (JS_IsFunctionBound(fun)) {
+      JS::Value targetVal;
+      targetVal.setObject(*JS_GetBoundFunctionTarget(fun));
+      Local<Object> target = internal::Local<Object>::New(isolate, targetVal);
+      return target->CreationContext();
+    }
+  }
+  JSObject* global = JS_GetGlobalForObject(cx, thisObj);
+  if (!global) {
+    return Local<Context>();
+  }
+  auto context =
+    static_cast<Context*>(js::GetReservedSlot(global, uint32_t(GlobalSlots::ContextSlot)).toPrivate());
+  return Local<Context>::New(isolate, context);
 }
 }
