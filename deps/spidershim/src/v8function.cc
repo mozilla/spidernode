@@ -185,6 +185,7 @@ MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedObject thisObj(cx, GetObject(this));
+  JSAutoCompartment ac(cx, thisObj);
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
     return MaybeLocal<Object>();

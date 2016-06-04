@@ -77,8 +77,13 @@ Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return Nothing<bool>();
   }
-  JS::RootedObject thisVal(cx, &GetValue(this)->toObject());
+  JSObject* thisObj = GetObject(this);
+  JSAutoCompartment ac(cx, thisObj);
+  JS::RootedObject thisVal(cx, thisObj);
   JS::RootedValue valueVal(cx, *GetValue(value));
+  if (!JS_WrapValue(cx, &valueVal)) {
+    return Nothing<bool>();
+  }
   if (!force && attributes == None) {
     return Just(JS_SetPropertyById(cx, thisVal, id, valueVal));
   }
@@ -143,7 +148,9 @@ MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) {
   if (!JS_ValueToId(cx, keyVal, &id)) {
     return MaybeLocal<Value>();
   }
-  JS::RootedObject thisVal(cx, GetObject(this));
+  JSObject* thisObj = GetObject(this);
+  JSAutoCompartment ac(cx, thisObj);
+  JS::RootedObject thisVal(cx, thisObj);
   JS::RootedValue valueVal(cx);
   if (!JS_GetPropertyById(cx, thisVal, id, &valueVal)) {
     return MaybeLocal<Value>();
