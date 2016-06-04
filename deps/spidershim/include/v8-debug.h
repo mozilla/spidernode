@@ -55,7 +55,7 @@ class V8_EXPORT Debug {
   static void DisableAgent() {}
   static bool IsAgentEnabled();
   static void ProcessDebugMessages(Isolate* isolate) {}
-  static Local<Context> GetDebugContext(Isolate* isolate);
+  static Local<Context> GetDebugContext(Isolate* isolate) { return Context::New(isolate); }
   static void SetMessageHandler(Isolate* isolate, MessageHandler handler) {}
   static void SendCommand(Isolate* isolate,
                           const uint16_t* command, int length,
