@@ -292,6 +292,7 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   }
 
   InstanceClass* instanceClass = GetInstanceClass();
+  assert(instanceClass);
 
   // XXXbz this needs more fleshing out to deal with the whole business of
   // indexed/named getters/setters and so forth.  That will involve creating
@@ -306,11 +307,9 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
 
   // Ensure that we keep our instance class, if any, alive as long as the
   // instance is alive.
-  if (instanceClass) {
-    js::SetReservedSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
-                        JS::PrivateValue(instanceClass));
-    instanceClass->AddRef();
-  }
+  js::SetReservedSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
+                      JS::PrivateValue(instanceClass));
+  instanceClass->AddRef();
 
   // Copy the bits set on us via Template::Set.
   if (!JS_CopyPropertiesFrom(cx, instanceObj, obj)) {
@@ -418,40 +417,36 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   }
 
   // Check whether we need to synthesize a new JSClass.
-  InstanceClass* instanceClass;
+  InstanceClass* instanceClass = new InstanceClass();
+  if (!instanceClass) {
+    MOZ_CRASH();
+  }
+
   JS::Value nameVal = js::GetReservedSlot(obj,
                                           size_t(TemplateSlots::ClassNameSlot));
+  if (nameVal.isUndefined()) {
+    instanceClass->name = "Object";
+  } else {
+    JS::RootedString str(cx, nameVal.toString());
+    instanceClass->name = JS_EncodeStringToUTF8(cx, str);
+  }
+
   JS::Value internalFieldCountVal = js::GetReservedSlot(obj,
                                                         size_t(TemplateSlots::InternalFieldCountSlot));
-  if (nameVal.isUndefined() && internalFieldCountVal.isUndefined()) {
-    instanceClass = nullptr;
-  } else {
-    instanceClass = new InstanceClass();
-    if (!instanceClass) {
-      MOZ_CRASH();
-    }
-
-    uint32_t internalFieldCount = 0;
-    if (!internalFieldCountVal.isUndefined()) {
-      internalFieldCount = internalFieldCountVal.toInt32();
-    }
-
-    if (nameVal.isUndefined()) {
-      instanceClass->name = "Object";
-    } else {
-      JS::RootedString str(cx, nameVal.toString());
-      instanceClass->name = JS_EncodeStringToUTF8(cx, str);
-    }
-    instanceClass->flags =
-      JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
-                                 internalFieldCount);
-    instanceClass->cOps = nullptr;
-    instanceClass->spec = nullptr;
-    instanceClass->ext = nullptr;
-    instanceClass->oOps = nullptr;
-
-    instanceClass->AddRef(); // Will be released in obj's finalizer.
+  uint32_t internalFieldCount = 0;
+  if (!internalFieldCountVal.isUndefined()) {
+    internalFieldCount = internalFieldCountVal.toInt32();
   }
+
+  instanceClass->flags =
+    JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
+                               internalFieldCount);
+  instanceClass->cOps = nullptr;
+  instanceClass->spec = nullptr;
+  instanceClass->ext = nullptr;
+  instanceClass->oOps = nullptr;
+
+  instanceClass->AddRef(); // Will be released in obj's finalizer.
 
   js::SetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot),
                       JS::PrivateValue(instanceClass));
