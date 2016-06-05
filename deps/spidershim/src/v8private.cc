@@ -29,6 +29,7 @@ namespace v8 {
 
 Local<Private> Private::New(Isolate* isolate, Local<String> name) {
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::RootedString description(cx);
   if (!name.IsEmpty()) {
     description = GetString(name);
@@ -39,6 +40,7 @@ Local<Private> Private::New(Isolate* isolate, Local<String> name) {
 
 Local<Private> Private::ForApi(Isolate* isolate, Local<String> name) {
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::RootedString description(cx, GetString(name));
   JS::Symbol* symbol = JS::GetSymbolFor(cx, description);
   return internal::Local<Private>::New(isolate, symbol);
@@ -47,6 +49,7 @@ Local<Private> Private::ForApi(Isolate* isolate, Local<String> name) {
 Local<Value> Private::Name() const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::RootedSymbol self(cx, symbol_);
   JSString* description = JS::GetSymbolDescription(self);
   if (!description) {

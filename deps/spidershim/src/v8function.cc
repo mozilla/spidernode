@@ -58,6 +58,9 @@ bool SetHiddenCalleeData(JSContext* cx, JS::HandleObject self,
   }
   JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenCalleeDataSymbol(cx)));
   JS::RootedValue val(cx, *GetValue(*data));
+  if (!JS_WrapValue(cx, &val)) {
+    return false;
+  }
   return JS_SetPropertyById(cx, self, id, val);
 }
 
@@ -184,8 +187,8 @@ MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
                                          Handle<Value> argv[]) const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
-  JSAutoCompartment ac(cx, thisObj);
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
     return MaybeLocal<Object>();
@@ -209,9 +212,10 @@ MaybeLocal<Value> Function::Call(Local<Context> context, Local<Value> recv,
                                  int argc, Local<Value> argv[]) {
   Isolate* isolate = context->GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedValue val(cx, *GetValue(recv));
   JS::AutoValueVector args(cx);
-  if (!args.reserve(argc)) {
+  if (!args.reserve(argc) || !JS_WrapValue(cx, &val)) {
     return Local<Value>();
   }
 
@@ -243,6 +247,7 @@ Function* Function::Cast(Value* v) {
 Local<Value> Function::GetName() const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedValue nameVal(cx);
   if (!JS_GetProperty(cx, thisObj, "name", &nameVal)) {
@@ -256,6 +261,7 @@ Local<Value> Function::GetName() const {
 void Function::SetName(Local<String> name) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedString str(cx, GetString(name));
   // Ignore the return value since the V8 API returns void. :(
@@ -277,6 +283,7 @@ MaybeLocal<Function> Function::New(Local<Context> context,
                                    Local<FunctionTemplate> templ,
                                    Local<String> name) {
   JSContext* cx = JSContextFromContext(*context);
+  AutoJSAPI jsAPI(cx);
   JSFunction* func;
   // It's a bit weird to always pass JSFUN_CONSTRUCTOR, but it's not clear to me
   // when we would want things we get from here to NOT be constructible...

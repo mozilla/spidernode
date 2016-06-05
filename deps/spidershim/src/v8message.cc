@@ -32,6 +32,7 @@ struct Message::Impl {
   Impl(JS::Value* exception) : lineNumber_(0), columnNumber_(0) {
     Isolate* isolate = Isolate::GetCurrent();
     JSContext* cx = JSContextFromIsolate(isolate);
+    AutoJSAPI jsAPI(cx);
     JS::RootedValue exc(cx, *exception);
     js::ErrorReport errorReport(cx);
     if (errorReport.init(cx, exc, js::ErrorReport::WithSideEffects)) {

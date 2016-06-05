@@ -22,6 +22,7 @@
 
 #include "conversions.h"
 #include "v8local.h"
+#include "jsapi.h"
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 
@@ -240,8 +241,11 @@ JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
   js::SetReservedSlot(accessorData, size_t(AccessorSlots::NameSlot),
                       *GetValue(name));
   if (!data.IsEmpty()) {
-    js::SetReservedSlot(accessorData, size_t(AccessorSlots::DataSlot),
-                        *GetValue(data));
+    JS::RootedValue dataVal(cx, *GetValue(data));
+    if (JS_WrapValue(cx, &dataVal)) {
+      js::SetReservedSlot(accessorData, size_t(AccessorSlots::DataSlot),
+                          *GetValue(data));
+    }
   }
   JS::RootedValue callbackVal1(cx);
   JS::RootedValue callbackVal2(cx);
@@ -276,6 +280,7 @@ MaybeLocal<Object> ObjectTemplate::NewInstance(Local<Context> context) {
 Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
@@ -325,13 +330,18 @@ void ObjectTemplate::SetClassName(Handle<String> name) {
   // change our instance class...
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
-  JS::Value* nameVal = GetValue(name);
-  assert(nameVal->isString());
-  js::SetReservedSlot(obj, size_t(TemplateSlots::ClassNameSlot), *nameVal);
+  JS::RootedValue nameVal(cx, *GetValue(name));
+  if (!JS_WrapValue(cx, &nameVal)) {
+    // TODO: Signal the failure somehow.
+    return;
+  }
+  assert(nameVal.isString());
+  js::SetReservedSlot(obj, size_t(TemplateSlots::ClassNameSlot), nameVal);
 }
 
 void ObjectTemplate::SetAccessor(Handle<String> name,
@@ -343,6 +353,7 @@ void ObjectTemplate::SetAccessor(Handle<String> name,
                                  Handle<AccessorSignature> signature) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
@@ -364,7 +375,8 @@ void ObjectTemplate::SetAccessor(Handle<String> name,
 
   JS::RootedId id(cx);
   JS::RootedValue nameVal(cx, *GetValue(name));
-  if (!JS_ValueToId(cx, nameVal, &id)) {
+  if (!JS_WrapValue(cx, &nameVal) ||
+      !JS_ValueToId(cx, nameVal, &id)) {
     return;
   }
 
@@ -394,6 +406,7 @@ void ObjectTemplate::SetAccessor(Handle<String> name,
 Handle<String> ObjectTemplate::GetClassName() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
@@ -406,6 +419,7 @@ Handle<String> ObjectTemplate::GetClassName() {
 ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
@@ -456,6 +470,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
 void ObjectTemplate::SetInternalFieldCount(int value) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);

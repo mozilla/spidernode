@@ -243,6 +243,7 @@ void Isolate::CancelTerminateExecution() {
 
 Local<Value> Isolate::ThrowException(Local<Value> exception) {
   auto context = JSContextFromIsolate(this);
+  AutoJSAPI jsAPI(context);
   JS::RootedValue rval(context, *GetValue(exception));
   JS_SetPendingException(context, rval);
   return Undefined(this);

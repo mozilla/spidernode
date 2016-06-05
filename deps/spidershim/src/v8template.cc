@@ -21,12 +21,14 @@
 #include <assert.h>
 
 #include "conversions.h"
+#include "jsapi.h"
 #include "v8local.h"
 
 namespace v8 {
 
 Local<Template> Template::New(Isolate* isolate, const JSClass* jsclass) {
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JSObject* obj = JS_NewObject(cx, jsclass);
   if (!obj) {
     return Local<Template>();

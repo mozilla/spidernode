@@ -48,6 +48,7 @@ bool BooleanObject::ValueOf() const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   JS::RootedObject thisObj(cx, GetObject(this));
+  JSAutoCompartment ac(cx, thisObj);
   JS::RootedValue unboxedVal(cx);
   if (!js::Unbox(cx, thisObj, &unboxedVal)) {
     MOZ_CRASH("Cannot unbox the BooleanObject value");

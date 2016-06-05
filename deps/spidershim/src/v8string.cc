@@ -41,6 +41,7 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> obj)
   }
   if (str) {
     JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+    AutoJSAPI jsAPI(cx);
     JSFlatString* flat = JS_FlattenString(cx, str);
     if (flat) {
       length_ = JS::GetDeflatedUTF8StringLength(flat);
@@ -87,6 +88,7 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
   }
 
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
 
   size_t twoByteLen;
   JS::UniqueTwoByteChars twoByteChars(
@@ -126,6 +128,7 @@ MaybeLocal<String> String::NewFromOneByte(Isolate* isolate, const uint8_t* data,
   }
 
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
 
   JSString* str =
       type == v8::NewStringType::kInternalized
@@ -164,6 +167,7 @@ MaybeLocal<String> String::NewFromTwoByte(Isolate* isolate,
   }
 
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
 
   JSString* str =
       type == v8::NewStringType::kInternalized
@@ -203,6 +207,7 @@ MaybeLocal<String> String::NewExternalTwoByte(
   }
 
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
 
   auto fin = mozilla::MakeUnique<internal::ExternalStringFinalizer>(resource);
   if (!fin) {
@@ -229,6 +234,7 @@ MaybeLocal<String> String::NewExternalOneByte(
   }
 
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
 
   auto fin =
       mozilla::MakeUnique<internal::ExternalOneByteStringFinalizer>(resource);
@@ -284,6 +290,7 @@ int String::Length() const {
 
 int String::Utf8Length() const {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx);
   JSString* thisStr = GetString(this);
   JSFlatString* flat = JS_FlattenString(cx, thisStr);
   if (!flat) {
@@ -303,6 +310,7 @@ Local<String> String::Concat(Handle<String> left, Handle<String> right) {
 
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::RootedString leftStr(cx, GetString(left));
   JS::RootedString rightStr(cx, GetString(right));
   JSString* result = JS_ConcatStrings(cx, leftStr, rightStr);
@@ -330,6 +338,7 @@ int String::WriteUtf8(char* buffer, int length, int* nchars_ref, int options) co
   bool nullTermination = !(options & NO_NULL_TERMINATION);
 
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx);
   JSString* thisStr = GetString(this);
   JSFlatString* flatStr = JS_FlattenString(cx, thisStr);
   if (!flatStr) {
@@ -381,8 +390,11 @@ namespace internal {
 
 JS::UniqueTwoByteChars GetFlatString(JSContext* cx, v8::Local<String> source,
                                      size_t* length) {
-  JS::Value* sourceJsVal = GetValue(source);
-  auto sourceStr = sourceJsVal->toString();
+  JS::RootedValue sourceJsVal(cx, *GetValue(source));
+  if (!JS_WrapValue(cx, &sourceJsVal)) {
+    return nullptr;
+  }
+  auto sourceStr = sourceJsVal.toString();
   size_t len = JS_GetStringLength(sourceStr);
   if (length) {
     *length = len;

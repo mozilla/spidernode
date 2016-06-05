@@ -32,7 +32,6 @@ static v8::Local<v8::Value> CreateError(const char* type,
                                         v8::Handle<v8::Value> message) {
   using namespace v8;
   Isolate* isolate = Isolate::GetCurrent();
-  JSContext* cx = JSContextFromIsolate(isolate);
   Local<Object> globalObj = isolate->GetCurrentContext()->Global();
   Local<String> ctorName = String::NewFromUtf8(isolate, type);
   Local<Value> ctor = globalObj->Get(ctorName);

@@ -32,6 +32,7 @@ namespace v8 {
 Local<Value> StringObject::New(Handle<String> value) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::Value* inputVal = GetValue(value);
   JS::RootedValue strVal(cx, JS::StringValue(inputVal->toString()));
   JS::Value retVal;
@@ -48,6 +49,7 @@ Local<String> StringObject::ValueOf() const {
   assert(IsStringObject());
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedValue unboxedVal(cx);
   if (!js::Unbox(cx, thisObj, &unboxedVal)) {

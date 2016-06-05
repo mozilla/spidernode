@@ -29,6 +29,7 @@ namespace v8 {
 Local<ArrayBuffer> ArrayBufferView::Buffer() {
   Isolate* isolate = GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject view(cx, GetObject(this));
   bool shared;
   JSObject* buf = JS_GetArrayBufferViewBuffer(cx, view, &shared);
@@ -42,6 +43,7 @@ Local<ArrayBuffer> ArrayBufferView::Buffer() {
 }
 
 size_t ArrayBufferView::ByteOffset() {
+  AutoJSAPI jsAPI(this);
   JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteOffset(view);
@@ -51,6 +53,7 @@ size_t ArrayBufferView::ByteOffset() {
 }
 
 size_t ArrayBufferView::ByteLength() {
+  AutoJSAPI jsAPI(this);
   JSObject* view = GetObject(this);
   if (JS_IsTypedArrayObject(view)) {
     return JS_GetTypedArrayByteLength(view);

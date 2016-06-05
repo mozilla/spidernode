@@ -30,6 +30,7 @@ namespace v8 {
 
 MaybeLocal<Value> Date::New(Local<Context> context, double time) {
   JSContext* cx = JSContextFromContext(*context);
+  AutoJSAPI jsAPI(cx);
   JS::RootedObject dateVal(cx, JS::NewDateObject(cx, JS::TimeClip(time)));
   JS::Value retVal;
   retVal.setObject(*dateVal);
@@ -49,6 +50,7 @@ double Date::ValueOf() const {
   assert(IsDate());
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedValue unboxedVal(cx);
   if (!js::Unbox(cx, thisObj, &unboxedVal)) {

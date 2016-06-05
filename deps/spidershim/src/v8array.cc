@@ -33,6 +33,7 @@ Local<Array> Array::New(Isolate* isolate, int length) {
     isolate = Isolate::GetCurrent();
   }
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, isolate);
   JS::RootedObject array(cx, JS_NewArrayObject(cx, length));
   JS::Value retVal;
   retVal.setObject(*array);
@@ -42,6 +43,7 @@ Local<Array> Array::New(Isolate* isolate, int length) {
 Array* Array::Cast(Value* obj) {
   bool isArray = false;
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx, obj);
   JS::RootedObject thisObj(cx, GetObject(obj));
   JS::IsArray(cx, thisObj, &isArray);
   assert(isArray);
@@ -51,6 +53,7 @@ Array* Array::Cast(Value* obj) {
 uint32_t Array::Length() const {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
   uint32_t length = 0;
   JS_GetArrayLength(cx, thisObj, &length);

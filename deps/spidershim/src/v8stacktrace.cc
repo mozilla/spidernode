@@ -58,6 +58,7 @@ struct StackTrace::Impl {
     JSContext* cx = JSContextFromIsolate(isolate);
     std::vector<FrameInfo> frames;
     JS::RootedObject current(cx, GetObject(stack_));
+    AutoJSAPI jsAPI(cx, current);
 
     do {
       FrameInfo info;
@@ -201,6 +202,7 @@ Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
                                                 StackTraceOptions options) {
   // SpiderMonkey doesn't have the concept of options, so we ignore that here.
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
   JS::RootedObject stack(cx);
   frame_limit = std::max(frame_limit, 0);  // no negative values
   if (!JS::CaptureCurrentStack(cx, &stack, unsigned(frame_limit))) {

@@ -113,6 +113,7 @@ struct TryCatch::Impl {
     }
     hasException_ = false;
     JSContext* cx = JSContextFromIsolate(isolate_);
+    AutoJSAPI jsAPI(cx);
     if (!HasExceptionPending(cx)) {
       return false;
     }
@@ -215,6 +216,7 @@ MaybeLocal<Value> TryCatch::StackTrace(Local<Context> context) const {
     return MaybeLocal<Value>();
   }
   JSContext* cx = JSContextFromContext(*context);
+  AutoJSAPI jsAPI(cx);
   JS::RootedValue excValue(cx, *GetValue(Exception()));
   if (!excValue.isObject()) {
     return MaybeLocal<Value>();

@@ -68,7 +68,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate) {
     return false;
   }
 
-  JSAutoCompartment ac(cx, newGlobal);
+  AutoJSAPI jsAPI(cx, newGlobal);
 
   if (!JS_InitStandardClasses(cx, newGlobal)) {
     return false;
@@ -181,6 +181,7 @@ void* Context::GetAlignedPointerFromEmbedderData(int idx) {
 
 void Context::Impl::RunMicrotasks() {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx);
   // The following code was adapted from spidermonkey's shell.
   JS::RootedObject job(cx);
   JS::HandleValueArray args(JS::HandleValueArray::empty());

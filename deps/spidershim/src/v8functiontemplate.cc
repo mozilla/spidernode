@@ -22,6 +22,7 @@
 
 #include "conversions.h"
 #include "v8local.h"
+#include "jsapi.h"
 #include "jsfriendapi.h"
 
 namespace {
@@ -47,7 +48,7 @@ const JSClass functionTemplateClass = {
 
 using namespace v8;
 
-void
+bool
 SetCallbackAndData(JSContext* cx, JSObject* templateObj,
                    FunctionCallback callback, Handle<Value> data) {
   assert(JS_GetClass(templateObj) == &functionTemplateClass);
@@ -61,8 +62,13 @@ SetCallbackAndData(JSContext* cx, JSObject* templateObj,
   if (data.IsEmpty()) {
     js::SetReservedSlot(templateObj, DataSlot, JS::UndefinedValue());
   } else {
-    js::SetReservedSlot(templateObj, DataSlot, *GetValue(data));
+    JS::RootedValue val(cx, *GetValue(data));
+    if (!JS_WrapValue(cx, &val)) {
+      return false;
+    }
+    js::SetReservedSlot(templateObj, DataSlot, val);
   }
+  return true;
 }
 
 bool
@@ -91,7 +97,12 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
-  SetCallbackAndData(JSContextFromIsolate(isolate), obj, callback, data);
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
+
+  if (!SetCallbackAndData(cx, obj, callback, data)) {
+    return Local<FunctionTemplate>();
+  }
 
   // TODO: figure out what should happen with signature.  What is it supposed to
   // do?  See https://github.com/mozilla/spidernode/issues/144 for some
@@ -109,6 +120,7 @@ Local<Function> FunctionTemplate::GetFunction() {
 
 MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
   JSContext* cx = JSContextFromContext(*context);
+  AutoJSAPI jsAPI(cx, this);
   Isolate* isolate = context->GetIsolate();
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
@@ -254,6 +266,7 @@ void
 FunctionTemplate::SetCallHandler(FunctionCallback callback,
                                  Handle<Value> data) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
@@ -263,7 +276,10 @@ FunctionTemplate::SetCallHandler(FunctionCallback callback,
     return;
   }
 
-  SetCallbackAndData(cx, obj, callback, data);
+  if (!SetCallbackAndData(cx, obj, callback, data)) {
+    // TODO: Signal the error somehow.
+    return;
+  }
 }
 
 // TODO: Need to implement HasInstance.  What are the actual semantics of this?
@@ -277,6 +293,7 @@ FunctionTemplate::SetCallHandler(FunctionCallback callback,
 void
 FunctionTemplate::Inherit(Handle<FunctionTemplate> parent) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
@@ -299,6 +316,7 @@ FunctionTemplate::Inherit(Handle<FunctionTemplate> parent) {
 Local<Object> FunctionTemplate::CreateNewInstance() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
@@ -315,6 +333,7 @@ Local<Object> FunctionTemplate::CreateNewInstance() {
 Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(this));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
@@ -341,6 +360,7 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
   }
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
   JS::RootedObject obj(cx, GetObject(val));
   JS::RootedObject protoObj(cx);
   if (!JS_GetPrototype(cx, obj, &protoObj)) {
