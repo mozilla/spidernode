@@ -123,6 +123,7 @@ class RetainedObjectInfo;
 struct ExternalArrayData;
 
 namespace internal {
+class FunctionCallback;
 class RootStore;
 template <class T> class Local;
 template <typename T> struct ExternalStringFinalizerBase;
@@ -2116,13 +2117,11 @@ class V8_EXPORT FunctionTemplate : public Template {
   bool HasInstance(Handle<Value> object);
   void Inherit(Handle<FunctionTemplate> parent);
 
-  // XXXbz This is public because we call it from inside some static functions
-  // over in Function.  Maybe those should become Function members and then we
-  // can just friend Function and make this protected.
-  Local<Object> CreateNewInstance();
-
  private:
+  friend class internal::FunctionCallback;
+
   Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
+  Local<Object> CreateNewInstance();
 };
 
 enum class PropertyHandlerFlags {

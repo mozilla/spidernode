@@ -106,82 +106,87 @@ bool SetHiddenCallback(JSContext* cx, JS::HandleObject self,
   return JS_SetPropertyById(cx, self, id1, val1) &&
          JS_SetPropertyById(cx, self, id2, val2);
 }
-
-bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
-  Isolate* isolate = Isolate::GetCurrent();
-  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
-  JS::RootedObject callee(cx, &args.callee());
-  JS::Value calleeVal;
-  calleeVal.setObject(args.callee());
-  Local<Function> calleeFunction =
-    internal::Local<Function>::New(isolate, calleeVal);
-  Local<Value> data = GetHiddenCalleeData(cx, callee);
-  JS::RootedValue templateVal(cx, js::GetFunctionNativeReserved(callee, 0));
-  Local<FunctionTemplate> templ;
-  if (!templateVal.isUndefined()) {
-    templ = internal::Local<FunctionTemplate>::NewTemplate(isolate,
-                                                           templateVal);
-  }
-
-  Local<Object> _this;
-  if (args.isConstructing()) {
-    if (templ.IsEmpty()) {
-      JS::RootedObject newObj(cx, JS_NewPlainObject(cx));
-      if (!newObj) {
-        return false;
-      }
-      _this = internal::Local<Object>::New(isolate, JS::ObjectValue(*newObj));
-    } else {
-      _this = templ->CreateNewInstance();
-      if (_this.IsEmpty()) {
-        return false;
-      }
-    }
-  } else {
-    // TODO: Verify that computeThis() here is the right thing to do!
-    _this = internal::Local<Object>::New(isolate, args.computeThis(cx));
-  }
-
-  FunctionCallback callback = GetHiddenCallback(cx, callee);
-  JS::RootedValue retval(cx);
-  if (callback) {
-    mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
-    for (unsigned i = 0; i < argc; ++i) {
-      Local<Value> arg = internal::Local<Value>::New(isolate, args[i]);
-      if (arg.IsEmpty()) {
-        return false;
-      }
-      v8args[i] = *arg;
-    }
-    // TODO: Figure out what we want to do for holder.  See
-    // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
-    FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
-                                     args.isConstructing(),
-                                     data, calleeFunction);
-    callback(info);
-
-    if (auto rval = info.GetReturnValue().Get()) {
-      retval.set(*GetValue(rval));
-    } else {
-      retval.setUndefined();
-    }
-  }
-
-  if (args.isConstructing()) {
-    if (!retval.isNullOrUndefined()) {
-      args.rval().set(retval);
-    } else {
-      args.rval().set(*GetValue(_this));
-    }
-  } else {
-    args.rval().set(retval);
-  }
-
-  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
-}
 }
 
 namespace v8 {
+namespace internal {
+
+class FunctionCallback {
+ public:
+  static bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
+    Isolate* isolate = Isolate::GetCurrent();
+    JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
+    JS::RootedObject callee(cx, &args.callee());
+    JS::Value calleeVal;
+    calleeVal.setObject(args.callee());
+    v8::Local<Function> calleeFunction =
+      internal::Local<Function>::New(isolate, calleeVal);
+    v8::Local<Value> data = GetHiddenCalleeData(cx, callee);
+    JS::RootedValue templateVal(cx, js::GetFunctionNativeReserved(callee, 0));
+    v8::Local<FunctionTemplate> templ;
+    if (!templateVal.isUndefined()) {
+      templ = internal::Local<FunctionTemplate>::NewTemplate(isolate,
+                                                             templateVal);
+    }
+
+    v8::Local<Object> _this;
+    if (args.isConstructing()) {
+      if (templ.IsEmpty()) {
+        JS::RootedObject newObj(cx, JS_NewPlainObject(cx));
+        if (!newObj) {
+          return false;
+        }
+        _this = internal::Local<Object>::New(isolate, JS::ObjectValue(*newObj));
+      } else {
+        _this = templ->CreateNewInstance();
+        if (_this.IsEmpty()) {
+          return false;
+        }
+      }
+    } else {
+      // TODO: Verify that computeThis() here is the right thing to do!
+      _this = internal::Local<Object>::New(isolate, args.computeThis(cx));
+    }
+
+    ::FunctionCallback callback = GetHiddenCallback(cx, callee);
+    JS::RootedValue retval(cx);
+    if (callback) {
+      mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
+      for (unsigned i = 0; i < argc; ++i) {
+        v8::Local<Value> arg = internal::Local<Value>::New(isolate, args[i]);
+        if (arg.IsEmpty()) {
+          return false;
+        }
+        v8args[i] = *arg;
+      }
+      // TODO: Figure out what we want to do for holder.  See
+      // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
+      FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
+                                       args.isConstructing(),
+                                       data, calleeFunction);
+      callback(info);
+
+      if (auto rval = info.GetReturnValue().Get()) {
+        retval.set(*GetValue(rval));
+      } else {
+        retval.setUndefined();
+      }
+    }
+
+    if (args.isConstructing()) {
+      if (!retval.isNullOrUndefined()) {
+        args.rval().set(retval);
+      } else {
+        args.rval().set(*GetValue(_this));
+      }
+    } else {
+      args.rval().set(retval);
+    }
+
+    return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+  }
+};
+}
 
 MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
                                          Handle<Value> argv[]) const {
@@ -285,6 +290,8 @@ MaybeLocal<Function> Function::New(Local<Context> context,
   JSContext* cx = JSContextFromContext(*context);
   AutoJSAPI jsAPI(cx);
   JSFunction* func;
+  auto NativeFunctionCallback =
+    internal::FunctionCallback::NativeFunctionCallback;
   // It's a bit weird to always pass JSFUN_CONSTRUCTOR, but it's not clear to me
   // when we would want things we get from here to NOT be constructible...
   // Maybe when templ.IsEmpty()?  Hard to tell what chackrashim does because
