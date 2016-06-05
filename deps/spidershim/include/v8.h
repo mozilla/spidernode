@@ -1631,13 +1631,15 @@ class V8_EXPORT Object : public Value {
   Maybe<bool> Set(Local<Context> context, Handle<Value> key,
                   Handle<Value> value, PropertyAttribute attribs,
                   bool force);
-  Maybe<bool> SetAccessor(Handle<Name> name,
-                          AccessorNameGetterCallback getter,
-                          AccessorNameSetterCallback setter,
-                          Handle<Value> data,
-                          AccessControl settings,
-                          PropertyAttribute attribute,
-                          Handle<AccessorSignature> signature);
+
+  template<class N, class Getter, class Setter>
+  Maybe<bool> SetAccessorInternal(JSContext* cx,
+                                  Handle<N> name,
+                                  Getter getter,
+                                  Setter setter,
+                                  Handle<Value> data,
+                                  AccessControl settings,
+                                  PropertyAttribute attribute);
 
   MaybeLocal<Array> GetPropertyNames(Local<Context> context, unsigned flags);
 

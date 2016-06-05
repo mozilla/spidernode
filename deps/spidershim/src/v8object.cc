@@ -674,4 +674,60 @@ Local<Context> Object::CreationContext() {
     static_cast<Context*>(js::GetReservedSlot(global, uint32_t(GlobalSlots::ContextSlot)).toPrivate());
   return Local<Context>::New(isolate, context);
 }
+
+bool Object::SetAccessor(Handle<String> name,
+                         AccessorGetterCallback getter,
+                         AccessorSetterCallback setter,
+                         Handle<Value> data,
+                         AccessControl settings,
+                         PropertyAttribute attribute) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  return SetAccessorInternal(cx, name, getter, setter, data,
+                             settings, attribute).
+           FromMaybe(false);
+}
+
+bool Object::SetAccessor(Handle<Name> name,
+                         AccessorNameGetterCallback getter,
+                         AccessorNameSetterCallback setter,
+                         Handle<Value> data,
+                         AccessControl settings,
+                         PropertyAttribute attribute) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  return SetAccessorInternal(cx, name, getter, setter, data,
+                             settings, attribute).
+           FromMaybe(false);
+}
+
+Maybe<bool> Object::SetAccessor(Local<Context> context,
+                                Local<Name> name,
+                                AccessorNameGetterCallback getter,
+                                AccessorNameSetterCallback setter,
+                                MaybeLocal<Value> data,
+                                AccessControl settings,
+                                PropertyAttribute attribute) {
+  JSContext* cx = JSContextFromContext(*context);
+  return SetAccessorInternal(cx, name, getter, setter, data.FromMaybe(Local<Value>()),
+                             settings, attribute);
+}
+
+template <class N, class Getter, class Setter>
+Maybe<bool> Object::SetAccessorInternal(JSContext* cx,
+                                        Handle<N> name,
+                                        Getter getter,
+                                        Setter setter,
+                                        Handle<Value> data,
+                                        AccessControl settings,
+                                        PropertyAttribute attribute) {
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+
+  if (!internal::SetAccessor(cx, obj, name, getter, setter, data,
+                             settings, attribute)) {
+    return Nothing<bool>();
+  }
+  return Just(true);
+}
 }

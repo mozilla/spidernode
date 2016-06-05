@@ -876,6 +876,484 @@ TEST(SpiderShim, HasOwnProperty) {
   }
 }
 
+static void GetXValue(Local<Name> name,
+                      const v8::PropertyCallbackInfo<v8::Value>& info) {
+  EXPECT_TRUE(info.Data()
+            ->Equals(Isolate::GetCurrent()->GetCurrentContext(), v8_str("donut"))
+            .FromJust());
+  EXPECT_TRUE(name->Equals(Isolate::GetCurrent()->GetCurrentContext(), v8_str("x"))
+            .FromJust());
+  info.GetReturnValue().Set(name);
+}
+
+TEST(SpiderShim, SimplePropertyRead) {
+  // This test is adopted from the V8 SimplePropertyRead test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("obj.x");
+  for (int i = 0; i < 10; i++) {
+    Local<Value> result = script->Run(context).ToLocalChecked();
+    EXPECT_TRUE(result->Equals(context, v8_str("x")).FromJust());
+  }
+}
+
+TEST(SpiderShim, DefinePropertyOnAPIAccessor) {
+  // This test is adopted from the V8 DefinePropertyOnAPIAccessor test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+
+  // Uses getOwnPropertyDescriptor to check the configurable status
+  Local<Script> script_desc = v8_compile(
+      "var prop = Object.getOwnPropertyDescriptor( "
+      "obj, 'x');"
+      "prop.configurable;");
+  Local<Value> result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), true);
+
+  // Redefine get - but still configurable
+  Local<Script> script_define = v8_compile(
+      "var desc = { get: function(){return 42; },"
+      "            configurable: true };"
+      "Object.defineProperty(obj, 'x', desc);"
+      "obj.x");
+  result = script_define->Run(context).ToLocalChecked();
+  EXPECT_TRUE(result->Equals(context, v8_num(42)).FromJust());
+
+  // Check that the accessor is still configurable
+  result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), true);
+
+  // Redefine to a non-configurable
+  script_define = v8_compile(
+      "var desc = { get: function(){return 43; },"
+      "             configurable: false };"
+      "Object.defineProperty(obj, 'x', desc);"
+      "obj.x");
+  result = script_define->Run(context).ToLocalChecked();
+  EXPECT_TRUE(result->Equals(context, v8_num(43)).FromJust());
+  result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), false);
+
+  // Make sure that it is not possible to redefine again
+  v8::TryCatch try_catch(isolate);
+  EXPECT_TRUE(script_define->Run(context).IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  String::Utf8Value exception_value(try_catch.Exception());
+  EXPECT_STREQ("TypeError: can't redefine non-configurable property \"x\"", *exception_value);
+}
+
+TEST(SpiderShim, DefinePropertyOnDefineGetterSetter) {
+  // This test is adopted from the V8 DefinePropertyOnDefineGetterSetter test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+
+  Local<Script> script_desc = v8_compile(
+      "var prop ="
+      "Object.getOwnPropertyDescriptor( "
+      "obj, 'x');"
+      "prop.configurable;");
+  Local<Value> result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), true);
+
+  Local<Script> script_define = v8_compile(
+      "var desc = {get: function(){return 42; },"
+      "            configurable: true };"
+      "Object.defineProperty(obj, 'x', desc);"
+      "obj.x");
+  result = script_define->Run(context).ToLocalChecked();
+  EXPECT_TRUE(result->Equals(context, v8_num(42)).FromJust());
+
+  result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), true);
+
+  script_define = v8_compile(
+      "var desc = {get: function(){return 43; },"
+      "            configurable: false };"
+      "Object.defineProperty(obj, 'x', desc);"
+      "obj.x");
+  result = script_define->Run(context).ToLocalChecked();
+  EXPECT_TRUE(result->Equals(context, v8_num(43)).FromJust());
+
+  result = script_desc->Run(context).ToLocalChecked();
+  EXPECT_EQ(result->BooleanValue(context).FromJust(), false);
+
+  v8::TryCatch try_catch(isolate);
+  EXPECT_TRUE(script_define->Run(context).IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+  String::Utf8Value exception_value(try_catch.Exception());
+  EXPECT_STREQ("TypeError: can't redefine non-configurable property \"x\"", *exception_value);
+}
+
+static inline void ExpectString(const char* code, const char* expected) {
+  v8::Local<v8::Value> result = CompileRun(code);
+  CHECK(result->IsString());
+  v8::String::Utf8Value utf8(result);
+  CHECK_EQ(0, strcmp(expected, *utf8));
+}
+
+static inline void ExpectBoolean(const char* code, bool expected) {
+  v8::Local<v8::Value> result = CompileRun(code);
+  CHECK(result->IsBoolean());
+  CHECK_EQ(expected,
+           result->BooleanValue(v8::Isolate::GetCurrent()->GetCurrentContext())
+               .FromJust());
+}
+
+static inline void ExpectTrue(const char* code) {
+  ExpectBoolean(code, true);
+}
+
+static inline void ExpectFalse(const char* code) {
+  ExpectBoolean(code, false);
+}
+
+static v8::Local<v8::Object> GetGlobalProperty(Context* context,
+                                               char const* name) {
+  return v8::Local<v8::Object>::Cast(
+      (context)
+          ->Global()
+          ->Get(Isolate::GetCurrent()->GetCurrentContext(), v8_str(name))
+          .ToLocalChecked());
+}
+
+TEST(SpiderShim, DefineAPIAccessorOnObject) {
+  // This test is adopted from the V8 DefineAPIAccessorOnObject test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj1"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  CompileRun("var obj2 = {};");
+
+  EXPECT_TRUE(CompileRun("obj1.x")->IsUndefined());
+  EXPECT_TRUE(CompileRun("obj2.x")->IsUndefined());
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .FromJust());
+
+  ExpectString("obj1.x", "x");
+  EXPECT_TRUE(CompileRun("obj2.x")->IsUndefined());
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .FromJust());
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  CompileRun(
+      "Object.defineProperty(obj1, 'x',"
+      "{ get: function() { return 'y'; }, configurable: true })");
+
+  ExpectString("obj1.x", "y");
+  ExpectString("obj2.x", "x");
+
+  CompileRun(
+      "Object.defineProperty(obj2, 'x',"
+      "{ get: function() { return 'y'; }, configurable: true })");
+
+  ExpectString("obj1.x", "y");
+  ExpectString("obj2.x", "y");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .FromJust());
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .FromJust());
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  // Define getters/setters, but now make them not configurable.
+  CompileRun(
+      "Object.defineProperty(obj1, 'x',"
+      "{ get: function() { return 'z'; }, configurable: false })");
+  CompileRun(
+      "Object.defineProperty(obj2, 'x',"
+      "{ get: function() { return 'z'; }, configurable: false })");
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  ExpectString("obj1.x", "z");
+  ExpectString("obj2.x", "z");
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .IsNothing());
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .IsNothing());
+
+  ExpectString("obj1.x", "z");
+  ExpectString("obj2.x", "z");
+}
+
+TEST(SpiderShim, DontDeleteAPIAccessorsCannotBeOverriden) {
+  // This test is adopted from the V8 DontDeleteAPIAccessorsCannotBeOverriden test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj1"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  CompileRun("var obj2 = {};");
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"), v8::DEFAULT, v8::DontDelete)
+            .FromJust());
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"), v8::DEFAULT, v8::DontDelete)
+            .FromJust());
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .IsNothing());
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("x"), GetXValue, NULL,
+                          v8_str("donut"))
+            .IsNothing());
+
+  {
+    v8::TryCatch try_catch(isolate);
+    CompileRun(
+        "Object.defineProperty(obj1, 'x',"
+        "{get: function() { return 'func'; }})");
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value(try_catch.Exception());
+    EXPECT_STREQ("TypeError: can't redefine non-configurable property \"x\"", *exception_value);
+  }
+  {
+    v8::TryCatch try_catch(isolate);
+    CompileRun(
+        "Object.defineProperty(obj2, 'x',"
+        "{get: function() { return 'func'; }})");
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value(try_catch.Exception());
+    EXPECT_STREQ("TypeError: can't redefine non-configurable property \"x\"", *exception_value);
+  }
+}
+
+static void Get239Value(Local<Name> name,
+                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  EXPECT_TRUE(info.Data()
+            ->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("donut"))
+            .FromJust());
+  EXPECT_TRUE(name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("239"))
+            .FromJust());
+  info.GetReturnValue().Set(name);
+}
+
+TEST(SpiderShim, ElementAPIAccessor) {
+  // This test is adopted from the V8 ElementAPIAccessor test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj1"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  CompileRun("var obj2 = {};");
+
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj1")
+            ->SetAccessor(context, v8_str("239"), Get239Value, NULL,
+                          v8_str("donut"))
+            .FromJust());
+  EXPECT_TRUE(GetGlobalProperty(*context, "obj2")
+            ->SetAccessor(context, v8_str("239"), Get239Value, NULL,
+                          v8_str("donut"))
+            .FromJust());
+
+  ExpectString("obj1[239]", "239");
+  ExpectString("obj2[239]", "239");
+  ExpectString("obj1['239']", "239");
+  ExpectString("obj2['239']", "239");
+}
+
+v8::Persistent<Value> xValue;
+
+static void SetXValue(Local<Name> name, Local<Value> value,
+                      const v8::PropertyCallbackInfo<void>& info) {
+  Local<Context> context = info.GetIsolate()->GetCurrentContext();
+  EXPECT_TRUE(value->Equals(context, v8_num(4)).FromJust());
+  EXPECT_TRUE(info.Data()->Equals(context, v8_str("donut")).FromJust());
+  EXPECT_TRUE(name->Equals(context, v8_str("x")).FromJust());
+  EXPECT_TRUE(xValue.IsEmpty());
+  xValue.Reset(info.GetIsolate(), value);
+}
+
+TEST(SpiderShim, SimplePropertyWrite) {
+  // This test is adopted from the V8 SimplePropertyWrite test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), GetXValue, SetXValue, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("obj.x = 4");
+  for (int i = 0; i < 10; i++) {
+    EXPECT_TRUE(xValue.IsEmpty());
+    script->Run(context).ToLocalChecked();
+    EXPECT_TRUE(v8_num(4)
+              ->Equals(context,
+                       Local<Value>::New(Isolate::GetCurrent(), xValue))
+              .FromJust());
+    xValue.Reset();
+  }
+}
+
+TEST(SpiderShim, SetterOnly) {
+  // This test is adopted from the V8 SetterOnly test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), NULL, SetXValue, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("obj.x = 4; obj.x");
+  for (int i = 0; i < 10; i++) {
+    EXPECT_TRUE(xValue.IsEmpty());
+    script->Run(context).ToLocalChecked();
+    EXPECT_TRUE(v8_num(4)
+              ->Equals(context,
+                       Local<Value>::New(Isolate::GetCurrent(), xValue))
+              .FromJust());
+    xValue.Reset();
+  }
+}
+
+TEST(SpiderShim, NoAccessors) {
+  // This test is adopted from the V8 NoAccessors test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), static_cast<v8::AccessorGetterCallback>(NULL),
+                     NULL, v8_str("donut"));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("obj.x = 4; obj.x");
+  for (int i = 0; i < 10; i++) {
+    script->Run(context).ToLocalChecked();
+  }
+}
+
 TEST(SpiderShim, Array) {
   V8Engine engine;
 

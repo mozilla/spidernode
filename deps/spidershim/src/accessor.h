@@ -213,7 +213,7 @@ JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
 }
 
 template<class N, class Getter, class Setter>
-void SetAccessor(JSContext* cx,
+bool SetAccessor(JSContext* cx,
                  JS::HandleObject obj,
                  Handle<N> name,
                  Getter getter,
@@ -221,19 +221,20 @@ void SetAccessor(JSContext* cx,
                  Handle<Value> data,
                  AccessControl settings,
                  PropertyAttribute attribute,
-                 Handle<AccessorSignature> signature) {
+                 Handle<AccessorSignature> signature =
+                   Handle<AccessorSignature>()) {
   // TODO: What should happen with "settings", "signature"?  See
   // https://github.com/mozilla/spidernode/issues/141
 
   JS::RootedObject getterObj(cx, CreateAccessor(cx, getter, name, data));
   if (!getterObj) {
-    return;
+    return false;
   }
   JS::RootedObject setterObj(cx);
   if (setter) {
     setterObj = CreateAccessor(cx, setter, name, data);
     if (!setterObj) {
-      return;
+      return false;
     }
   }
 
@@ -241,7 +242,7 @@ void SetAccessor(JSContext* cx,
   JS::RootedValue nameVal(cx, *GetValue(name));
   if (!JS_WrapValue(cx, &nameVal) ||
       !JS_ValueToId(cx, nameVal, &id)) {
-    return;
+    return false;
   }
 
   unsigned attrs = internal::AttrsToFlags(attribute) |
@@ -250,8 +251,10 @@ void SetAccessor(JSContext* cx,
   if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
                              JS_DATA_TO_FUNC_PTR(JSNative, getterObj.get()),
                              JS_DATA_TO_FUNC_PTR(JSNative, setterObj.get()))) {
-    return;
+    return false;
   }
+
+  return true;
 }
 
 }
