@@ -252,7 +252,6 @@
         'xcode_settings': {
           'OTHER_CFLAGS+': [
             '-fno-omit-frame-pointer',
-            '-gline-tables-only',
             '-fsanitize=address',
             '-DLEAK_SANITIZER'
           ],
