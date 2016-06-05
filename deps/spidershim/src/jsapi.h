@@ -60,5 +60,20 @@ class AutoJSAPI : private JSAutoCompartment {
   AutoJSAPI() :
     AutoJSAPI(JSContextFromIsolate(v8::Isolate::GetCurrent())) {
   }
+  ~AutoJSAPI() {
+    HandleExistingException(JSContextFromIsolate(v8::Isolate::GetCurrent()));
+  }
+
+  bool BleedThroughExceptions() { ignoreException_ = true; }
+
+ private:
+  void HandleExistingException(JSContext* cx) {
+    if (!ignoreException_ &&
+        !v8::Isolate::GetCurrent()->GetTopmostTryCatch() &&
+        JS_IsExceptionPending(cx)) {
+      JS_ReportPendingException(cx);
+    }
+  }
+  bool ignoreException_ = false;
 };
 

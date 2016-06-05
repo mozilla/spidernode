@@ -52,6 +52,7 @@
 typedef void* JsRef;
 typedef JsRef JsValueRef;
 
+class AutoJSAPI;
 struct JSRuntime;
 struct JSContext;
 class JSObject;
@@ -2460,6 +2461,7 @@ private:
   void AddStackFrame(StackFrame* frame);
   void AddStackTrace(StackTrace* trace);
   void AddUnboundScript(UnboundScript* script);
+  friend class ::AutoJSAPI;
   friend class Context;
   friend class StackFrame;
   friend class StackTrace;

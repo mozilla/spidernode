@@ -246,6 +246,7 @@ Local<Value> Isolate::ThrowException(Local<Value> exception) {
   AutoJSAPI jsAPI(context);
   JS::RootedValue rval(context, *GetValue(exception));
   JS_SetPendingException(context, rval);
+  jsAPI.BleedThroughExceptions();
   return Undefined(this);
 }
 
