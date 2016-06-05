@@ -425,6 +425,34 @@ Local<Array> Object::GetOwnPropertyNames() {
       .FromMaybe(Local<Array>());
 }
 
+Maybe<bool> Object::HasOwnProperty(Local<Context> context, Local<Name> key) {
+  if (key.IsEmpty()) {
+    return Nothing<bool>();
+  }
+  JSContext* cx = JSContextFromContext(*context);
+  JS::RootedId id(cx);
+  auto* keyVal = GetValue(key);
+  assert(keyVal->isString() || keyVal->isSymbol());
+  if (keyVal->isString()) {
+    JS::RootedString str(cx, keyVal->toString());
+    JS::RootedString interned(cx, JS_AtomizeAndPinJSString(cx, str));
+    if (!interned) {
+      return Nothing<bool>();
+    }
+    id = INTERNED_STRING_TO_JSID(cx, interned);
+  } else if (keyVal->isSymbol()) {
+    id = SYMBOL_TO_JSID(keyVal->toSymbol());
+  } else {
+    return Nothing<bool>();
+  }
+  bool hasOwn = false;
+  JS::RootedObject thisObj(cx, GetObject(this));
+  if (!JS_HasOwnPropertyById(cx, thisObj, id, &hasOwn)) {
+    return Nothing<bool>();
+  }
+  return Just(hasOwn);
+}
+
 Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedObject thisObj(cx, GetObject(this));

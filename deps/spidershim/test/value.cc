@@ -843,6 +843,39 @@ TEST(SpiderShim, ObjectPropertyEnumeration) {
       elmc4, elmv4);
 }
 
+TEST(SpiderShim, HasOwnProperty) {
+  // This test is adopted from the V8 HasOwnProperty test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  { // Check normal properties and defined getters.
+    Local<Value> value = engine.CompileRun(context,
+        "function Foo() {"
+        "    this.foo = 11;"
+        "    this.__defineGetter__('baz', function() { return 1; });"
+        "};"
+        "function Bar() { "
+        "    this.bar = 13;"
+        "    this.__defineGetter__('bla', function() { return 2; });"
+        "};"
+        "Bar.prototype = new Foo();"
+        "new Bar();");
+    EXPECT_TRUE(value->IsObject());
+    Local<Object> object = value->ToObject(context).ToLocalChecked();
+    EXPECT_TRUE(object->Has(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(!object->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(object->HasOwnProperty(context, v8_str("bar")).FromJust());
+    EXPECT_TRUE(object->Has(context, v8_str("baz")).FromJust());
+    EXPECT_TRUE(!object->HasOwnProperty(context, v8_str("baz")).FromJust());
+    EXPECT_TRUE(object->HasOwnProperty(context, v8_str("bla")).FromJust());
+  }
+}
+
 TEST(SpiderShim, Array) {
   V8Engine engine;
 
