@@ -25,6 +25,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
+#include "js/Proxy.h"
 
 static_assert(sizeof(v8::Value) == sizeof(JS::Value),
               "v8::Value and JS::Value must be binary compatible");
@@ -346,4 +347,15 @@ bool Value::IsNativeError() const {
 }
 
 bool Value::IsExternal() const { return External::IsExternal(this); }
+
+bool
+Value::IsProxy() const
+{
+  JSObject* obj = GetObject(this);
+  if (!obj) {
+    return false;
+  }
+
+  return js::IsProxy(obj);
+}
 }
