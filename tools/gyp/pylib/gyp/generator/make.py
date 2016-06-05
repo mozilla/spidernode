@@ -947,7 +947,7 @@ $(obj).$(TOOLSET)/$(TARGET)/%%.o: $(obj)/%%%s FORCE_DO_CMD
       inputs = [gyp.xcode_emulation.ExpandEnvVars(i, env) for i in inputs]
 
       self.WriteDoCmd(outputs, map(Sourceify, map(self.Absolutify, inputs)),
-                      part_of_all=part_of_all, command=name)
+                      part_of_all=part_of_all, command=name, always_run=True)
 
       # Stuff the outputs in a variable so we can refer to them later.
       outputs_variable = 'action_%s_outputs' % name
@@ -1676,18 +1676,21 @@ $(obj).$(TOOLSET)/$(TARGET)/%%.o: $(obj)/%%%s FORCE_DO_CMD
 
 
   def WriteDoCmd(self, outputs, inputs, command, part_of_all, comment=None,
-                 postbuilds=False):
+                 postbuilds=False, always_run=False):
     """Write a Makefile rule that uses do_cmd.
 
     This makes the outputs dependent on the command line that was run,
     as well as support the V= make command line flag.
     """
+    prefix = ''
+    if always_run:
+      prefix = '+'
     suffix = ''
     if postbuilds:
       assert ',' not in command
       suffix = ',,1'  # Tell do_cmd to honor $POSTBUILDS
     self.WriteMakeRule(outputs, inputs,
-                       actions = ['$(call do_cmd,%s%s)' % (command, suffix)],
+                       actions = ['%s$(call do_cmd,%s%s)' % (prefix, command, suffix)],
                        comment = comment,
                        command = command,
                        force = True)
