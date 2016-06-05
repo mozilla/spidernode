@@ -133,24 +133,27 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::RootedValue callbackVal2(cx,
     js::GetReservedSlot(accessorData, size_t(AccessorSlots::CallbackSlot2)));
 
+  args.rval().setUndefined();
+
   auto callback =
     ValuesToCallback<CallbackType>(callbackVal1, callbackVal2);
-  // TODO: Figure out the story for holder.  See
-  // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ (which is
-  // kinda messed up, since they have _stopped_ doing the weird holder thing for
-  // DOM stuff since then).
-  typedef typename
-    CallbackTraits<CallbackType, N>::PropertyCallbackInfo PropertyCallbackInfo;
-  PropertyCallbackInfo info(data, thisObject, thisObject);
+  if (callback) {
+    // TODO: Figure out the story for holder.  See
+    // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ (which is
+    // kinda messed up, since they have _stopped_ doing the weird holder thing for
+    // DOM stuff since then).
+    typedef typename
+      CallbackTraits<CallbackType, N>::PropertyCallbackInfo PropertyCallbackInfo;
+    PropertyCallbackInfo info(data, thisObject, thisObject);
 
-  CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
-                                          info, args);
+    CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
+                                            info, args);
 
-  if (auto rval = info.GetReturnValue().Get()) {
-    args.rval().set(*GetValue(rval));
-  } else {
-    args.rval().setUndefined();
+    if (auto rval = info.GetReturnValue().Get()) {
+      args.rval().set(*GetValue(rval));
+    }
   }
+
   return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
 }
 
