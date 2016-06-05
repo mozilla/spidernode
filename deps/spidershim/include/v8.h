@@ -781,17 +781,18 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
 
   template <class T>
   Local<T> Escape(Handle<T> value) {
-    if (!AddToParentScope(*value)) {
+    auto result = AddToParentScope(*value);
+    if (!result) {
       return Local<T>();
     }
-    return Local<T>(*value);
+    return Local<T>(static_cast<T*>(result));
   }
 
 private:
-  static bool AddToParentScope(Value* val);
-  static bool AddToParentScope(Context* context) {
+  static Value* AddToParentScope(Value* val);
+  static Context* AddToParentScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
-    return true;
+    return context;
   }
 };
 

@@ -3599,3 +3599,88 @@ TEST(SpiderShim, EmbedderDataAlignedPointers) {
     EXPECT_EQ(AlignedTestPointer(i), context->GetAlignedPointerFromEmbedderData(i));
   }
 }
+
+void HandleF(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::EscapableHandleScope scope(args.GetIsolate());
+  Local<v8::Array> result = v8::Array::New(args.GetIsolate(), args.Length());
+  for (int i = 0; i < args.Length(); i++) {
+    CHECK(result->Set(Isolate::GetCurrent()->GetCurrentContext(), i, args[i])
+              .FromJust());
+  }
+  args.GetReturnValue().Set(scope.Escape(result));
+}
+
+TEST(SpiderShim, Vector) {
+  // This test is based on V8's Vector test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<Object> global = context->Global();
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate, HandleF);
+  global->Set(v8_str("f"), templ->GetFunction());
+
+  const char* fun = "f()";
+  Local<v8::Array> a0 = CompileRun(fun).As<v8::Array>();
+  EXPECT_EQ(0u, a0->Length());
+
+  const char* fun2 = "f(11)";
+  Local<v8::Array> a1 = CompileRun(fun2).As<v8::Array>();
+  EXPECT_EQ(1u, a1->Length());
+  EXPECT_EQ(11, a1->Get(context, 0)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+
+  const char* fun3 = "f(12, 13)";
+  Local<v8::Array> a2 = CompileRun(fun3).As<v8::Array>();
+  EXPECT_EQ(2u, a2->Length());
+  EXPECT_EQ(12, a2->Get(context, 0)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(13, a2->Get(context, 1)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+
+  const char* fun4 = "f(14, 15, 16)";
+  Local<v8::Array> a3 = CompileRun(fun4).As<v8::Array>();
+  EXPECT_EQ(3u, a3->Length());
+  EXPECT_EQ(14, a3->Get(context, 0)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(15, a3->Get(context, 1)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(16, a3->Get(context, 2)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+
+  const char* fun5 = "f(17, 18, 19, 20)";
+  Local<v8::Array> a4 = CompileRun(fun5).As<v8::Array>();
+  EXPECT_EQ(4u, a4->Length());
+  EXPECT_EQ(17, a4->Get(context, 0)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(18, a4->Get(context, 1)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(19, a4->Get(context, 2)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+  EXPECT_EQ(20, a4->Get(context, 3)
+                   .ToLocalChecked()
+                   ->Int32Value(context)
+                   .FromJust());
+}
