@@ -1,0 +1,100 @@
+commit c2e95b4f92599c0019899420d77a1fb39410c345 (HEAD -> work)
+Author: Ehsan Akhgari <ehsan@mozilla.com>
+Date:   Sat Jun 4 19:50:50 2016 -0400
+
+    Bug 1278089 - Add JS APIs for determining whether a function is bound and getting the target; r=jorendorff
+
+diff --git a/js/src/jsapi-tests/moz.build b/js/src/jsapi-tests/moz.build
+index 87e4510..78dc5ad 100644
+--- a/js/src/jsapi-tests/moz.build
++++ b/js/src/jsapi-tests/moz.build
+@@ -12,6 +12,7 @@ UNIFIED_SOURCES += [
+     'testArgumentsObject.cpp',
+     'testArrayBuffer.cpp',
+     'testArrayBufferView.cpp',
++    'testBoundFunction.cpp',
+     'testBug604087.cpp',
+     'testCallArgs.cpp',
+     'testCallNonGenericMethodOnProxy.cpp',
+diff --git a/js/src/jsapi-tests/testBoundFunction.cpp b/js/src/jsapi-tests/testBoundFunction.cpp
+new file mode 100644
+index 0000000..24d24dd
+--- /dev/null
++++ b/js/src/jsapi-tests/testBoundFunction.cpp
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
++ * vim: set ts=8 sts=4 et sw=4 tw=99:
++ */
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++#include "jsapi-tests/tests.h"
++
++BEGIN_TEST(testBoundFunction)
++{
++    EXEC("function foo() {}");
++    JS::RootedValue foo(cx);
++    EVAL("foo", &foo);
++    JS::RootedValue bound(cx);
++    EVAL("foo.bind(1)", &bound);
++
++    JS::RootedFunction foofun(cx, JS_ValueToFunction(cx, foo));
++    JS::RootedFunction boundfun(cx, JS_ValueToFunction(cx, bound));
++
++    CHECK(!JS_IsFunctionBound(foofun));
++    CHECK(JS_IsFunctionBound(boundfun));
++
++    CHECK(!JS_GetBoundFunctionTarget(foofun));
++    JSObject* target = JS_GetBoundFunctionTarget(boundfun);
++    CHECK(!!target);
++    CHECK(JS_ObjectIsFunction(cx, target));
++    JS::RootedValue targetVal(cx, JS::ObjectValue(*target));
++    bool equal = false;
++    CHECK(JS_StrictlyEqual(cx, foo, targetVal, &equal) && equal);
++
++    return true;
++}
++END_TEST(testBoundFunction)
+diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
+index 785b79a..410ff76 100644
+--- a/js/src/jsapi.cpp
++++ b/js/src/jsapi.cpp
+@@ -444,6 +444,19 @@ JS_IsBuiltinFunctionConstructor(JSFunction* fun)
+     return fun->isBuiltinFunctionConstructor();
+ }
+ 
++JS_PUBLIC_API(bool)
++JS_IsFunctionBound(JSFunction* fun)
++{
++    return fun->isBoundFunction();
++}
++
++JS_PUBLIC_API(JSObject*)
++JS_GetBoundFunctionTarget(JSFunction* fun)
++{
++    return fun->isBoundFunction() ?
++               fun->getBoundFunctionTarget() : nullptr;
++}
++
+ /************************************************************************/
+ 
+ #ifdef DEBUG
+diff --git a/js/src/jsapi.h b/js/src/jsapi.h
+index 9640c05..18b20d1 100644
+--- a/js/src/jsapi.h
++++ b/js/src/jsapi.h
+@@ -3658,6 +3658,12 @@ extern JS_PUBLIC_API(JSFunction*)
+ JS_DefineFunctionById(JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id, JSNative call,
+                       unsigned nargs, unsigned attrs);
+ 
++extern JS_PUBLIC_API(bool)
++JS_IsFunctionBound(JSFunction* fun);
++
++extern JS_PUBLIC_API(JSObject*)
++JS_GetBoundFunctionTarget(JSFunction* fun);
++
+ namespace JS {
+ 
+ /**
+
