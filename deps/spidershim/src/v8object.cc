@@ -31,6 +31,7 @@
 #include "v8trycatch.h"
 #include "instanceslots.h"
 #include "globalslots.h"
+#include "accessor.h"
 
 namespace {
 
@@ -91,16 +92,7 @@ Maybe<bool> Object::Set(Local<Context> context, Local<Value> key,
   if (!force && attributes == None) {
     return Just(JS_SetPropertyById(cx, thisVal, id, valueVal));
   }
-  unsigned attrs = 0;
-  if (attributes & ReadOnly) {
-    attrs |= JSPROP_READONLY;
-  }
-  if (!(attributes & DontEnum)) {
-    attrs |= JSPROP_ENUMERATE;
-  }
-  if (attributes & DontDelete) {
-    attrs |= JSPROP_PERMANENT;
-  }
+  unsigned attrs = internal::AttrsToFlags(attributes);
   return Just(JS_DefinePropertyById(cx, thisVal, id, valueVal, attrs));
 }
 

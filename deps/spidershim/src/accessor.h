@@ -28,6 +28,20 @@
 namespace v8 {
 namespace internal {
 
+inline unsigned AttrsToFlags(PropertyAttribute attributes) {
+  unsigned attrs = 0;
+  if (attributes & ReadOnly) {
+    attrs |= JSPROP_READONLY;
+  }
+  if (!(attributes & DontEnum)) {
+    attrs |= JSPROP_ENUMERATE;
+  }
+  if (attributes & DontDelete) {
+    attrs |= JSPROP_PERMANENT;
+  }
+  return attrs;
+}
+
 enum class AccessorSlots {
   NameSlot,
   DataSlot,
@@ -208,7 +222,7 @@ void SetAccessor(JSContext* cx,
                  AccessControl settings,
                  PropertyAttribute attribute,
                  Handle<AccessorSignature> signature) {
-  // TODO: What should happen with "settings", "attribute", "signature"?  See
+  // TODO: What should happen with "settings", "signature"?  See
   // https://github.com/mozilla/spidernode/issues/141
 
   JS::RootedObject getterObj(cx, CreateAccessor(cx, getter, name, data));
@@ -230,9 +244,10 @@ void SetAccessor(JSContext* cx,
     return;
   }
 
-  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue,
-                             JSPROP_ENUMERATE | JSPROP_SHARED |
-                             JSPROP_GETTER | JSPROP_SETTER,
+  unsigned attrs = internal::AttrsToFlags(attribute) |
+                   JSPROP_SHARED | JSPROP_GETTER | JSPROP_SETTER;
+
+  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
                              JS_DATA_TO_FUNC_PTR(JSNative, getterObj.get()),
                              JS_DATA_TO_FUNC_PTR(JSNative, setterObj.get()))) {
     return;
