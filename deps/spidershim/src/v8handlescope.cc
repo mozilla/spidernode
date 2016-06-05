@@ -102,8 +102,8 @@ Message* HandleScope::AddToScope(Message* message) {
   return sCurrentScope.get()->pimpl_->Add(message);
 }
 
-bool EscapableHandleScope::AddToParentScope(Value* val) {
-  return sCurrentScope.get() && sCurrentScope.get()->pimpl_->prev &&
-         !!sCurrentScope.get()->pimpl_->prev->pimpl_->Add(val);
+Value* EscapableHandleScope::AddToParentScope(Value* val) {
+  return sCurrentScope.get() && sCurrentScope.get()->pimpl_->prev ?
+         sCurrentScope.get()->pimpl_->prev->pimpl_->Add(val) : nullptr;
 }
 }
