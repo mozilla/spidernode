@@ -453,6 +453,11 @@ Maybe<bool> Object::HasOwnProperty(Local<Context> context, Local<Name> key) {
   return Just(hasOwn);
 }
 
+bool Object::HasOwnProperty(Handle<String> key) {
+  return HasOwnProperty(Isolate::GetCurrent()->GetCurrentContext(), key)
+      .FromMaybe(false);
+}
+
 Maybe<bool> Object::HasPrivate(Local<Context> context, Local<Private> key) {
   JSContext* cx = JSContextFromContext(*context);
   JS::RootedObject thisObj(cx, GetObject(this));
