@@ -134,10 +134,10 @@ const JSClass accessorDataClass = {
 };
 
 // Our getters/setters need to pass two things along to the underlying
-template<typename> struct CallbackTraits;
+template<typename, typename> struct CallbackTraits;
 
 template<>
-struct CallbackTraits<v8::AccessorGetterCallback> {
+struct CallbackTraits<v8::AccessorGetterCallback, v8::String> {
   typedef v8::PropertyCallbackInfo<v8::Value> PropertyCallbackInfo;
 
   static void doCall(v8::Isolate* isolate, v8::AccessorGetterCallback callback,
@@ -150,11 +150,40 @@ struct CallbackTraits<v8::AccessorGetterCallback> {
 };
 
 template<>
-struct CallbackTraits<v8::AccessorSetterCallback> {
+struct CallbackTraits<v8::AccessorSetterCallback, v8::String> {
   typedef v8::PropertyCallbackInfo<void> PropertyCallbackInfo;
 
   static void doCall(v8::Isolate* isolate, v8::AccessorSetterCallback callback,
                      v8::Local<v8::String> name, PropertyCallbackInfo& info,
+                     JS::CallArgs& args) {
+    using namespace v8;
+    Local<Value> value = internal::Local<Value>::New(isolate, args.get(0));
+
+    callback(name, value, info);
+  }
+
+  static const unsigned nargs = 0;
+};
+
+template<>
+struct CallbackTraits<v8::AccessorNameGetterCallback, v8::Name> {
+  typedef v8::PropertyCallbackInfo<v8::Value> PropertyCallbackInfo;
+
+  static void doCall(v8::Isolate* isolate, v8::AccessorNameGetterCallback callback,
+                     v8::Local<v8::Name> name,
+                     PropertyCallbackInfo& info, JS::CallArgs& args) {
+    callback(name, info);
+  }
+
+  static const unsigned nargs = 0;
+};
+
+template<>
+struct CallbackTraits<v8::AccessorNameSetterCallback, v8::Name> {
+  typedef v8::PropertyCallbackInfo<void> PropertyCallbackInfo;
+
+  static void doCall(v8::Isolate* isolate, v8::AccessorNameSetterCallback callback,
+                     v8::Local<v8::Name> name, PropertyCallbackInfo& info,
                      JS::CallArgs& args) {
     using namespace v8;
     Local<Value> value = internal::Local<Value>::New(isolate, args.get(0));
@@ -171,7 +200,7 @@ struct CallbackTraits<v8::AccessorSetterCallback> {
 // PropertyCallbackInfo).  We store those two things, and the actual address of
 // the V8 callback function, in the reserved slots of an object that hangs off
 // the accessor.
-template<typename CallbackType>
+template<typename CallbackType, typename N>
 bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   using namespace v8;
   Isolate* isolate = Isolate::GetCurrent();
@@ -187,8 +216,8 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   Local<Value> data =
     internal::Local<Value>::New(isolate,
       js::GetReservedSlot(accessorData, size_t(AccessorSlots::DataSlot)));
-  Local<String> name =
-    internal::Local<String>::New(isolate,
+  Local<N> name =
+    internal::Local<N>::New(isolate,
       js::GetReservedSlot(accessorData, size_t(AccessorSlots::NameSlot)));
 
   JS::RootedValue callbackVal1(cx,
@@ -203,11 +232,11 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   // kinda messed up, since they have _stopped_ doing the weird holder thing for
   // DOM stuff since then).
   typedef typename
-    CallbackTraits<CallbackType>::PropertyCallbackInfo PropertyCallbackInfo;
+    CallbackTraits<CallbackType, N>::PropertyCallbackInfo PropertyCallbackInfo;
   PropertyCallbackInfo info(data, thisObject, thisObject);
 
-  CallbackTraits<CallbackType>::doCall(isolate, callback, name,
-                                       info, args);
+  CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
+                                          info, args);
 
   if (auto rval = info.GetReturnValue().Get()) {
     args.rval().set(*GetValue(rval));
@@ -217,14 +246,14 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
 }
 
-template<typename CallbackType>
+template<typename CallbackType, class N>
 JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
-                         v8::Handle<v8::String> name,
+                         v8::Handle<N> name,
                          v8::Handle<v8::Value> data) {
   // XXXbz should we pass a better name here?
   JSFunction* func =
-    js::NewFunctionWithReserved(cx, NativeAccessorCallback<CallbackType>,
-                                CallbackTraits<CallbackType>::nargs,
+    js::NewFunctionWithReserved(cx, NativeAccessorCallback<CallbackType, N>,
+                                CallbackTraits<CallbackType, N>::nargs,
                                 0, nullptr);
   if (!func) {
     return nullptr;
@@ -351,6 +380,29 @@ void ObjectTemplate::SetAccessor(Handle<String> name,
                                  AccessControl settings,
                                  PropertyAttribute attribute,
                                  Handle<AccessorSignature> signature) {
+  SetAccessorInternal(name, getter, setter, data,
+                      settings, attribute, signature);
+}
+
+void ObjectTemplate::SetAccessor(Handle<Name> name,
+                                 AccessorNameGetterCallback getter,
+                                 AccessorNameSetterCallback setter,
+                                 Handle<Value> data,
+                                 AccessControl settings,
+                                 PropertyAttribute attribute,
+                                 Handle<AccessorSignature> signature) {
+  SetAccessorInternal(name, getter, setter, data,
+                      settings, attribute, signature);
+}
+
+template <class N, class Getter, class Setter>
+void ObjectTemplate::SetAccessorInternal(Handle<N> name,
+                                         Getter getter,
+                                         Setter setter,
+                                         Handle<Value> data,
+                                         AccessControl settings,
+                                         PropertyAttribute attribute,
+                                         Handle<AccessorSignature> signature) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
@@ -388,8 +440,6 @@ void ObjectTemplate::SetAccessor(Handle<String> name,
     return;
   }
 }
-
-// TODO SetAccessor Handle<Name> overload: no support for Name yet.
 
 // TODO SetNamedPropertyHandler: will need us to create proxies.
 

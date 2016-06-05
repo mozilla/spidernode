@@ -2242,6 +2242,14 @@ class V8_EXPORT ObjectTemplate : public Template {
   friend class Utils;
   friend class FunctionTemplate;
 
+  template<class N, class Getter, class Setter>
+  void SetAccessorInternal(Handle<N> name,
+                           Getter getter,
+                           Setter setter,
+                           Handle<Value> data,
+                           AccessControl settings,
+                           PropertyAttribute attribute,
+                           Handle<AccessorSignature> signature);
   Local<Object> NewInstance(Handle<Object> prototype);
   Handle<String> GetClassName();
 
