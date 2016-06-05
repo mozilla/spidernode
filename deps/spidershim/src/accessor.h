@@ -55,15 +55,28 @@ const JSClass accessorDataClass = {
   JSCLASS_HAS_RESERVED_SLOTS(uint32_t(AccessorSlots::NumSlots))
 };
 
-// Our getters/setters need to pass two things along to the underlying
+template<typename> struct XerTraits;
 template<typename, typename> struct CallbackTraits;
 
 template<>
-struct CallbackTraits<v8::AccessorGetterCallback, v8::String> {
+struct XerTraits<v8::Name> {
+  typedef v8::AccessorNameGetterCallback Getter;
+  typedef v8::AccessorNameSetterCallback Setter;
+};
+
+template<>
+struct XerTraits<v8::String> {
+  typedef v8::AccessorGetterCallback Getter;
+  typedef v8::AccessorSetterCallback Setter;
+};
+
+template<typename N>
+struct CallbackTraits<typename XerTraits<N>::Getter, N> {
   typedef v8::PropertyCallbackInfo<v8::Value> PropertyCallbackInfo;
 
-  static void doCall(v8::Isolate* isolate, v8::AccessorGetterCallback callback,
-                     v8::Local<v8::String> name,
+  static void doCall(v8::Isolate* isolate,
+                     typename XerTraits<N>::Getter callback,
+                     v8::Local<N> name,
                      PropertyCallbackInfo& info, JS::CallArgs& args) {
     callback(name, info);
   }
@@ -71,43 +84,15 @@ struct CallbackTraits<v8::AccessorGetterCallback, v8::String> {
   static const unsigned nargs = 0;
 };
 
-template<>
-struct CallbackTraits<v8::AccessorSetterCallback, v8::String> {
+template<typename N>
+struct CallbackTraits<typename XerTraits<N>::Setter, N> {
   typedef v8::PropertyCallbackInfo<void> PropertyCallbackInfo;
 
-  static void doCall(v8::Isolate* isolate, v8::AccessorSetterCallback callback,
-                     v8::Local<v8::String> name, PropertyCallbackInfo& info,
+  static void doCall(v8::Isolate* isolate,
+                     typename XerTraits<N>::Setter callback,
+                     v8::Local<N> name,
+                     PropertyCallbackInfo& info,
                      JS::CallArgs& args) {
-    using namespace v8;
-    v8::Local<Value> value = internal::Local<Value>::New(isolate, args.get(0));
-
-    callback(name, value, info);
-  }
-
-  static const unsigned nargs = 0;
-};
-
-template<>
-struct CallbackTraits<v8::AccessorNameGetterCallback, v8::Name> {
-  typedef v8::PropertyCallbackInfo<v8::Value> PropertyCallbackInfo;
-
-  static void doCall(v8::Isolate* isolate, v8::AccessorNameGetterCallback callback,
-                     v8::Local<v8::Name> name,
-                     PropertyCallbackInfo& info, JS::CallArgs& args) {
-    callback(name, info);
-  }
-
-  static const unsigned nargs = 0;
-};
-
-template<>
-struct CallbackTraits<v8::AccessorNameSetterCallback, v8::Name> {
-  typedef v8::PropertyCallbackInfo<void> PropertyCallbackInfo;
-
-  static void doCall(v8::Isolate* isolate, v8::AccessorNameSetterCallback callback,
-                     v8::Local<v8::Name> name, PropertyCallbackInfo& info,
-                     JS::CallArgs& args) {
-    using namespace v8;
     v8::Local<Value> value = internal::Local<Value>::New(isolate, args.get(0));
 
     callback(name, value, info);
