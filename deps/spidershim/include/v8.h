@@ -2120,9 +2120,11 @@ class V8_EXPORT FunctionTemplate : public Template {
 
  private:
   friend class internal::FunctionCallback;
+  friend class Template;
 
   Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
   Local<Object> CreateNewInstance();
+  static Local<Value> MaybeConvertObjectProperty(Local<Value> value);
 };
 
 enum class PropertyHandlerFlags {

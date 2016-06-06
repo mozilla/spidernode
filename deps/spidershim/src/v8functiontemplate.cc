@@ -390,4 +390,13 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
   return false;
 }
 
+// static
+Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value) {
+  if (!value.IsEmpty() && value->IsObject() &&
+      JS_GetClass(GetObject(value)) == &functionTemplateClass) {
+    return reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
+  }
+  return value;
+}
+
 } // namespace v8
