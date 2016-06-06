@@ -56,9 +56,7 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   templ1->SetClassName(class_name);
   templ1->Set(isolate, "x", v8_num(10));
   templ1->Set(isolate, "y", v8_num(13));
-  // TEST_TODO: Accessors on Template are one of those new APIs that don't exist
-  // here yet.
-  //    templ1->Set(v8_str("foo"), acc);
+  templ1->Set(v8_str("foo"), acc);
   Local<v8::Object> instance1 =
       templ1->NewInstance(context).ToLocalChecked();
   // TEST_TODO: We didn't create this from a constructor in any sane way, so
@@ -67,9 +65,8 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   EXPECT_TRUE(context->Global()->Set(context, v8_str("p"), instance1).FromJust());
   EXPECT_TRUE(CompileRun("(p.x == 10)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(p.y == 13)")->BooleanValue(context).FromJust());
-  // TEST_TODO: See above about accessors.
-  //   EXPECT_TRUE(CompileRun("(p.foo() == 42)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(p.foo == acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(p.foo() == 42)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(p.foo == acc)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(p.toString() == '[object the_class_name]')")->BooleanValue(context).FromJust());
   // Ensure that foo become a data field.
   CompileRun("p.foo = function() {}");
@@ -78,10 +75,8 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   fun2->PrototypeTemplate()->Set(isolate, "nirk", v8_num(123));
   Local<ObjectTemplate> templ2 = fun2->InstanceTemplate();
   templ2->Set(isolate, "a", v8_num(12));
-  // TEST_TODO: No Template-taking Set on Template
-  //   templ2->Set(isolate, "b", templ1);
-  // TEST_TODO: No accessors on Template
-  //   templ2->Set(v8_str("bar"), acc);
+     templ2->Set(isolate, "b", templ1);
+     templ2->Set(v8_str("bar"), acc);
   // TEST_TODO: accessors on ObjectTemplate are totally different in node vs tip
   // V8, so test SetAccessor instead of SetAccessorProperty
   //   templ2->SetAccessorProperty(v8_str("acc"), acc);
@@ -97,17 +92,14 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   EXPECT_TRUE(context->Global()->Set(context, v8_str("q"), instance2).FromJust());
   EXPECT_TRUE(CompileRun("(q.nirk == 123)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(q.a == 12)")->BooleanValue(context).FromJust());
-  // TEST_TODO: None of the q.b stuff can work without Template-taking Set on
-  // Template.
-  //   EXPECT_TRUE(CompileRun("(q.b.x == 10)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q.b.y == 13)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q.b.foo() == 42)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q.b.foo === acc)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q.b !== p)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.b.x == 10)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.b.y == 13)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.b.foo() == 42)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.b.foo === acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.b !== p)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(q.acc == 42)")->BooleanValue(context).FromJust());
-  // TEST_TODO: No accesors on Template
-  //   EXPECT_TRUE(CompileRun("(q.bar() == 42)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q.bar == acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.bar() == 42)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q.bar == acc)")->BooleanValue(context).FromJust());
 
   // TEST_TODO: Different way to get the object
   //    instance2 = templ2->NewInstance(context).ToLocalChecked();
@@ -115,26 +107,24 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   EXPECT_TRUE(context->Global()->Set(context, v8_str("q2"), instance2).FromJust());
   EXPECT_TRUE(CompileRun("(q2.nirk == 123)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(q2.a == 12)")->BooleanValue(context).FromJust());
-  // TEST_TODO: None of the q2.b stuff can work without Template-taking Set on
-  // Template.
-  //   EXPECT_TRUE(CompileRun("(q2.b.x == 10)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q2.b.y == 13)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q2.b.foo() == 42)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q2.b.foo === acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.b.x == 10)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.b.y == 13)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.b.foo() == 42)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.b.foo === acc)")->BooleanValue(context).FromJust());
   EXPECT_TRUE(CompileRun("(q2.acc == 42)")->BooleanValue(context).FromJust());
-  // TEST_TODO: No accesors on Template
-  //   EXPECT_TRUE(CompileRun("(q2.bar() == 42)")->BooleanValue(context).FromJust());
-  //   EXPECT_TRUE(CompileRun("(q2.bar === acc)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.bar() == 42)")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("(q2.bar === acc)")->BooleanValue(context).FromJust());
 
-  // TEST_TODO: None of the q.b/q2.b stuff can work without Template-taking Set on
-  // Template.
+  // TEST_TODO: It seems like V8 instantiates the template once per instance,
+  //            whereas we do that in Template::Set().  We should probably keep
+  //            track of such Template properties separately and instantiate them
+  //            during instance creation.
   //   EXPECT_TRUE(CompileRun("(q.b !== q2.b)")->BooleanValue(context).FromJust());
   //   EXPECT_TRUE(CompileRun("q.b.x = 17; (q2.b.x == 10)")
   //             ->BooleanValue(context)
   //             .FromJust());
 
-  // TEST_TODO: These tests only make sense when using a template for the
-  // accessor.
+  // TEST_TORO: Enable this part when we switch to SetAccessorProperty() above.
   //  EXPECT_TRUE(engine.CompileRun(context,
   //                      "desc1 = Object.getOwnPropertyDescriptor(q, 'acc');"
   //                      "(desc1.get === acc)")
