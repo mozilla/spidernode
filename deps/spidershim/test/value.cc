@@ -582,6 +582,10 @@ TEST(SpiderShim, Object) {
   Local<Value> cloneProtoVal = clone->GetPrototype();
   Object* cloneProto = Object::Cast(*cloneProtoVal);
   EXPECT_TRUE(cloneProto->Has(qux));
+
+  EXPECT_TRUE(object->GetPrototype()->StrictEquals(newProto));
+  EXPECT_TRUE(object->SetPrototype(context, Null(engine.isolate())).FromJust());
+  EXPECT_TRUE(object->GetPrototype()->StrictEquals(Null(engine.isolate())));
 }
 
 static void InstallContextId(Local<Context> context, int id) {
