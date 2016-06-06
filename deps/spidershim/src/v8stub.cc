@@ -25,14 +25,17 @@ namespace v8 {
 
 Local<AccessorSignature> AccessorSignature::New(v8::Isolate*, v8::Local<v8::FunctionTemplate>) {
   fprintf(stderr, "AccessorSignature::New is a stub\n");
+  return Local<AccessorSignature>();
 }
 
 MaybeLocal<Value> Object::GetRealNamedProperty(v8::Local<v8::Context>, v8::Local<v8::Name>) {
   fprintf(stderr, "Object::GetRealNamedProperty is a stub\n");
+  return MaybeLocal<Value>();
 }
 
 Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(v8::Local<v8::Context>, v8::Local<v8::Name>) {
   fprintf(stderr, "Object::GetRealNamedPropertyAttributes is a stub\n");
+  return Nothing<PropertyAttribute>();
 }
 
 void ObjectTemplate::SetHandler(v8::NamedPropertyHandlerConfiguration const&) {
@@ -45,6 +48,7 @@ void ObjectTemplate::SetNamedPropertyHandler(void (*)(v8::Local<v8::String>, v8:
 
 Local<Signature> Signature::New(v8::Isolate*, v8::Local<v8::FunctionTemplate>, int, v8::Local<v8::FunctionTemplate>*) {
   fprintf(stderr, "Signature::New is a stub\n");
+  return Local<Signature>();
 }
 
 } // namespace v8
