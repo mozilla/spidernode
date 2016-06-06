@@ -350,7 +350,11 @@ Local<Value> Object::GetPrototype() {
   JS::RootedObject prototype(cx);
   JS::Value retVal;
   if (JS_GetPrototype(cx, thisObj, &prototype)) {
-    retVal.setObject(*prototype);
+    if (prototype) {
+      retVal.setObject(*prototype);
+    } else {
+      retVal.setNull();
+    }
   } else {
     // The V8 method is infallible, it's not clear what we should return here.
     // Return undefined for now, but that's probably wrong.
@@ -368,7 +372,10 @@ Maybe<bool> Object::SetPrototype(Local<Context> context,
   if (!JS_WrapValue(cx, &protoVal)) {
     return Nothing<bool>();
   }
-  JS::RootedObject protoObj(cx, &protoVal.toObject());
+  JS::RootedObject protoObj(cx);
+  if (protoVal.isObject()) {
+    protoObj = &protoVal.toObject();
+  }
   JS::RootedObject thisObj(cx, GetObject(this));
   return Just(JS_SetPrototype(cx, thisObj, protoObj));
 }
