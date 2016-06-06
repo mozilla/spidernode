@@ -2700,6 +2700,33 @@ TEST(SpiderShim, FunctionNew) {
   CHECK(v8::Integer::New(isolate, 17)->Equals(context, result3).FromJust());
 }
 
+static void CallbackReturnNewHandle(const v8::FunctionCallbackInfo<Value>& info) {
+  Isolate* isolate = Isolate::GetCurrent();
+  HandleScope scope(isolate);
+  Local<Object> obj = Object::New(isolate);
+  obj->Set(v8_str("foo"), Integer::New(isolate, 42));
+  info.GetReturnValue().Set(obj);
+}
+
+TEST(SpiderShim, ReturnNewHandle) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  Local<Object> data = v8::Object::New(isolate);
+  function_new_expected_env = data;
+  Local<Function> func =
+      Function::New(context, CallbackReturnNewHandle, data).ToLocalChecked();
+  CHECK(context->Global()->Set(context, v8_str("f"), func).FromJust());
+  Local<Value> result = engine.CompileRun(context, "f().foo");
+  CHECK(v8::Integer::New(isolate, 42)->Equals(context, result).FromJust());
+}
+
 template <typename TypedArrayType, int kElementSize>
 static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
                                             int byteOffset, int length) {

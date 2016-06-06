@@ -781,6 +781,14 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
 
   template <class T>
   Local<T> Escape(Handle<T> value) {
+    return EscapeToParentHandleScope(value);
+  }
+
+private:
+  template <class F> friend class ReturnValue;
+
+  template <class T>
+  static Local<T> EscapeToParentHandleScope(Local<T> value) {
     auto result = AddToParentScope(*value);
     if (!result) {
       return Local<T>();
@@ -788,7 +796,6 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
     return Local<T>(static_cast<T*>(result));
   }
 
-private:
   static Value* AddToParentScope(Value* val);
   static Context* AddToParentScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
@@ -1727,7 +1734,15 @@ class ReturnValue {
     *_value = static_cast<Value*>(*handle);
   }
   template <typename S> void Set(const Handle<S> handle) {
-    *_value = static_cast<Value*>(*handle);
+    // ReturnValue needs to root the Local to the parent HandleScope.
+    Local<S> parentHandle =
+      EscapableHandleScope::EscapeToParentHandleScope(handle);
+    if (parentHandle.IsEmpty()) {
+      // That didn't work, we can't really do anything better here.
+      *_value = static_cast<Value*>(*handle);
+    } else {
+      *_value = static_cast<Value*>(*parentHandle);
+    }
   }
   // Fast primitive setters
   void Set(bool value) { Set(Boolean::From(value)); }
