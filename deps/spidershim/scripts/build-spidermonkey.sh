@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source `dirname "$0"`/travis.sh
+
 for ac in "$AUTOCONF" autoconf213 autoconf2.13; do
   if which $ac >/dev/null; then
     AUTOCONF=`which $ac`
@@ -37,6 +39,7 @@ esac
 
 test -d $build || mkdir $build
 cd $build
+make="travis_wait 60 make -s"
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-make -s || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $args $* && make -s)
+$make || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $args $* && $make)

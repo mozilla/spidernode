@@ -48,10 +48,14 @@ public:
     }
   }
 
+  static const uint32_t nameAllocated = JSCLASS_USERBIT1;
+
 private:
   ~InstanceClass() {
-    // We heap-allocated our name, so need to free it now.
-    JS_free(nullptr, const_cast<char*>(name));
+    if (flags & nameAllocated) {
+      // We heap-allocated our name, so need to free it now.
+      JS_free(nullptr, const_cast<char*>(name));
+    }
   }
   uint32_t mRefCnt = 0;
 };
@@ -70,10 +74,7 @@ void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
 
   auto instanceClass =
     static_cast<v8::ObjectTemplate::InstanceClass*>(classValue.toPrivate());
-  if (!instanceClass) {
-    // We're using the default plain-object class.
-    return;
-  }
+  assert(instanceclass);
 
   instanceClass->Release();
 }
@@ -293,6 +294,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
     MOZ_CRASH();
   }
 
+  uint32_t flags = 0;
   JS::Value nameVal = js::GetReservedSlot(obj,
                                           size_t(TemplateSlots::ClassNameSlot));
   if (nameVal.isUndefined()) {
@@ -300,6 +302,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   } else {
     JS::RootedString str(cx, nameVal.toString());
     instanceClass->name = JS_EncodeStringToUTF8(cx, str);
+    flags |= InstanceClass::nameAllocated;
   }
 
   JS::Value internalFieldCountVal = js::GetReservedSlot(obj,
@@ -310,8 +313,8 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   }
 
   instanceClass->flags =
-    JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
-                               internalFieldCount);
+    flags | JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
+				       internalFieldCount);
   instanceClass->cOps = nullptr;
   instanceClass->spec = nullptr;
   instanceClass->ext = nullptr;
