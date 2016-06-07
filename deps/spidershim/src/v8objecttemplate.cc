@@ -74,7 +74,7 @@ void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
 
   auto instanceClass =
     static_cast<v8::ObjectTemplate::InstanceClass*>(classValue.toPrivate());
-  assert(instanceclass);
+  assert(instanceClass);
 
   instanceClass->Release();
 }
