@@ -100,3 +100,21 @@ TEST(SpiderShim, StackTrace) {
       try_catch.StackTrace(context).ToLocalChecked());
   EXPECT_STREQ("foo@stack-trace-test:1:18\n@stack-trace-test:1:41\n", *stack);
 }
+
+TEST(SpiderShim, InvalidSyntax) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  HandleScope handle_scope(engine.isolate());
+  TryCatch try_catch(engine.isolate());
+  const char *source = "function foo() {";
+  Local<String> src = v8_str(source);
+  ScriptCompiler::Source script_source(src);
+  EXPECT_TRUE(ScriptCompiler::CompileUnboundScript(engine.isolate(),
+                                                 &script_source).IsEmpty());
+  EXPECT_TRUE(try_catch.HasCaught());
+}
