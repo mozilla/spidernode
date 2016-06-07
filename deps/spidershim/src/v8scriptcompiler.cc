@@ -28,7 +28,21 @@ MaybeLocal<UnboundScript> ScriptCompiler::CompileUnboundScript(
   Isolate* isolate, Source* source, CompileOptions options) {
   // TODO: Ignore options for now. We probably can't handle it in any
   // useful way.
+
+  // We need to make sure that compiling the script doesn't fail with
+  // a SyntaxError or some such here.  The best we can do for now is to
+  // try to compile the script right now, and fail if we detect an error.
+  // We unfortunately need to throw out the results here.  :(
   auto script = new UnboundScript(isolate, source);
+  {
+    Isolate* isolate = Isolate::GetCurrent();
+    Local<Context> tmpContext = Context::New(isolate);
+    Context::Scope scope(tmpContext);
+    HandleScope handle_scope(isolate);
+    if (script->BindToCurrentContext().IsEmpty()) {
+      return Local<UnboundScript>();
+    }
+  }
   return Local<UnboundScript>::New(isolate, script);
 }
 
