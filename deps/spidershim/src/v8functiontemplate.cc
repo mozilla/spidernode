@@ -39,6 +39,7 @@ enum FunctionTemplatePrivateSlots {
                            // probably OK if we only support one global.
   ProtoSlot,               // Stores our instantiated prototype, this is an
                            // object if and only if InstanceSlot is one.
+  ClassNameSlot,           // Stores our class name (see SetClassName).
   NumSlots
 };
 
@@ -88,7 +89,10 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
                                               Handle<Value> data,
                                               Handle<Signature> signature,
                                               int length) {
-  Local<Template> templ = Template::New(isolate, &functionTemplateClass);
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
+
+  Local<Template> templ = Template::New(isolate, cx, &functionTemplateClass);
   if (templ.IsEmpty()) {
     return Local<FunctionTemplate>();
   }
@@ -96,9 +100,6 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
   JSObject* obj = GetObject(*templ);
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
-
-  JSContext* cx = JSContextFromIsolate(isolate);
-  AutoJSAPI jsAPI(cx);
 
   if (!SetCallbackAndData(cx, obj, callback, data)) {
     return Local<FunctionTemplate>();
@@ -173,6 +174,8 @@ MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
     protoProto = JS_GetObjectPrototype(cx, currentGlobal);
   }
 
+  assert(protoProto);
+
   JS::RootedObject protoObj(cx);
   JS::RootedValue protoTemplateVal(cx, js::GetReservedSlot(obj, ProtoTemplateSlot));
   if (protoTemplateVal.isUndefined()) {
@@ -209,7 +212,7 @@ MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
                                             dataV8Val,
                                             lengthVal.toInt32(),
                                             thisTempl,
-                                            InstanceTemplate()->GetClassName());
+                                            GetClassName());
   if (func.IsEmpty()) {
     return MaybeLocal<Function>();
   }
@@ -251,10 +254,42 @@ Local<ObjectTemplate> FunctionTemplate::PrototypeTemplate() {
 }
 
 void FunctionTemplate::SetClassName(Handle<String> name) {
-  Local<ObjectTemplate> instanceTemplate = InstanceTemplate();
-  if (!instanceTemplate.IsEmpty()) {
-    instanceTemplate->SetClassName(name);
-  }  
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+
+  if (TemplateIsInstantiated(obj)) {
+    // TODO: Supposed to be a fatal error of some sort.
+    return;
+  }
+
+  JS::RootedValue nameVal(cx, *GetValue(name));
+  if (!JS_WrapValue(cx, &nameVal)) {
+    // TODO: Signal the failure somehow.
+    return;
+  }
+  assert(nameVal.isString());
+  js::SetReservedSlot(obj, ClassNameSlot, nameVal);
+}
+
+Handle<String> FunctionTemplate::GetClassName() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+
+  JS::Value nameVal = js::GetReservedSlot(obj, ClassNameSlot);
+  if (nameVal.isUndefined()) {
+    return Local<String>();
+  }
+
+  assert(nameVal.isString());
+  return internal::Local<String>::New(isolate, nameVal);
 }
 
 void
@@ -322,12 +357,10 @@ Local<Object> FunctionTemplate::CreateNewInstance() {
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
   Local<ObjectTemplate> instanceTemplate = InstanceTemplate();
-  JS::Value protoVal = js::GetReservedSlot(obj, ProtoSlot);
-  // If this is getting called, we succeeded in GetFunction(), so have a proto
-  // stored.
-  assert(protoVal.isObject());
-  Local<Object> protoObj = internal::Local<Object>::New(isolate, protoVal);
-  return instanceTemplate->NewInstance(protoObj);
+  if (instanceTemplate.IsEmpty()) {
+    return Local<Object>();
+  }
+  return instanceTemplate->NewInstance();
 }
 
 Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) {
@@ -344,8 +377,14 @@ Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) 
       internal::Local<ObjectTemplate>::NewTemplate(isolate, templateVal);
   }
 
+  Local<FunctionTemplate> ctor;
+  if (slotIndex == InstanceTemplateSlot) {
+    // We want to use ourselves as the constructor here.
+    ctor =
+      internal::Local<FunctionTemplate>::NewTemplate(isolate, *GetValue(this));
+  }
   assert(templateVal.isUndefined());
-  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate, cx, ctor);
   if (templ.IsEmpty()) {
     return Local<ObjectTemplate>();
   }
@@ -397,6 +436,37 @@ Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value) {
     return reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
   }
   return value;
+}
+
+void FunctionTemplate::SetInstanceTemplate(Local<ObjectTemplate> instanceTemplate) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+  assert(!instanceTemplate.IsEmpty());
+
+  js::SetReservedSlot(obj, InstanceTemplateSlot,
+                      JS::ObjectValue(*GetObject(*instanceTemplate)));
+}
+
+Local<Object> FunctionTemplate::GetProtoInstance(Local<Context> context) {
+  // First ensure we're instantiated.
+  MaybeLocal<Function> func = GetFunction(context);
+  if (func.IsEmpty()) {
+    return Local<Object>();
+  }
+
+  Isolate* isolate = context->GetIsolate();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+  JS::Value protoVal = js::GetReservedSlot(obj, ProtoSlot);
+  assert(protoVal.isObject());
+  return internal::Local<Object>::New(isolate, protoVal);
 }
 
 } // namespace v8
