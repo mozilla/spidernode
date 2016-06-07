@@ -3334,6 +3334,7 @@ TEST(SpiderShim, HiddenProperties) {
             .FromJust());
   EXPECT_TRUE(obj->DeletePrivate(context, key).FromJust());
   EXPECT_TRUE(!obj->HasPrivate(context, key).FromJust());
+  EXPECT_TRUE(obj->GetPrivate(context, key).ToLocalChecked()->IsUndefined());
 }
 
 TEST(SpiderShim, PrivateProperties) {
