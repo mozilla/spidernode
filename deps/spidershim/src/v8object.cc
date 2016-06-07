@@ -545,7 +545,7 @@ MaybeLocal<Value> Object::GetPrivate(Local<Context> context,
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::RootedObject table(cx, GetHiddenValuesTable(cx, thisObj));
   if (!table) {
-    return MaybeLocal<Value>();
+    return MaybeLocal<Value>(Undefined(context->GetIsolate()));
   }
   JS::RootedId keyId(cx, SYMBOL_TO_JSID(key->symbol_));
   JS::RootedValue result(cx);
