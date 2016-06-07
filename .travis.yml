@@ -3,57 +3,71 @@ sudo: false
 cache:
   - ccache
   - apt
-addons:
-  apt: &apt
-    sources:
-      - ubuntu-toolchain-r-test
-    packages:
-      - autoconf2.13
-      - yasm
-      - texinfo
 matrix:
   include:
     - os: linux
       compiler: clang
-      dist: trusty
+      services: docker
+      script:
+        - docker run -v `pwd`:/build spidernode
+          sh -c "
+            export CC=clang CXX=clang++;
+            ./configure --engine=spidermonkey --debug &&
+            make -k V=;
+            ./deps/spidershim/scripts/run-tests.py
+          "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
 
     - os: linux
       compiler: gcc-4.8
-      dist: trusty
+      services: docker
+      script:
+        - docker run -v `pwd`:/build spidernode
+          sh -c "
+            export CC=gcc-4.8 CXX=g++-4.8;
+            ./configure --engine=spidermonkey --debug &&
+            make -k V=;
+            ./deps/spidershim/scripts/run-tests.py
+          "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
-      addons:
-        apt:
-          <<: *apt
-          packages:
-            - autoconf2.13
-            - yasm
-            - texinfo
-            - g++-4.8
-      install: export CC=gcc-4.8 CXX=g++-4.8
 
     - os: linux
       compiler: gcc-5
-      dist: trusty
+      services: docker
+      script:
+        - docker run -v `pwd`:/build spidernode
+          sh -c "
+            ./configure --engine=spidermonkey --debug &&
+            make -k V=;
+            ./deps/spidershim/scripts/run-tests.py
+          "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
-      addons:
-        apt:
-          <<: *apt
-          packages:
-            - autoconf2.13
-            - yasm
-            - texinfo
-            - g++-5
-      install: export CC=gcc-5 CXX=g++-5
 
     - os: linux
       compiler: clang
-      dist: trusty
+      services: docker
+      script:
+        - docker run -v `pwd`:/build spidernode
+          sh -c "
+            export CC=clang CXX=clang++;
+            ./configure --engine=spidermonkey --debug --enable-gczeal &&
+            make -k V=;
+            export JS_GC_MAX_ZEAL=1;
+            ./deps/spidershim/scripts/run-tests.py
+          "
       env: BUILD_CONFIG=gczeal ENABLE_DEBUG=true
 
     - os: linux
       compiler: clang
-      dist: trusty
+      services: docker
+      script:
+        - docker run -v `pwd`:/build spidernode
+          sh -c "
+            export CC=clang CXX=clang++;
+            ./configure --engine=spidermonkey --debug --enable-asan &&
+            make -k V=;
+            ./deps/spidershim/scripts/run-tests.py
+          "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
 
     - os: osx
@@ -78,6 +92,7 @@ matrix:
         - brew install yasm gawk ccache python
       install: export CC=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang CXX=$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++
 before_install:
+  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then docker build -t spidernode -f deps/spidershim/scripts/Dockerfile deps/spidershim/scripts; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; fi
 before_script:
