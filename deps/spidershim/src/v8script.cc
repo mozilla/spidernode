@@ -64,7 +64,11 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
   ;
   if (origin) {
     if (!origin->ResourceName().IsEmpty()) {
-      MaybeLocal<String> resourceName = origin->ResourceName()->ToString(context);
+      JS::RootedValue nameVal(cx, *GetValue(origin->ResourceName()));
+      if (!JS_WrapValue(cx, &nameVal)) {
+        return MaybeLocal<Script>();
+      }
+      MaybeLocal<String> resourceName = GetV8Value(&nameVal)->ToString(context);
       if (!resourceName.IsEmpty()) {
         utf8 =
             mozilla::MakeUnique<String::Utf8Value>(resourceName.ToLocalChecked());
