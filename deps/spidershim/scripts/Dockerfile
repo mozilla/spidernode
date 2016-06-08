@@ -7,6 +7,7 @@ RUN apt-get update && apt-get -y install \
 RUN wget -q https://hg.mozilla.org/mozilla-central/raw-file/default/python/mozboot/bin/bootstrap.py -O bootstrap.py && python bootstrap.py --application-choice=browser --no-interactive
 
 ENV SHELL /bin/bash
+ENV TRAVIS true
 RUN mkdir /build
 WORKDIR /build
 

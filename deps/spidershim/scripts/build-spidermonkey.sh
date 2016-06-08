@@ -39,7 +39,7 @@ esac
 
 test -d $build || mkdir $build
 cd $build
-if [ "$TRAVIS_OS_NAME" == "linux" ]; then
+if [ "$TRAVIS" == "true" ]; then
 make="travis_wait 60 make -s"
 else
 make="make -s"
