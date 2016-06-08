@@ -2662,6 +2662,10 @@ static void FunctionNewCallback2(const v8::FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(info.Length() + info[1]->ToInt32()->Value());
 }
 
+static void FunctionNewCallback3(const v8::FunctionCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(Local<Value>());
+}
+
 TEST(SpiderShim, FunctionNew) {
   // This test is adopted from the V8 FunctionNew test.
   V8Engine engine;
@@ -2698,6 +2702,15 @@ TEST(SpiderShim, FunctionNew) {
   CHECK(context->Global()->Set(context, v8_str("func3"), func3).FromJust());
   Local<Value> result3 = engine.CompileRun(context, "func3(1, 14, 4);");
   CHECK(v8::Integer::New(isolate, 17)->Equals(context, result3).FromJust());
+  Local<Function> func4 =
+    Function::New(context, FunctionNewCallback3).ToLocalChecked();
+  CHECK(!func4->IsNull());
+  CHECK(!func4->Equals(context, func).FromJust());
+  CHECK(!func4->Equals(context, func2).FromJust());
+  CHECK(!func4->Equals(context, func3).FromJust());
+  CHECK(context->Global()->Set(context, v8_str("func4"), func4).FromJust());
+  Local<Value> result4 = engine.CompileRun(context, "func4();");
+  CHECK(result4->IsUndefined());
 }
 
 static void CallbackReturnNewHandle(const v8::FunctionCallbackInfo<Value>& info) {

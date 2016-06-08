@@ -1731,9 +1731,17 @@ class ReturnValue {
  public:
   // Handle setters
   template <typename S> void Set(const Persistent<S>& handle) {
+    if (handle.IsEmpty()) {
+      SetUndefined();
+      return;
+    }
     *_value = static_cast<Value*>(*handle);
   }
   template <typename S> void Set(const Handle<S> handle) {
+    if (handle.IsEmpty()) {
+      SetUndefined();
+      return;
+    }
     // ReturnValue needs to root the Local to the parent HandleScope.
     Local<S> parentHandle =
       EscapableHandleScope::EscapeToParentHandleScope(handle);
