@@ -2159,13 +2159,20 @@ class V8_EXPORT FunctionTemplate : public Template {
     int length = 0);
   Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
   Local<Object> CreateNewInstance();
-  static Local<Value> MaybeConvertObjectProperty(Local<Value> value);
+  static Local<Value> MaybeConvertObjectProperty(Local<Value> value,
+						 Local<String> name);
   void SetInstanceTemplate(Local<ObjectTemplate> instanceTemplate);
   Handle<String> GetClassName();
   // Return the object that should be used as a prototype by ObjectTemplates
   // that have this FunctionTemplate as their constructor.  Can return an empty
   // Local on failure.
   Local<Object> GetProtoInstance(Local<Context> context);
+  // The FunctionTemplate we inherit from, if any.
+  MaybeLocal<FunctionTemplate> GetParent();
+  // Install properties from this template's InstanceTemplate, as well as the
+  // InstanceTemplates of all ancestors, on the given object.  Returns false on
+  // failure, true on success.
+  bool InstallInstanceProperties(Local<Object> target);
 };
 
 enum class PropertyHandlerFlags {

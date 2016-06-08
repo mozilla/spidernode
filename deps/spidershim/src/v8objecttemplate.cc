@@ -220,13 +220,24 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
                       JS::PrivateValue(instanceClass));
   instanceClass->AddRef();
 
-  // Copy the bits set on us via Template::Set.
+  JS::Value instanceVal = JS::ObjectValue(*instanceObj);
+  Local<Object> instanceLocal =
+    internal::Local<Object>::New(isolate, instanceVal);
+
+  // Copy the bits set on us and the things we inherit from via Template::Set.
+  // We don't just GetConstructor()->InstallInstanceProperties() here because
+  // it's possible we're not our constructor's instance template.
+  MaybeLocal<FunctionTemplate> functionTemplate = GetConstructor()->GetParent();
+  if (!functionTemplate.IsEmpty() &&
+      !functionTemplate.ToLocalChecked()->InstallInstanceProperties(instanceLocal)) {
+    return Local<Object>();
+  }
+
   if (!JS_CopyPropertiesFrom(cx, instanceObj, obj)) {
     return Local<Object>();
   }
 
-  JS::Value instanceVal = JS::ObjectValue(*instanceObj);
-  return internal::Local<Object>::New(isolate, instanceVal);
+  return instanceLocal;
 }
 
 void ObjectTemplate::SetClassName(Handle<String> name) {

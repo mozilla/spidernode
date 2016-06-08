@@ -44,5 +44,9 @@
       'target_name': 'unboundscript',
       'sources': [ 'test/unboundscript.cc' ],
     },
+    {
+      'target_name': 'object',
+      'sources': [ 'test/object.cc' ],
+    },
   ],
 }
