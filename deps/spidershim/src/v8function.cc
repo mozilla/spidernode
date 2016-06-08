@@ -241,7 +241,7 @@ MaybeLocal<Value> Function::Call(Local<Context> context, Local<Value> recv,
 
 Local<Value> Function::Call(Local<Value> obj, int argc, Local<Value> argv[]) {
   Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
-  return Call(ctx, obj, argc, argv).ToLocalChecked();
+  return Call(ctx, obj, argc, argv).FromMaybe(Local<Value>());
 }
 
 Function* Function::Cast(Value* v) {
