@@ -35,7 +35,7 @@ namespace v8 {
  * them are alive.  We implement this by having the relevant objects refcount
  * the class and drop the ref in the finalizer.
  */
-class ObjectTemplate::InstanceClass : public js::Class {
+class ObjectTemplate::InstanceClass : public JSClass {
 public:
   void AddRef() {
     ++mRefCnt;
@@ -169,7 +169,7 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   // us.  For now, let's just go ahead and do the simple thing, since we don't
   // implement those parts of the API yet..
   JS::RootedObject instanceObj(cx);
-  instanceObj = JS_NewObjectWithGivenProto(cx, Jsvalify(instanceClass), protoObj);
+  instanceObj = JS_NewObjectWithGivenProto(cx, instanceClass, protoObj);
   if (!instanceObj) {
     return Local<Object>();
   }
@@ -315,10 +315,10 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   instanceClass->flags =
     flags | JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
 				       internalFieldCount);
-  instanceClass->cOps = nullptr;
-  instanceClass->spec = nullptr;
-  instanceClass->ext = nullptr;
-  instanceClass->oOps = nullptr;
+  instanceClass->cOps = &objectInstanceClassOps;
+  instanceClass->reserved[0] = nullptr;
+  instanceClass->reserved[1] = nullptr;
+  instanceClass->reserved[2] = nullptr;
 
   instanceClass->AddRef(); // Will be released in obj's finalizer.
 
@@ -342,7 +342,7 @@ void ObjectTemplate::SetInternalFieldCount(int value) {
 bool ObjectTemplate::IsInstance(JSObject* obj) {
   InstanceClass* instanceClass = GetInstanceClass();
   assert(instanceClass);
-  return js::GetObjectClass(obj) == instanceClass;
+  return JS_GetClass(obj) == instanceClass;
 }
 
 } // namespace v8
