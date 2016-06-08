@@ -64,7 +64,7 @@ class AutoJSAPI : private JSAutoCompartment {
     HandleExistingException(JSContextFromIsolate(v8::Isolate::GetCurrent()));
   }
 
-  bool BleedThroughExceptions() { ignoreException_ = true; }
+  void BleedThroughExceptions() { ignoreException_ = true; }
 
  private:
   void HandleExistingException(JSContext* cx) {
