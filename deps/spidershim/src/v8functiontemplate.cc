@@ -92,6 +92,18 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
 
+  return New(isolate, cx, callback, data, signature, length);
+}
+
+// static
+Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
+                                              JSContext* cx,
+                                              FunctionCallback callback,
+                                              Handle<Value> data,
+                                              Handle<Signature> signature,
+                                              int length) {
+  assert(cx == JSContextFromIsolate(isolate));
+
   Local<Template> templ = Template::New(isolate, cx, &functionTemplateClass);
   if (templ.IsEmpty()) {
     return Local<FunctionTemplate>();

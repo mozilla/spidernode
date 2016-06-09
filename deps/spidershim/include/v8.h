@@ -2148,6 +2148,15 @@ class V8_EXPORT FunctionTemplate : public Template {
   friend class Template;
   friend class ObjectTemplate;
 
+  // Callers are expected to put the JSContext in the right compartment before
+  // making this call.
+  static Local<FunctionTemplate> New(
+    Isolate* isolate,
+    JSContext* cx,
+    FunctionCallback callback = 0,
+    Handle<Value> data = Handle<Value>(),
+    Handle<Signature> signature = Handle<Signature>(),
+    int length = 0);
   Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
   Local<Object> CreateNewInstance();
   static Local<Value> MaybeConvertObjectProperty(Local<Value> value);

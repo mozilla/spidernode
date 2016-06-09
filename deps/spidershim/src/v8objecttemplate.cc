@@ -147,7 +147,7 @@ Local<ObjectTemplate> ObjectTemplate::New(Isolate* isolate,
 
   bool setInstance = false;
   if (constructor.IsEmpty()) {
-    constructor = FunctionTemplate::New(isolate);
+    constructor = FunctionTemplate::New(isolate, cx);
     setInstance = true;
     if (constructor.IsEmpty()) {
       return Local<ObjectTemplate>();
