@@ -72,11 +72,11 @@ matrix:
 
     - os: osx
       compiler: clang
-      env: BUILD_CONFIG=normal ENABLE_DEBUG=true
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true USE_CCACHE=true
 
     - os: osx
       compiler: clang
-      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true
+      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true USE_CCACHE=true
 
     - os: osx
       compiler: clang-3.8
@@ -90,11 +90,13 @@ matrix:
         - brew unlink autoconf
         - brew install autoconf213
         - brew install yasm gawk ccache python
-      install: export CC="`which ccache` $PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang" CXX="`which ccache` $PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++"
+      install: export CC="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang" CXX="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++"
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "linux" ]; then docker build -t spidernode -f deps/spidershim/scripts/Dockerfile deps/spidershim/scripts; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install autoconf213 yasm ccache; fi
+after_install:
+  - if [ "$USE_CCACHE" == "true" ]; then export CC="`which ccache` $CC" CXX="`which ccache` $CXX"; fi
 before_script:
   - if [ "$USE_CCACHE" == "true" ]; then ccache -s; fi
   - ./configure $(if [ "$ENABLE_DEBUG" == "true" ]; then echo '--debug'; fi) --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
