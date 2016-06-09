@@ -351,8 +351,13 @@ FunctionTemplate::Inherit(Handle<FunctionTemplate> parent) {
   }
 
   JS::RootedValue slotVal(cx);
-  if (*parent) {
+  if (!parent.IsEmpty()) {
     JS::RootedObject otherTemplate(cx, GetObject(*parent));
+    if (js::GetObjectCompartment(otherTemplate) !=
+	js::GetContextCompartment(cx)) {
+      MOZ_CRASH("Trying to set up inheritance between FunctionTemplates from "
+		"different compartments");
+    }
     slotVal.setObject(*otherTemplate);
   }
   // else slotVal is already undefined
@@ -442,10 +447,14 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
 }
 
 // static
-Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value) {
+Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value,
+							  Local<String> name) {
   if (!value.IsEmpty() && value->IsObject() &&
       JS_GetClass(GetObject(value)) == &functionTemplateClass) {
-    return reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
+    Local<Function> func =
+      reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
+    func->SetName(name);
+    return func;
   }
   return value;
 }
@@ -479,6 +488,52 @@ Local<Object> FunctionTemplate::GetProtoInstance(Local<Context> context) {
   JS::Value protoVal = js::GetReservedSlot(obj, ProtoSlot);
   assert(protoVal.isObject());
   return internal::Local<Object>::New(isolate, protoVal);
+}
+
+MaybeLocal<FunctionTemplate> FunctionTemplate::GetParent()
+{
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+
+  JS::Value parentVal = js::GetReservedSlot(obj, ParentSlot);
+  if (parentVal.isUndefined()) {
+    return MaybeLocal<FunctionTemplate>();
+  }
+
+  assert(parentVal.isObject());
+  return internal::Local<FunctionTemplate>::NewTemplate(isolate, parentVal);
+}
+
+bool FunctionTemplate::InstallInstanceProperties(Local<Object> target) {
+  assert(!target.IsEmpty());
+
+  // Install our parent's properties first so we'll override as needed if we
+  // have properties with the same name.
+  MaybeLocal<FunctionTemplate> parent = GetParent();
+  if (!parent.IsEmpty() &&
+      !parent.ToLocalChecked()->InstallInstanceProperties(target)) {
+    return false;
+  }
+
+  Local<ObjectTemplate> instance = InstanceTemplate();
+  if (instance.IsEmpty()) {
+    return false;
+  }
+
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject instanceObj(cx, GetObject(*instance));
+  assert(instanceObj);
+
+  JS::RootedObject targetObj(cx, GetObject(target));
+  assert(targetObj);
+
+  return JS_CopyPropertiesFrom(cx, targetObj, instanceObj);
 }
 
 } // namespace v8

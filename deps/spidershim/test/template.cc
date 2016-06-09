@@ -252,6 +252,9 @@ TEST(SpiderShim, TestObjectTemplateInheritedWithAccessorsInPrototype3) {
   TestObjectTemplateInheritedWithPrototype(Constructor_GetFunction_New);
 }
 
+// We skip test-api.cc's TestObjectTemplateInheritedWithoutInstanceTemplate
+// because that uses SetNativeDataProperty, which we don't need/have so far.
+
 static void handle_callback_1(const FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_num(102));
 }
@@ -319,7 +322,7 @@ static void construct_callback(
 }
 
 static void Return239Callback(
-    Local<String> name, const v8::PropertyCallbackInfo<Value>& info) {
+    Local<String> name, const PropertyCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_str("bad value"));
   info.GetReturnValue().Set(v8_num(239));
 }
@@ -375,8 +378,8 @@ TEST(SpiderShim, FunctionTemplateSetLength) {
   }
   {
     // Without setting length it defaults to 0.
-    Local<v8::FunctionTemplate> fun_templ =
-        v8::FunctionTemplate::New(isolate, handle_callback_1);
+    Local<FunctionTemplate> fun_templ =
+        FunctionTemplate::New(isolate, handle_callback_1);
     Local<Function> fun = fun_templ->GetFunction(context).ToLocalChecked();
     EXPECT_TRUE(context->Global()->Set(context, v8_str("obj"), fun).FromJust());
     Local<Script> script = v8_compile("obj.length");
@@ -542,7 +545,7 @@ TEST(SpiderShim, FunctionTemplateReceiverSignature) {
 #endif // FunctionTemplateReceiverSignature
 
 TEST(SpiderShim, InternalFields) {
-  // Loosely based on the V8 test-api.cc TestFunctionTemplateAccessor test.
+  // Loosely based on the V8 test-api.cc InternalFields test.
   V8Engine engine;
   Isolate* isolate = engine.isolate();
   Isolate::Scope isolate_scope(isolate);
@@ -748,4 +751,311 @@ TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
   EXPECT_TRUE(templ->HasInstance(
       context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
   CheckInstanceCheckedAccessors(true);
+}
+
+static void GetXValue(Local<Name> name,
+                      const PropertyCallbackInfo<Value>& info) {
+  ASSERT_TRUE(info.Data()->Equals(v8_str("donut")));
+  ASSERT_TRUE(name->Equals(v8_str("x")));
+  info.GetReturnValue().Set(name);
+}
+
+TEST(SpiderShim, SimplePropertyRead) {
+  // based on the V8 test-api.cc SimplePropertyRead test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut"));
+  ASSERT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("obj.x");
+  for (int i = 0; i < 10; i++) {
+    Local<Value> result = script->Run(context).ToLocalChecked();
+    ASSERT_TRUE(result->Equals(context, v8_str("x")).FromJust());
+  }
+}
+
+static void SimpleCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  info.GetReturnValue().Set(v8_num(51423 + info.Length()));
+}
+
+TEST(SpiderShim, SimpleCallback) {
+  // Loosely based on the V8 test-api.cc SimpleCallback test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<ObjectTemplate> object_template =
+      ObjectTemplate::New(isolate);
+  object_template->Set(isolate, "callback",
+                       FunctionTemplate::New(isolate, SimpleCallback));
+  Local<Object> object =
+      object_template->NewInstance(context).ToLocalChecked();
+  ASSERT_TRUE(context
+	      ->Global()
+	      ->Set(context, v8_str("callback_object"), object)
+	      .FromJust());
+  Local<Script> script;
+  script = v8_compile("callback_object.callback(17)");
+  for (int i = 0; i < 30; i++) {
+    ASSERT_EQ(51424, v8_run_int32value(script));
+  }
+  script = v8_compile("callback_object.callback(17, 24)");
+  for (int i = 0; i < 30; i++) {
+    ASSERT_EQ(51425, v8_run_int32value(script));
+  }
+}
+
+static void GetFlabby(const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(v8_num(17.2));
+}
+
+
+static void GetKnurd(Local<String> property,
+                     const PropertyCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(v8_num(15.2));
+}
+
+
+TEST(SpiderShim, DescriptorInheritance) {
+  // Loosely based on the V8 test-api.cc DescriptorInheritance test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> super = FunctionTemplate::New(isolate);
+  super->PrototypeTemplate()->Set(isolate, "flabby",
+                                  FunctionTemplate::New(isolate,
+                                                            GetFlabby));
+  super->PrototypeTemplate()->Set(isolate, "PI", v8_num(3.14));
+
+  super->InstanceTemplate()->SetAccessor(v8_str("knurd"), GetKnurd);
+
+  Local<FunctionTemplate> base1 = FunctionTemplate::New(isolate);
+  base1->Inherit(super);
+  base1->PrototypeTemplate()->Set(isolate, "v1", v8_num(20.1));
+
+  Local<FunctionTemplate> base2 = FunctionTemplate::New(isolate);
+  base2->Inherit(super);
+  base2->PrototypeTemplate()->Set(isolate, "v2", v8_num(10.1));
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("s"),
+                  super->GetFunction(context).ToLocalChecked())
+            .FromJust());
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("base1"),
+                  base1->GetFunction(context).ToLocalChecked())
+            .FromJust());
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("base2"),
+                  base2->GetFunction(context).ToLocalChecked())
+            .FromJust());
+
+  // Checks right __proto__ chain.
+  EXPECT_TRUE(CompileRun("base1.prototype.__proto__ == s.prototype")
+            ->BooleanValue(context)
+            .FromJust());
+  EXPECT_TRUE(CompileRun("base2.prototype.__proto__ == s.prototype")
+            ->BooleanValue(context)
+            .FromJust());
+
+  EXPECT_TRUE(v8_compile("s.prototype.PI == 3.14")
+            ->Run(context)
+            .ToLocalChecked()
+            ->BooleanValue(context)
+            .FromJust());
+
+  // Instance accessor should not be visible on function object or its prototype
+  EXPECT_TRUE(
+      CompileRun("s.knurd == undefined")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("s.prototype.knurd == undefined")
+            ->BooleanValue(context)
+            .FromJust());
+  EXPECT_TRUE(CompileRun("base1.prototype.knurd == undefined")
+            ->BooleanValue(context)
+            .FromJust());
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"), base1->GetFunction(context)
+                                                  .ToLocalChecked()
+                                                  ->NewInstance(context)
+                                                  .ToLocalChecked())
+            .FromJust());
+  EXPECT_EQ(17.2,
+           CompileRun("obj.flabby()")->NumberValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'flabby' in obj")->BooleanValue(context).FromJust());
+  EXPECT_EQ(15.2, CompileRun("obj.knurd")->NumberValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'knurd' in obj")->BooleanValue(context).FromJust());
+  EXPECT_EQ(20.1, CompileRun("obj.v1")->NumberValue(context).FromJust());
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj2"), base2->GetFunction(context)
+                                                   .ToLocalChecked()
+                                                   ->NewInstance(context)
+                                                   .ToLocalChecked())
+            .FromJust());
+  EXPECT_EQ(17.2,
+           CompileRun("obj2.flabby()")->NumberValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'flabby' in obj2")->BooleanValue(context).FromJust());
+  EXPECT_EQ(15.2, CompileRun("obj2.knurd")->NumberValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'knurd' in obj2")->BooleanValue(context).FromJust());
+  EXPECT_EQ(10.1, CompileRun("obj2.v2")->NumberValue(context).FromJust());
+
+  // base1 and base2 cannot cross reference to each's prototype
+  EXPECT_TRUE(CompileRun("obj.v2")->IsUndefined());
+  EXPECT_TRUE(CompileRun("obj2.v1")->IsUndefined());
+}
+
+// We skip test-api.cc's DescriptorInheritance2 test because that's testing
+// SetNativeDataProperty, which we don't need/have so far.
+
+TEST(SpiderShim, FunctionPrototype) {
+  // Based on the V8 test-api.cc FunctionPrototype test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> Foo = FunctionTemplate::New(isolate);
+  Foo->PrototypeTemplate()->Set(v8_str("plak"), v8_num(321));
+  ASSERT_TRUE(context->Global()
+            ->Set(context, v8_str("Foo"),
+                  Foo->GetFunction(context).ToLocalChecked())
+            .FromJust());
+  Local<Script> script = v8_compile("Foo.prototype.plak");
+  ASSERT_EQ(v8_run_int32value(script), 321);
+}
+
+static void InstanceFunctionCallback(
+    const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(v8_num(12));
+}
+
+
+TEST(SpiderShim, InstanceProperties) {
+  // Based on the V8 test-api.cc InstanceProperties test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> t = FunctionTemplate::New(isolate);
+  Local<ObjectTemplate> instance = t->InstanceTemplate();
+
+  instance->Set(v8_str("x"), v8_num(42));
+  instance->Set(v8_str("f"),
+                FunctionTemplate::New(isolate, InstanceFunctionCallback));
+
+  Local<Value> o = t->GetFunction(context)
+                       .ToLocalChecked()
+                       ->NewInstance(context)
+                       .ToLocalChecked();
+
+  ASSERT_TRUE(context->Global()->Set(context, v8_str("i"), o).FromJust());
+  Local<Value> value = CompileRun("i.x");
+  ASSERT_EQ(42, value->Int32Value(context).FromJust());
+
+  value = CompileRun("i.f()");
+  ASSERT_EQ(12, value->Int32Value(context).FromJust());
+}
+
+TEST(SpiderShim, Constructor) {
+  // Based on the V8 test-api.cc Constructor test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
+  templ->SetClassName(v8_str("Fun"));
+  Local<Function> cons = templ->GetFunction(context).ToLocalChecked();
+  ASSERT_TRUE(
+      context->Global()->Set(context, v8_str("Fun"), cons).FromJust());
+  Local<Object> inst = cons->NewInstance(context).ToLocalChecked();
+  Local<Value> value = CompileRun("(new Fun()).constructor === Fun");
+  ASSERT_TRUE(value->BooleanValue(context).FromJust());
+}
+
+static void IsConstructHandler(
+    const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(args.IsConstructCall());
+}
+
+TEST(SpiderShim, IsConstructCall) {
+  // Based on the V8 test-api.cc IsConstructCall test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  // Function template with call handler.
+  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
+  templ->SetCallHandler(IsConstructHandler);
+
+  ASSERT_TRUE(context->Global()
+            ->Set(context, v8_str("f"),
+                  templ->GetFunction(context).ToLocalChecked())
+            .FromJust());
+  Local<Value> value = v8_compile("f()")->Run(context).ToLocalChecked();
+  ASSERT_TRUE(!value->BooleanValue(context).FromJust());
+  // TODO: new f() hits a SpiderMonkey assert.  See
+  // https://github.com/mozilla/spidernode/issues/157
+  // value = v8_compile("new f()")->Run(context).ToLocalChecked();
+  // ASSERT_TRUE(value->BooleanValue(context).FromJust());
+}
+
+static void FunctionNameCallback(
+    const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(v8_num(42));
+}
+
+
+TEST(SpiderShim, CallbackFunctionName) {
+  // Based on the V8 test-api.cc CallbackFunctionName test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<ObjectTemplate> t = ObjectTemplate::New(isolate);
+  t->Set(v8_str("asdf"),
+         FunctionTemplate::New(isolate, FunctionNameCallback));
+  ASSERT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  t->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Value> value = CompileRun("obj.asdf.name");
+  ASSERT_TRUE(value->IsString());
+  String::Utf8Value name(value);
+  ASSERT_EQ(0, strcmp("asdf", *name));
 }

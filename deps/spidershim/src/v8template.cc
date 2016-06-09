@@ -42,7 +42,8 @@ void Template::Set(Local<String> name, Local<Data> value,
                    PropertyAttribute attributes) {
   // We have to ignore the return value since the V8 API returns void here.
   Object* thisObj = Object::Cast(GetV8Value(this));
-  Local<Value> val = FunctionTemplate::MaybeConvertObjectProperty(value.As<Value>());
+  Local<Value> val =
+    FunctionTemplate::MaybeConvertObjectProperty(value.As<Value>(), name);
   thisObj->ForceSet(name, val, attributes);
 }
 }
