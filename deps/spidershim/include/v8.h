@@ -2319,6 +2319,8 @@ class V8_EXPORT ObjectTemplate : public Template {
   // plain-object JSClass.
   InstanceClass* GetInstanceClass();
   bool IsInstance(JSObject* obj);
+  static bool IsObjectFromTemplate(Local<Object> object);
+  static Local<FunctionTemplate> GetObjectTemplateConstructor(Local<Object> object);
 };
 
 class V8_EXPORT External : public Value {

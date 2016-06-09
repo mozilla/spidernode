@@ -417,31 +417,19 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(val));
-  JS::RootedObject protoObj(cx);
-  if (!JS_GetPrototype(cx, obj, &protoObj)) {
-    return false;
-  }
-  JS::RootedValue funcVal(cx);
-  if (!JS_GetProperty(cx, protoObj, "constructor", &funcVal) ||
-      !funcVal.isObject() ||
-      !JS_ObjectIsFunction(cx, &funcVal.toObject())) {
+  Local<Object> obj = val.As<Object>();
+  if (!ObjectTemplate::IsObjectFromTemplate(obj)) {
     return false;
   }
   JS::RootedValue thisVal(cx, *GetValue(this));
-  JS::RootedValue templateVal(cx,
-    js::GetFunctionNativeReserved(&funcVal.toObject(), 0));
-  while (templateVal.isObject()) {
+  Local<FunctionTemplate> ctor = ObjectTemplate::GetObjectTemplateConstructor(obj);
+  while (!ctor.IsEmpty()) {
+    JS::RootedValue ctorVal(cx, *GetValue(*ctor));
     bool equals = false;
-    if (JS_StrictlyEqual(cx, templateVal, thisVal, &equals) && equals) {
-      Local<ObjectTemplate> instanceTemplate = InstanceTemplate();
-      if (instanceTemplate.IsEmpty()) {
-        return false;
-      }
-      return instanceTemplate->IsInstance(obj);
+    if (JS_StrictlyEqual(cx, ctorVal, thisVal, &equals) && equals) {
+      return true;
     }
-    assert(JS_GetClass(&templateVal.toObject()) == &functionTemplateClass);
-    templateVal = js::GetReservedSlot(&templateVal.toObject(), ParentSlot);
+    ctor = GetParent().FromMaybe(Local<FunctionTemplate>());
   }
   return false;
 }

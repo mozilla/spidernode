@@ -49,6 +49,7 @@ public:
   }
 
   static const uint32_t nameAllocated = JSCLASS_USERBIT1;
+  static const uint32_t instantiatedFromTemplate = JSCLASS_USERBIT2;
 
 private:
   ~InstanceClass() {
@@ -218,6 +219,8 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   // instance is alive.
   js::SetReservedSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
                       JS::PrivateValue(instanceClass));
+  js::SetReservedSlot(instanceObj, size_t(InstanceSlots::ConstructorSlot),
+                      JS::ObjectValue(*GetObject(*GetConstructor())));
   instanceClass->AddRef();
 
   JS::Value instanceVal = JS::ObjectValue(*instanceObj);
@@ -320,7 +323,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
     MOZ_CRASH();
   }
 
-  uint32_t flags = 0;
+  uint32_t flags = InstanceClass::instantiatedFromTemplate;
   Local<String> name = GetClassName();
   if (name.IsEmpty()) {
     instanceClass->name = "Object";
@@ -380,6 +383,24 @@ Local<FunctionTemplate> ObjectTemplate::GetConstructor() {
 
   JS::Value ctorVal =
     js::GetReservedSlot(obj, size_t(TemplateSlots::ConstructorSlot));
+  return internal::Local<FunctionTemplate>::NewTemplate(isolate, ctorVal);
+}
+
+bool ObjectTemplate::IsObjectFromTemplate(Local<Object> object) {
+  return !!(JS_GetClass(GetObject(object))->flags & InstanceClass::instantiatedFromTemplate);
+}
+
+Local<FunctionTemplate> ObjectTemplate::GetObjectTemplateConstructor(Local<Object> object) {
+  assert(IsObjectFromTemplate(object));
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, object);
+  JS::RootedObject obj(cx, GetObject(*object));
+  assert(obj);
+
+  JS::Value ctorVal =
+    js::GetReservedSlot(obj, size_t(InstanceSlots::ConstructorSlot));
+  assert(ctorVal.isObject());
   return internal::Local<FunctionTemplate>::NewTemplate(isolate, ctorVal);
 }
 
