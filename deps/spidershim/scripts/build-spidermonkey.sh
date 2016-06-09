@@ -39,11 +39,20 @@ esac
 
 test -d $build || mkdir $build
 cd $build
+
 if [ "$TRAVIS" == "true" ]; then
 make="travis_wait 60 make -s"
 else
 make="make -s"
 fi
+
+ccache_arg=""
+if echo "$CC" | grep -wq ccache; then
+  ccache_arg="--with-ccache=`echo "$CC" | cut -f 1 -d ' '`"
+  export CC=`echo "$CC" | cut -f 2 -d ' '`
+  export CXX=`echo "$CXX" | cut -f 2 -d ' '`
+fi
+
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-$make || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $args $* && $make)
+$make || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $ccache_arg $args $* && $make)
