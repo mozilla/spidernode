@@ -417,31 +417,21 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(val));
-  JS::RootedObject protoObj(cx);
-  if (!JS_GetPrototype(cx, obj, &protoObj)) {
+  JS::RootedValue value(cx, *GetValue(val));
+  if (!JS_WrapValue(cx, &value)) {
     return false;
   }
-  JS::RootedValue funcVal(cx);
-  if (!JS_GetProperty(cx, protoObj, "constructor", &funcVal) ||
-      !funcVal.isObject() ||
-      !JS_ObjectIsFunction(cx, &funcVal.toObject())) {
+  Local<Object> obj = internal::Local<Object>::New(isolate, value);
+  if (!ObjectTemplate::IsObjectFromTemplate(obj)) {
     return false;
   }
-  JS::RootedValue thisVal(cx, *GetValue(this));
-  JS::RootedValue templateVal(cx,
-    js::GetFunctionNativeReserved(&funcVal.toObject(), 0));
-  while (templateVal.isObject()) {
-    bool equals = false;
-    if (JS_StrictlyEqual(cx, templateVal, thisVal, &equals) && equals) {
-      Local<ObjectTemplate> instanceTemplate = InstanceTemplate();
-      if (instanceTemplate.IsEmpty()) {
-        return false;
-      }
-      return instanceTemplate->IsInstance(obj);
+  Local<FunctionTemplate> ctor = ObjectTemplate::GetObjectTemplateConstructor(obj);
+  while (!ctor.IsEmpty()) {
+    // We don't need JS_StrictlyEqual since we know both sides are objects here.
+    if (*GetValue(ctor) == *GetValue(this)) {
+      return true;
     }
-    assert(JS_GetClass(&templateVal.toObject()) == &functionTemplateClass);
-    templateVal = js::GetReservedSlot(&templateVal.toObject(), ParentSlot);
+    ctor = GetParent().FromMaybe(Local<FunctionTemplate>());
   }
   return false;
 }
@@ -452,7 +442,7 @@ Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value,
   if (!value.IsEmpty() && value->IsObject() &&
       JS_GetClass(GetObject(value)) == &functionTemplateClass) {
     Local<Function> func =
-      reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
+      reinterpret_cast<FunctionTemplate*>(GetValue(value))->GetFunction();
     func->SetName(name);
     return func;
   }

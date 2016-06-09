@@ -23,5 +23,6 @@
 // Object's internal fields are stored in indices InstanceSlots::NumSlots + i.
 enum class InstanceSlots {
   InstanceClassSlot,  // Stores a refcounted pointer to our InstanceClass*.
+  ConstructorSlot,    // Stores the JSObject for the constructor of our ObjectTemplate
   NumSlots
 };

@@ -32,7 +32,8 @@ static inline const JS::Value* GetValue(const Value* val) {
   return reinterpret_cast<const JS::Value*>(val);
 }
 
-static inline JS::Value* GetValue(const Local<Value>& val) {
+template <class T>
+static inline JS::Value* GetValue(const Local<T>& val) {
   return GetValue(*val);
 }
 
@@ -86,7 +87,8 @@ static inline JSObject* GetObject(const Template* val) {
   return GetObject(GetV8Value(val));
 }
 
-static inline JSObject* GetObject(const Local<Value>& val) {
+template <class T>
+static inline JSObject* GetObject(const Local<T>& val) {
   return GetObject(*val);
 }
 
