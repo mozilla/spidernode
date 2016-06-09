@@ -9,9 +9,9 @@ matrix:
       compiler: clang
       services: docker
       script:
-        - docker run -v `pwd`:/build spidernode
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=clang CXX=clang++;
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
             make -k V=;
             ./deps/spidershim/scripts/run-tests.py
@@ -22,9 +22,9 @@ matrix:
       compiler: gcc-4.8
       services: docker
       script:
-        - docker run -v `pwd`:/build spidernode
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=gcc-4.8 CXX=g++-4.8;
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
             make -k V=;
             ./deps/spidershim/scripts/run-tests.py
@@ -35,8 +35,9 @@ matrix:
       compiler: gcc-5
       services: docker
       script:
-        - docker run -v `pwd`:/build spidernode
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
             make -k V=;
             ./deps/spidershim/scripts/run-tests.py
@@ -47,9 +48,9 @@ matrix:
       compiler: clang
       services: docker
       script:
-        - docker run -v `pwd`:/build spidernode
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=clang CXX=clang++;
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-gczeal &&
             make -k V=;
             export JS_GC_MAX_ZEAL=1;
@@ -61,9 +62,9 @@ matrix:
       compiler: clang
       services: docker
       script:
-        - docker run -v `pwd`:/build spidernode
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=clang CXX=clang++;
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-asan &&
             make -k V=;
             ./deps/spidershim/scripts/run-tests.py
@@ -72,16 +73,16 @@ matrix:
 
     - os: osx
       compiler: clang
-      env: BUILD_CONFIG=normal ENABLE_DEBUG=true USE_CCACHE=true
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true
 
     - os: osx
       compiler: clang
-      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true USE_CCACHE=true
+      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true
 
     - os: osx
       compiler: clang-3.8
       osx_image: xcode7.3
-      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2 USE_CCACHE=true
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2
       before_install:
         - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
         - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
@@ -112,3 +113,4 @@ env:
   global:
     - LANG="en_US.UTF-8"
     - CCACHE_COMPRESS=1
+    - USE_CCACHE="true"
