@@ -26,9 +26,9 @@
 
 namespace v8 {
 
-Local<Template> Template::New(Isolate* isolate, const JSClass* jsclass) {
-  JSContext* cx = JSContextFromIsolate(isolate);
-  AutoJSAPI jsAPI(cx);
+Local<Template> Template::New(Isolate* isolate, JSContext* cx,
+                              const JSClass* jsclass) {
+  assert(cx == JSContextFromIsolate(isolate));
   JSObject* obj = JS_NewObject(cx, jsclass);
   if (!obj) {
     return Local<Template>();

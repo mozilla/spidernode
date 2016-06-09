@@ -2106,7 +2106,9 @@ class V8_EXPORT Template : public Data {
   }
 
  protected:
-  static Local<Template> New(Isolate* isolate,
+  // Callers are expected to put the JSContext in the right compartment before
+  // calling this function.
+  static Local<Template> New(Isolate* isolate, JSContext* cx,
                              const JSClass* jsclass = nullptr);
 
  private:
@@ -2144,10 +2146,17 @@ class V8_EXPORT FunctionTemplate : public Template {
  private:
   friend class internal::FunctionCallback;
   friend class Template;
+  friend class ObjectTemplate;
 
   Local<ObjectTemplate> FetchOrCreateTemplate(size_t slotIndex);
   Local<Object> CreateNewInstance();
   static Local<Value> MaybeConvertObjectProperty(Local<Value> value);
+  void SetInstanceTemplate(Local<ObjectTemplate> instanceTemplate);
+  Handle<String> GetClassName();
+  // Return the object that should be used as a prototype by ObjectTemplates
+  // that have this FunctionTemplate as their constructor.  Can return an empty
+  // Local on failure.
+  Local<Object> GetProtoInstance(Local<Context> context);
 };
 
 enum class PropertyHandlerFlags {
@@ -2211,7 +2220,8 @@ struct IndexedPropertyHandlerConfiguration {
 
 class V8_EXPORT ObjectTemplate : public Template {
  public:
-  static Local<ObjectTemplate> New(Isolate* isolate);
+  static Local<ObjectTemplate> New(Isolate* isolate,
+                                   Local<FunctionTemplate> constructor = Local<FunctionTemplate>());
 
   V8_DEPRECATE_SOON("Use maybe version", Local<Object> NewInstance());
   V8_WARN_UNUSED_RESULT MaybeLocal<Object> NewInstance(Local<Context> context);
@@ -2270,6 +2280,12 @@ class V8_EXPORT ObjectTemplate : public Template {
   friend class Utils;
   friend class FunctionTemplate;
 
+  // Callers are expected to put the JSContext in the right compartment before
+  // making this call.
+  static Local<ObjectTemplate> New(Isolate* isolate,
+                                   JSContext* cx,
+                                   Local<FunctionTemplate> constructor = Local<FunctionTemplate>());
+
   template<class N, class Getter, class Setter>
   void SetAccessorInternal(Handle<N> name,
                            Getter getter,
@@ -2280,6 +2296,7 @@ class V8_EXPORT ObjectTemplate : public Template {
                            Handle<AccessorSignature> signature);
   Local<Object> NewInstance(Handle<Object> prototype);
   Handle<String> GetClassName();
+  Local<FunctionTemplate> GetConstructor();
 
   // GetInstanceClass creates it if needed, otherwise returns the existing
   // one.  Null is returned if objects should be created with the default
