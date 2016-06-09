@@ -417,16 +417,18 @@ bool FunctionTemplate::HasInstance(Local<Value> val) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  Local<Object> obj = val.As<Object>();
+  JS::RootedValue value(cx, *GetValue(val));
+  if (!JS_WrapValue(cx, &value)) {
+    return false;
+  }
+  Local<Object> obj = internal::Local<Object>::New(isolate, value);
   if (!ObjectTemplate::IsObjectFromTemplate(obj)) {
     return false;
   }
-  JS::RootedValue thisVal(cx, *GetValue(this));
   Local<FunctionTemplate> ctor = ObjectTemplate::GetObjectTemplateConstructor(obj);
   while (!ctor.IsEmpty()) {
-    JS::RootedValue ctorVal(cx, *GetValue(*ctor));
-    bool equals = false;
-    if (JS_StrictlyEqual(cx, ctorVal, thisVal, &equals) && equals) {
+    // We don't need JS_StrictlyEqual since we know both sides are objects here.
+    if (*GetValue(ctor) == *GetValue(this)) {
       return true;
     }
     ctor = GetParent().FromMaybe(Local<FunctionTemplate>());
@@ -440,7 +442,7 @@ Local<Value> FunctionTemplate::MaybeConvertObjectProperty(Local<Value> value,
   if (!value.IsEmpty() && value->IsObject() &&
       JS_GetClass(GetObject(value)) == &functionTemplateClass) {
     Local<Function> func =
-      reinterpret_cast<FunctionTemplate*>(GetValue(*value))->GetFunction();
+      reinterpret_cast<FunctionTemplate*>(GetValue(value))->GetFunction();
     func->SetName(name);
     return func;
   }

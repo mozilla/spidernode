@@ -387,6 +387,7 @@ Local<FunctionTemplate> ObjectTemplate::GetConstructor() {
 }
 
 bool ObjectTemplate::IsObjectFromTemplate(Local<Object> object) {
+  assert(!object.IsEmpty());
   return !!(JS_GetClass(GetObject(object))->flags & InstanceClass::instantiatedFromTemplate);
 }
 

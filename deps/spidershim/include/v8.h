@@ -2320,6 +2320,8 @@ class V8_EXPORT ObjectTemplate : public Template {
   InstanceClass* GetInstanceClass();
   bool IsInstance(JSObject* obj);
   static bool IsObjectFromTemplate(Local<Object> object);
+  // The object argument should be an object created from an ObjectTemplate, i.e.,
+  // an object for which IsObjectFromTemplate() returns true.
   static Local<FunctionTemplate> GetObjectTemplateConstructor(Local<Object> object);
 };
 
