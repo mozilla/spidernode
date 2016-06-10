@@ -34,11 +34,12 @@ Building on any OS other than Linux or OS X has not been tested.
 
 Build Command:
 ```bash
-./configure --engine=spidermonkey [options]
+./configure [options]
 make
 ```
 
-Where `options` is one or more of:
+Where `options` is zero or more of:
+* `--engine`: The JavaScript engine to use.  The default engine is `spidermonkey`.
 * `--debug`: Also build in debug mode.  The default build configuration is release.
 * `--enable-gczeal`: Enable SpiderMonkey gc-zeal support.  This is useful for debugging GC rooting correctness issues.
 
