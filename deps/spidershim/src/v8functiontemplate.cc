@@ -329,14 +329,6 @@ FunctionTemplate::SetCallHandler(FunctionCallback callback,
   }
 }
 
-// TODO: Need to implement HasInstance.  What are the actual semantics of this?
-// I can't figure out so far from the V8 API docs and their implementation.  In
-// particular, does it just check whether this is precisely an object that
-// constructing via the function returned by this FunctionTemplate produces?  Or
-// is any subclass (including via FunctionTemplates that inherit from this one)
-// OK?  Or is this a dynamic check equivalent to the instanceof operator in JS?
-// See https://github.com/mozilla/spidernode/issues/143
-
 void
 FunctionTemplate::Inherit(Handle<FunctionTemplate> parent) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
