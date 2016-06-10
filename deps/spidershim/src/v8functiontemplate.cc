@@ -236,11 +236,13 @@ MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
     return MaybeLocal<Function>();
   }
 
-  // TODO: Is the result of all this supposed to have a non-configurable
-  // .prototype like builtins, or a configurable one like scripted functions?
-  // Let's assume the former.  See
-  // https://github.com/mozilla/spidernode/issues/140
-  if (!JS_LinkConstructorAndPrototype(cx, funcObj, protoObj)) {
+  // Looks like V8 by default makes the .prototype writable (but
+  // non-configurable, I assume, since that's how it works for functions in
+  // general).  There's an API that we don't implement and Node doesn't seem to
+  // use to make it readonly.
+  if (!JS_DefineProperty(cx, funcObj, "prototype", protoObj,
+			 JSPROP_PERMANENT) ||
+      !JS_DefineProperty(cx, protoObj, "constructor", funcObj, 0)) {
     return MaybeLocal<Function>();
   }
 
