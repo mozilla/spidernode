@@ -1,0 +1,39 @@
+# HG changeset patch
+# User Ehsan Akhgari <ehsan@mozilla.com>
+
+Bug 1279618 - Don't touch the js::Class in JSObject::finalize() after having called the finalizer on it; r=jorendorff
+
+diff --git a/js/src/jsobjinlines.h b/js/src/jsobjinlines.h
+index a38bdc9..06c34bc 100644
+--- a/js/src/jsobjinlines.h
++++ b/js/src/jsobjinlines.h
+@@ -73,24 +73,25 @@ JSObject::finalize(js::FreeOp* fop)
+     MOZ_ASSERT(isTenured());
+     if (!IsBackgroundFinalized(asTenured().getAllocKind())) {
+         /* Assert we're on the main thread. */
+         MOZ_ASSERT(CurrentThreadCanAccessRuntime(fop->runtime()));
+     }
+ #endif
+ 
+     const js::Class* clasp = getClass();
++    js::NativeObject* nobj = nullptr;
++    if (clasp->isNative())
++        nobj = &as<js::NativeObject>();
+     if (clasp->hasFinalize())
+         clasp->doFinalize(fop, this);
+ 
+-    if (!clasp->isNative())
++    if (!nobj)
+         return;
+ 
+-    js::NativeObject* nobj = &as<js::NativeObject>();
+-
+     if (nobj->hasDynamicSlots())
+         fop->free_(nobj->slots_);
+ 
+     if (nobj->hasDynamicElements()) {
+         js::ObjectElements* elements = nobj->getElementsHeader();
+         if (elements->isCopyOnWrite()) {
+             if (elements->ownerObject() == this) {
+                 // Don't free the elements until object finalization finishes,
+
