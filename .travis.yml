@@ -12,8 +12,21 @@ matrix:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            ./configure --engine=spidermonkey &&
+            make -k V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal
+
+    - os: linux
+      compiler: clang
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V=;
+            make -k V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -25,8 +38,21 @@ matrix:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            ./configure --engine=spidermonkey &&
+            make -k V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal
+
+    - os: linux
+      compiler: gcc-4.8
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V=;
+            make -k V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -38,8 +64,21 @@ matrix:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            ./configure --engine=spidermonkey &&
+            make -k V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal
+
+    - os: linux
+      compiler: gcc-5
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V=;
+            make -k V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -51,8 +90,22 @@ matrix:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            ./configure --engine=spidermonkey --enable-gczeal &&
+            make -k V= -C out BUILDTYPE=Release;
+            export JS_GC_MAX_ZEAL=1;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=gczeal
+
+    - os: linux
+      compiler: clang
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-gczeal &&
-            make -k V=;
+            make -k V= -C out BUILDTYPE=Debug;
             export JS_GC_MAX_ZEAL=1;
             ./deps/spidershim/scripts/run-tests.py
           "
@@ -65,15 +118,36 @@ matrix:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            ./configure --engine=spidermonkey --enable-asan &&
+            make -k V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true
+
+    - os: linux
+      compiler: clang
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-asan &&
-            make -k V=;
+            make -k V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
 
     - os: osx
       compiler: clang
+      env: BUILD_CONFIG=normal
+
+    - os: osx
+      compiler: clang
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
+
+    - os: osx
+      compiler: clang
+      env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2
 
     - os: osx
       compiler: clang
@@ -83,6 +157,20 @@ matrix:
       compiler: clang-3.8
       osx_image: xcode7.3
       env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2
+      before_install:
+        - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+        - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+        - brew update
+        - brew tap homebrew/versions
+        - brew unlink autoconf
+        - brew install autoconf213
+        - brew install yasm gawk ccache python
+      install: export CC="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang" CXX="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++"
+
+    - os: osx
+      compiler: clang-3.8
+      osx_image: xcode7.3
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2 ENABLE_DEBUG=true
       before_install:
         - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
         - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
@@ -102,7 +190,7 @@ before_script:
   - if [ "$USE_CCACHE" == "true" ]; then ccache -s; fi
   - ./configure $(if [ "$ENABLE_DEBUG" == "true" ]; then echo '--debug'; fi) --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
 script:
-  - travis_wait 60 make V= -k $MAKE_ARGS || true
+  - travis_wait 60 make V= -k $MAKE_ARGS -C out BUILDTYPE=$(if [ "$ENABLE_DEBUG" == "true" ]; then echo 'Debug'; else echo 'Release'; fi) || true
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
   - ./deps/spidershim/scripts/run-tests.py
 after_script:
