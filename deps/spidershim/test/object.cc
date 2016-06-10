@@ -30,10 +30,10 @@ TEST(SpiderShim, ReplaceConstantFunction) {
       .FromJust();
   Local<Object> obj_clone = obj->Clone();
   obj_clone->Set(context, foo_string, v8_str("Hello")).FromJust();
-  ASSERT_TRUE(!obj->Get(context, foo_string).ToLocalChecked()->IsUndefined());
-  ASSERT_TRUE(!obj->Get(context, foo_string).ToLocalChecked()->IsString());
-  ASSERT_TRUE(obj->Get(context, foo_string).ToLocalChecked()->IsFunction());
-  ASSERT_TRUE(obj_clone->Get(context, foo_string).ToLocalChecked()->IsString());
-  ASSERT_TRUE(!obj_clone->Get(context, foo_string).ToLocalChecked()->IsFunction());
+  EXPECT_TRUE(!obj->Get(context, foo_string).ToLocalChecked()->IsUndefined());
+  EXPECT_TRUE(!obj->Get(context, foo_string).ToLocalChecked()->IsString());
+  EXPECT_TRUE(obj->Get(context, foo_string).ToLocalChecked()->IsFunction());
+  EXPECT_TRUE(obj_clone->Get(context, foo_string).ToLocalChecked()->IsString());
+  EXPECT_TRUE(!obj_clone->Get(context, foo_string).ToLocalChecked()->IsFunction());
 }
 
