@@ -423,8 +423,8 @@ parser.add_option('--enable-gczeal',
 parser.add_option('--engine',
     action='store',
     dest='engine',
-    default='v8',
-    help='Use specified JS engine (default is V8)')
+    default='spidermonkey',
+    help='Use specified JS engine (default is SpiderMonkey)')
 
 
 (options, args) = parser.parse_args()
