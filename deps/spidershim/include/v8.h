@@ -770,6 +770,7 @@ class V8_EXPORT HandleScope {
 
   static Value* AddToScope(Value* val);
   static Template* AddToScope(Template* val);
+  static Signature* AddToScope(Signature* val);
   static Script* AddToScope(JSScript* script, Local<Context> context);
   static Private* AddToScope(JS::Symbol* priv);
   static Message* AddToScope(Message* msg);
@@ -2325,8 +2326,13 @@ class V8_EXPORT Signature : public Data {
       Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>());
 
  private:
-  Signature();
+  // We treat signatures as JS::Values containing a FunctionTemplate, and we
+  // root them in the same way that we root v8::Value.
+  // TODO: Consider lifting this up into v8::Data once we have implemented
+  // all of the Data subclasses.
+  char spidershim_padding[8];
 };
+static_assert(sizeof(v8::Signature) == 8, "v8::Signature must be the same size as JS::Value");
 
 class V8_EXPORT AccessorSignature : public Data {
  public:
