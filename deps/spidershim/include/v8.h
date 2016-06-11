@@ -2322,8 +2322,7 @@ class V8_EXPORT Signature : public Data {
  public:
   static Local<Signature> New(
       Isolate* isolate,
-      Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
-      int argc = 0, Handle<FunctionTemplate> argv[] = nullptr);
+      Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>());
 
  private:
   Signature();
