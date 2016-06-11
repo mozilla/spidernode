@@ -45,6 +45,14 @@ static inline const JS::Value* GetValue(const Template* val) {
   return reinterpret_cast<const JS::Value*>(val);
 }
 
+static inline JS::Value* GetValue(Signature* val) {
+  return reinterpret_cast<JS::Value*>(val);
+}
+
+static inline const JS::Value* GetValue(const Signature* val) {
+  return reinterpret_cast<const JS::Value*>(val);
+}
+
 static inline Value* GetV8Value(JS::Value* val) {
   return reinterpret_cast<Value*>(val);
 }
@@ -67,6 +75,18 @@ static inline const Value* GetV8Value(const Template* val) {
 
 static inline Template* GetV8Template(JS::Value* val) {
   return reinterpret_cast<Template*>(val);
+}
+
+static inline Value* GetV8Value(Signature* val) {
+  return GetV8Value(GetValue(val));
+}
+
+static inline const Value* GetV8Value(const Signature* val) {
+  return GetV8Value(GetValue(val));
+}
+
+static inline Signature* GetV8Signature(JS::Value* val) {
+  return reinterpret_cast<Signature*>(val);
 }
 
 static inline JSObject* GetObject(Value* val) {

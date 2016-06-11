@@ -18,30 +18,22 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
+#include <assert.h>
+
+#include "v8.h"
+#include "jsapi.h"
 #include "conversions.h"
+#include "v8local.h"
 
 namespace v8 {
-namespace internal {
 
-template <class T>
-class Local {
- public:
-  static v8::Local<T> New(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Value(&val));
+Local<Signature> Signature::New(Isolate* isolate,
+                                Local<FunctionTemplate> receiver) {
+  JS::Value signatureVal;
+  signatureVal.setUndefined();
+  if (!receiver.IsEmpty()) {
+    signatureVal = *GetValue(receiver);
   }
-  static v8::Local<T> New(Isolate* isolate, JSScript* script, v8::Local<Context> context) {
-    return v8::Local<T>::New(isolate, script, context);
-  }
-  static v8::Local<T> New(Isolate* isolate, JS::Symbol* symbol) {
-    return v8::Local<T>::New(isolate, symbol);
-  }
-  static v8::Local<T> NewTemplate(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Template(&val));
-  }
-  static v8::Local<T> NewSignature(Isolate* isolate, JS::Value val) {
-    return v8::Local<T>::New(isolate, GetV8Signature(&val));
-  }
-};
+  return internal::Local<Signature>::NewSignature(isolate, signatureVal);
 }
 }
