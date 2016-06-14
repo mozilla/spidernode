@@ -2175,6 +2175,9 @@ class V8_EXPORT FunctionTemplate : public Template {
   // InstanceTemplates of all ancestors, on the given object.  Returns false on
   // failure, true on success.
   bool InstallInstanceProperties(Local<Object> target);
+  // Performs a signature check if needed.  Returns true and a holder object
+  // unless the signature check fails.
+  bool CheckSignature(Local<Object> _this, Local<Object>& holder);
 };
 
 enum class PropertyHandlerFlags {
