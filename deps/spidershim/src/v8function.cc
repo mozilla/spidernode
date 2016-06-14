@@ -31,6 +31,8 @@ namespace {
 
 using namespace v8;
 
+const char* kIllegalInvocation = "Illegal invocation";
+
 // For now, we implement the hidden callee data using a property with a symbol
 // key. This is observable to script, so if this becomes an issue in the future
 // we'd need to do something more sophisticated.
@@ -159,9 +161,18 @@ class FunctionCallback {
         }
         v8args[i] = *arg;
       }
-      // TODO: Figure out what we want to do for holder.  See
-      // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
-      FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
+      v8::Local<Object> holder;
+      if (templ.IsEmpty()) {
+        holder = _this;
+      } else {
+        if (!templ->CheckSignature(_this, holder)) {
+          isolate->ThrowException(
+              Exception::Error(String::NewFromUtf8(isolate,
+                                                   kIllegalInvocation)));
+          return false;
+        }
+      }
+      FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, holder,
                                        args.isConstructing(),
                                        data, calleeFunction);
       callback(info);

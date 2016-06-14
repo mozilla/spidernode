@@ -40,6 +40,7 @@ enum FunctionTemplatePrivateSlots {
   ProtoSlot,               // Stores our instantiated prototype, this is an
                            // object if and only if InstanceSlot is one.
   ClassNameSlot,           // Stores our class name (see SetClassName).
+  SignatureSlot,           // Stores our signature.
   NumSlots
 };
 
@@ -117,9 +118,12 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
     return Local<FunctionTemplate>();
   }
 
-  // TODO: figure out what should happen with signature.  What is it supposed to
-  // do?  See https://github.com/mozilla/spidernode/issues/144 for some
-  // discussion.
+  JS::Value signatureVal;
+  signatureVal.setUndefined();
+  if (!signature.IsEmpty()) {
+    signatureVal = *GetValue(signature);
+  }
+  js::SetReservedSlot(obj, SignatureSlot, signatureVal);
   js::SetReservedSlot(obj, LengthSlot, JS::Int32Value(length));
 
   return Local<FunctionTemplate>(static_cast<FunctionTemplate*>(*templ));
@@ -520,4 +524,23 @@ bool FunctionTemplate::InstallInstanceProperties(Local<Object> target) {
   return JS_CopyPropertiesFrom(cx, targetObj, instanceObj);
 }
 
+bool FunctionTemplate::CheckSignature(Local<Object> thisObj,
+                                      Local<Object>& holder) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+  JS::Value signatureVal = js::GetReservedSlot(obj, SignatureSlot);
+  if (!signatureVal.isUndefined()) {
+    Local<FunctionTemplate> signatureAsTemplate =
+      internal::Local<FunctionTemplate>::NewTemplate(isolate, signatureVal);
+    if (!signatureAsTemplate->InstanceTemplate()->IsInstance(GetObject(thisObj))) {
+      return false;
+    }
+  }
+  holder = thisObj;
+  return true;
+}
 } // namespace v8

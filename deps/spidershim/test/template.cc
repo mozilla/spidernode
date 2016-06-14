@@ -388,9 +388,6 @@ TEST(SpiderShim, FunctionTemplateSetLength) {
 }
 
 
-// Need support for Signature to do FunctionTemplateReceiverSignature.  See
-// https://github.com/mozilla/spidernode/issues/144
-#if 0
 static int signature_callback_count;
 static Local<Value> signature_expected_receiver;
 static void IncrementingSignatureCallback(
@@ -441,6 +438,7 @@ static void TestSignature(V8Engine& engine, Local<Context> context,
   }
 }
 
+#if 0
 TEST(SpiderShim, FunctionTemplateReceiverSignature) {
   // Largely stolen from the V8 test-api.cc ReceiverSignature test.
   V8Engine engine;
