@@ -36,4 +36,14 @@ Local<Signature> Signature::New(Isolate* isolate,
   }
   return internal::Local<Signature>::NewSignature(isolate, signatureVal);
 }
+
+Local<AccessorSignature> AccessorSignature::New(Isolate* isolate,
+                                                Local<FunctionTemplate> receiver) {
+  JS::Value signatureVal;
+  signatureVal.setUndefined();
+  if (!receiver.IsEmpty()) {
+    signatureVal = *GetValue(receiver);
+  }
+  return internal::Local<AccessorSignature>::NewAccessorSignature(isolate, signatureVal);
+}
 }

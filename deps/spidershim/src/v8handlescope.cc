@@ -88,6 +88,13 @@ Signature* HandleScope::AddToScope(Signature* val) {
   return sCurrentScope.get()->pimpl_->Add(val);
 }
 
+AccessorSignature* HandleScope::AddToScope(AccessorSignature* val) {
+  if (!sCurrentScope.get()) {
+    return nullptr;
+  }
+  return sCurrentScope.get()->pimpl_->Add(val);
+}
+
 Script* HandleScope::AddToScope(JSScript* script, Local<Context> context) {
   if (!sCurrentScope.get()) {
     return nullptr;
