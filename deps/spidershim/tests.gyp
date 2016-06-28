@@ -48,5 +48,9 @@
       'target_name': 'object',
       'sources': [ 'test/object.cc' ],
     },
+    {
+      'target_name': 'valuemap',
+      'sources': [ 'test/valuemap.cc' ],
+    },
   ],
 }

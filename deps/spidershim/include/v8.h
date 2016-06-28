@@ -114,6 +114,8 @@ template <class T> class Maybe;
 template <class T> class MaybeLocal;
 template <class T> class NonCopyablePersistentTraits;
 template <class T> class PersistentBase;
+template <class T, class U, class V> class PersistentValueMapBase;
+template <class T, class U> class PersistentValueVector;
 template <class T, class M = NonCopyablePersistentTraits<T> > class Persistent;
 template <typename T> class FunctionCallbackInfo;
 template <typename T> class PropertyCallbackInfo;
@@ -317,6 +319,8 @@ class Local {
   template <class F> friend class MaybeLocal;
   template <class F> friend class PersistentBase;
   template <class F, class M> friend class Persistent;
+  template <class F, class M, class F2> friend class PersistentValueMapBase;
+  template <class F, class M> friend class PersistentValueVector;
   template <class F> friend class Eternal;
   template <class F> friend class Local;
   template <class F> friend class internal::Local;
@@ -521,6 +525,8 @@ class PersistentBase {
   template<class F> friend class Global;
   template<class F> friend class Local;
   template<class F1, class F2> friend class Persistent;
+  template <class F, class M, class F2> friend class PersistentValueMapBase;
+  template <class F, class M> friend class PersistentValueVector;
   friend class Object;
 
   explicit V8_INLINE PersistentBase(T* val) : val_(val) {}
