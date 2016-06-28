@@ -1,4 +1,8 @@
 {
+  'variables': {
+    'library%': 'static_library',
+    'node_engine%': 'spidermonkey',
+  },
   'targets': [
     {
       'target_name': 'spidershim',
