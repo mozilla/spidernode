@@ -247,14 +247,10 @@ class Local {
   V8_INLINE T* operator*() const { return val_; }
 
   template <class S>
-  V8_INLINE bool operator==(const Local<S>& that) const {
-    return val_ == that.val_;
-  }
+  V8_INLINE bool operator==(const Local<S>& that) const;
 
   template <class S>
-  V8_INLINE bool operator==(const PersistentBase<S>& that) const {
-    return val_ == that.val_;
-  }
+  V8_INLINE bool operator==(const PersistentBase<S>& that) const;
 
   template <class S>
   V8_INLINE bool operator!=(const Local<S>& that) const {
@@ -484,14 +480,10 @@ class PersistentBase {
   }
 
   template <class S>
-  V8_INLINE bool operator==(const PersistentBase<S>& that) const {
-    return *val_ == *that.val_;
-  }
+  V8_INLINE bool operator==(const PersistentBase<S>& that) const;
 
   template <class S>
-  V8_INLINE bool operator==(const Handle<S>& that) const {
-    return *val_ == *that.val_;
-  }
+  V8_INLINE bool operator==(const Handle<S>& that) const;
 
   template <class S>
   V8_INLINE bool operator!=(const PersistentBase<S>& that) const {
@@ -1146,6 +1138,7 @@ private:
   char spidershim_padding[8]; // see the comment for Value.
 
 protected:
+  template <class F> friend class Local;
   template <class F> friend class PersistentBase;
   V8_INLINE bool operator==(const Value& that) const {
     for (size_t i = 0; i < sizeof(spidershim_padding); ++i) {
@@ -3030,5 +3023,77 @@ Isolate* PropertyCallbackInfo<T>::GetIsolate() const {
 template <class T>
 Isolate* ReturnValue<T>::GetIsolate() {
   return Isolate::GetCurrent();
+}
+
+template <class T>
+template <class S>
+V8_INLINE bool Local<T>::operator==(const Local<S>& that) const {
+  return Value::Cast(val_)->Equals(Value::Cast(that.val_));
+}
+
+template <class T>
+template <class S>
+V8_INLINE bool Local<T>::operator==(const PersistentBase<S>& that) const {
+  return Value::Cast(val_)->Equals(Value::Cast(that.val_));
+}
+
+template <class T>
+template <class S>
+V8_INLINE bool PersistentBase<T>::operator==(const Local<S>& that) const {
+  return Value::Cast(val_)->Equals(Value::Cast(that.val_));
+}
+
+template <class T>
+template <class S>
+V8_INLINE bool PersistentBase<T>::operator==(const PersistentBase<S>& that) const {
+  return Value::Cast(val_)->Equals(Value::Cast(that.val_));
+}
+
+template <>
+template <>
+V8_INLINE bool Local<Context>::operator==(const Local<Context>& that) const {
+  return val_ == that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool Local<Context>::operator==(const PersistentBase<Context>& that) const {
+  return val_ == that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool PersistentBase<Context>::operator==(const Local<Context>& that) const {
+  return val_ == that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool PersistentBase<Context>::operator==(const PersistentBase<Context>& that) const {
+  return val_ == that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool Local<String>::operator==(const Local<String>& that) const {
+  return *val_ == *that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool Local<String>::operator==(const PersistentBase<String>& that) const {
+  return *val_ == *that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool PersistentBase<String>::operator==(const Local<String>& that) const {
+  return *val_ == *that.val_;
+}
+
+template <>
+template <>
+V8_INLINE bool PersistentBase<String>::operator==(const PersistentBase<String>& that) const {
+  return *val_ == *that.val_;
 }
 }  // namespace v8
