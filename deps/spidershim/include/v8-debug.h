@@ -33,8 +33,7 @@ namespace v8 {
 // NOT IMPLEMENTED
 class V8_EXPORT Debug {
  public:
-  class ClientData {
-  };
+  class ClientData {};
 
   class Message {
    public:
@@ -46,21 +45,21 @@ class V8_EXPORT Debug {
   typedef void (*DebugMessageDispatchHandler)();
   typedef void (*MessageHandler)(const Message& message);
 
-  static void DebugBreak(Isolate *isolate = NULL) {}
+  static void DebugBreak(Isolate* isolate = NULL) {}
   static void SetDebugMessageDispatchHandler(
-    DebugMessageDispatchHandler handler, bool provide_locker = false) {}
-  static bool EnableAgent(
-    const char *name = NULL, int port = 0, bool wait_for_connection = false);
+      DebugMessageDispatchHandler handler, bool provide_locker = false) {}
+  static bool EnableAgent(const char* name = NULL, int port = 0,
+                          bool wait_for_connection = false);
   static void Dispose();
   static void DisableAgent() {}
   static bool IsAgentEnabled();
   static void ProcessDebugMessages(Isolate* isolate) {}
-  static Local<Context> GetDebugContext(Isolate* isolate) { return Context::New(isolate); }
-  static void SetMessageHandler(Isolate* isolate, MessageHandler handler) {}
-  static void SendCommand(Isolate* isolate,
-                          const uint16_t* command, int length,
-                          ClientData* client_data = NULL) {
+  static Local<Context> GetDebugContext(Isolate* isolate) {
+    return Context::New(isolate);
   }
+  static void SetMessageHandler(Isolate* isolate, MessageHandler handler) {}
+  static void SendCommand(Isolate* isolate, const uint16_t* command, int length,
+                          ClientData* client_data = NULL) {}
   static MaybeLocal<Value> GetMirror(Local<Context> context,
                                      Handle<Value> obj) {
     return MaybeLocal<Value>();

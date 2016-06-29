@@ -42,10 +42,10 @@ class V8_EXPORT CpuProfiler {
 // NOT IMPLEMENTED
 class V8_EXPORT HeapProfiler {
  public:
-  typedef RetainedObjectInfo *(*WrapperInfoCallback)(
-    uint16_t class_id, Handle<Value> wrapper);
-  void SetWrapperClassInfoProvider(
-    uint16_t class_id, WrapperInfoCallback callback) {}
+  typedef RetainedObjectInfo *(*WrapperInfoCallback)(uint16_t class_id,
+                                                     Handle<Value> wrapper);
+  void SetWrapperClassInfoProvider(uint16_t class_id,
+                                   WrapperInfoCallback callback) {}
   void StartTrackingHeapObjects(bool track_allocations = false) {}
 };
 

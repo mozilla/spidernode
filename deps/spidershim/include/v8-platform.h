@@ -40,10 +40,7 @@ class Task {
 
 class Platform {
  public:
-  enum ExpectedRuntime {
-    kShortRunningTask,
-    kLongRunningTask
-  };
+  enum ExpectedRuntime { kShortRunningTask, kLongRunningTask };
 
   virtual ~Platform() {}
   virtual void CallOnBackgroundThread(Task* task,

@@ -5,9 +5,9 @@
 #ifndef V8_UTIL_H_
 #define V8_UTIL_H_
 
-#include "v8.h"  // NOLINT(build/include)
 #include <map>
 #include <vector>
+#include "v8.h"  // NOLINT(build/include)
 
 /**
  * Support for Persistent containers.
@@ -18,8 +18,10 @@
  */
 namespace v8 {
 
-template<class K, class V, class T> class PersistentValueMap;
-template <class K, class V, class T> class GlobalValueMap;
+template <class K, class V, class T>
+class PersistentValueMap;
+template <class K, class V, class T>
+class GlobalValueMap;
 
 typedef uintptr_t PersistentContainerValue;
 static const uintptr_t kPersistentContainerNotFound = 0;
@@ -31,14 +33,13 @@ enum PersistentContainerCallbackType {
   kWeak = kWeakWithParameter  // For backwards compatibility.  Deprecate.
 };
 
-
 /**
  * A default trait implemenation for PersistentValueMap which uses std::map
  * as a backing map.
  *
  * Users will have to implement their own weak callbacks & dispose traits.
  */
-template<typename K, typename V>
+template <typename K, typename V>
 class StdMapTraits {
  public:
   // STL map & related:
@@ -53,7 +54,7 @@ class StdMapTraits {
   static K Key(Iterator it) { return it->first; }
   static PersistentContainerValue Value(Iterator it) { return it->second; }
   static PersistentContainerValue Set(Impl* impl, K key,
-      PersistentContainerValue value) {
+                                      PersistentContainerValue value) {
     std::pair<Iterator, bool> res = impl->insert(std::make_pair(key, value));
     PersistentContainerValue old_value = kPersistentContainerNotFound;
     if (!res.second) {
@@ -76,7 +77,6 @@ class StdMapTraits {
   }
 };
 
-
 /**
  * A default trait implementation for PersistentValueMap, which inherits
  * a std:map backing map from StdMapTraits and holds non-weak persistent
@@ -85,7 +85,7 @@ class StdMapTraits {
  * You should not derive from this class, since MapType depends on the
  * surrounding class, and hence a subclass cannot simply inherit the methods.
  */
-template<typename K, typename V>
+template <typename K, typename V>
 class DefaultPersistentValueMapTraits : public StdMapTraits<K, V> {
  public:
   // Weak callback & friends:
@@ -94,22 +94,21 @@ class DefaultPersistentValueMapTraits : public StdMapTraits<K, V> {
       MapType;
   typedef void WeakCallbackDataType;
 
-  static WeakCallbackDataType* WeakCallbackParameter(
-      MapType* map, const K& key, Local<V> value) {
+  static WeakCallbackDataType* WeakCallbackParameter(MapType* map, const K& key,
+                                                     Local<V> value) {
     return NULL;
   }
   static MapType* MapFromWeakCallbackData(
-          const WeakCallbackData<V, WeakCallbackDataType>& data) {
+      const WeakCallbackData<V, WeakCallbackDataType>& data) {
     return NULL;
   }
   static K KeyFromWeakCallbackData(
       const WeakCallbackData<V, WeakCallbackDataType>& data) {
     return K();
   }
-  static void DisposeCallbackData(WeakCallbackDataType* data) { }
+  static void DisposeCallbackData(WeakCallbackDataType* data) {}
   static void Dispose(Isolate* isolate, Global<V> value, K key) {}
 };
-
 
 template <typename K, typename V>
 class DefaultGlobalMapTraits : public StdMapTraits<K, V> {
@@ -148,7 +147,6 @@ class DefaultGlobalMapTraits : public StdMapTraits<K, V> {
     typedef T Type;
   };
 };
-
 
 /**
  * A map wrapper that allows using Global as a mapped value.
@@ -242,25 +240,21 @@ class PersistentValueMapBase {
    */
   class PersistentValueReference {
    public:
-    PersistentValueReference() : value_(kPersistentContainerNotFound) { }
+    PersistentValueReference() : value_(kPersistentContainerNotFound) {}
     PersistentValueReference(const PersistentValueReference& other)
-        : value_(other.value_) { }
+        : value_(other.value_) {}
 
     Local<V> NewLocal(Isolate* isolate) const {
       return Local<V>::New(isolate, FromVal(value_));
     }
-    bool IsEmpty() const {
-      return value_ == kPersistentContainerNotFound;
-    }
+    bool IsEmpty() const { return value_ == kPersistentContainerNotFound; }
 #if 0
     template<typename T>
     bool SetReturnValue(ReturnValue<T> returnValue) {
       return SetReturnValueFromVal(&returnValue, value_);
     }
 #endif
-    void Reset() {
-      value_ = kPersistentContainerNotFound;
-    }
+    void Reset() { value_ = kPersistentContainerNotFound; }
     void operator=(const PersistentValueReference& other) {
       value_ = other.value_;
     }
@@ -271,11 +265,9 @@ class PersistentValueMapBase {
     friend class GlobalValueMap<K, V, Traits>;
 
     explicit PersistentValueReference(PersistentContainerValue value)
-        : value_(value) { }
+        : value_(value) {}
 
-    void operator=(PersistentContainerValue value) {
-      value_ = value;
-    }
+    void operator=(PersistentContainerValue value) { value_ = value; }
 
     PersistentContainerValue value_;
   };
@@ -296,7 +288,7 @@ class PersistentValueMapBase {
 
  protected:
   explicit PersistentValueMapBase(Isolate* isolate) : isolate_(isolate) {
-    assert(!IsWeak()); // TODO: Add support for weak maps.
+    assert(!IsWeak());  // TODO: Add support for weak maps.
   }
 
   ~PersistentValueMapBase() { Clear(); }
@@ -359,7 +351,6 @@ class PersistentValueMapBase {
   typename Traits::Impl impl_;
 };
 
-
 template <typename K, typename V, typename Traits>
 class PersistentValueMap : public PersistentValueMapBase<K, V, Traits> {
  public:
@@ -395,7 +386,7 @@ class PersistentValueMap : public PersistentValueMapBase<K, V, Traits> {
     if (Traits::kCallbackType != kNotWeak) {
       Local<V> value(Local<V>::New(this->isolate(), *persistent));
       persistent->template SetWeak<typename Traits::WeakCallbackDataType>(
-        Traits::WeakCallbackParameter(this, key, value), WeakCallback);
+          Traits::WeakCallbackParameter(this, key, value), WeakCallback);
     }
     PersistentContainerValue old_value =
         Traits::Set(this->impl(), key, this->ClearAndLeak(persistent));
@@ -419,13 +410,12 @@ class PersistentValueMap : public PersistentValueMapBase<K, V, Traits> {
       PersistentValueMap<K, V, Traits>* persistentValueMap =
           Traits::MapFromWeakCallbackData(data);
       K key = Traits::KeyFromWeakCallbackData(data);
-      Traits::Dispose(data.GetIsolate(),
-                      persistentValueMap->Remove(key).Pass(), key);
+      Traits::Dispose(data.GetIsolate(), persistentValueMap->Remove(key).Pass(),
+                      key);
       Traits::DisposeCallbackData(data.GetParameter());
     }
   }
 };
-
 
 template <typename K, typename V, typename Traits>
 class GlobalValueMap : public PersistentValueMapBase<K, V, Traits> {
@@ -502,7 +492,6 @@ class GlobalValueMap : public PersistentValueMapBase<K, V, Traits> {
   }
 };
 
-
 /**
  * A map that uses Global as value and std::map as the backing
  * implementation. Persistents are held non-weak.
@@ -510,14 +499,13 @@ class GlobalValueMap : public PersistentValueMapBase<K, V, Traits> {
  * C++11 embedders don't need this class, as they can use
  * Global directly in std containers.
  */
-template<typename K, typename V,
-    typename Traits = DefaultPersistentValueMapTraits<K, V> >
+template <typename K, typename V,
+          typename Traits = DefaultPersistentValueMapTraits<K, V> >
 class StdPersistentValueMap : public PersistentValueMap<K, V, Traits> {
  public:
   explicit StdPersistentValueMap(Isolate* isolate)
       : PersistentValueMap<K, V, Traits>(isolate) {}
 };
-
 
 /**
  * A map that uses Global as value and std::map as the backing
@@ -534,7 +522,6 @@ class StdGlobalValueMap : public GlobalValueMap<K, V, Traits> {
       : GlobalValueMap<K, V, Traits>(isolate) {}
 };
 
-
 class DefaultPersistentValueVectorTraits {
  public:
   typedef std::vector<PersistentContainerValue> Impl;
@@ -542,23 +529,16 @@ class DefaultPersistentValueVectorTraits {
   static void Append(Impl* impl, PersistentContainerValue value) {
     impl->push_back(value);
   }
-  static bool IsEmpty(const Impl* impl) {
-    return impl->empty();
-  }
-  static size_t Size(const Impl* impl) {
-    return impl->size();
-  }
+  static bool IsEmpty(const Impl* impl) { return impl->empty(); }
+  static size_t Size(const Impl* impl) { return impl->size(); }
   static PersistentContainerValue Get(const Impl* impl, size_t i) {
     return (i < impl->size()) ? impl->at(i) : kPersistentContainerNotFound;
   }
   static void ReserveCapacity(Impl* impl, size_t capacity) {
     impl->reserve(capacity);
   }
-  static void Clear(Impl* impl) {
-    impl->clear();
-  }
+  static void Clear(Impl* impl) { impl->clear(); }
 };
-
 
 /**
  * A vector wrapper that safely stores Global values.
@@ -570,14 +550,12 @@ class DefaultPersistentValueVectorTraits {
  * PersistentContainerValue, with all conversion into and out of V8
  * handles being transparently handled by this class.
  */
-template<typename V, typename Traits = DefaultPersistentValueVectorTraits>
+template <typename V, typename Traits = DefaultPersistentValueVectorTraits>
 class PersistentValueVector {
  public:
-  explicit PersistentValueVector(Isolate* isolate) : isolate_(isolate) { }
+  explicit PersistentValueVector(Isolate* isolate) : isolate_(isolate) {}
 
-  ~PersistentValueVector() {
-    Clear();
-  }
+  ~PersistentValueVector() { Clear(); }
 
   /**
    * Append a value to the vector.
@@ -597,16 +575,12 @@ class PersistentValueVector {
   /**
    * Are there any values in the vector?
    */
-  bool IsEmpty() const {
-    return Traits::IsEmpty(&impl_);
-  }
+  bool IsEmpty() const { return Traits::IsEmpty(&impl_); }
 
   /**
    * How many elements are in the vector?
    */
-  size_t Size() const {
-    return Traits::Size(&impl_);
-  }
+  size_t Size() const { return Traits::Size(&impl_); }
 
   /**
    * Retrieve the i-th value in the vector.
