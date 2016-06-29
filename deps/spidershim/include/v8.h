@@ -825,10 +825,7 @@ class ScriptOrigin {
   explicit ScriptOrigin(
       Local<Value> resource_name,
       Local<Integer> resource_line_offset = Local<Integer>(),
-      Local<Integer> resource_column_offset = Local<Integer>())
-      : resource_name_(resource_name),
-        resource_line_offset_(resource_line_offset),
-        resource_column_offset_(resource_column_offset) {}
+      Local<Integer> resource_column_offset = Local<Integer>());
   Local<Value> ResourceName() const { return resource_name_; }
   Local<Integer> ResourceLineOffset() const { return resource_line_offset_; }
   Local<Integer> ResourceColumnOffset() const {
@@ -863,8 +860,7 @@ class V8_EXPORT Script {
  private:
   friend class internal::RootStore;
 
-  Script(Local<Context> context, JSScript* script)
-      : script_(script), context_(context) {}
+  Script(Local<Context> context, JSScript* script);
 
   JSScript* script_;
   Local<Context> context_;
@@ -889,11 +885,9 @@ class V8_EXPORT ScriptCompiler {
   class Source {
    public:
     Source(Local<String> source_string, const ScriptOrigin& origin,
-           CachedData* cached_data = NULL)
-        : source_string(source_string), resource_name(origin.ResourceName()) {}
+           CachedData* cached_data = NULL);
 
-    Source(Local<String> source_string, CachedData* cached_data = NULL)
-        : source_string(source_string) {}
+    Source(Local<String> source_string, CachedData* cached_data = NULL);
 
     const CachedData* GetCachedData() const { return nullptr; }
 
@@ -1023,7 +1017,7 @@ class V8_EXPORT StackFrame {
   bool IsConstructor() const;
 
  private:
-  StackFrame(Local<Object> frame) : frame_(frame) {}
+  StackFrame(Local<Object> frame);
 
   friend class StackTrace;
   Local<Object> frame_;
@@ -1240,7 +1234,7 @@ class V8_EXPORT String : public Name {
    public:
     virtual ~ExternalStringResourceBase() {}
 
-    virtual bool IsCompressible() const { return false; }
+    virtual bool IsCompressible() const;
 
    protected:
     ExternalStringResourceBase() {}
@@ -1251,7 +1245,7 @@ class V8_EXPORT String : public Name {
      * delete operator. This method can be overridden in subclasses to
      * control how allocated external string resources are disposed.
      */
-    virtual void Dispose() { delete this; }
+    virtual void Dispose();
 
    private:
     // Disallow copying and assigning.
@@ -1276,7 +1270,7 @@ class V8_EXPORT String : public Name {
      * Override the destructor to manage the life cycle of the underlying
      * buffer.
      */
-    virtual ~ExternalStringResource() {}
+    ~ExternalStringResource() override {}
 
     /**
      * The string data from the underlying buffer.
@@ -1309,7 +1303,7 @@ class V8_EXPORT String : public Name {
      * Override the destructor to manage the life cycle of the underlying
      * buffer.
      */
-    virtual ~ExternalOneByteStringResource() {}
+    ~ExternalOneByteStringResource() override {}
     /** The string data from the underlying buffer.*/
     virtual const char* data() const = 0;
     /** The number of Latin-1 characters in the string.*/
@@ -2187,14 +2181,7 @@ struct NamedPropertyHandlerConfiguration {
       GenericNamedPropertyDeleterCallback deleter = 0,
       GenericNamedPropertyEnumeratorCallback enumerator = 0,
       Handle<Value> data = Handle<Value>(),
-      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
-      : getter(getter),
-        setter(setter),
-        query(query),
-        deleter(deleter),
-        enumerator(enumerator),
-        data(data),
-        flags(flags) {}
+      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone);
 
   GenericNamedPropertyGetterCallback getter;
   GenericNamedPropertySetterCallback setter;
@@ -2213,14 +2200,7 @@ struct IndexedPropertyHandlerConfiguration {
       IndexedPropertyDeleterCallback deleter = 0,
       IndexedPropertyEnumeratorCallback enumerator = 0,
       Handle<Value> data = Handle<Value>(),
-      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
-      : getter(getter),
-        setter(setter),
-        query(query),
-        deleter(deleter),
-        enumerator(enumerator),
-        data(data),
-        flags(flags) {}
+      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone);
 
   IndexedPropertyGetterCallback getter;
   IndexedPropertySetterCallback setter;
@@ -2354,11 +2334,7 @@ enum PromiseRejectEvent {
 class PromiseRejectMessage {
  public:
   PromiseRejectMessage(Handle<Promise> promise, PromiseRejectEvent event,
-                       Handle<Value> value, Handle<StackTrace> stack_trace)
-      : promise_(promise),
-        event_(event),
-        value_(value),
-        stack_trace_(stack_trace) {}
+                       Handle<Value> value, Handle<StackTrace> stack_trace);
 
   Handle<Promise> GetPromise() const { return promise_; }
   PromiseRejectEvent GetEvent() const { return event_; }
@@ -2749,9 +2725,7 @@ class V8_EXPORT Context {
  public:
   class Scope {
    public:
-    explicit V8_INLINE Scope(Local<Context> context) : context_(context) {
-      context_->Enter();
-    }
+    explicit V8_INLINE Scope(Local<Context> context);
     V8_INLINE ~Scope() { context_->Exit(); }
 
    private:
@@ -3087,5 +3061,73 @@ template <>
 V8_INLINE bool PersistentBase<String>::operator==(
     const PersistentBase<String>& that) const {
   return *val_ == *that.val_;
+}
+
+V8_INLINE ScriptOrigin::ScriptOrigin(Local<Value> resource_name,
+                                     Local<Integer> resource_line_offset,
+                                     Local<Integer> resource_column_offset)
+    : resource_name_(resource_name),
+      resource_line_offset_(resource_line_offset),
+      resource_column_offset_(resource_column_offset) {}
+
+V8_INLINE Script::Script(Local<Context> context, JSScript* script)
+    : script_(script), context_(context) {}
+
+V8_INLINE ScriptCompiler::Source::Source(Local<String> source_string,
+                                         const ScriptOrigin& origin,
+                                         CachedData* cached_data)
+    : source_string(source_string), resource_name(origin.ResourceName()) {}
+
+V8_INLINE ScriptCompiler::Source::Source(Local<String> source_string,
+                                         CachedData* cached_data)
+    : source_string(source_string) {}
+
+V8_INLINE StackFrame::StackFrame(Local<Object> frame) : frame_(frame) {}
+
+V8_INLINE bool String::ExternalStringResourceBase::IsCompressible() const {
+  return false;
+}
+
+V8_INLINE void String::ExternalStringResourceBase::Dispose() { delete this; }
+
+V8_INLINE NamedPropertyHandlerConfiguration::NamedPropertyHandlerConfiguration(
+    GenericNamedPropertyGetterCallback getter,
+    GenericNamedPropertySetterCallback setter,
+    GenericNamedPropertyQueryCallback query,
+    GenericNamedPropertyDeleterCallback deleter,
+    GenericNamedPropertyEnumeratorCallback enumerator, Handle<Value> data,
+    PropertyHandlerFlags flags)
+    : getter(getter),
+      setter(setter),
+      query(query),
+      deleter(deleter),
+      enumerator(enumerator),
+      data(data),
+      flags(flags) {}
+
+V8_INLINE
+IndexedPropertyHandlerConfiguration::IndexedPropertyHandlerConfiguration(
+    IndexedPropertyGetterCallback getter, IndexedPropertySetterCallback setter,
+    IndexedPropertyQueryCallback query, IndexedPropertyDeleterCallback deleter,
+    IndexedPropertyEnumeratorCallback enumerator, Handle<Value> data,
+    PropertyHandlerFlags flags)
+    : getter(getter),
+      setter(setter),
+      query(query),
+      deleter(deleter),
+      enumerator(enumerator),
+      data(data),
+      flags(flags) {}
+
+V8_INLINE PromiseRejectMessage::PromiseRejectMessage(
+    Handle<Promise> promise, PromiseRejectEvent event, Handle<Value> value,
+    Handle<StackTrace> stack_trace)
+    : promise_(promise),
+      event_(event),
+      value_(value),
+      stack_trace_(stack_trace) {}
+
+V8_INLINE Context::Scope::Scope(Local<Context> context) : context_(context) {
+  context_->Enter();
 }
 }  // namespace v8
