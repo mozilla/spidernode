@@ -9,7 +9,6 @@
 #include "req-wrap-inl.h"
 #include "tree.h"
 #include "util.h"
-#include "util-inl.h"
 #include "uv.h"
 
 #include <errno.h>
@@ -259,7 +258,6 @@ class QueryWrap : public AsyncWrap {
 
   virtual ~QueryWrap() override {
     CHECK_EQ(false, persistent().IsEmpty());
-    ClearWrap(object());
     persistent().Reset();
   }
 

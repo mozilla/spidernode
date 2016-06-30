@@ -1,8 +1,6 @@
 #ifndef SRC_HANDLE_WRAP_H_
 #define SRC_HANDLE_WRAP_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "async-wrap.h"
 #include "util.h"
 #include "uv.h"
@@ -37,14 +35,9 @@ class HandleWrap : public AsyncWrap {
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Ref(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Unref(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void HasRef(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   static inline bool IsAlive(const HandleWrap* wrap) {
-    return wrap != nullptr && wrap->state_ != kClosed;
-  }
-
-  static inline bool HasRef(const HandleWrap* wrap) {
-    return IsAlive(wrap) && uv_has_ref(wrap->GetHandle());
+    return wrap != nullptr && wrap->GetHandle() != nullptr;
   }
 
   inline uv_handle_t* GetHandle() const { return handle__; }
@@ -62,15 +55,17 @@ class HandleWrap : public AsyncWrap {
   friend void GetActiveHandles(const v8::FunctionCallbackInfo<v8::Value>&);
   static void OnClose(uv_handle_t* handle);
   ListNode<HandleWrap> handle_wrap_queue_;
-  enum { kInitialized, kClosing, kClosingWithCallback, kClosed } state_;
+  unsigned int flags_;
   // Using double underscore due to handle_ member in tcp_wrap. Probably
   // tcp_wrap should rename it's member to 'handle'.
-  uv_handle_t* const handle__;
+  uv_handle_t* handle__;
+
+  static const unsigned int kUnref = 1;
+  static const unsigned int kCloseCallback = 2;
 };
 
 
 }  // namespace node
 
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_HANDLE_WRAP_H_

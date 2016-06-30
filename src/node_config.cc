@@ -29,8 +29,8 @@ using v8::Value;
 void InitConfig(Local<Object> target,
                 Local<Value> unused,
                 Local<Context> context) {
-  Environment* env = Environment::GetCurrent(context);
 #ifdef NODE_HAVE_I18N_SUPPORT
+  Environment* env = Environment::GetCurrent(context);
 
   READONLY_BOOLEAN_PROPERTY("hasIntl");
 
@@ -41,10 +41,7 @@ void InitConfig(Local<Object> target,
   if (flag_icu_data_dir)
     READONLY_BOOLEAN_PROPERTY("usingICUDataDir");
 #endif  // NODE_HAVE_I18N_SUPPORT
-
-  if (config_preserve_symlinks)
-    READONLY_BOOLEAN_PROPERTY("preserveSymlinks");
-}  // InitConfig
+}
 
 }  // namespace node
 

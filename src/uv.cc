@@ -22,6 +22,8 @@ void ErrName(const FunctionCallbackInfo<Value>& args) {
   if (err >= 0)
     return env->ThrowError("err >= 0");
   const char* name = uv_err_name(err);
+  if (name == NULL)
+    name = "UnknownSystemError";
   args.GetReturnValue().Set(OneByteString(env->isolate(), name));
 }
 

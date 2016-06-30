@@ -5,8 +5,6 @@
 #ifndef SRC_STRING_SEARCH_H_
 #define SRC_STRING_SEARCH_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "node.h"
 #include <string.h>
 
@@ -254,7 +252,7 @@ inline const void* MemrchrFill(const void* haystack, uint8_t needle,
 // `subject`. Does not check that the whole pattern matches.
 template <typename Char>
 inline size_t FindFirstCharacter(Vector<const Char> pattern,
-                                 Vector<const Char> subject, size_t index) {
+                              Vector<const Char> subject, size_t index) {
   const Char pattern_first_char = pattern[0];
   const size_t max_n = (subject.length() - pattern.length() + 1);
 
@@ -263,19 +261,19 @@ inline size_t FindFirstCharacter(Vector<const Char> pattern,
   const uint8_t search_byte = GetHighestValueByte(pattern_first_char);
   size_t pos = index;
   do {
-    const size_t bytes_to_search = (max_n - pos) * sizeof(Char);
+    size_t bytes_to_search;
     const void* void_pos;
     if (subject.forward()) {
       // Assert that bytes_to_search won't overflow
       CHECK_LE(pos, max_n);
       CHECK_LE(max_n - pos, SIZE_MAX / sizeof(Char));
+      bytes_to_search = (max_n - pos) * sizeof(Char);
       void_pos = memchr(subject.start() + pos, search_byte, bytes_to_search);
     } else {
       CHECK_LE(pos, subject.length());
       CHECK_LE(subject.length() - pos, SIZE_MAX / sizeof(Char));
-      void_pos = MemrchrFill(subject.start() + pattern.length() - 1,
-                             search_byte,
-                             bytes_to_search);
+      bytes_to_search = (subject.length() - pos) * sizeof(Char);
+      void_pos = MemrchrFill(subject.start(), search_byte, bytes_to_search);
     }
     const Char* char_pos = static_cast<const Char*>(void_pos);
     if (char_pos == nullptr)
@@ -310,9 +308,7 @@ inline size_t FindFirstCharacter(Vector<const uint8_t> pattern,
   if (subject.forward()) {
     pos = memchr(subject.start() + index, pattern_first_char, max_n - index);
   } else {
-    pos = MemrchrFill(subject.start() + pattern.length() - 1,
-                      pattern_first_char,
-                      max_n - index);
+    pos = MemrchrFill(subject.start(), pattern_first_char, subj_len - index);
   }
   const uint8_t* char_pos = static_cast<const uint8_t*>(pos);
   if (char_pos == nullptr) {
@@ -675,7 +671,5 @@ size_t SearchString(const Char* haystack,
   return is_forward ? pos : (haystack_length - needle_length - pos);
 }
 }  // namespace node
-
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_STRING_SEARCH_H_

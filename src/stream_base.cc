@@ -329,8 +329,7 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
     uv_handle_t* send_handle = nullptr;
 
     if (!send_handle_obj.IsEmpty()) {
-      HandleWrap* wrap;
-      ASSIGN_OR_RETURN_UNWRAP(&wrap, send_handle_obj, UV_EINVAL);
+      HandleWrap* wrap = Unwrap<HandleWrap>(send_handle_obj);
       send_handle = wrap->GetHandle();
       // Reference StreamWrap instance to prevent it from being garbage
       // collected before `AfterWrite` is called.

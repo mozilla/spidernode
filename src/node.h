@@ -1,15 +1,7 @@
 #ifndef SRC_NODE_H_
 #define SRC_NODE_H_
 
-#ifdef _WIN32
-# ifndef BUILDING_NODE_EXTENSION
-#   define NODE_EXTERN __declspec(dllexport)
-# else
-#   define NODE_EXTERN __declspec(dllimport)
-# endif
-#else
-# define NODE_EXTERN /* nothing */
-#endif
+#include "node_extern.h"
 
 #ifdef BUILDING_NODE_EXTENSION
 # undef BUILDING_V8_SHARED
@@ -184,6 +176,10 @@ NODE_EXTERN extern bool enable_fips_crypto;
 NODE_EXTERN extern bool force_fips_crypto;
 #endif
 
+// Whether node should open some low level hooks.
+NODE_EXTERN extern bool g_standalone_mode;
+NODE_EXTERN extern bool g_upstream_node_mode;
+
 NODE_EXTERN int Start(int argc, char *argv[]);
 NODE_EXTERN void Init(int* argc,
                       const char** argv,
@@ -200,7 +196,6 @@ NODE_EXTERN Environment* CreateEnvironment(v8::Isolate* isolate,
                                            int exec_argc,
                                            const char* const* exec_argv);
 NODE_EXTERN void LoadEnvironment(Environment* env);
-NODE_EXTERN void FreeEnvironment(Environment* env);
 
 // NOTE: Calling this is the same as calling
 // CreateEnvironment() + LoadEnvironment() from above.
@@ -418,14 +413,14 @@ extern "C" NODE_EXTERN void node_module_register(void* mod);
 #if defined(_MSC_VER)
 #pragma section(".CRT$XCU", read)
 #define NODE_C_CTOR(fn)                                               \
-  static void __cdecl fn(void);                                       \
+  void __cdecl fn(void);                                              \
   __declspec(dllexport, allocate(".CRT$XCU"))                         \
       void (__cdecl*fn ## _)(void) = fn;                              \
-  static void __cdecl fn(void)
+  void __cdecl fn(void)
 #else
 #define NODE_C_CTOR(fn)                                               \
-  static void fn(void) __attribute__((constructor));                  \
-  static void fn(void)
+  void fn(void) __attribute__((constructor));                         \
+  void fn(void)
 #endif
 
 #define NODE_MODULE_X(modname, regfunc, priv, flags)                  \

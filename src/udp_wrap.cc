@@ -108,7 +108,6 @@ void UDPWrap::Initialize(Local<Object> target,
 
   env->SetProtoMethod(t, "ref", HandleWrap::Ref);
   env->SetProtoMethod(t, "unref", HandleWrap::Unref);
-  env->SetProtoMethod(t, "hasRef", HandleWrap::HasRef);
 
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "UDP"), t->GetFunction());
   env->set_udp_constructor_function(t->GetFunction());
@@ -139,22 +138,17 @@ void UDPWrap::New(const FunctionCallbackInfo<Value>& args) {
 
 
 void UDPWrap::GetFD(Local<String>, const PropertyCallbackInfo<Value>& args) {
-  int fd = UV_EBADF;
 #if !defined(_WIN32)
   HandleScope scope(args.GetIsolate());
   UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
-  if (wrap != nullptr)
-    uv_fileno(reinterpret_cast<uv_handle_t*>(&wrap->handle_), &fd);
-#endif
+  int fd = (wrap == nullptr) ? -1 : wrap->handle_.io_watcher.fd;
   args.GetReturnValue().Set(fd);
+#endif
 }
 
 
 void UDPWrap::DoBind(const FunctionCallbackInfo<Value>& args, int family) {
-  UDPWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap,
-                          args.Holder(),
-                          args.GetReturnValue().Set(UV_EBADF));
+  UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
 
   // bind(ip, port, flags)
   CHECK_EQ(args.Length(), 3);
@@ -202,7 +196,7 @@ void UDPWrap::Bind6(const FunctionCallbackInfo<Value>& args) {
     UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());                           \
     CHECK_EQ(args.Length(), 1);                                               \
     int flag = args[0]->Int32Value();                                         \
-    int err = wrap == nullptr ? UV_EBADF : fn(&wrap->handle_, flag);          \
+    int err = fn(&wrap->handle_, flag);                                       \
     args.GetReturnValue().Set(err);                                           \
   }
 
@@ -216,10 +210,7 @@ X(SetMulticastLoopback, uv_udp_set_multicast_loop)
 
 void UDPWrap::SetMembership(const FunctionCallbackInfo<Value>& args,
                             uv_membership membership) {
-  UDPWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap,
-                          args.Holder(),
-                          args.GetReturnValue().Set(UV_EBADF));
+  UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
 
   CHECK_EQ(args.Length(), 2);
 
@@ -252,12 +243,9 @@ void UDPWrap::DropMembership(const FunctionCallbackInfo<Value>& args) {
 void UDPWrap::DoSend(const FunctionCallbackInfo<Value>& args, int family) {
   Environment* env = Environment::GetCurrent(args);
 
-  UDPWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap,
-                          args.Holder(),
-                          args.GetReturnValue().Set(UV_EBADF));
+  UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
 
-  // send(req, list, port, address, hasCallback)
+  // send(req, buffer, port, address, hasCallback)
   CHECK(args[0]->IsObject());
   CHECK(args[1]->IsArray());
   CHECK(args[2]->IsUint32());
@@ -344,10 +332,7 @@ void UDPWrap::Send6(const FunctionCallbackInfo<Value>& args) {
 
 
 void UDPWrap::RecvStart(const FunctionCallbackInfo<Value>& args) {
-  UDPWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap,
-                          args.Holder(),
-                          args.GetReturnValue().Set(UV_EBADF));
+  UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
   int err = uv_udp_recv_start(&wrap->handle_, OnAlloc, OnRecv);
   // UV_EALREADY means that the socket is already bound but that's okay
   if (err == UV_EALREADY)
@@ -357,10 +342,7 @@ void UDPWrap::RecvStart(const FunctionCallbackInfo<Value>& args) {
 
 
 void UDPWrap::RecvStop(const FunctionCallbackInfo<Value>& args) {
-  UDPWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap,
-                          args.Holder(),
-                          args.GetReturnValue().Set(UV_EBADF));
+  UDPWrap* wrap = Unwrap<UDPWrap>(args.Holder());
   int r = uv_udp_recv_stop(&wrap->handle_);
   args.GetReturnValue().Set(r);
 }

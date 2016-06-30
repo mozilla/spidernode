@@ -1,8 +1,6 @@
 #ifndef SRC_ASYNC_WRAP_INL_H_
 #define SRC_ASYNC_WRAP_INL_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "async-wrap.h"
 #include "base-object.h"
 #include "base-object-inl.h"
@@ -121,7 +119,5 @@ inline v8::Local<v8::Value> AsyncWrap::MakeCallback(
 }
 
 }  // namespace node
-
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_ASYNC_WRAP_INL_H_

@@ -1,8 +1,6 @@
 #ifndef SRC_NODE_WRAP_H_
 #define SRC_NODE_WRAP_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "env.h"
 #include "env-inl.h"
 #include "js_stream.h"
@@ -41,8 +39,6 @@ inline uv_stream_t* HandleToStream(Environment* env,
   v8::HandleScope scope(env->isolate());
 
   WITH_GENERIC_UV_STREAM(env, obj, {
-    if (wrap == nullptr)
-      return nullptr;
     return reinterpret_cast<uv_stream_t*>(wrap->UVHandle());
   }, {});
 
@@ -50,7 +46,5 @@ inline uv_stream_t* HandleToStream(Environment* env,
 }
 
 }  // namespace node
-
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_NODE_WRAP_H_

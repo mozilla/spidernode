@@ -32,7 +32,6 @@ class SignalWrap : public HandleWrap {
     env->SetProtoMethod(constructor, "close", HandleWrap::Close);
     env->SetProtoMethod(constructor, "ref", HandleWrap::Ref);
     env->SetProtoMethod(constructor, "unref", HandleWrap::Unref);
-    env->SetProtoMethod(constructor, "hasRef", HandleWrap::HasRef);
     env->SetProtoMethod(constructor, "start", Start);
     env->SetProtoMethod(constructor, "stop", Stop);
 
@@ -62,16 +61,14 @@ class SignalWrap : public HandleWrap {
   }
 
   static void Start(const FunctionCallbackInfo<Value>& args) {
-    SignalWrap* wrap;
-    ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
+    SignalWrap* wrap = Unwrap<SignalWrap>(args.Holder());
     int signum = args[0]->Int32Value();
     int err = uv_signal_start(&wrap->handle_, OnSignal, signum);
     args.GetReturnValue().Set(err);
   }
 
   static void Stop(const FunctionCallbackInfo<Value>& args) {
-    SignalWrap* wrap;
-    ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
+    SignalWrap* wrap = Unwrap<SignalWrap>(args.Holder());
     int err = uv_signal_stop(&wrap->handle_);
     args.GetReturnValue().Set(err);
   }

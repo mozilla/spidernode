@@ -182,11 +182,13 @@ static void Initialize(Local<Object> target,
 
 void LoadAsyncWrapperInfo(Environment* env) {
   HeapProfiler* heap_profiler = env->isolate()->GetHeapProfiler();
+#if 0
 #define V(PROVIDER)                                                           \
   heap_profiler->SetWrapperClassInfoProvider(                                 \
       (NODE_ASYNC_ID_OFFSET + AsyncWrap::PROVIDER_ ## PROVIDER), WrapperInfo);
   NODE_ASYNC_PROVIDER_TYPES(V)
 #undef V
+#endif
 }
 
 

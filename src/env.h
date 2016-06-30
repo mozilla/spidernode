@@ -1,10 +1,9 @@
 #ifndef SRC_ENV_H_
 #define SRC_ENV_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "ares.h"
 #include "debug-agent.h"
+#include "node_extern.h"
 #include "handle_wrap.h"
 #include "req-wrap.h"
 #include "tree.h"
@@ -299,7 +298,7 @@ struct ares_task_t {
 
 RB_HEAD(ares_task_list, ares_task_t);
 
-class Environment {
+class NODE_EXTERN Environment {
  public:
   class AsyncHooks {
    public:
@@ -648,7 +647,5 @@ class Environment {
 };
 
 }  // namespace node
-
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_ENV_H_

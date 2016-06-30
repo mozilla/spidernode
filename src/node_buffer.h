@@ -10,6 +10,16 @@ extern bool zero_fill_all_buffers;
 
 namespace Buffer {
 
+// Allow creating custom ArrayBuffer objets.
+typedef v8::Local<v8::ArrayBuffer> (*ArrayBufferNew)(
+    v8::Isolate* isolate, size_t size);
+typedef v8::Local<v8::ArrayBuffer> (*ArrayBufferNewWith)(
+    v8::Isolate* isolate, void* data, size_t size);
+typedef v8::Local<v8::Uint8Array> (*Uint8ArrayNew)(
+    v8::Local<v8::ArrayBuffer> ab, size_t offset, size_t size);
+NODE_EXTERN void SetArrayBufferCreator(
+    ArrayBufferNew, ArrayBufferNewWith, Uint8ArrayNew);
+
 static const unsigned int kMaxLength =
     sizeof(int32_t) == sizeof(intptr_t) ? 0x3fffffff : 0x7fffffff;
 

@@ -1,8 +1,6 @@
 #ifndef SRC_UTIL_H_
 #define SRC_UTIL_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "v8.h"
 
 #include <assert.h>
@@ -10,19 +8,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#ifdef __APPLE__
-#include <tr1/type_traits>
-#else
-#include <type_traits>  // std::remove_reference
-#endif
-
 namespace node {
-
-#ifdef __APPLE__
-template <typename T> using remove_reference = std::tr1::remove_reference<T>;
-#else
-template <typename T> using remove_reference = std::remove_reference<T>;
-#endif
 
 #define FIXED_ONE_BYTE_STRING(isolate, string)                                \
   (node::OneByteString((isolate), (string), sizeof(string) - 1))
@@ -66,14 +52,6 @@ template <typename T> using remove_reference = std::remove_reference<T>;
 #define CHECK_NE(a, b) CHECK((a) != (b))
 
 #define UNREACHABLE() ABORT()
-
-#define ASSIGN_OR_RETURN_UNWRAP(ptr, obj, ...)                                \
-  do {                                                                        \
-    *ptr =                                                                    \
-        Unwrap<typename node::remove_reference<decltype(**ptr)>::type>(obj);  \
-    if (*ptr == nullptr)                                                      \
-      return __VA_ARGS__;                                                     \
-  } while (0)
 
 // TAILQ-style intrusive list node.
 template <typename T>
@@ -200,12 +178,6 @@ inline TypeName* Unwrap(v8::Local<v8::Object> object);
 
 inline void SwapBytes(uint16_t* dst, const uint16_t* src, size_t buflen);
 
-// tolower() is locale-sensitive.  Use ToLower() instead.
-inline char ToLower(char c);
-
-// strcasecmp() is locale-sensitive.  Use StringEqualNoCase() instead.
-inline bool StringEqualNoCase(const char* a, const char* b);
-
 // Allocates an array of member type T. For up to kStackStorageSize items,
 // the stack is used, otherwise malloc().
 template <typename T, size_t kStackStorageSize = 1024>
@@ -305,7 +277,5 @@ class BufferValue : public MaybeStackBuffer<char> {
 };
 
 }  // namespace node
-
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_UTIL_H_

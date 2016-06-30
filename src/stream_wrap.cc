@@ -86,7 +86,7 @@ int StreamWrap::GetFD() {
   int fd = -1;
 #if !defined(_WIN32)
   if (stream() != nullptr)
-    uv_fileno(reinterpret_cast<uv_handle_t*>(stream()), &fd);
+    fd = stream()->io_watcher.fd;
 #endif
   return fd;
 }
@@ -170,8 +170,7 @@ static Local<Object> AcceptHandle(Environment* env, StreamWrap* parent) {
   if (wrap_obj.IsEmpty())
     return Local<Object>();
 
-  WrapType* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap, wrap_obj, Local<Object>());
+  WrapType* wrap = Unwrap<WrapType>(wrap_obj);
   handle = wrap->UVHandle();
 
   if (uv_accept(parent->stream(), reinterpret_cast<uv_stream_t*>(handle)))
@@ -263,8 +262,7 @@ void StreamWrap::OnRead(uv_stream_t* handle,
 
 
 void StreamWrap::SetBlocking(const FunctionCallbackInfo<Value>& args) {
-  StreamWrap* wrap;
-  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
+  StreamWrap* wrap = Unwrap<StreamWrap>(args.Holder());
 
   CHECK_GT(args.Length(), 0);
   if (!wrap->IsAlive())

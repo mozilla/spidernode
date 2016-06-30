@@ -1,8 +1,6 @@
 #ifndef SRC_ASYNC_WRAP_H_
 #define SRC_ASYNC_WRAP_H_
 
-#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-
 #include "base-object.h"
 #include "v8.h"
 
@@ -88,6 +86,5 @@ void LoadAsyncWrapperInfo(Environment* env);
 
 }  // namespace node
 
-#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_ASYNC_WRAP_H_
