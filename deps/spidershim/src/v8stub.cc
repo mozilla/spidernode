@@ -46,7 +46,7 @@ void ObjectTemplate::SetNamedPropertyHandler(void (*)(v8::Local<v8::String>, v8:
   fprintf(stderr, "ObjectTemplate::SetNamedPropertyHandler is a stub\n");
 }
 
-Local<Signature> Signature::New(v8::Isolate*, v8::Local<v8::FunctionTemplate>, int, v8::Local<v8::FunctionTemplate>*) {
+Local<Signature> Signature::New(v8::Isolate* isolate, v8::Local<v8::FunctionTemplate> receiver, int argc, v8::Local<v8::FunctionTemplate> argv[]) {
   fprintf(stderr, "Signature::New is a stub\n");
   return Local<Signature>();
 }
