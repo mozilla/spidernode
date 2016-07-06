@@ -687,11 +687,9 @@ TEST(SpiderShim, InstanceCheckOnInstanceAccessor) {
 
   Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
   Local<ObjectTemplate> inst = templ->InstanceTemplate();
-  // TODO: Uncomment once we implement signatures.
-  // See https://github.com/mozilla/spidernode/issues/144.
   inst->SetAccessor(v8_str("foo"), InstanceCheckedGetter, InstanceCheckedSetter,
-                    Local<Value>(), v8::DEFAULT, v8::None/*,
-                    v8::AccessorSignature::New(context->GetIsolate(), templ)*/);
+                    Local<Value>(), v8::DEFAULT, v8::None,
+                    v8::AccessorSignature::New(context->GetIsolate(), templ));
   EXPECT_TRUE(context->Global()
             ->Set(context, v8_str("f"),
                   templ->GetFunction(context).ToLocalChecked())
@@ -706,9 +704,7 @@ TEST(SpiderShim, InstanceCheckOnInstanceAccessor) {
              "obj.__proto__ = new f();");
   EXPECT_TRUE(!templ->HasInstance(
       context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
-  // TODO: Once we implement signatures, we should be passing false to CheckInstanceCheckedAccessors.
-  // CheckInstanceCheckedAccessors(false);
-  CheckInstanceCheckedAccessors(true);
+  CheckInstanceCheckedAccessors(false);
 }
 
 TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
@@ -722,12 +718,10 @@ TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
 
   Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
   Local<ObjectTemplate> proto = templ->PrototypeTemplate();
-  // TODO: Uncomment once we implement signatures.
-  // See https://github.com/mozilla/spidernode/issues/144.
   proto->SetAccessor(v8_str("foo"), InstanceCheckedGetter,
                      InstanceCheckedSetter, Local<Value>(), v8::DEFAULT,
-                     v8::None/*,
-                     v8::AccessorSignature::New(context->GetIsolate(), templ)*/);
+                     v8::None,
+                     v8::AccessorSignature::New(context->GetIsolate(), templ));
   EXPECT_TRUE(context->Global()
             ->Set(context, v8_str("f"),
                   templ->GetFunction(context).ToLocalChecked())
@@ -742,9 +736,7 @@ TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
              "obj.__proto__ = new f();");
   EXPECT_TRUE(!templ->HasInstance(
       context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
-  // TODO: Once we implement signatures, we should be passing false to CheckInstanceCheckedAccessors.
-  // CheckInstanceCheckedAccessors(false);
-  CheckInstanceCheckedAccessors(true);
+  CheckInstanceCheckedAccessors(false);
 
   CompileRun("var obj = new f();"
              "var pro = {};"

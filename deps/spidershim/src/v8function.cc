@@ -26,12 +26,11 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
+#include "accessor.h"
 
 namespace {
 
 using namespace v8;
-
-const char* kIllegalInvocation = "Illegal invocation";
 
 // For now, we implement the hidden callee data using a property with a symbol
 // key. This is observable to script, so if this becomes an issue in the future

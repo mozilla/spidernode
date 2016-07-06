@@ -25,6 +25,11 @@
 #include "v8.h"
 #include "v8local.h"
 
+namespace {
+
+const char* kIllegalInvocation = "Illegal invocation";
+}
+
 namespace v8 {
 namespace internal {
 
@@ -47,6 +52,7 @@ enum class AccessorSlots {
   DataSlot,
   CallbackSlot1,
   CallbackSlot2,
+  SignatureSlot,
   NumSlots
 };
 
@@ -101,6 +107,30 @@ struct CallbackTraits<typename XerTraits<N>::Setter, N> {
   static const unsigned nargs = 0;
 };
 
+struct SignatureChecker {
+  // Performs a signature check if needed.  Returns true and a holder object
+  // unless the signature check fails.
+  static bool CheckSignature(JS::HandleObject accessorData,
+                             v8::Local<Object> _this,
+                             v8::Local<Object>& holder) {
+    Isolate* isolate = Isolate::GetCurrent();
+    JSContext* cx = JSContextFromIsolate(isolate);
+    AutoJSAPI jsAPI(cx, GetObject(_this));
+    assert(JS_GetClass(accessorData) == &accessorDataClass);
+    JS::Value signatureVal = js::GetReservedSlot(accessorData,
+                                                 size_t(AccessorSlots::SignatureSlot));
+    if (!signatureVal.isUndefined()) {
+      v8::Local<FunctionTemplate> signatureAsTemplate =
+        internal::Local<FunctionTemplate>::NewTemplate(isolate, signatureVal);
+      if (!signatureAsTemplate->InstanceTemplate()->IsInstance(GetObject(_this))) {
+        return false;
+      }
+    }
+    holder = _this;
+    return true;
+  }
+};
+
 // AccessorGetterCallback/AccessorSetterCallback are passed information that is
 // not really present in SpiderMonkey: a Local<String> for the property name
 // (directly) and a Value for the callback data (indirectly, via
@@ -137,13 +167,16 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   auto callback =
     ValuesToCallback<CallbackType>(callbackVal1, callbackVal2);
   if (callback) {
-    // TODO: Figure out the story for holder.  See
-    // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ (which is
-    // kinda messed up, since they have _stopped_ doing the weird holder thing for
-    // DOM stuff since then).
+    v8::Local<Object> holder;
+    if (!SignatureChecker::CheckSignature(accessorData, thisObject, holder)) {
+      isolate->ThrowException(
+          Exception::Error(String::NewFromUtf8(isolate,
+                                               kIllegalInvocation)));
+      return false;
+    }
     typedef typename
       CallbackTraits<CallbackType, N>::PropertyCallbackInfo PropertyCallbackInfo;
-    PropertyCallbackInfo info(data, thisObject, thisObject);
+    PropertyCallbackInfo info(data, thisObject, holder);
 
     CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
                                             info, args);
@@ -159,7 +192,8 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
 template<typename CallbackType, class N>
 JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
                          v8::Handle<N> name,
-                         v8::Handle<v8::Value> data) {
+                         v8::Handle<v8::Value> data,
+                         v8::Handle<v8::AccessorSignature> signature) {
   // XXXbz should we pass a better name here?
   JSFunction* func =
     js::NewFunctionWithReserved(cx, NativeAccessorCallback<CallbackType, N>,
@@ -194,6 +228,14 @@ JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
   js::SetReservedSlot(accessorData, size_t(AccessorSlots::CallbackSlot2),
                       callbackVal2);
 
+  JS::Value signatureVal;
+  signatureVal.setUndefined();
+  if (!signature.IsEmpty()) {
+    signatureVal = *GetValue(signature);
+  }
+  js::SetReservedSlot(accessorData, size_t(AccessorSlots::SignatureSlot),
+                      signatureVal);
+
   return funObj;
 }
 
@@ -211,13 +253,13 @@ bool SetAccessor(JSContext* cx,
   // TODO: What should happen with "settings", "signature"?  See
   // https://github.com/mozilla/spidernode/issues/141
 
-  JS::RootedObject getterObj(cx, CreateAccessor(cx, getter, name, data));
+  JS::RootedObject getterObj(cx, CreateAccessor(cx, getter, name, data, signature));
   if (!getterObj) {
     return false;
   }
   JS::RootedObject setterObj(cx);
   if (setter) {
-    setterObj = CreateAccessor(cx, setter, name, data);
+    setterObj = CreateAccessor(cx, setter, name, data, signature);
     if (!setterObj) {
       return false;
     }
