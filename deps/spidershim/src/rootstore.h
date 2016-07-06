@@ -22,6 +22,7 @@
 
 #include <assert.h>
 #include <vector>
+#include <algorithm>
 
 #include "conversions.h"
 #include "gclist.h"
@@ -101,6 +102,10 @@ class RootStore {
   Message* Add(Message* message) {
     messages.push_back(message);
     return message;
+  }
+
+  void Remove(Message* val) {
+    messages.erase(std::remove(messages.begin(), messages.end(), val), messages.end());
   }
 
  private:
