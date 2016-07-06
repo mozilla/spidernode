@@ -541,8 +541,8 @@ class PersistentBase {
   friend class Object;
 
   explicit V8_INLINE PersistentBase(T* val) : val_(val) {}
-  PersistentBase(PersistentBase& other) = delete;  // NOLINT
-  void operator=(PersistentBase&) = delete;
+  PersistentBase(const PersistentBase& other) = delete;  // NOLINT
+  void operator=(const PersistentBase&) = delete;
   V8_INLINE static T* New(Isolate* isolate, T* that);
 
   template <typename P, typename Callback>
@@ -703,8 +703,8 @@ class Global : public PersistentBase<T> {
   Global Pass() { return static_cast<Global&&>(*this); }
 
  private:
-  Global(Global&) = delete;
-  void operator=(Global&) = delete;
+  Global(const Global&) = delete;
+  void operator=(const Global&) = delete;
   V8_INLINE T* operator*() const { return this->val_; }
 };
 
