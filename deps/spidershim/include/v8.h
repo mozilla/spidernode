@@ -144,6 +144,7 @@ template <typename T>
 struct ExternalStringFinalizerBase;
 struct ExternalStringFinalizer;
 struct ExternalOneByteStringFinalizer;
+struct SignatureChecker;
 }
 
 enum PropertyAttribute {
@@ -2282,6 +2283,7 @@ class V8_EXPORT ObjectTemplate : public Template {
  private:
   friend struct FunctionCallbackData;
   friend struct FunctionTemplateData;
+  friend struct internal::SignatureChecker;
   friend class Utils;
   friend class FunctionTemplate;
 
