@@ -819,10 +819,30 @@ class V8_EXPORT EscapableHandleScope : public HandleScope {
     return Local<T>(static_cast<T*>(result));
   }
 
+  template <class T, class U>
+  static U* AddToParentScopeImpl(T* val);
+
   static Value* AddToParentScope(Value* val);
+  static Template* AddToParentScope(Template* val);
+  static Signature* AddToParentScope(Signature* val);
+  static AccessorSignature* AddToParentScope(AccessorSignature* val);
+  static Private* AddToParentScope(JS::Symbol* priv);
+  static Message* AddToParentScope(Message* msg);
   static Context* AddToParentScope(Context* context) {
     // Contexts are not currently tracked by HandleScopes.
     return context;
+  }
+  static StackFrame* AddToParentScope(StackFrame* frame) {
+    // StackFrames are not currently tracked by HandleScopes.
+    return frame;
+  }
+  static StackTrace* AddToParentScope(StackTrace* trace) {
+    // StackTraces are not currently tracked by HandleScopes.
+    return trace;
+  }
+  static UnboundScript* AddToParentScope(UnboundScript* us) {
+    // UnboundScripts are not currently tracked by HandleScopes.
+    return us;
   }
 };
 
