@@ -102,8 +102,33 @@ Message* HandleScope::AddToScope(Message* message) {
   return sCurrentScope.get()->pimpl_->Add(message);
 }
 
-Value* EscapableHandleScope::AddToParentScope(Value* val) {
+template <class T, class U>
+U* EscapableHandleScope::AddToParentScopeImpl(T* val) {
   return sCurrentScope.get() && sCurrentScope.get()->pimpl_->prev ?
          sCurrentScope.get()->pimpl_->prev->pimpl_->Add(val) : nullptr;
+}
+
+Value* EscapableHandleScope::AddToParentScope(Value* val) {
+  return AddToParentScopeImpl<Value, Value>(val);
+}
+
+Template* EscapableHandleScope::AddToParentScope(Template* val) {
+  return AddToParentScopeImpl<Template, Template>(val);
+}
+
+Signature* EscapableHandleScope::AddToParentScope(Signature* val) {
+  return AddToParentScopeImpl<Signature, Signature>(val);
+}
+
+AccessorSignature* EscapableHandleScope::AddToParentScope(AccessorSignature* val) {
+  return AddToParentScopeImpl<AccessorSignature, AccessorSignature>(val);
+}
+
+Private* EscapableHandleScope::AddToParentScope(JS::Symbol* priv) {
+  return AddToParentScopeImpl<JS::Symbol, Private>(priv);
+}
+
+Message* EscapableHandleScope::AddToParentScope(Message* val) {
+  return AddToParentScopeImpl<Message, Message>(val);
 }
 }
