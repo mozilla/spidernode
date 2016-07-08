@@ -240,6 +240,36 @@ JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
   return funObj;
 }
 
+template<class N>
+bool SetAccessor(JSContext* cx,
+                 JS::HandleObject obj,
+                 Handle<N> name,
+                 JS::HandleObject getter,
+                 JS::HandleObject setter,
+                 AccessControl settings,
+                 PropertyAttribute attribute) {
+  JS::RootedId id(cx);
+  JS::RootedValue nameVal(cx, *GetValue(name));
+  if (!JS_WrapValue(cx, &nameVal) ||
+      !JS_ValueToId(cx, nameVal, &id)) {
+    return false;
+  }
+
+  unsigned attrs = internal::AttrsToFlags(attribute) |
+                   JSPROP_SHARED | JSPROP_GETTER;
+  if (setter) {
+    attrs |= JSPROP_SETTER;
+  }
+
+  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
+                             JS_DATA_TO_FUNC_PTR(JSNative, getter.get()),
+                             JS_DATA_TO_FUNC_PTR(JSNative, setter.get()))) {
+    return false;
+  }
+
+  return true;
+}
+
 template<class N, class Getter, class Setter>
 bool SetAccessor(JSContext* cx,
                  JS::HandleObject obj,
@@ -266,23 +296,8 @@ bool SetAccessor(JSContext* cx,
     }
   }
 
-  JS::RootedId id(cx);
-  JS::RootedValue nameVal(cx, *GetValue(name));
-  if (!JS_WrapValue(cx, &nameVal) ||
-      !JS_ValueToId(cx, nameVal, &id)) {
-    return false;
-  }
-
-  unsigned attrs = internal::AttrsToFlags(attribute) |
-                   JSPROP_SHARED | JSPROP_GETTER | JSPROP_SETTER;
-
-  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
-                             JS_DATA_TO_FUNC_PTR(JSNative, getterObj.get()),
-                             JS_DATA_TO_FUNC_PTR(JSNative, setterObj.get()))) {
-    return false;
-  }
-
-  return true;
+  return SetAccessor(cx, obj, name, getterObj, setterObj, settings,
+                     attribute);
 }
 
 }

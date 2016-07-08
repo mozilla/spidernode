@@ -1578,6 +1578,11 @@ class V8_EXPORT Object : public Value {
                           AccessControl settings = DEFAULT,
                           PropertyAttribute attribute = None);
 
+  void SetAccessorProperty(Local<Name> name, Local<Function> getter,
+                           Local<Function> setter = Local<Function>(),
+                           PropertyAttribute attribute = None,
+                           AccessControl settings = DEFAULT);
+
   V8_DEPRECATE_SOON("Use maybe version", Local<Array> GetPropertyNames());
   V8_WARN_UNUSED_RESULT MaybeLocal<Array> GetPropertyNames(
       Local<Context> context);

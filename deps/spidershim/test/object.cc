@@ -37,3 +37,32 @@ TEST(SpiderShim, ReplaceConstantFunction) {
   EXPECT_TRUE(!obj_clone->Get(context, foo_string).ToLocalChecked()->IsFunction());
 }
 
+TEST(SpiderShim, ObjectSetAccessorProperty) {
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  engine.CompileRun(context,
+      "var setValue;"
+      "function return_42() { return 42; }"
+      "function setter(val) { setValue = val; }");
+
+  Local<Object> obj = Object::New(isolate);
+  Local<Function> getter = context->Global()->Get(v8_str("return_42")).As<Function>();
+  Local<Function> setter = context->Global()->Get(v8_str("setter")).As<Function>();
+  obj->SetAccessorProperty(v8_str("prop"), getter, setter);
+  context->Global()->Set(v8_str("obj"), obj);
+  Local<Value> returned = engine.CompileRun(context, "obj.prop");
+  EXPECT_EQ(42, returned.As<Integer>()->Value());
+  EXPECT_TRUE(engine.CompileRun(context, "setValue")->IsUndefined());
+  engine.CompileRun(context, "obj.prop = 'Hello'");
+  Local<Value> setValue = engine.CompileRun(context, "setValue");
+  returned = engine.CompileRun(context, "obj.prop");
+  EXPECT_EQ(42, returned.As<Integer>()->Value());
+  String::Utf8Value utf8(setValue.As<String>());
+  EXPECT_STREQ("Hello", *utf8);
+}
