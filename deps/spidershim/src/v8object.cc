@@ -813,4 +813,17 @@ Maybe<bool> Object::SetAccessorInternal(JSContext* cx,
   }
   return Just(true);
 }
+
+void Object::SetAccessorProperty(Local<Name> name, Local<Function> getter,
+                                 Local<Function> setter, PropertyAttribute attribute,
+                                 AccessControl settings) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+
+  internal::SetAccessor(cx, obj, name, GetObject(getter),
+                        setter.IsEmpty() ? nullptr : GetObject(setter),
+                        settings, attribute);
+}
 }
