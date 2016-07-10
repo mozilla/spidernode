@@ -2756,6 +2756,8 @@ class V8_EXPORT Context {
   void Enter();
   void Exit();
 
+  enum EmbedderDataFields { kDebugIdIndex = 0 };
+
   ~Context();
 
  private:
