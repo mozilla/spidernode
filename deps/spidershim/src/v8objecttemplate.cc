@@ -333,12 +333,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
     flags |= InstanceClass::nameAllocated;
   }
 
-  JS::Value internalFieldCountVal = js::GetReservedSlot(obj,
-                                                        size_t(TemplateSlots::InternalFieldCountSlot));
-  uint32_t internalFieldCount = 0;
-  if (!internalFieldCountVal.isUndefined()) {
-    internalFieldCount = internalFieldCountVal.toInt32();
-  }
+  uint32_t internalFieldCount = static_cast<uint32_t>(InternalFieldCount());
 
   instanceClass->flags =
     flags | JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
@@ -353,6 +348,23 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   js::SetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot),
                       JS::PrivateValue(instanceClass));
   return instanceClass;
+}
+
+int ObjectTemplate::InternalFieldCount() {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  JS::Value internalFieldCountVal = js::GetReservedSlot(obj,
+                                                        size_t(TemplateSlots::InternalFieldCountSlot));
+  int internalFieldCount = 0;
+  if (!internalFieldCountVal.isUndefined()) {
+    internalFieldCount = internalFieldCountVal.toInt32();
+  }
+  return internalFieldCount;
 }
 
 void ObjectTemplate::SetInternalFieldCount(int value) {

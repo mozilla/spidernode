@@ -555,7 +555,9 @@ TEST(SpiderShim, InternalFields) {
 
   Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
   Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  EXPECT_EQ(0, instance_templ->InternalFieldCount());
   instance_templ->SetInternalFieldCount(1);
+  EXPECT_EQ(1, instance_templ->InternalFieldCount());
   Local<v8::Object> obj = templ->GetFunction(context)
                               .ToLocalChecked()
                               ->NewInstance(context)
@@ -586,7 +588,9 @@ TEST(SpiderShim, InternalFieldsAlignedPointers) {
 
   Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
   Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  EXPECT_EQ(0, instance_templ->InternalFieldCount());
   instance_templ->SetInternalFieldCount(1);
+  EXPECT_EQ(1, instance_templ->InternalFieldCount());
   Local<v8::Object> obj = templ->GetFunction(context)
                               .ToLocalChecked()
                               ->NewInstance(context)

@@ -2261,6 +2261,7 @@ class V8_EXPORT ObjectTemplate : public Template {
                                Handle<Value> data = Handle<Value>(),
                                bool turned_on_by_default = true);
 
+  int InternalFieldCount();
   void SetInternalFieldCount(int value);
   void SetCallAsFunctionHandler(FunctionCallback callback,
                                 Handle<Value> data = Handle<Value>());
