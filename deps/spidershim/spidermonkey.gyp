@@ -26,10 +26,12 @@
       },
 
       'variables': {
+        'spidermonkey_extra_args%': [],  # Allow embedders to customize SpiderMonkey
+                                         # configure flags.
+        'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
         'spidermonkey_binaries': [
           '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
         ],
-        'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
         'conditions': [
           ['OS == "linux"', {
             'spidermonkey_binaries+': [
@@ -66,6 +68,7 @@
           'action': [
             'scripts/build-spidermonkey.sh',
             '<@(spidermonkey_args)',
+            '<@(spidermonkey_extra_args)',
           ],
         },
       ],
