@@ -2750,6 +2750,7 @@ static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
   EXPECT_EQ(ab->GetContents().Data(), ta->Buffer()->GetContents().Data());
   EXPECT_EQ(ta->ByteOffset(), TypedArrayType::Cast(*ta->ToObject())->ByteOffset());
   EXPECT_TRUE(ta->IsTypedArray());
+  EXPECT_TRUE(ta->IsArrayBufferView());
   EXPECT_TRUE(TypedArray::Cast(*ta));
   return ta;
 }

@@ -86,6 +86,10 @@ bool Value::IsDataView() const {
   return JS_IsDataViewObject(GetObject(this));
 }
 
+bool Value::IsArrayBufferView() const {
+  return IsDataView() || IsTypedArray();
+}
+
 bool Value::IsFunction() const {
   if (!IsObject()) {
     return false;
