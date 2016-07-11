@@ -312,30 +312,6 @@ void Isolate::RemovePersistent(Template* val) {
   return pimpl_->persistents->Remove(val);
 }
 
-Signature* Isolate::AddPersistent(Signature* val) {
-  return pimpl_->persistents->Add(val);
-}
-
-void Isolate::RemovePersistent(Signature* val) {
-  return pimpl_->persistents->Remove(val);
-}
-
-AccessorSignature* Isolate::AddPersistent(AccessorSignature* val) {
-  return pimpl_->persistents->Add(val);
-}
-
-void Isolate::RemovePersistent(AccessorSignature* val) {
-  return pimpl_->persistents->Remove(val);
-}
-
-Message* Isolate::AddPersistent(Message* val) {
-  return pimpl_->persistents->Add(val);
-}
-
-void Isolate::RemovePersistent(Message* val) {
-  return pimpl_->persistents->Remove(val);
-}
-
 size_t Isolate::PersistentCount() const {
   if (pimpl_->persistents.isNothing()) {
     return 0;

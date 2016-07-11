@@ -2509,34 +2509,14 @@ class V8_EXPORT Isolate {
   void RemovePersistent(Value* val);
   Template* AddPersistent(Template* val);
   void RemovePersistent(Template* val);
-  Signature* AddPersistent(Signature* val);
-  void RemovePersistent(Signature* val);
-  AccessorSignature* AddPersistent(AccessorSignature* val);
-  void RemovePersistent(AccessorSignature* val);
   Private* AddPersistent(Private* val);  // not supported yet
   void RemovePersistent(Private* val);   // not supported yet
-  Message* AddPersistent(Message* val);
-  void RemovePersistent(Message* val);
   Context* AddPersistent(Context* val) {
     // Contexts are not currently tracked by HandleScopes.
     return val;
   }
   void RemovePersistent(Context* val) {
     // Contexts are not currently tracked by HandleScopes.
-  }
-  StackFrame* AddPersistent(StackFrame* val) {
-    // StackFrames are not currently tracked by HandleScopes.
-    return val;
-  }
-  void RemovePersistent(StackFrame* val) {
-    // StackFrames are not currently tracked by HandleScopes.
-  }
-  StackTrace* AddPersistent(StackTrace* val) {
-    // StackTraces are not currently tracked by HandleScopes.
-    return val;
-  }
-  void RemovePersistent(StackTrace* val) {
-    // StackTraces are not currently tracked by HandleScopes.
   }
   UnboundScript* AddPersistent(UnboundScript* val) {
     // UnboundScripts are not currently tracked by HandleScopes.
