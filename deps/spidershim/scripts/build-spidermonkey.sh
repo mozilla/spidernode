@@ -15,7 +15,12 @@ if test -z "$AUTOCONF"; then
   exit 1
 fi
 
-case "$CONFIGURATION" in
+config="$BUILDTYPE"
+if [ -z "$config" ]; then
+  config="$CONFIGURATION"
+fi
+
+case "$config" in
   Debug)
     args="--enable-debug --disable-optimize"
     ;;
