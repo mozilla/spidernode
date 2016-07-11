@@ -713,6 +713,10 @@ class Global : public PersistentBase<T> {
   V8_INLINE T* operator*() const { return this->val_; }
 };
 
+// UniquePersistent is an alias for Global for historical reason.
+template <class T>
+using UniquePersistent = Global<T>;
+
 template <class T>
 class Eternal {
  public:
