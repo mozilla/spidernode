@@ -26,6 +26,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
+#include "accessor.h"
 
 namespace {
 
@@ -159,9 +160,18 @@ class FunctionCallback {
         }
         v8args[i] = *arg;
       }
-      // TODO: Figure out what we want to do for holder.  See
-      // https://groups.google.com/d/msg/v8-users/Axf4hF_RfZo/hA6Mvo78AqAJ
-      FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, _this,
+      v8::Local<Object> holder;
+      if (templ.IsEmpty()) {
+        holder = _this;
+      } else {
+        if (!templ->CheckSignature(_this, holder)) {
+          isolate->ThrowException(
+              Exception::Error(String::NewFromUtf8(isolate,
+                                                   kIllegalInvocation)));
+          return false;
+        }
+      }
+      FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, holder,
                                        args.isConstructing(),
                                        data, calleeFunction);
       callback(info);

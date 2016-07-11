@@ -144,6 +144,7 @@ template <typename T>
 struct ExternalStringFinalizerBase;
 struct ExternalStringFinalizer;
 struct ExternalOneByteStringFinalizer;
+struct SignatureChecker;
 }
 
 enum PropertyAttribute {
@@ -770,6 +771,8 @@ class V8_EXPORT HandleScope {
 
   static Value* AddToScope(Value* val);
   static Template* AddToScope(Template* val);
+  static Signature* AddToScope(Signature* val);
+  static AccessorSignature* AddToScope(AccessorSignature* val);
   static Script* AddToScope(JSScript* script, Local<Context> context);
   static Private* AddToScope(JS::Symbol* priv);
   static Message* AddToScope(Message* msg);
@@ -2174,6 +2177,9 @@ class V8_EXPORT FunctionTemplate : public Template {
   // InstanceTemplates of all ancestors, on the given object.  Returns false on
   // failure, true on success.
   bool InstallInstanceProperties(Local<Object> target);
+  // Performs a signature check if needed.  Returns true and a holder object
+  // unless the signature check fails.
+  bool CheckSignature(Local<Object> _this, Local<Object>& holder);
 };
 
 enum class PropertyHandlerFlags {
@@ -2276,6 +2282,7 @@ class V8_EXPORT ObjectTemplate : public Template {
  private:
   friend struct FunctionCallbackData;
   friend struct FunctionTemplateData;
+  friend struct internal::SignatureChecker;
   friend class Utils;
   friend class FunctionTemplate;
 
@@ -2322,19 +2329,31 @@ class V8_EXPORT Signature : public Data {
  public:
   static Local<Signature> New(
       Isolate* isolate,
-      Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
-      int argc = 0, Handle<FunctionTemplate> argv[] = nullptr);
+      Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>());
 
  private:
-  Signature();
+  // We treat signatures as JS::Values containing a FunctionTemplate, and we
+  // root them in the same way that we root v8::Value.
+  // TODO: Consider lifting this up into v8::Data once we have implemented
+  // all of the Data subclasses.
+  char spidershim_padding[8];
 };
+static_assert(sizeof(v8::Signature) == 8, "v8::Signature must be the same size as JS::Value");
 
 class V8_EXPORT AccessorSignature : public Data {
  public:
   static Local<AccessorSignature> New(
       Isolate* isolate,
       Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>());
+
+ private:
+  // We treat signatures as JS::Values containing a FunctionTemplate, and we
+  // root them in the same way that we root v8::Value.
+  // TODO: Consider lifting this up into v8::Data once we have implemented
+  // all of the Data subclasses.
+  char spidershim_padding[8];
 };
+static_assert(sizeof(v8::AccessorSignature) == 8, "v8::AccessorSignature must be the same size as JS::Value");
 
 // --- Promise Reject Callback ---
 enum PromiseRejectEvent {

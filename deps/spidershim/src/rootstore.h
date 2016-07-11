@@ -70,6 +70,16 @@ class RootStore {
     return GetV8Template(&values.back());
   }
 
+  Signature* Add(Signature* val) {
+    values.push_back(*GetValue(val));
+    return GetV8Signature(&values.back());
+  }
+
+  AccessorSignature* Add(AccessorSignature* val) {
+    values.push_back(*GetValue(val));
+    return GetV8AccessorSignature(&values.back());
+  }
+
   // T can be any type that GetValue() can convert to a JS::Value*,
   // for example v8::Value or v8::Template.
   template <class T>

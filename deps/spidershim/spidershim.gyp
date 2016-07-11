@@ -88,6 +88,7 @@
         'src/v8proxy.cc',
         'src/v8script.cc',
         'src/v8scriptcompiler.cc',
+        'src/v8signature.cc',
         'src/v8stackframe.cc',
         'src/v8stacktrace.cc',
         'src/v8string.cc',
