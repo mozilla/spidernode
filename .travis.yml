@@ -153,19 +153,20 @@ matrix:
       compiler: clang
       env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true
 
-    - os: osx
-      compiler: clang-3.8
-      osx_image: xcode7.3
-      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2
-      before_install:
-        - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
-        - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
-        - brew update
-        - brew tap homebrew/versions
-        - brew unlink autoconf
-        - brew install autoconf213
-        - brew install yasm gawk ccache python
-      install: export CC="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang" CXX="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++"
+# Disabled for intermittently failing too many times.
+#    - os: osx
+#      compiler: clang-3.8
+#      osx_image: xcode7.3
+#      env: BUILD_CONFIG=normal ENABLE_ASAN=true MAKE_ARGS=-j2
+#      before_install:
+#        - wget http://llvm.org/releases/3.8.0/clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+#        - tar xf clang+llvm-3.8.0-x86_64-apple-darwin.tar.xz
+#        - brew update
+#        - brew tap homebrew/versions
+#        - brew unlink autoconf
+#        - brew install autoconf213
+#        - brew install yasm gawk ccache python
+#      install: export CC="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang" CXX="$PWD/clang+llvm-3.8.0-x86_64-apple-darwin/bin/clang++"
 
     - os: osx
       compiler: clang-3.8
