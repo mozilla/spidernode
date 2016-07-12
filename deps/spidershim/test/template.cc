@@ -74,10 +74,7 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   templ2->Set(isolate, "a", v8_num(12));
      templ2->Set(isolate, "b", templ1);
      templ2->Set(v8_str("bar"), acc);
-  // TEST_TODO: accessors on ObjectTemplate are totally different in node vs tip
-  // V8, so test SetAccessor instead of SetAccessorProperty
-  //   templ2->SetAccessorProperty(v8_str("acc"), acc);
-  templ2->SetAccessor(v8_str("acc"), Gets42);
+  templ2->SetAccessorProperty(v8_str("acc"), acc);
   Local<Object> instance2 =
     templ2->NewInstance(context).ToLocalChecked();
   EXPECT_TRUE(context->Global()->Set(context, v8_str("q"), instance2).FromJust());
@@ -130,17 +127,16 @@ TEST(SpiderShim, ObjectTemplateDetails) {
   //             ->BooleanValue(context)
   //             .FromJust());
 
-  // TEST_TORO: Enable this part when we switch to SetAccessorProperty() above.
-  //  EXPECT_TRUE(engine.CompileRun(context,
-  //                      "desc1 = Object.getOwnPropertyDescriptor(q, 'acc');"
-  //                      "(desc1.get === acc)")
-  //                 ->BooleanValue(context)
-  //                 .FromJust());
-  //  EXPECT_TRUE(engine.CompileRun(context,
-  //                          "desc2 = Object.getOwnPropertyDescriptor(q2, 'acc');"
-  //                          "(desc2.get === acc)")
-  //            ->BooleanValue(context)
-  //            .FromJust());
+  EXPECT_TRUE(engine.CompileRun(context,
+                      "desc1 = Object.getOwnPropertyDescriptor(q, 'acc');"
+                      "(desc1.get === acc)")
+                 ->BooleanValue(context)
+                 .FromJust());
+  EXPECT_TRUE(engine.CompileRun(context,
+                          "desc2 = Object.getOwnPropertyDescriptor(q2, 'acc');"
+                          "(desc2.get === acc)")
+            ->BooleanValue(context)
+            .FromJust());
 }
 
 static void GetNirk(Local<String> name,
@@ -438,7 +434,6 @@ static void TestSignature(V8Engine& engine, Local<Context> context,
   }
 }
 
-#if 0
 TEST(SpiderShim, FunctionTemplateReceiverSignature) {
   // Largely stolen from the V8 test-api.cc ReceiverSignature test.
   V8Engine engine;
@@ -463,11 +458,9 @@ TEST(SpiderShim, FunctionTemplateReceiverSignature) {
   v8::Local<v8::ObjectTemplate> fun_proto = fun->PrototypeTemplate();
   fun_proto->Set(v8_str("prop_sig"), callback_sig);
   fun_proto->Set(v8_str("prop"), callback);
-  // No support for SetAccessorProperty yet (and indeed, it doesn't even exist
-  // in our V8 version).
-  // fun_proto->SetAccessorProperty(
-  //     v8_str("accessor_sig"), callback_sig, callback_sig);
-  // fun_proto->SetAccessorProperty(v8_str("accessor"), callback, callback);
+  fun_proto->SetAccessorProperty(
+      v8_str("accessor_sig"), callback_sig, callback_sig);
+  fun_proto->SetAccessorProperty(v8_str("accessor"), callback, callback);
 
   // Instantiate templates.
   Local<Value> fun_instance =
@@ -540,7 +533,6 @@ TEST(SpiderShim, FunctionTemplateReceiverSignature) {
                   "test_object[accessor_sig_key] = 1;", test_object, isolate);
   }
 }
-#endif // FunctionTemplateReceiverSignature
 
 TEST(SpiderShim, InternalFields) {
   // Loosely based on the V8 test-api.cc InternalFields test.

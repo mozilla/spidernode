@@ -22,6 +22,8 @@
 
 #include "conversions.h"
 #include "jsapi.h"
+#include "jsfriendapi.h"
+#include "accessor.h"
 #include "v8local.h"
 
 namespace v8 {
@@ -45,5 +47,20 @@ void Template::Set(Local<String> name, Local<Data> value,
   Local<Value> val =
     FunctionTemplate::MaybeConvertObjectProperty(value.As<Value>(), name);
   thisObj->ForceSet(name, val, attributes);
+}
+
+void Template::SetAccessorProperty(Local<Name> name,
+                                   Local<FunctionTemplate> getter,
+                                   Local<FunctionTemplate> setter,
+                                   PropertyAttribute attribute,
+                                   AccessControl settings) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+
+  internal::SetAccessor(cx, obj, name, GetObject(getter->GetFunction()),
+                        setter.IsEmpty() ? nullptr : GetObject(setter->GetFunction()),
+                        settings, attribute);
 }
 }
