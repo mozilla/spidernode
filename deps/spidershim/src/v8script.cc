@@ -23,6 +23,7 @@
 #include "js/CharacterEncoding.h"
 #include "v8local.h"
 #include "v8string.h"
+#include "v8trycatch.h"
 #include "mozilla/UniquePtr.h"
 
 namespace v8 {
@@ -104,9 +105,11 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   JS::RootedValue result(cx);
   JS::RootedObject global(cx, GetObject(context_->Global()));
   AutoJSAPI jsAPI(cx, global);
+  internal::TryCatch tryCatch(context_->GetIsolate());
   if (!JS::CloneAndExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_),
                                  &result) ||
       !JS_WrapValue(cx, &result)) {
+    tryCatch.CheckReportExternalException();
     return MaybeLocal<Value>();
   }
   return internal::Local<Value>::New(context->GetIsolate(), result);
