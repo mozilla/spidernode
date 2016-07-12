@@ -171,8 +171,8 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
     v8::Local<Object> holder;
     if (!SignatureChecker::CheckSignature(accessorData, thisObject, holder)) {
       isolate->ThrowException(
-          Exception::Error(String::NewFromUtf8(isolate,
-                                               kIllegalInvocation)));
+          Exception::TypeError(String::NewFromUtf8(isolate,
+                                                   kIllegalInvocation)));
       return false;
     }
     typedef typename
