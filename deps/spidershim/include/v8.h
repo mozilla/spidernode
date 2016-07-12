@@ -80,6 +80,7 @@ class Function;
 class FunctionTemplate;
 class HeapProfiler;
 class HeapSpaceStatistics;
+class HeapObjectStatistics;
 class HeapStatistics;
 class Int32;
 class Integer;
@@ -1916,6 +1917,8 @@ class V8_EXPORT Function : public Object {
   void SetName(Handle<String> name);
   Local<Value> GetName() const;
 
+  ScriptOrigin GetScriptOrigin() const;
+
   static Function* Cast(Value* obj);
 
  protected:
@@ -2421,6 +2424,43 @@ typedef void* (*CreateHistogramCallback)(const char* name, int min, int max,
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
 
+/**
+ * This scope is used to control microtasks when kScopeMicrotasksInvocation
+ * is used on Isolate. In this mode every non-primitive call to V8 should be
+ * done inside some MicrotasksScope.
+ * Microtasks are executed when topmost MicrotasksScope marked as kRunMicrotasks
+ * exits.
+ * kDoNotRunMicrotasks should be used to annotate calls not intended to trigger
+ * microtasks.
+ */
+class V8_EXPORT MicrotasksScope {
+ public:
+  enum Type { kRunMicrotasks, kDoNotRunMicrotasks };
+
+  MicrotasksScope(Isolate* isolate, Type type);
+  ~MicrotasksScope();
+
+  /**
+   * Runs microtasks if no kRunMicrotasks scope is currently active.
+   */
+  static void PerformCheckpoint(Isolate* isolate);
+
+  /**
+   * Returns current depth of nested kRunMicrotasks scopes.
+   */
+  static int GetCurrentDepth(Isolate* isolate);
+
+  /**
+   * Returns true while microtasks are being executed.
+   */
+  static bool IsRunningMicrotasks(Isolate* isolate);
+
+ private:
+  // Prevent copying.
+  MicrotasksScope(const MicrotasksScope&);
+  MicrotasksScope& operator=(const MicrotasksScope&);
+};
+
 enum GarbageCollectionType { kFullGarbageCollection, kMinorGarbageCollection };
 
 enum GCType {
@@ -2442,6 +2482,18 @@ typedef void (*GCEpilogueCallback)(GCType type, GCCallbackFlags flags);
 class V8_EXPORT ResourceConstraints {
  public:
   void set_stack_limit(uint32_t* value) {}
+
+  /**
+   * Configures the constraints with reasonable default values based on the
+   * capabilities of the current device the VM is running on.
+   *
+   * \param physical_memory The total amount of physical memory on the current
+   *   device, in bytes.
+   * \param virtual_memory_limit The amount of virtual memory on the current
+   *   device, in bytes, or zero, if there is no limit.
+   */
+  void ConfigureDefaults(uint64_t physical_memory,
+                         uint64_t virtual_memory_limit);
 };
 
 class V8_EXPORT Isolate {
@@ -2538,6 +2590,23 @@ class V8_EXPORT Isolate {
 
   void LowMemoryNotification();
   int ContextDisposedNotification();
+
+  /**
+   * Returns the number of types of objects tracked in the heap at GC.
+   */
+  size_t NumberOfTrackedHeapObjectTypes();
+
+  /**
+   * Get statistics about objects in the heap.
+   *
+   * \param object_statistics The HeapObjectStatistics object to fill in
+   *   statistics of objects of given type, which were live in the previous GC.
+   * \param type_index The index of the type of object to fill details about,
+   *   which ranges from 0 to NumberOfTrackedHeapObjectTypes() - 1.
+   * \returns true on success.
+   */
+  bool GetHeapObjectStatisticsAtLastGC(HeapObjectStatistics* object_statistics,
+                                       size_t type_index);
 
   ~Isolate();
 
@@ -2652,6 +2721,24 @@ class V8_EXPORT V8 {
     // No data to initialize.
   }
 
+  /**
+   * Hand startup data to V8, in case the embedder has chosen to build
+   * V8 with external startup data.
+   *
+   * Note:
+   * - By default the startup data is linked into the V8 library, in which
+   *   case this function is not meaningful.
+   * - If this needs to be called, it needs to be called before V8
+   *   tries to make use of its built-ins.
+   * - To avoid unnecessary copies of data, V8 will point directly into the
+   *   given data blob, so pretty please keep it around until V8 exit.
+   * - Compression of the startup blob might be useful, but needs to
+   *   handled entirely on the embedders' side.
+   * - The call will abort if the data is invalid.
+   */
+  static void SetNativesDataBlob(StartupData* startup_blob);
+  static void SetSnapshotDataBlob(StartupData* startup_blob);
+
  private:
   friend class Context;
 };
@@ -2679,6 +2766,8 @@ class V8_EXPORT HeapStatistics {
   size_t total_available_size() { return 0; }
   size_t used_heap_size() { return this->used_heap_size_; }
   size_t heap_size_limit() { return 0; }
+  size_t malloced_memory() { return 0; }
+  size_t does_zap_garbage() { return 0; }
 
   friend class Isolate;
 };
@@ -2698,6 +2787,23 @@ class V8_EXPORT HeapSpaceStatistics {
   size_t space_used_size_;
   size_t space_available_size_;
   size_t physical_space_size_;
+
+  friend class Isolate;
+};
+
+class V8_EXPORT HeapObjectStatistics {
+ public:
+  HeapObjectStatistics() {}
+  const char* object_type() { return ""; }
+  const char* object_sub_type() { return ""; }
+  size_t object_count() { return 0; }
+  size_t object_size() { return 0; }
+
+ private:
+  const char* object_type_;
+  const char* object_sub_type_;
+  size_t object_count_;
+  size_t object_size_;
 
   friend class Isolate;
 };
@@ -2722,7 +2828,11 @@ class V8_EXPORT JitCodeEvent {
   };
 };
 
-class V8_EXPORT StartupData {};
+class V8_EXPORT StartupData {
+ public:
+  const char* data;
+  int raw_size;
+};
 
 template <class T>
 class Maybe {
