@@ -25,15 +25,16 @@
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include <string>
 
 namespace v8 {
 
 struct Message::Impl {
-  Impl(JS::Value* exception) : lineNumber_(0), columnNumber_(0) {
+  Impl(Value* exception) : lineNumber_(0), columnNumber_(0) {
     Isolate* isolate = Isolate::GetCurrent();
     JSContext* cx = JSContextFromIsolate(isolate);
     AutoJSAPI jsAPI(cx);
-    JS::RootedValue exc(cx, *exception);
+    JS::RootedValue exc(cx, *GetValue(exception));
     js::ErrorReport errorReport(cx);
     if (errorReport.init(cx, exc, js::ErrorReport::WithSideEffects)) {
       JSErrorReport* report = errorReport.report();
@@ -49,10 +50,23 @@ struct Message::Impl {
       lineNumber_ = report->lineno;
       columnNumber_ = report->column;
     }
-    if (exception->isObject()) {
-      JS::RootedObject obj(cx, &exception->toObject());
+    if (exc.isObject()) {
+      JS::RootedObject obj(cx, &exc.toObject());
       stackTrace_ = StackTrace::ExceptionStackTrace(isolate, obj);
     }
+    Local<String> message = exception->ToString();
+    std::string str = "Uncaught ";
+    if (message.IsEmpty()) {
+      str += "exception";
+    } else {
+      String::Utf8Value utf8(message);
+      if (!strcmp(*utf8, "InternalError: too much recursion")) {
+        str += "RangeError: Maximum call stack size exceeded";
+      } else {
+        str += *utf8;
+      }
+    }
+    stringMessage_ = String::NewFromUtf8(isolate, str.c_str());
   }
 
   MaybeLocal<String> sourceLine_;
@@ -60,10 +74,11 @@ struct Message::Impl {
   Local<StackTrace> stackTrace_;
   int lineNumber_;
   int columnNumber_;
+  Local<String> stringMessage_;
 };
 
 Message::Message(Local<Value> exception)
-    : pimpl_(new Impl(GetValue(exception))) {}
+    : pimpl_(new Impl(*exception)) {}
 
 Message::~Message() { delete pimpl_; }
 
@@ -111,5 +126,9 @@ int Message::GetEndColumn() const {
 
 Local<StackTrace> Message::GetStackTrace() const {
   return pimpl_->stackTrace_;
+}
+
+Local<String> Message::Get() const {
+  return pimpl_->stringMessage_;
 }
 }

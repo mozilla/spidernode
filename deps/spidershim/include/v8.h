@@ -973,6 +973,8 @@ class V8_EXPORT UnboundScript {
 
 class V8_EXPORT Message {
  public:
+  Local<String> Get() const;
+
   V8_DEPRECATE_SOON("Use maybe version", Local<String> GetSourceLine()) const;
   V8_WARN_UNUSED_RESULT MaybeLocal<String> GetSourceLine(
       Local<Context> context) const;
@@ -2793,6 +2795,7 @@ class V8_EXPORT TryCatch {
  protected:
   friend class Function;
   friend class Object;
+  friend class Script;
 
   void CheckReportExternalException();
 
