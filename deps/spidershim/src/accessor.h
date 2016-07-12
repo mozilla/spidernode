@@ -123,7 +123,7 @@ struct SignatureChecker {
     if (!signatureVal.isUndefined()) {
       v8::Local<FunctionTemplate> signatureAsTemplate =
         internal::Local<FunctionTemplate>::NewTemplate(isolate, signatureVal);
-      if (!signatureAsTemplate->InstanceTemplate()->IsInstance(GetObject(thisObj))) {
+      if (!signatureAsTemplate->IsInstance(thisObj)) {
         return false;
       }
     }
