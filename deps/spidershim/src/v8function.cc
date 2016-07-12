@@ -166,8 +166,8 @@ class FunctionCallback {
       } else {
         if (!templ->CheckSignature(_this, holder)) {
           isolate->ThrowException(
-              Exception::Error(String::NewFromUtf8(isolate,
-                                                   kIllegalInvocation)));
+              Exception::TypeError(String::NewFromUtf8(isolate,
+                                                       kIllegalInvocation)));
           return false;
         }
       }
