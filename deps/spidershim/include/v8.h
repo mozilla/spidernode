@@ -988,6 +988,8 @@ class V8_EXPORT Message {
   V8_DEPRECATE_SOON("Use maybe version", int GetEndColumn()) const;
   V8_WARN_UNUSED_RESULT Maybe<int> GetEndColumn(Local<Context> context) const;
 
+  Local<StackTrace> GetStackTrace() const;
+
   static const int kNoLineNumberInfo = 0;
   static const int kNoColumnInfo = 0;
   static const int kNoScriptIdInfo = 0;
@@ -1032,6 +1034,14 @@ class V8_EXPORT StackTrace {
 
  private:
   StackTrace();
+
+  friend class Message;
+
+  static Local<StackTrace> CreateStackTrace(Isolate* isolate,
+                                            JSObject* stack,
+                                            StackTraceOptions options);
+  static Local<StackTrace> ExceptionStackTrace(Isolate* isolate,
+                                               JSObject* exception);
 
   struct Impl;
   Impl* pimpl_;

@@ -49,10 +49,15 @@ struct Message::Impl {
       lineNumber_ = report->lineno;
       columnNumber_ = report->column;
     }
+    if (exception->isObject()) {
+      JS::RootedObject obj(cx, &exception->toObject());
+      stackTrace_ = StackTrace::ExceptionStackTrace(isolate, obj);
+    }
   }
 
   MaybeLocal<String> sourceLine_;
   Local<Value> resourceName_;
+  Local<StackTrace> stackTrace_;
   int lineNumber_;
   int columnNumber_;
 };
@@ -102,5 +107,9 @@ int Message::GetEndColumn() const {
   // TODO: Support end column
   //       https://github.com/mozilla/spidernode/issues/54
   return -1;
+}
+
+Local<StackTrace> Message::GetStackTrace() const {
+  return pimpl_->stackTrace_;
 }
 }

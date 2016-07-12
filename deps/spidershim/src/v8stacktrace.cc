@@ -77,7 +77,8 @@ struct StackTrace::Impl {
         JS::RootedString name(cx);
         if (JS::SavedFrameResult::Ok ==
             JS::GetSavedFrameFunctionDisplayName(
-                cx, current, &name, JS::SavedFrameSelfHosted::Exclude)) {
+                cx, current, &name, JS::SavedFrameSelfHosted::Exclude) &&
+            name) {
           JS::Value val;
           val.setString(name);
           info.displayName_ = internal::Local<String>::New(isolate, val);
@@ -131,7 +132,8 @@ struct StackTrace::Impl {
           return false;
         }
       }
-      if (options_ & StackTrace::kFunctionName) {
+      if ((options_ & StackTrace::kFunctionName) &&
+          !info.displayName_.IsEmpty()) {
         Maybe<bool> result =
             frame->Set(context, functionKey, info.displayName_);
         if (!result.FromMaybe(false)) {
@@ -200,7 +202,6 @@ StackTrace::~StackTrace() { delete pimpl_; }
 Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
                                                 int frame_limit,
                                                 StackTraceOptions options) {
-  // SpiderMonkey doesn't have the concept of options, so we ignore that here.
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
   JS::RootedObject stack(cx);
@@ -208,6 +209,25 @@ Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
   if (!JS::CaptureCurrentStack(cx, &stack, unsigned(frame_limit))) {
     return Local<StackTrace>();
   }
+  return CreateStackTrace(isolate, stack, options);
+}
+
+Local<StackTrace> StackTrace::ExceptionStackTrace(Isolate* isolate,
+                                                  JSObject* exception) {
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
+  JS::RootedObject exc(cx, exception);
+  JS::RootedObject stack(cx, ExceptionStackOrNull(exc));
+  if (!stack) {
+    return Local<StackTrace>();
+  }
+  return CreateStackTrace(isolate, stack, kOverview);
+}
+
+Local<StackTrace> StackTrace::CreateStackTrace(Isolate* isolate,
+                                               JSObject* stack,
+                                               StackTraceOptions options) {
+  // SpiderMonkey doesn't have the concept of options, so we ignore that here.
   StackTrace* trace = new StackTrace();
   isolate->AddStackTrace(trace);
   trace->pimpl_->options_ = options;

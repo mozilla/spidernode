@@ -230,6 +230,32 @@ static void CheckTryCatchSourceInfo(const V8Engine& engine,
   // GetScriptOrigin not supported yet.
   //String::Utf8Value name(message->GetScriptOrigin().ResourceName());
   //EXPECT_EQ(0, strcmp(resource_name, *name));
+  Local<StackTrace> stackTrace = message->GetStackTrace();
+  EXPECT_EQ(4, stackTrace->GetFrameCount());
+  EXPECT_EQ(4, stackTrace->AsArray()->Length());
+  struct Frame {
+    uint32_t line, column;
+    const char* func;
+  } expected[] = {
+    {10, 9, "Baz"},
+    {6, 10, "Bar"},
+    {2, 10, "Foo"},
+    {13, 1, ""}
+  };
+  for (auto i = 0; i < 4; ++i) {
+    Local<StackFrame> frame = stackTrace->GetFrame(i);
+    EXPECT_EQ(expected[i].line + line_offset, frame->GetLineNumber());
+    EXPECT_EQ(expected[i].column, frame->GetColumn());
+    EXPECT_EQ(0, frame->GetScriptId());
+    String::Utf8Value name(frame->GetScriptName());
+    EXPECT_STREQ(resource_name, *name);
+    String::Utf8Value nameOrURL(frame->GetScriptNameOrSourceURL());
+    EXPECT_STREQ("", *nameOrURL);
+    String::Utf8Value funcName(frame->GetFunctionName());
+    EXPECT_STREQ(expected[i].func, *funcName);
+    EXPECT_FALSE(frame->IsEval());
+    EXPECT_FALSE(frame->IsConstructor());
+  }
 }
 
 TEST(SpiderShim, TryCatchSourceInfo) {

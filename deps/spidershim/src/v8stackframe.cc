@@ -28,48 +28,69 @@
 namespace v8 {
 
 int StackFrame::GetLineNumber() const {
-  return Int32::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                      "lineNumber")))
-      ->Value();
+  Local<Value> lineNumber = frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "lineNumber"));
+  if (lineNumber.IsEmpty() || !lineNumber->IsInt32()) {
+    return 0;
+  }
+  return Int32::Cast(*lineNumber)->Value();
 }
 
 int StackFrame::GetColumn() const {
-  return Int32::Cast(
-             *frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "column")))
-      ->Value();
+  Local<Value> column = frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "column"));
+  if (column.IsEmpty() || !column->IsInt32()) {
+    return 0;
+  }
+  return Int32::Cast(*column)->Value();
 }
 
 int StackFrame::GetScriptId() const {
-  return Int32::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                      "scriptId")))
-      ->Value();
+  Local<Value> scriptId = frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "scriptId"));
+  if (scriptId.IsEmpty() || !scriptId->IsInt32()) {
+    return 0;
+  }
+  return Int32::Cast(*scriptId)->Value();
 }
 
 Local<String> StackFrame::GetScriptName() const {
-  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "scriptName"))
-      ->ToString();
+  Isolate* isolate = Isolate::GetCurrent();
+  Local<Value> scriptName = frame_->Get(String::NewFromUtf8(isolate, "scriptName"));
+  if (scriptName.IsEmpty() || !scriptName->IsString()) {
+    return String::NewFromUtf8(isolate, "");
+  }
+  return scriptName->ToString();
 }
 
 Local<String> StackFrame::GetScriptNameOrSourceURL() const {
-  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                         "scriptNameOrSourceURL"))
-      ->ToString();
+  Isolate* isolate = Isolate::GetCurrent();
+  Local<Value> nameOrURL = frame_->Get(String::NewFromUtf8(isolate, "scriptNameOrSourceURL"));
+  if (nameOrURL.IsEmpty() || !nameOrURL->IsString()) {
+    return String::NewFromUtf8(isolate, "");
+  }
+  return nameOrURL->ToString();
 }
 
 Local<String> StackFrame::GetFunctionName() const {
-  return frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "functionName"))
-      ->ToString();
+  Isolate* isolate = Isolate::GetCurrent();
+  Local<Value> functionName = frame_->Get(String::NewFromUtf8(isolate, "functionName"));
+  if (functionName.IsEmpty() || !functionName->IsString()) {
+    return String::NewFromUtf8(isolate, "");
+  }
+  return functionName->ToString();
 }
 
 bool StackFrame::IsEval() const {
-  return Boolean::Cast(
-             *frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "isEval")))
-      ->Value();
+  Local<Value> isEval = frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "isEval"));
+  if (isEval.IsEmpty() || !isEval->IsBoolean()) {
+    return false;
+  }
+  return Boolean::Cast(*isEval)->Value();
 }
 
 bool StackFrame::IsConstructor() const {
-  return Boolean::Cast(*frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(),
-                                                        "isConstructor")))
-      ->Value();
+  Local<Value> isConstructor = frame_->Get(String::NewFromUtf8(Isolate::GetCurrent(), "isConstructor"));
+  if (isConstructor.IsEmpty() || !isConstructor->IsBoolean()) {
+    return false;
+  }
+  return Boolean::Cast(*isConstructor)->Value();
 }
 }
