@@ -379,12 +379,6 @@ void ObjectTemplate::SetInternalFieldCount(int value) {
                       JS::Int32Value(value));
 }
 
-bool ObjectTemplate::IsInstance(JSObject* obj) {
-  InstanceClass* instanceClass = GetInstanceClass();
-  assert(instanceClass);
-  return JS_GetClass(obj) == instanceClass;
-}
-
 Local<FunctionTemplate> ObjectTemplate::GetConstructor() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);

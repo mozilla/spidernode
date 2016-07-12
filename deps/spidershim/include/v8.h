@@ -2201,6 +2201,7 @@ class V8_EXPORT FunctionTemplate : public Template {
 
  private:
   friend class internal::FunctionCallback;
+  friend struct internal::SignatureChecker;
   friend class Template;
   friend class ObjectTemplate;
 
@@ -2230,6 +2231,9 @@ class V8_EXPORT FunctionTemplate : public Template {
   // unless the signature check fails.  thisObj should be set to the this object
   // that the function is being called on.
   bool CheckSignature(Local<Object> thisObj, Local<Object>& holder);
+  // Returns true if thisObj has been instantiated from this FunctionTemplate
+  // or one inherited from this one.
+  bool IsInstance(Local<Object> thisObj);
 };
 
 enum class PropertyHandlerFlags {
@@ -2332,7 +2336,6 @@ class V8_EXPORT ObjectTemplate : public Template {
  private:
   friend struct FunctionCallbackData;
   friend struct FunctionTemplateData;
-  friend struct internal::SignatureChecker;
   friend class Utils;
   friend class FunctionTemplate;
 
@@ -2355,7 +2358,6 @@ class V8_EXPORT ObjectTemplate : public Template {
   // one.  Null is returned if objects should be created with the default
   // plain-object JSClass.
   InstanceClass* GetInstanceClass();
-  bool IsInstance(JSObject* obj);
   static bool IsObjectFromTemplate(Local<Object> object);
   // The object argument should be an object created from an ObjectTemplate,
   // i.e.,

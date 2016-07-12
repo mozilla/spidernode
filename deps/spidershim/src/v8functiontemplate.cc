@@ -524,6 +524,21 @@ bool FunctionTemplate::InstallInstanceProperties(Local<Object> target) {
   return JS_CopyPropertiesFrom(cx, targetObj, instanceObj);
 }
 
+bool FunctionTemplate::IsInstance(Local<Object> thisObj) {
+  if (!ObjectTemplate::IsObjectFromTemplate(thisObj)) {
+    return false;
+  }
+  Local<FunctionTemplate> ctor = ObjectTemplate::GetObjectTemplateConstructor(thisObj);
+  while (!ctor.IsEmpty()) {
+    // We don't need JS_StrictlyEqual since we know both sides are objects here.
+    if (*GetValue(ctor) == *GetValue(this)) {
+      break;
+    }
+    ctor = ctor->GetParent().FromMaybe(Local<FunctionTemplate>());
+  }
+  return !ctor.IsEmpty();
+}
+
 bool FunctionTemplate::CheckSignature(Local<Object> thisObj,
                                       Local<Object>& holder) {
   Isolate* isolate = Isolate::GetCurrent();
@@ -536,7 +551,7 @@ bool FunctionTemplate::CheckSignature(Local<Object> thisObj,
   if (!signatureVal.isUndefined()) {
     Local<FunctionTemplate> signatureAsTemplate =
       internal::Local<FunctionTemplate>::NewTemplate(isolate, signatureVal);
-    if (!signatureAsTemplate->InstanceTemplate()->IsInstance(GetObject(thisObj))) {
+    if (!signatureAsTemplate->IsInstance(thisObj)) {
       return false;
     }
   }
