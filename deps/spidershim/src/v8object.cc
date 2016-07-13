@@ -35,6 +35,8 @@
 
 namespace {
 
+using namespace v8;
+
 // For now, we implement the hidden values table using a property with a symbol
 // key.
 // This is observable to script, so if this becomes an issue in the future we'd
@@ -46,9 +48,17 @@ JS::Symbol* GetHiddenValuesTableSymbol(JSContext* cx) {
   return JS::GetSymbolFor(cx, name);
 }
 
-JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self,
-                               bool create = false) {
-  JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenValuesTableSymbol(cx)));
+JSClass ArrayBufferInternalFieldsClass = {
+  "AB_InternalFields", JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) + ArrayBuffer::kInternalFieldCount)
+};
+
+JSClass ArrayBufferViewInternalFieldsClass = {
+  "ABV_InternalFields", JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) + ArrayBufferView::kInternalFieldCount)
+};
+
+JSObject* GetHiddenTable(JSContext* cx, JS::HandleObject self,
+                         bool create, JS::Symbol* name) {
+  JS::RootedId id(cx, SYMBOL_TO_JSID(name));
   JS::RootedValue table(cx);
   bool hasOwn = false;
   if (JS_HasOwnPropertyById(cx, self, id, &hasOwn) && hasOwn &&
@@ -56,8 +66,25 @@ JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self,
     return &table.toObject();
   }
   if (create) {
-    JS::RootedObject tableObj(cx, JS_NewObject(cx, nullptr));
+    JSClass* clazz = nullptr;
+    if (JS_IsArrayBufferObject(self)) {
+      clazz = &ArrayBufferInternalFieldsClass;
+    } else if (JS_IsArrayBufferViewObject(self)) {
+      clazz = &ArrayBufferViewInternalFieldsClass;
+    }
+    JS::RootedObject tableObj(cx, JS_NewObject(cx, clazz));
     if (tableObj) {
+      int numInternalFields = 0;
+      if (JS_IsArrayBufferObject(self)) {
+        numInternalFields = ArrayBuffer::kInternalFieldCount;
+      } else if (JS_IsArrayBufferViewObject(self)) {
+        numInternalFields = ArrayBufferView::kInternalFieldCount;
+      }
+      for (int i = 0; i < numInternalFields; ++i) {
+        js::SetReservedSlot(tableObj,
+                            uint32_t(InstanceSlots::NumSlots) + i,
+                            JS::Int32Value(0));
+      }
       JS::RootedValue tableVal(cx);
       tableVal.setObject(*tableObj);
       if (JS_SetPropertyById(cx, self, id, tableVal)) {
@@ -66,6 +93,40 @@ JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self,
     }
   }
   return nullptr;
+}
+
+JSObject* GetHiddenValuesTable(JSContext* cx, JS::HandleObject self,
+                               bool create = false) {
+  return GetHiddenTable(cx, self, create, GetHiddenValuesTableSymbol(cx));
+}
+
+// For now, we implement the in hidden values table using a property with a
+// symbol key. This is observable to script, so if this becomes an issue in the
+// future we'd need to do something more sophisticated.
+JS::Symbol* GetHiddenInternalFieldsSymbol(JSContext* cx) {
+  JS::RootedString name(
+      cx, JS_NewStringCopyZ(cx, "__spidershim_hidden_internal_fields__"));
+  return JS::GetSymbolFor(cx, name);
+}
+
+// In V8, ArrayBuffers and ArrayBufferViews always have two internal fields
+// which the engine magically creates internally.  In SpiderMonkey, the
+// reserved slots fields are used for inline array storage and are not
+// available to the embedder.  Therefore, we offload the internal fields
+// of such objects to a hidden internal fields object that can be obtained
+// through this function.
+//
+// Note that the hidden internal fields are lazily created when needed.
+// See the code in GetHiddenTable for the special casing of these types.
+Local<Object> GetHiddenInternalFields(Object* self) {
+  assert(JS_IsArrayBufferObject(GetObject(self)) ||
+         JS_IsArrayBufferViewObject(GetObject(self)));
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx);
+  JS::RootedObject selfObj(cx, GetObject(self));
+  JS::RootedObject obj(cx, GetHiddenTable(cx, selfObj, true, GetHiddenInternalFieldsSymbol(cx)));
+  return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*obj));
 }
 }
 
@@ -619,11 +680,17 @@ Local<Value> Object::CallAsConstructor(int argc, Local<Value> argv[]) {
 }
 
 int Object::InternalFieldCount() {
+  if (IsArrayBuffer() || IsArrayBufferView()) {
+    return GetHiddenInternalFields(this)->InternalFieldCount();
+  }
   return JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(this))) -
          uint32_t(InstanceSlots::NumSlots);
 }
 
 Local<Value> Object::GetInternalField(int index) {
+  if (IsArrayBuffer() || IsArrayBufferView()) {
+    return GetHiddenInternalFields(this)->GetInternalField(index);
+  }
   assert(index < InternalFieldCount());
   JS::Value retVal(js::GetReservedSlot(GetObject(this),
                                        uint32_t(InstanceSlots::NumSlots) + index));
@@ -631,6 +698,9 @@ Local<Value> Object::GetInternalField(int index) {
 }
 
 void Object::SetInternalField(int index, Local<Value> value) {
+  if (IsArrayBuffer() || IsArrayBufferView()) {
+    return GetHiddenInternalFields(this)->SetInternalField(index, value);
+  }
   assert(index < InternalFieldCount());
   if (!value.IsEmpty()) {
     js::SetReservedSlot(GetObject(this),
@@ -640,6 +710,9 @@ void Object::SetInternalField(int index, Local<Value> value) {
 }
 
 void* Object::GetAlignedPointerFromInternalField(int index) {
+  if (IsArrayBuffer() || IsArrayBufferView()) {
+    return GetHiddenInternalFields(this)->GetAlignedPointerFromInternalField(index);
+  }
   assert(index < InternalFieldCount());
   JS::Value retVal(js::GetReservedSlot(GetObject(this),
                                        uint32_t(InstanceSlots::NumSlots) + index));
@@ -648,6 +721,9 @@ void* Object::GetAlignedPointerFromInternalField(int index) {
 }
 
 void Object::SetAlignedPointerInInternalField(int index, void* value) {
+  if (IsArrayBuffer() || IsArrayBufferView()) {
+    return GetHiddenInternalFields(this)->SetAlignedPointerInInternalField(index, value);
+  }
   assert(index < InternalFieldCount());
   js::SetReservedSlot(GetObject(this),
                       uint32_t(InstanceSlots::NumSlots) + index,

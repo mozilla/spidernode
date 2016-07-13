@@ -2581,6 +2581,16 @@ TEST(SpiderShim, Equals) {
   EXPECT_TRUE(!False(isolate)->SameValue(Undefined(isolate)));
 }
 
+template <typename T, int N = T::kInternalFieldCount>
+static void CheckInternalFieldsAreZero(Local<T> value) {
+  EXPECT_EQ(N, value->InternalFieldCount());
+  for (int i = 0; i < value->InternalFieldCount(); i++) {
+    EXPECT_EQ(0u, value->GetInternalField(i)
+                     ->Int32Value(Isolate::GetCurrent()->GetCurrentContext())
+                     .FromJust());
+  }
+}
+
 TEST(SpiderShim, ArrayBuffer) {
   V8Engine engine;
 
@@ -2596,12 +2606,14 @@ TEST(SpiderShim, ArrayBuffer) {
   EXPECT_EQ(0u, arr->ByteLength());
   ArrayBuffer::Contents contents = arr->GetContents();
   EXPECT_EQ(0u, contents.ByteLength());
+  CheckInternalFieldsAreZero(arr);
   Local<ArrayBuffer> arr2 = ArrayBuffer::New(isolate, 2);
   EXPECT_TRUE(arr2->IsArrayBuffer());
   EXPECT_EQ(2u, arr2->ByteLength());
   contents = arr2->GetContents();
   EXPECT_EQ(2u, contents.ByteLength());
   EXPECT_EQ(2u, ArrayBuffer::Cast(*arr2->ToObject())->ByteLength());
+  CheckInternalFieldsAreZero(arr2);
 }
 
 TEST(SpiderShim, Function) {
@@ -2752,6 +2764,7 @@ static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
   EXPECT_TRUE(ta->IsTypedArray());
   EXPECT_TRUE(ta->IsArrayBufferView());
   EXPECT_TRUE(TypedArray::Cast(*ta));
+  CheckInternalFieldsAreZero(ta);
   return ta;
 }
 
@@ -2814,6 +2827,7 @@ TEST(SpiderShim, ArrayBuffer_Neutering) {
 
   char buf[1024];
   Local<ArrayBuffer> buffer = ArrayBuffer::New(isolate, buf, 1024);
+  CheckInternalFieldsAreZero(buffer);
   buffer->Neuter();
   CHECK_EQ(buffer->ByteLength(), 0);
 }

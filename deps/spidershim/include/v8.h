@@ -1975,6 +1975,11 @@ class V8_EXPORT Proxy : public Object {
   static void CheckCast(Value* obj);
 };
 
+#ifndef V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT
+// The number of required internal fields can be defined by embedder.
+#define V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT 2
+#endif
+
 enum class ArrayBufferCreationMode { kInternalized, kExternalized };
 
 class V8_EXPORT ArrayBuffer : public Object {
@@ -2013,9 +2018,16 @@ class V8_EXPORT ArrayBuffer : public Object {
 
   static ArrayBuffer* Cast(Value* obj);
 
+  static const int kInternalFieldCount = V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT;
+
  private:
   ArrayBuffer();
 };
+
+#ifndef V8_ARRAY_BUFFER_VIEW_INTERNAL_FIELD_COUNT
+// The number of required internal fields can be defined by embedder.
+#define V8_ARRAY_BUFFER_VIEW_INTERNAL_FIELD_COUNT 2
+#endif
 
 class V8_EXPORT ArrayBufferView : public Object {
  public:
@@ -2026,6 +2038,8 @@ class V8_EXPORT ArrayBufferView : public Object {
   bool HasBuffer() const;
 
   static ArrayBufferView* Cast(Value* obj);
+
+  static const int kInternalFieldCount = V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT;
 
  private:
   ArrayBufferView();
