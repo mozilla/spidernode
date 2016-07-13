@@ -123,7 +123,7 @@ struct SignatureChecker {
     if (!signatureVal.isUndefined()) {
       v8::Local<FunctionTemplate> signatureAsTemplate =
         internal::Local<FunctionTemplate>::NewTemplate(isolate, signatureVal);
-      if (!signatureAsTemplate->InstanceTemplate()->IsInstance(GetObject(thisObj))) {
+      if (!signatureAsTemplate->IsInstance(thisObj)) {
         return false;
       }
     }
@@ -171,8 +171,8 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
     v8::Local<Object> holder;
     if (!SignatureChecker::CheckSignature(accessorData, thisObject, holder)) {
       isolate->ThrowException(
-          Exception::Error(String::NewFromUtf8(isolate,
-                                               kIllegalInvocation)));
+          Exception::TypeError(String::NewFromUtf8(isolate,
+                                                   kIllegalInvocation)));
       return false;
     }
     typedef typename
@@ -240,6 +240,36 @@ JSObject* CreateAccessor(JSContext* cx, CallbackType callback,
   return funObj;
 }
 
+template<class N>
+bool SetAccessor(JSContext* cx,
+                 JS::HandleObject obj,
+                 Handle<N> name,
+                 JSObject* getter,
+                 JSObject* setter,
+                 AccessControl settings,
+                 PropertyAttribute attribute) {
+  JS::RootedId id(cx);
+  JS::RootedValue nameVal(cx, *GetValue(name));
+  if (!JS_WrapValue(cx, &nameVal) ||
+      !JS_ValueToId(cx, nameVal, &id)) {
+    return false;
+  }
+
+  unsigned attrs = internal::AttrsToFlags(attribute) |
+                   JSPROP_SHARED | JSPROP_GETTER;
+  if (setter) {
+    attrs |= JSPROP_SETTER;
+  }
+
+  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
+                             JS_DATA_TO_FUNC_PTR(JSNative, getter),
+                             JS_DATA_TO_FUNC_PTR(JSNative, setter))) {
+    return false;
+  }
+
+  return true;
+}
+
 template<class N, class Getter, class Setter>
 bool SetAccessor(JSContext* cx,
                  JS::HandleObject obj,
@@ -254,11 +284,11 @@ bool SetAccessor(JSContext* cx,
   // TODO: What should happen with "settings"?  See
   // https://github.com/mozilla/spidernode/issues/141
 
-  JS::RootedObject getterObj(cx, CreateAccessor(cx, getter, name, data, signature));
+  JSObject* getterObj = CreateAccessor(cx, getter, name, data, signature);
   if (!getterObj) {
     return false;
   }
-  JS::RootedObject setterObj(cx);
+  JSObject* setterObj = nullptr;
   if (setter) {
     setterObj = CreateAccessor(cx, setter, name, data, signature);
     if (!setterObj) {
@@ -266,23 +296,8 @@ bool SetAccessor(JSContext* cx,
     }
   }
 
-  JS::RootedId id(cx);
-  JS::RootedValue nameVal(cx, *GetValue(name));
-  if (!JS_WrapValue(cx, &nameVal) ||
-      !JS_ValueToId(cx, nameVal, &id)) {
-    return false;
-  }
-
-  unsigned attrs = internal::AttrsToFlags(attribute) |
-                   JSPROP_SHARED | JSPROP_GETTER | JSPROP_SETTER;
-
-  if (!JS_DefinePropertyById(cx, obj, id, JS::UndefinedHandleValue, attrs,
-                             JS_DATA_TO_FUNC_PTR(JSNative, getterObj.get()),
-                             JS_DATA_TO_FUNC_PTR(JSNative, setterObj.get()))) {
-    return false;
-  }
-
-  return true;
+  return SetAccessor(cx, obj, name, getterObj, setterObj, settings,
+                     attribute);
 }
 
 }
