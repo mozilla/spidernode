@@ -61,4 +61,9 @@ size_t ArrayBufferView::ByteLength() {
 
   return JS_GetDataViewByteLength(view);
 }
+
+ArrayBufferView* ArrayBufferView::Cast(Value* val) {
+  assert(val->IsArrayBufferView());
+  return static_cast<ArrayBufferView*>(val);
+}
 }
