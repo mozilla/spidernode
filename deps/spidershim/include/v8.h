@@ -2807,11 +2807,11 @@ class V8_EXPORT HeapSpaceStatistics {
 
 class V8_EXPORT HeapObjectStatistics {
  public:
-  HeapObjectStatistics() {}
-  const char* object_type() { return ""; }
-  const char* object_sub_type() { return ""; }
-  size_t object_count() { return 0; }
-  size_t object_size() { return 0; }
+  HeapObjectStatistics();
+  const char* object_type() { return object_type_; }
+  const char* object_sub_type() { return object_sub_type_; }
+  size_t object_count() { return object_count_; }
+  size_t object_size() { return object_size_; }
 
  private:
   const char* object_type_;

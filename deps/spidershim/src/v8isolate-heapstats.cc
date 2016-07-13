@@ -55,4 +55,46 @@ void Isolate::GetHeapStatistics(HeapStatistics *heap_statistics) {
   heap_statistics->total_heap_size_ = rtStats.gcHeapChunkTotal;
   heap_statistics->used_heap_size_ = rtStats.gcHeapGCThings;
 }
+
+HeapObjectStatistics::HeapObjectStatistics()
+  : object_type_(nullptr),
+    object_sub_type_(nullptr),
+    object_count_(0),
+    object_size_(0) {}
+
+size_t Isolate::NumberOfTrackedHeapObjectTypes() {
+  SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
+  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
+    return 0;
+  }
+  // The number of object types is 1 (for non-notable classes) +
+  // the number of notable classes.
+  return 1 + rtStats.cTotals.notableClasses.length();
+}
+
+bool Isolate::GetHeapObjectStatisticsAtLastGC(HeapObjectStatistics* object_statistics,
+                                              size_t type_index) {
+  SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
+  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
+    return false;
+  }
+  size_t max_length = (1 + rtStats.cTotals.notableClasses.length());
+  if (type_index >= max_length) {
+    return false;
+  }
+  if (type_index == max_length - 1) {
+    // The non-notable classes stats
+    object_statistics->object_type_ = "non-notable classes";
+    object_statistics->object_sub_type_ = "";
+    object_statistics->object_count_ = 1;
+    object_statistics->object_size_ = rtStats.cTotals.classInfo.sizeOfLiveGCThings();
+  } else {
+    const JS::NotableClassInfo& classInfo = rtStats.cTotals.notableClasses[type_index];
+    object_statistics->object_type_ = classInfo.className_;
+    object_statistics->object_sub_type_ = "";
+    object_statistics->object_count_ = 1;
+    object_statistics->object_size_ = classInfo.sizeOfLiveGCThings();
+  }
+  return true;
+}
 }

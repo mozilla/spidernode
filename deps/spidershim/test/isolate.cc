@@ -338,6 +338,16 @@ TEST(SpiderShim, GetHeapStatistics) {
   engine.isolate()->GetHeapStatistics(&heap_statistics);
   EXPECT_NE(static_cast<int>(heap_statistics.total_heap_size()), 0);
   EXPECT_NE(static_cast<int>(heap_statistics.used_heap_size()), 0);
+
+  size_t types = engine.isolate()->NumberOfTrackedHeapObjectTypes();
+  EXPECT_TRUE(types > 0);
+  for (size_t i = 0; i < types; ++i) {
+    HeapObjectStatistics object_statistics;
+    EXPECT_TRUE(engine.isolate()->GetHeapObjectStatisticsAtLastGC(&object_statistics, i));
+    EXPECT_NE(0u, object_statistics.object_count());
+    EXPECT_NE(0u, object_statistics.object_size());
+    EXPECT_STRNE("", object_statistics.object_type());
+  }
 }
 
 void ThrowValue(const FunctionCallbackInfo<Value>& args) {
