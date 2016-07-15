@@ -37,6 +37,17 @@ namespace v8 {
  */
 class ObjectTemplate::InstanceClass : public JSClass {
 public:
+  InstanceClass() {
+    name = nullptr;
+    flags = 0;
+    memset(&instanceClassOps, 0, sizeof(JSClassOps));
+    cOps = &instanceClassOps;
+    reserved[0] = nullptr;
+    reserved[1] = nullptr;
+    reserved[2] = nullptr;
+    memset(&instanceObjectOps, 0, sizeof(js::ObjectOps));
+    reinterpret_cast<js::Class*>(this)->oOps = &instanceObjectOps;
+  }
   void AddRef() {
     ++mRefCnt;
   }
@@ -46,6 +57,16 @@ public:
     if (mRefCnt == 0) {
       delete this;
     }
+  }
+
+  JSClassOps& ModifyClassOps() { return instanceClassOps; }
+  js::ObjectOps& ModifyObjectOps() { return instanceObjectOps; }
+
+  static InstanceClass* FromObject(JS::HandleObject obj) {
+    const JSClass* clasp = JS_GetClass(obj);
+    assert(clasp->flags & instantiatedFromTemplate);
+    return const_cast<InstanceClass*>(
+        static_cast<const InstanceClass*>(clasp));
   }
 
   static const uint32_t nameAllocated = JSCLASS_USERBIT1;
@@ -59,11 +80,14 @@ private:
     }
   }
   uint32_t mRefCnt = 0;
+  JSClassOps instanceClassOps;
+  js::ObjectOps instanceObjectOps;
 };
 
 } // namespace v8
 
 namespace {
+using namespace v8;
 
 template<uint32_t N>
 void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
@@ -81,9 +105,42 @@ void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
 }
 
 enum class TemplateSlots {
-  InstanceClassSlot,      // Stores the InstanceClass* for our instances.
-  InternalFieldCountSlot, // Stores the internal field count for our instances.
-  ConstructorSlot,        // Stores our constructor FunctionTemplate.
+  InstanceClassSlot,              // Stores the InstanceClass* for our instances.
+  InternalFieldCountSlot,         // Stores the internal field count for our instances.
+  ConstructorSlot,                // Stores our constructor FunctionTemplate.
+  NamedGetterCallbackSlot1,       // Stores our named prop getter callback.
+  NamedGetterCallbackSlot2,
+  NamedSetterCallbackSlot1,       // Stores our named prop setter callback.
+  NamedSetterCallbackSlot2,
+  NamedQueryCallbackSlot1,        // Stores our named prop query callback.
+  NamedQueryCallbackSlot2,
+  NamedDeleterCallbackSlot1,      // Stores our named prop deleter callback.
+  NamedDeleterCallbackSlot2,
+  NamedEnumeratorCallbackSlot1,   // Stores our named prop enumerator callback.
+  NamedEnumeratorCallbackSlot2,
+  NamedCallbackDataSlot,          // Stores our named prop callback data
+  IndexedGetterCallbackSlot1,     // Stores our indexed prop getter callback.
+  IndexedGetterCallbackSlot2,
+  IndexedSetterCallbackSlot1,     // Stores our indexed prop setter callback.
+  IndexedSetterCallbackSlot2,
+  IndexedQueryCallbackSlot1,      // Stores our indexed prop query callback.
+  IndexedQueryCallbackSlot2,
+  IndexedDeleterCallbackSlot1,    // Stores our indexed prop deleter callback.
+  IndexedDeleterCallbackSlot2,
+  IndexedEnumeratorCallbackSlot1, // Stores our indexed prop enumerator callback.
+  IndexedEnumeratorCallbackSlot2,
+  IndexedCallbackDataSlot,        // Stores our indexed prop callback data
+  GenericGetterCallbackSlot1,     // Stores our generic prop getter callback.
+  GenericGetterCallbackSlot2,
+  GenericSetterCallbackSlot1,     // Stores our generic prop setter callback.
+  GenericSetterCallbackSlot2,
+  GenericQueryCallbackSlot1,      // Stores our generic prop query callback.
+  GenericQueryCallbackSlot2,
+  GenericDeleterCallbackSlot1,    // Stores our generic prop deleter callback.
+  GenericDeleterCallbackSlot2,
+  GenericEnumeratorCallbackSlot1, // Stores our generic prop enumerator callback.
+  GenericEnumeratorCallbackSlot2,
+  GenericCallbackDataSlot,        // Stores our generic prop callback data
   NumSlots
 };
 
@@ -108,21 +165,729 @@ const JSClass objectTemplateClass = {
   &objectTemplateClassOps
 };
 
-const JSClassOps objectInstanceClassOps = {
-  nullptr, // addProperty
-  nullptr, // delProperty
-  nullptr, // getProperty
-  nullptr, // setProperty
-  nullptr, // enumerate
-  nullptr, // resolve
-  nullptr, // mayResolve
-  ObjectTemplateFinalize<uint32_t(InstanceSlots::InstanceClassSlot)>,
-  nullptr, // call
-  nullptr, // hasInstance
-  nullptr, // construct
-  nullptr  // trace
+template<typename, typename> struct SlotTraits;
+template<typename> struct PropXerTraits;
+template<typename, typename> struct PropCallbackTraits;
+
+template<typename T>
+struct SlotTraits<T, Name> {
+  static const size_t PropGetterCallback1 = size_t(T::GenericGetterCallbackSlot1);
+  static const size_t PropGetterCallback2 = size_t(T::GenericGetterCallbackSlot2);
+
+  static const size_t PropSetterCallback1 = size_t(T::GenericSetterCallbackSlot1);
+  static const size_t PropSetterCallback2 = size_t(T::GenericSetterCallbackSlot2);
+
+  static const size_t PropQueryCallback1 = size_t(T::GenericQueryCallbackSlot1);
+  static const size_t PropQueryCallback2 = size_t(T::GenericQueryCallbackSlot2);
+
+  static const size_t PropDeleterCallback1 = size_t(T::GenericDeleterCallbackSlot1);
+  static const size_t PropDeleterCallback2 = size_t(T::GenericDeleterCallbackSlot2);
+
+  static const size_t PropEnumeratorCallback1 = size_t(T::GenericEnumeratorCallbackSlot1);
+  static const size_t PropEnumeratorCallback2 = size_t(T::GenericEnumeratorCallbackSlot2);
+
+  static const size_t PropData = size_t(T::GenericCallbackDataSlot);
 };
 
+template<typename T>
+struct SlotTraits<T, String> {
+  static const size_t PropGetterCallback1 = size_t(T::NamedGetterCallbackSlot1);
+  static const size_t PropGetterCallback2 = size_t(T::NamedGetterCallbackSlot2);
+
+  static const size_t PropSetterCallback1 = size_t(T::NamedSetterCallbackSlot1);
+  static const size_t PropSetterCallback2 = size_t(T::NamedSetterCallbackSlot2);
+
+  static const size_t PropQueryCallback1 = size_t(T::NamedQueryCallbackSlot1);
+  static const size_t PropQueryCallback2 = size_t(T::NamedQueryCallbackSlot2);
+
+  static const size_t PropDeleterCallback1 = size_t(T::NamedDeleterCallbackSlot1);
+  static const size_t PropDeleterCallback2 = size_t(T::NamedDeleterCallbackSlot2);
+
+  static const size_t PropEnumeratorCallback1 = size_t(T::NamedEnumeratorCallbackSlot1);
+  static const size_t PropEnumeratorCallback2 = size_t(T::NamedEnumeratorCallbackSlot2);
+
+  static const size_t PropData = size_t(T::NamedCallbackDataSlot);
+};
+
+template<typename T>
+struct SlotTraits<T, uint32_t> {
+  static const size_t PropGetterCallback1 = size_t(T::IndexedGetterCallbackSlot1);
+  static const size_t PropGetterCallback2 = size_t(T::IndexedGetterCallbackSlot2);
+
+  static const size_t PropSetterCallback1 = size_t(T::IndexedSetterCallbackSlot1);
+  static const size_t PropSetterCallback2 = size_t(T::IndexedSetterCallbackSlot2);
+
+  static const size_t PropQueryCallback1 = size_t(T::IndexedQueryCallbackSlot1);
+  static const size_t PropQueryCallback2 = size_t(T::IndexedQueryCallbackSlot2);
+
+  static const size_t PropDeleterCallback1 = size_t(T::IndexedDeleterCallbackSlot1);
+  static const size_t PropDeleterCallback2 = size_t(T::IndexedDeleterCallbackSlot2);
+
+  static const size_t PropEnumeratorCallback1 = size_t(T::IndexedEnumeratorCallbackSlot1);
+  static const size_t PropEnumeratorCallback2 = size_t(T::IndexedEnumeratorCallbackSlot2);
+
+  static const size_t PropData = size_t(T::IndexedCallbackDataSlot);
+};
+
+#define DEFINE_MIRROR(Xer, Mirror)                             \
+  static void ClearMirror## Xer ##s(JS::HandleObject obj) {    \
+    using Template = SlotTraits<TemplateSlots, Mirror>;        \
+    js::SetReservedSlot(obj, Template::Prop## Xer ##Callback1, \
+                        JS::UndefinedValue());                 \
+    js::SetReservedSlot(obj, Template::Prop## Xer ##Callback2, \
+                        JS::UndefinedValue());                 \
+  }
+
+template<>
+struct PropXerTraits<Name> {
+  typedef GenericNamedPropertyGetterCallback PropGetter;
+  typedef GenericNamedPropertySetterCallback PropSetter;
+  typedef GenericNamedPropertyQueryCallback PropQuery;
+  typedef GenericNamedPropertyDeleterCallback PropDeleter;
+  typedef GenericNamedPropertyEnumeratorCallback PropEnumerator;
+
+  static Local<v8::Name> MakeName(Isolate* isolate, JS::HandleId id) {
+    Local<Name> name =
+      internal::Local<String>::New(isolate,
+                                   JS::StringValue(JSID_TO_STRING(id)));
+    return name;
+  }
+
+  DEFINE_MIRROR(Getter, String)
+  DEFINE_MIRROR(Setter, String)
+  DEFINE_MIRROR(Query, String)
+  DEFINE_MIRROR(Deleter, String)
+  DEFINE_MIRROR(Enumerator, String)
+
+  static void ClearMirrorData(JS::HandleObject obj) {
+    using Template = SlotTraits<TemplateSlots, String>;
+
+    js::SetReservedSlot(obj, Template::PropData,
+                        JS::UndefinedValue());
+  }
+};
+
+template<>
+struct PropXerTraits<String> {
+  typedef NamedPropertyGetterCallback PropGetter;
+  typedef NamedPropertySetterCallback PropSetter;
+  typedef NamedPropertyQueryCallback PropQuery;
+  typedef NamedPropertyDeleterCallback PropDeleter;
+  typedef NamedPropertyEnumeratorCallback PropEnumerator;
+
+  static Local<v8::String> MakeName(Isolate* isolate, JS::HandleId id) {
+    Local<String> name =
+      internal::Local<String>::New(isolate,
+                                   JS::StringValue(JSID_TO_STRING(id)));
+    return name;
+  }
+
+  DEFINE_MIRROR(Getter, Name)
+  DEFINE_MIRROR(Setter, Name)
+  DEFINE_MIRROR(Query, Name)
+  DEFINE_MIRROR(Deleter, Name)
+  DEFINE_MIRROR(Enumerator, Name)
+
+  static void ClearMirrorData(JS::HandleObject obj) {
+    using Template = SlotTraits<TemplateSlots, Name>;
+
+    js::SetReservedSlot(obj, Template::PropData,
+                        JS::UndefinedValue());
+  }
+};
+
+#undef DEFINE_MIRROR
+
+template<>
+struct PropXerTraits<uint32_t> {
+  typedef IndexedPropertyGetterCallback PropGetter;
+  typedef IndexedPropertySetterCallback PropSetter;
+  typedef IndexedPropertyQueryCallback PropQuery;
+  typedef IndexedPropertyDeleterCallback PropDeleter;
+  typedef IndexedPropertyEnumeratorCallback PropEnumerator;
+
+  static uint32_t MakeName(Isolate* isolate, JS::HandleId id) {
+    return JSID_TO_INT(id);
+  }
+
+  static void ClearMirrorGetters(JS::HandleObject obj) {}
+  static void ClearMirrorSetters(JS::HandleObject obj) {}
+  static void ClearMirrorQuerys(JS::HandleObject obj) {}
+  static void ClearMirrorDeleters(JS::HandleObject obj) {}
+  static void ClearMirrorEnumerators(JS::HandleObject obj) {}
+  static void ClearMirrorData(JS::HandleObject obj) {}
+};
+
+template<typename N>
+struct PropCallbackTraits<typename PropXerTraits<N>::PropGetter, N> :
+  public PropXerTraits<N> {
+  typedef PropertyCallbackInfo<Value> PropertyCallbackInfo;
+  using Instance = SlotTraits<InstanceSlots, N>;
+
+  static void doCall(Isolate* isolate,
+                     typename PropXerTraits<N>::PropGetter callback,
+                     JS::HandleId id,
+                     PropertyCallbackInfo& info,
+                     JS::MutableHandleValue vp) {
+    auto name = PropXerTraits<N>::MakeName(isolate, id);
+
+    callback(name, info);
+
+    if (auto rval = info.GetReturnValue().Get()) {
+      vp.set(*GetValue(rval));
+    } else {
+      vp.setUndefined();
+    }
+  }
+};
+
+template<typename N>
+struct PropCallbackTraits<typename PropXerTraits<N>::PropSetter, N> :
+  public PropXerTraits<N> {
+  typedef PropertyCallbackInfo<Value> PropertyCallbackInfo;
+  using Instance = SlotTraits<InstanceSlots, N>;
+
+  static void doCall(Isolate* isolate,
+                     typename PropXerTraits<N>::PropSetter callback,
+                     JS::HandleId id,
+                     PropertyCallbackInfo& info,
+                     JS::MutableHandleValue vp) {
+    auto name = PropXerTraits<N>::MakeName(isolate, id);
+    Local<Value> value = internal::Local<Value>::New(isolate, vp);
+
+    callback(name, value, info);
+  }
+};
+
+template<typename N>
+struct PropCallbackTraits<typename PropXerTraits<N>::PropQuery, N> :
+  public PropXerTraits<N> {
+  typedef PropertyCallbackInfo<Integer> PropertyCallbackInfo;
+  using Instance = SlotTraits<InstanceSlots, N>;
+
+  static void doCall(Isolate* isolate,
+                     typename PropXerTraits<N>::PropQuery callback,
+                     JS::HandleId id,
+                     PropertyCallbackInfo& info) {
+    auto name = PropXerTraits<N>::MakeName(isolate, id);
+
+    callback(name, info);
+  }
+};
+
+template<typename N>
+struct PropCallbackTraits<typename PropXerTraits<N>::PropDeleter, N> :
+  public PropXerTraits<N> {
+  typedef PropertyCallbackInfo<Boolean> PropertyCallbackInfo;
+  using Instance = SlotTraits<InstanceSlots, N>;
+
+  static void doCall(Isolate* isolate,
+                     typename PropXerTraits<N>::PropDeleter callback,
+                     JS::HandleId id,
+                     PropertyCallbackInfo& info) {
+    auto name = PropXerTraits<N>::MakeName(isolate, id);
+
+    callback(name, info);
+  }
+};
+
+template<typename N>
+struct PropCallbackTraits<typename PropXerTraits<N>::PropEnumerator, N> :
+  public PropXerTraits<N> {
+  typedef PropertyCallbackInfo<Array> PropertyCallbackInfo;
+  using Instance = SlotTraits<InstanceSlots, N>;
+
+  static void doCall(Isolate* isolate,
+                     typename PropXerTraits<N>::PropEnumerator callback,
+                     PropertyCallbackInfo& info) {
+    callback(info);
+  }
+};
+
+template<typename N>
+static void CopyTemplateCallbackPropsOnInstance(JS::HandleObject templateObj,
+                                                JS::HandleObject instanceObj) {
+  using Instance = SlotTraits<InstanceSlots, N>;
+  using Template = SlotTraits<TemplateSlots, N>;
+
+#define COPIER(Xer)                                                      \
+  JS::Value callback1 ## Xer =                                           \
+    js::GetReservedSlot(templateObj, Template::Prop## Xer ##Callback1);  \
+  JS::Value callback2 ## Xer =                                           \
+    js::GetReservedSlot(templateObj, Template::Prop## Xer ##Callback2);  \
+  if (!callback1 ## Xer.isUndefined() &&                                 \
+      !callback2 ## Xer.isUndefined()) {                                 \
+    js::SetReservedSlot(instanceObj, Instance::Prop## Xer ##Callback1,   \
+                        callback1 ## Xer);                               \
+    js::SetReservedSlot(instanceObj, Instance::Prop## Xer ##Callback2,   \
+                        callback2 ## Xer);                               \
+  }
+
+  COPIER(Getter)
+  COPIER(Setter)
+  COPIER(Query)
+  COPIER(Deleter)
+  COPIER(Enumerator)
+
+#undef COPIER
+
+  JS::Value namedCallbackData =
+    js::GetReservedSlot(templateObj, Template::PropData);
+  if (!namedCallbackData.isUndefined()) {
+    js::SetReservedSlot(instanceObj, Instance::PropData,
+                        namedCallbackData);
+  }
+}
+
+#define HAS_XER_PROP(Xer)                                       \
+template<typename N>                                            \
+static bool Has## Xer ##Prop(JS::HandleObject obj) {            \
+  using Template = SlotTraits<TemplateSlots, N>;                \
+  JS::Value callback1 =                                         \
+    js::GetReservedSlot(obj, Template::Prop## Xer ##Callback1); \
+  JS::Value callback2 =                                         \
+    js::GetReservedSlot(obj, Template::Prop## Xer ##Callback2); \
+  return !callback1.isUndefined() && !callback2.isUndefined();  \
+}
+
+HAS_XER_PROP(Getter)
+HAS_XER_PROP(Setter)
+HAS_XER_PROP(Query)
+HAS_XER_PROP(Deleter)
+HAS_XER_PROP(Enumerator)
+
+#undef HAS_XER_PROP
+
+template<typename N, typename Getter, typename Setter, typename Query,
+         typename Deleter, typename Enumerator>
+void SetHandler(JSContext* cx, JS::HandleObject obj, Getter getter,
+                Setter setter, Query query, Deleter deleter,
+                Enumerator enumerator, Local<Value> data) {
+  using Template = SlotTraits<TemplateSlots, N>;
+
+  JS::RootedValue callback1(cx);
+  JS::RootedValue callback2(cx);
+
+#define SET_XER(xer, Xer)                                      \
+  if (xer) {                                                   \
+    CallbackToValues(xer, &callback1, &callback2);             \
+    js::SetReservedSlot(obj, Template::Prop## Xer ##Callback1, \
+                        callback1);                            \
+    js::SetReservedSlot(obj, Template::Prop## Xer ##Callback2, \
+                        callback2);                            \
+    PropXerTraits<N>::ClearMirror## Xer ##s(obj);              \
+  }
+
+  SET_XER(getter, Getter)
+  SET_XER(setter, Setter)
+  SET_XER(query, Query)
+  SET_XER(deleter, Deleter)
+  SET_XER(enumerator, Enumerator)
+
+#undef SET_XER
+
+  if (!data.IsEmpty()) {
+    js::SetReservedSlot(obj, Template::PropData,
+                        *GetValue(data));
+
+    PropXerTraits<N>::ClearMirrorData(obj);
+  }
+}
+
+#define PREPARE_CALLBACK(Xer)                                            \
+  Isolate* isolate = Isolate::GetCurrent();                              \
+  typedef PropCallbackTraits<CallbackType, N> Traits;                    \
+  typedef typename Traits::PropertyCallbackInfo PropertyCallbackInfo;    \
+  CallbackType callback = nullptr;                                       \
+  JS::RootedValue dataVal(cx,                                            \
+    js::GetReservedSlot(obj, Traits::Instance::PropData));               \
+  Local<Value> data = internal::Local<Value>::New(isolate, dataVal);     \
+  Local<Object> thisObj =                                                \
+    internal::Local<Object>::New(isolate, JS::ObjectValue(*obj));        \
+  JS::RootedValue callback1(cx,                                          \
+    js::GetReservedSlot(obj, Traits::Instance::Prop## Xer ##Callback1)); \
+  JS::RootedValue callback2(cx,                                          \
+    js::GetReservedSlot(obj, Traits::Instance::Prop## Xer ##Callback2)); \
+  if (!callback1.isUndefined() && !callback2.isUndefined()) {            \
+    callback = ValuesToCallback<CallbackType>(callback1, callback2);     \
+  }
+
+template<typename CallbackType, typename N>
+static bool GetterOpImpl(JSContext* cx, JS::HandleObject obj,
+                         JS::HandleId id, JS::MutableHandleValue vp) {
+  PREPARE_CALLBACK(Getter)
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
+                                                info, vp);
+  } else {
+    vp.set(JS::UndefinedValue());
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+static bool GetterOp(JSContext* cx, JS::HandleObject obj,
+                     JS::HandleId id, JS::MutableHandleValue vp) {
+  JSGetterOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = GetterOpImpl<IndexedPropertyGetterCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropGetterCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropGetterCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropGetterCallback.isUndefined()) {
+        return false;
+      }
+      impl = GetterOpImpl<GenericNamedPropertyGetterCallback, Name>;
+    } else if (symbolPropGetterCallback.isUndefined()) {
+      impl = GetterOpImpl<NamedPropertyGetterCallback, String>;
+    } else {
+      impl = GetterOpImpl<GenericNamedPropertyGetterCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, vp);
+}
+
+template<typename CallbackType, typename N>
+static bool GetOwnPropertyOpImpl_Getter(JSContext* cx, JS::HandleObject obj,
+                                        JS::HandleId id,
+                                        JS::MutableHandle<JS::PropertyDescriptor> desc) {
+  PREPARE_CALLBACK(Getter)
+
+  if (callback) {
+    JS::RootedValue value(cx);
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
+                                                info, &value);
+    if (!value.isUndefined()) {
+      // We only need to set the object since it is used to signal the existence
+      // of the property.
+      desc.object().set(obj);
+    }
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+// This function is used as a hook when a V8 getter hook (and not a query hook) is being used.
+static bool GetOwnPropertyOp_Getter(JSContext* cx, JS::HandleObject obj,
+                                    JS::HandleId id,
+                                    JS::MutableHandle<JS::PropertyDescriptor> desc) {
+  js::GetOwnPropertyOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = GetOwnPropertyOpImpl_Getter<IndexedPropertyGetterCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropGetterCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropGetterCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropGetterCallback.isUndefined()) {
+        return false;
+      }
+      impl = GetOwnPropertyOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
+    } else if (symbolPropGetterCallback.isUndefined()) {
+      impl = GetOwnPropertyOpImpl_Getter<NamedPropertyGetterCallback, String>;
+    } else {
+      impl = GetOwnPropertyOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, desc);
+}
+
+template<typename CallbackType, typename N>
+static bool SetterOpImpl(JSContext* cx, JS::HandleObject obj,
+                         JS::HandleId id, JS::MutableHandleValue vp,
+                         JS::ObjectOpResult& result) {
+  PREPARE_CALLBACK(Setter)
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
+                                                info, vp);
+    if (!info.GetReturnValue().Get()) {
+      result.failCantSetInterposed();
+    } else {
+      result.succeed();
+    }
+  } else {
+    result.failCantSetInterposed();
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+static bool SetterOp(JSContext* cx, JS::HandleObject obj,
+                     JS::HandleId id, JS::MutableHandleValue vp,
+                     JS::ObjectOpResult& result) {
+  JSSetterOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = SetterOpImpl<IndexedPropertySetterCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropSetterCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropSetterCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropSetterCallback.isUndefined()) {
+        return false;
+      }
+      impl = SetterOpImpl<GenericNamedPropertySetterCallback, Name>;
+    } else if (symbolPropSetterCallback.isUndefined()) {
+      impl = SetterOpImpl<NamedPropertySetterCallback, String>;
+    } else {
+      impl = SetterOpImpl<GenericNamedPropertySetterCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, vp, result);
+}
+
+template<typename CallbackType, typename N>
+static bool GetOwnPropertyOpImpl(JSContext* cx, JS::HandleObject obj,
+                                 JS::HandleId id,
+                                 JS::MutableHandle<JS::PropertyDescriptor> desc) {
+  PREPARE_CALLBACK(Query)
+
+  desc.value().set(JS::UndefinedValue());
+  desc.setGetter(nullptr);
+  desc.setSetter(nullptr);
+  desc.setAttributes(JSPROP_ENUMERATE);
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
+                                                info);
+
+    if (auto rval = info.GetReturnValue().Get()) {
+      auto pa = static_cast<PropertyAttribute>(rval->ToInt32()->Value());
+      desc.setAttributes(internal::AttrsToFlags(pa));
+      // Only set the object when a callback has successfully finished, to signal
+      // the success of the property lookup.
+      desc.object().set(obj);
+    }
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+// This function is used as a hook when a V8 query hook is being used.
+static bool GetOwnPropertyOp(JSContext* cx, JS::HandleObject obj,
+                             JS::HandleId id,
+                             JS::MutableHandle<JS::PropertyDescriptor> desc) {
+  js::GetOwnPropertyOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = GetOwnPropertyOpImpl<IndexedPropertyQueryCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropQueryCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropQueryCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropQueryCallback.isUndefined()) {
+        return false;
+      }
+      impl = GetOwnPropertyOpImpl<GenericNamedPropertyQueryCallback, Name>;
+    } else if (symbolPropQueryCallback.isUndefined()) {
+      impl = GetOwnPropertyOpImpl<NamedPropertyQueryCallback, String>;
+    } else {
+      impl = GetOwnPropertyOpImpl<GenericNamedPropertyQueryCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, desc);
+}
+
+static bool HasPropertyOp_Query(JSContext* cx, JS::HandleObject obj,
+                                JS::HandleId id, bool* found);
+struct AutoResetHasPropHook {
+  AutoResetHasPropHook(JS::HandleObject obj)
+    : clasp_(ObjectTemplate::InstanceClass::FromObject(obj)) {
+    clasp_->AddRef();
+    clasp_->ModifyObjectOps().hasProperty = nullptr;
+  }
+  ~AutoResetHasPropHook() {
+    clasp_->ModifyObjectOps().hasProperty = HasPropertyOp_Query;
+    clasp_->Release();
+  }
+ private:
+  ObjectTemplate::InstanceClass* clasp_;
+};
+
+template<typename CallbackType, typename N>
+static bool HasPropertyOpImpl_Query(JSContext* cx, JS::HandleObject obj,
+                                    JS::HandleId id, bool* found) {
+  PREPARE_CALLBACK(Query)
+
+  *found = false;
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
+                                                info);
+
+    if (auto rval = info.GetReturnValue().Get()) {
+      *found = true;
+    } else {
+      // If the handler doesn't respond to the callback, we need to initiate a lookup
+      // ignoring this hook to search the prototype chain, etc.
+      AutoResetHasPropHook ignoreHook(obj);
+      return JS_HasPropertyById(cx, obj, id, found);
+    }
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+static bool HasPropertyOp_Query(JSContext* cx, JS::HandleObject obj,
+                                JS::HandleId id, bool* found) {
+  js::HasPropertyOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = HasPropertyOpImpl_Query<IndexedPropertyQueryCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropQueryCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropQueryCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropQueryCallback.isUndefined()) {
+        return false;
+      }
+      impl = HasPropertyOpImpl_Query<GenericNamedPropertyQueryCallback, Name>;
+    } else if (symbolPropQueryCallback.isUndefined()) {
+      impl = HasPropertyOpImpl_Query<NamedPropertyQueryCallback, String>;
+    } else {
+      impl = HasPropertyOpImpl_Query<GenericNamedPropertyQueryCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, found);
+}
+
+template<typename CallbackType, typename N>
+static bool DeleterOpImpl(JSContext* cx, JS::HandleObject obj,
+                          JS::HandleId id, JS::ObjectOpResult& result) {
+  PREPARE_CALLBACK(Deleter)
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id, info);
+    if (!info.GetReturnValue().Get()) {
+      return false;
+    } else {
+      assert(info.GetReturnValue().Get()->IsBoolean());
+      if (info.GetReturnValue().Get()->IsTrue()) {
+        result.succeed();
+      } else {
+        result.failCantDelete();
+      }
+    }
+  } else {
+    result.failCantDelete();
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+static bool DeleterOp(JSContext* cx, JS::HandleObject obj,
+                      JS::HandleId id, JS::ObjectOpResult& result) {
+  JSDeletePropertyOp impl = nullptr;
+  if (JSID_IS_INT(id)) {
+    impl = DeleterOpImpl<IndexedPropertyDeleterCallback, uint32_t>;
+  } else {
+    JS::Value symbolPropDeleterCallback =
+      js::GetReservedSlot(obj,
+        SlotTraits<InstanceSlots, Name>::PropDeleterCallback1);
+    if (JSID_IS_SYMBOL(id)) {
+      // Symbols can only be intercepted with a callback accepting Names.
+      if (symbolPropDeleterCallback.isUndefined()) {
+        return false;
+      }
+      impl = DeleterOpImpl<GenericNamedPropertyDeleterCallback, Name>;
+    } else if (symbolPropDeleterCallback.isUndefined()) {
+      impl = DeleterOpImpl<NamedPropertyDeleterCallback, String>;
+    } else {
+      impl = DeleterOpImpl<GenericNamedPropertyDeleterCallback, Name>;
+    }
+  }
+  assert(impl);
+  return impl(cx, obj, id, result);
+}
+
+template<typename CallbackType, typename N>
+static bool EnumeratorOpImpl(JSContext* cx, JS::HandleObject obj,
+                             JS::AutoIdVector& properties, bool enumerableOnly) {
+  PREPARE_CALLBACK(Enumerator)
+
+  if (callback) {
+    PropertyCallbackInfo info(data, thisObj, thisObj);
+    PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, info);
+    if (auto rval = info.GetReturnValue().Get()) {
+      auto arr = Array::Cast(rval);
+      for (uint32_t i = 0; i < arr->Length(); ++i) {
+        Local<Value> elem = arr->Get(i);
+        if (elem.IsEmpty()) {
+          // TODO: Maybe we should do something better than just skipping...
+          continue;
+        }
+        if (elem->IsInt32()) {
+          properties.append(INT_TO_JSID(elem->ToInt32()->Value()));
+        } else if (elem->IsString()) {
+          JS::RootedString unatomized(cx, GetString(elem));
+          JS::RootedString str(cx, JS_AtomizeAndPinJSString(cx, unatomized));
+          if (!str) {
+            // TODO: Maybe we should do something better than just skipping...
+            continue;
+          }
+          properties.append(INTERNED_STRING_TO_JSID(cx, str));
+        }
+        // TODO: Handle symbols here when we implement v8::Symbol
+      }
+    }
+  }
+
+  return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
+}
+
+static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
+                         JS::AutoIdVector& properties, bool enumerableOnly) {
+  JS::Value indexedPropEnumeratorCallback =
+    js::GetReservedSlot(obj,
+      SlotTraits<InstanceSlots, uint32_t>::PropEnumeratorCallback1);
+  if (!indexedPropEnumeratorCallback.isUndefined()) {
+    if (!EnumeratorOpImpl<IndexedPropertyEnumeratorCallback, uint32_t>
+          (cx, obj, properties, enumerableOnly)) {
+      return false;
+    }
+  }
+  JS::Value namedPropEnumeratorCallback =
+    js::GetReservedSlot(obj,
+      SlotTraits<InstanceSlots, String>::PropEnumeratorCallback1);
+  if (!namedPropEnumeratorCallback.isUndefined()) {
+    if (!EnumeratorOpImpl<NamedPropertyEnumeratorCallback, String>
+          (cx, obj, properties, enumerableOnly)) {
+      return false;
+    }
+  }
+  JS::Value symbolPropEnumeratorCallback =
+    js::GetReservedSlot(obj,
+      SlotTraits<InstanceSlots, Name>::PropEnumeratorCallback1);
+  if (!symbolPropEnumeratorCallback.isUndefined()) {
+    if (EnumeratorOpImpl<GenericNamedPropertyEnumeratorCallback, Name>
+          (cx, obj, properties, enumerableOnly)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+#undef PREPARE_CALLBACK
 } // anonymous namespace
 
 namespace v8 {
@@ -215,12 +980,17 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
     return Local<Object>();
   }
 
-  // Ensure that we keep our instance class, if any, alive as long as the
-  // instance is alive.
   js::SetReservedSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
                       JS::PrivateValue(instanceClass));
   js::SetReservedSlot(instanceObj, size_t(InstanceSlots::ConstructorSlot),
                       JS::ObjectValue(*GetObject(*GetConstructor())));
+
+  CopyTemplateCallbackPropsOnInstance<String>(obj, instanceObj);
+  CopyTemplateCallbackPropsOnInstance<Name>(obj, instanceObj);
+  CopyTemplateCallbackPropsOnInstance<uint32_t>(obj, instanceObj);
+
+  // Ensure that we keep our instance class, if any, alive as long as the
+  // instance is alive.
   instanceClass->AddRef();
 
   JS::Value instanceVal = JS::ObjectValue(*instanceObj);
@@ -290,12 +1060,6 @@ void ObjectTemplate::SetAccessorInternal(Handle<N> name,
                         settings, attribute, signature);
 }
 
-// TODO SetNamedPropertyHandler: will need us to create proxies.
-
-// TODO SetHandler both overloads: will need us to create proxies.
-
-// TODO SetIndexedPropertyHandler: will need us to create proxies.
-
 // TODO SetAccessCheckCallbacks: Can this just be a no-op?
 
 // TODO SetCallAsFunctionHandler
@@ -333,15 +1097,48 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
     flags |= InstanceClass::nameAllocated;
   }
 
+  if (HasGetterProp<Name>(obj) ||
+      HasGetterProp<String>(obj) ||
+      HasGetterProp<uint32_t>(obj)) {
+    instanceClass->ModifyClassOps().getProperty = GetterOp;
+    // A getProperty hook doesn't cover things such as HasOwnProperty, so we need
+    // to set this additional hook too.
+    instanceClass->ModifyObjectOps().getOwnPropertyDescriptor = GetOwnPropertyOp_Getter;
+  }
+
+  if (HasSetterProp<Name>(obj) ||
+      HasSetterProp<String>(obj) ||
+      HasSetterProp<uint32_t>(obj)) {
+    instanceClass->ModifyClassOps().setProperty = SetterOp;
+  }
+
+  if (HasQueryProp<Name>(obj) ||
+      HasQueryProp<String>(obj) ||
+      HasQueryProp<uint32_t>(obj)) {
+    // This can potentially overwrite the hook set for getters above.
+    instanceClass->ModifyObjectOps().getOwnPropertyDescriptor = GetOwnPropertyOp;
+    instanceClass->ModifyObjectOps().hasProperty = HasPropertyOp_Query;
+  }
+
+  if (HasDeleterProp<Name>(obj) ||
+      HasDeleterProp<String>(obj) ||
+      HasDeleterProp<uint32_t>(obj)) {
+    instanceClass->ModifyClassOps().delProperty = DeleterOp;
+  }
+
+  if (HasEnumeratorProp<Name>(obj) ||
+      HasEnumeratorProp<String>(obj) ||
+      HasEnumeratorProp<uint32_t>(obj)) {
+    instanceClass->ModifyObjectOps().enumerate = EnumeratorOp;
+  }
+
   uint32_t internalFieldCount = static_cast<uint32_t>(InternalFieldCount());
 
   instanceClass->flags =
     flags | JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
                                        internalFieldCount);
-  instanceClass->cOps = &objectInstanceClassOps;
-  instanceClass->reserved[0] = nullptr;
-  instanceClass->reserved[1] = nullptr;
-  instanceClass->reserved[2] = nullptr;
+  instanceClass->ModifyClassOps().finalize =
+    ObjectTemplateFinalize<uint32_t(InstanceSlots::InstanceClassSlot)>;
 
   instanceClass->AddRef(); // Will be released in obj's finalizer.
 
@@ -411,4 +1208,56 @@ Local<FunctionTemplate> ObjectTemplate::GetObjectTemplateConstructor(Local<Objec
   return internal::Local<FunctionTemplate>::NewTemplate(isolate, ctorVal);
 }
 
+void ObjectTemplate::SetNamedPropertyHandler(NamedPropertyGetterCallback getter,
+                                             NamedPropertySetterCallback setter,
+                                             NamedPropertyQueryCallback query,
+                                             NamedPropertyDeleterCallback deleter,
+                                             NamedPropertyEnumeratorCallback enumerator,
+                                             Local<Value> data) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  ::SetHandler<String>(cx, obj, getter, setter, query, deleter, enumerator, data);
+}
+
+void ObjectTemplate::SetHandler(const NamedPropertyHandlerConfiguration& config) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  ::SetHandler<Name>(cx, obj, config.getter, config.setter, config.query,
+                     config.deleter, config.enumerator, config.data);
+}
+
+void ObjectTemplate::SetIndexedPropertyHandler(IndexedPropertyGetterCallback getter,
+                                               IndexedPropertySetterCallback setter,
+                                               IndexedPropertyQueryCallback query,
+                                               IndexedPropertyDeleterCallback deleter,
+                                               IndexedPropertyEnumeratorCallback enumerator,
+                                               Handle<Value> data) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  ::SetHandler<uint32_t>(cx, obj, getter, setter, query, deleter, enumerator, data);
+}
+
+void ObjectTemplate::SetHandler(const IndexedPropertyHandlerConfiguration& config) {
+  SetIndexedPropertyHandler(config.getter,
+                            config.setter,
+                            config.query,
+                            config.deleter,
+                            config.enumerator,
+                            config.data);
+}
 } // namespace v8

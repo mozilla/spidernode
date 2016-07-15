@@ -1374,3 +1374,374 @@ TEST(SpiderShim, SetterOnConstructorPrototype) {
                      .FromJust());
   }
 }
+
+void Getter_41(Local<Name> property, const PropertyCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(41);
+}
+
+void Getter_42(Local<String> property, const PropertyCallbackInfo<Value>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  info.GetReturnValue().Set(42);
+}
+
+void Setter_43(Local<String> property, Local<Value> val, const PropertyCallbackInfo<Value>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  EXPECT_EQ(50, Int32::Cast(*val)->Value());
+  info.GetReturnValue().Set(43);
+}
+
+void DeleterSuccess(Local<String> property, const PropertyCallbackInfo<Boolean>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  info.GetReturnValue().Set(true);
+}
+
+void Getter_54(uint32_t property, const PropertyCallbackInfo<Value>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  info.GetReturnValue().Set(54);
+}
+
+void Setter_55(uint32_t property, Local<Value> val, const PropertyCallbackInfo<Value>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  EXPECT_EQ(50, Int32::Cast(*val)->Value());
+  info.GetReturnValue().Set(55);
+}
+
+void DeleterFailure(uint32_t property, const PropertyCallbackInfo<Boolean>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  info.GetReturnValue().Set(false);
+}
+
+void DeleterFailure2(uint32_t property, const PropertyCallbackInfo<Boolean>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+}
+
+void Enum(const PropertyCallbackInfo<Array>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  Local<Array> arr = Array::New(info.GetIsolate(), 3);
+  arr->Set(0, String::NewFromUtf8(info.GetIsolate(), "foopy"));
+  arr->Set(1, String::NewFromUtf8(info.GetIsolate(), "eknard"));
+  arr->Set(2, String::NewFromUtf8(info.GetIsolate(), "slirp"));
+  info.GetReturnValue().Set(arr);
+}
+
+void EnumInt(const PropertyCallbackInfo<Array>& info) {
+  EXPECT_EQ(5, Int32::Cast(*info.Data())->Value());
+  Local<Array> arr = Array::New(info.GetIsolate(), 2);
+  arr->Set(0, Int32::New(info.GetIsolate(), 10));
+  arr->Set(1, Int32::New(info.GetIsolate(), 12));
+  info.GetReturnValue().Set(arr);
+}
+
+TEST(SpiderShim, PropertyHandlers) {
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  Local<Value> five = Int32::New(engine.isolate(), 5);
+  templ->SetHandler(NamedPropertyHandlerConfiguration(Getter_41));
+  templ->SetNamedPropertyHandler(Getter_42, Setter_43, nullptr, DeleterSuccess, Enum, five);
+  templ->SetIndexedPropertyHandler(Getter_54, Setter_55, nullptr, DeleterFailure, EnumInt, five);
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("P"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  Local<Value> val = CompileRun("var sum = ''; for (var x in P) sum += x; sum;");
+  String::Utf8Value utf8(val->ToString());
+  EXPECT_STREQ("1012foopyeknardslirp", *utf8);
+  val = CompileRun("P.foo;");
+  EXPECT_EQ(42, Int32::Cast(*val)->Value());
+  val = CompileRun("P.bar = 50;");
+  EXPECT_EQ(50, Int32::Cast(*val)->Value());
+  val = CompileRun("delete P.baz;");
+  EXPECT_TRUE(val->IsTrue());
+  val = CompileRun("P[4];");
+  EXPECT_EQ(54, Int32::Cast(*val)->Value());
+  val = CompileRun("P[40] = 50;");
+  EXPECT_EQ(50, Int32::Cast(*val)->Value());
+  val = CompileRun("delete P[400];");
+  EXPECT_TRUE(val->IsFalse());
+}
+
+static void ShadowFunctionCallback(
+    const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(v8_num(42));
+}
+
+static int shadow_y;
+static int shadow_y_setter_call_count;
+static int shadow_y_getter_call_count;
+
+static void ShadowYSetter(Local<String>,
+                          Local<Value>,
+                          const PropertyCallbackInfo<void>&) {
+  shadow_y_setter_call_count++;
+  shadow_y = 42;
+}
+
+static void ShadowYGetter(Local<String> name,
+                          const PropertyCallbackInfo<Value>& info) {
+  shadow_y_getter_call_count++;
+  info.GetReturnValue().Set(v8_num(shadow_y));
+}
+
+static void ShadowIndexedGet(uint32_t index,
+                             const PropertyCallbackInfo<Value>&) {
+}
+
+static void ShadowNamedGet(Local<Name> key,
+                           const PropertyCallbackInfo<Value>&) {}
+
+TEST(SpiderShim, ShadowObject) {
+  // Based on the V8 test-api.cc ShadowObject test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  shadow_y = shadow_y_setter_call_count = shadow_y_getter_call_count = 0;
+
+  Local<FunctionTemplate> t = FunctionTemplate::New(isolate);
+  t->InstanceTemplate()->SetHandler(
+      NamedPropertyHandlerConfiguration(ShadowNamedGet));
+  t->InstanceTemplate()->SetHandler(
+      IndexedPropertyHandlerConfiguration(ShadowIndexedGet));
+  Local<ObjectTemplate> proto = t->PrototypeTemplate();
+  Local<ObjectTemplate> instance = t->InstanceTemplate();
+
+  proto->Set(v8_str("f"),
+             FunctionTemplate::New(isolate,
+                                       ShadowFunctionCallback,
+                                       Local<Value>()));
+  proto->Set(v8_str("x"), v8_num(12));
+
+  instance->SetAccessor(v8_str("y"), ShadowYGetter, ShadowYSetter);
+
+  Local<Value> o = t->GetFunction(context)
+                       .ToLocalChecked()
+                       ->NewInstance(context)
+                       .ToLocalChecked();
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("__proto__"), o)
+            .FromJust());
+
+  Local<Value> value =
+      CompileRun("this.propertyIsEnumerable(0)");
+  EXPECT_TRUE(value->IsBoolean());
+  EXPECT_TRUE(!value->BooleanValue(context).FromJust());
+
+  value = CompileRun("x");
+  EXPECT_EQ(12, value->Int32Value(context).FromJust());
+
+  value = CompileRun("f()");
+  EXPECT_EQ(42, value->Int32Value(context).FromJust());
+
+  CompileRun("y = 43");
+  EXPECT_EQ(1, shadow_y_setter_call_count);
+  value = CompileRun("y");
+  EXPECT_EQ(1, shadow_y_getter_call_count);
+  EXPECT_EQ(42, value->Int32Value(context).FromJust());
+}
+
+void HasOwnPropertyIndexedPropertyGetter(
+    uint32_t index,
+    const PropertyCallbackInfo<Value>& info) {
+  if (index == 42) info.GetReturnValue().Set(v8_str("yes"));
+}
+
+void HasOwnPropertyNamedPropertyGetter(
+    Local<Name> property, const PropertyCallbackInfo<Value>& info) {
+  if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
+          .FromJust()) {
+    info.GetReturnValue().Set(v8_str("yes"));
+  }
+}
+
+void HasOwnPropertyIndexedPropertyQuery(
+    uint32_t index, const PropertyCallbackInfo<Integer>& info) {
+  if (index == 42) info.GetReturnValue().Set(1);
+}
+
+void HasOwnPropertyNamedPropertyQuery(
+    Local<Name> property, const PropertyCallbackInfo<Integer>& info) {
+  if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
+          .FromJust()) {
+    info.GetReturnValue().Set(1);
+  }
+}
+
+void HasOwnPropertyNamedPropertyQuery2(
+    Local<Name> property, const PropertyCallbackInfo<Integer>& info) {
+  if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("bar"))
+          .FromJust()) {
+    info.GetReturnValue().Set(1);
+  }
+}
+
+void HasOwnPropertyAccessorGetter(
+    Local<String> property,
+    const PropertyCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(v8_str("yes"));
+}
+
+TEST(SpiderShim, HasOwnProperty) {
+  // Based on the V8 test-api.cc HasOwnProperty test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  { // Check normal properties and defined getters.
+    Local<Value> value = CompileRun(
+        "function Foo() {"
+        "    this.foo = 11;"
+        "    this.__defineGetter__('baz', function() { return 1; });"
+        "};"
+        "function Bar() { "
+        "    this.bar = 13;"
+        "    this.__defineGetter__('bla', function() { return 2; });"
+        "};"
+        "Bar.prototype = new Foo();"
+        "new Bar();");
+    EXPECT_TRUE(value->IsObject());
+    Local<Object> object = value->ToObject(context).ToLocalChecked();
+    EXPECT_TRUE(object->Has(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(!object->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(object->HasOwnProperty(context, v8_str("bar")).FromJust());
+    EXPECT_TRUE(object->Has(context, v8_str("baz")).FromJust());
+    EXPECT_TRUE(!object->HasOwnProperty(context, v8_str("baz")).FromJust());
+    EXPECT_TRUE(object->HasOwnProperty(context, v8_str("bla")).FromJust());
+  }
+  { // Check named getter interceptors.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetHandler(NamedPropertyHandlerConfiguration(
+        HasOwnPropertyNamedPropertyGetter));
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("42")).FromJust());
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("bar")).FromJust());
+  }
+  { // Check indexed getter interceptors.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetHandler(IndexedPropertyHandlerConfiguration(
+        HasOwnPropertyIndexedPropertyGetter));
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("42")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("43")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("foo")).FromJust());
+  }
+  { // Check named query interceptors.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetHandler(NamedPropertyHandlerConfiguration(
+        0, 0, HasOwnPropertyNamedPropertyQuery));
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("bar")).FromJust());
+  }
+  { // Check indexed query interceptors.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetHandler(IndexedPropertyHandlerConfiguration(
+        0, 0, HasOwnPropertyIndexedPropertyQuery));
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("42")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("41")).FromJust());
+  }
+  { // Check callbacks.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetAccessor(v8_str("foo"), HasOwnPropertyAccessorGetter);
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("bar")).FromJust());
+  }
+  { // Check that query wins on disagreement.
+    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+    templ->SetHandler(NamedPropertyHandlerConfiguration(
+        HasOwnPropertyNamedPropertyGetter, 0,
+        HasOwnPropertyNamedPropertyQuery2));
+    Local<Object> instance = templ->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(!instance->HasOwnProperty(context, v8_str("foo")).FromJust());
+    EXPECT_TRUE(instance->HasOwnProperty(context, v8_str("bar")).FromJust());
+  }
+}
+
+TEST(SpiderShim, IndexedInterceptorWithStringProto) {
+  // Based on the V8 test-api.cc IndexedInterceptorWithStringProto test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->SetHandler(IndexedPropertyHandlerConfiguration(
+      NULL, NULL, HasOwnPropertyIndexedPropertyQuery));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("obj"),
+                  templ->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  CompileRun("var s = new String('foobar'); obj.__proto__ = s;");
+  // These should be intercepted.
+  EXPECT_TRUE(CompileRun("42 in obj")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'42' in obj")->BooleanValue(context).FromJust());
+  // These should fall through to the String prototype.
+  EXPECT_TRUE(CompileRun("0 in obj")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(CompileRun("'0' in obj")->BooleanValue(context).FromJust());
+  // And these should both fail.
+  EXPECT_TRUE(!CompileRun("32 in obj")->BooleanValue(context).FromJust());
+  EXPECT_TRUE(!CompileRun("'32' in obj")->BooleanValue(context).FromJust());
+}
+
+static void EmptyInterceptorGetter(
+    Local<String> name, const PropertyCallbackInfo<Value>& info) {}
+
+static void EmptyInterceptorSetter(
+    Local<String> name, Local<Value> value,
+    const PropertyCallbackInfo<Value>& info) {}
+
+TEST(SpiderShim, InstanceCheckOnInstanceAccessorWithInterceptor) {
+  // Based on the V8 test-api.cc InstanceCheckOnInstanceAccessorWithInterceptor test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
+  Local<ObjectTemplate> inst = templ->InstanceTemplate();
+  templ->InstanceTemplate()->SetNamedPropertyHandler(EmptyInterceptorGetter,
+                                                     EmptyInterceptorSetter);
+  inst->SetAccessor(v8_str("foo"), InstanceCheckedGetter, InstanceCheckedSetter,
+                    Local<Value>(), DEFAULT, None,
+                    AccessorSignature::New(context->GetIsolate(), templ));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("f"),
+                  templ->GetFunction(context).ToLocalChecked())
+            .FromJust());
+
+  printf("Testing positive ...\n");
+  CompileRun("var obj = new f();");
+  EXPECT_TRUE(templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  CheckInstanceCheckedAccessors(true);
+
+  printf("Testing negative ...\n");
+  CompileRun("var obj = {};"
+             "obj.__proto__ = new f();");
+  EXPECT_TRUE(!templ->HasInstance(
+      context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
+  CheckInstanceCheckedAccessors(false);
+}

@@ -22,7 +22,40 @@
 
 // Object's internal fields are stored in indices InstanceSlots::NumSlots + i.
 enum class InstanceSlots {
-  InstanceClassSlot,  // Stores a refcounted pointer to our InstanceClass*.
-  ConstructorSlot,    // Stores the JSObject for the constructor of our ObjectTemplate
+  InstanceClassSlot,              // Stores a refcounted pointer to our InstanceClass*.
+  ConstructorSlot,                // Stores the JSObject for the constructor of our ObjectTemplate
+  NamedGetterCallbackSlot1,       // Stores our named prop getter callback.
+  NamedGetterCallbackSlot2,
+  NamedSetterCallbackSlot1,       // Stores our named prop setter callback.
+  NamedSetterCallbackSlot2,
+  NamedQueryCallbackSlot1,        // Stores our named prop query callback.
+  NamedQueryCallbackSlot2,
+  NamedDeleterCallbackSlot1,      // Stores our named prop deleter callback.
+  NamedDeleterCallbackSlot2,
+  NamedEnumeratorCallbackSlot1,   // Stores our named prop enumerator callback.
+  NamedEnumeratorCallbackSlot2,
+  NamedCallbackDataSlot,          // Stores our named prop callback data
+  IndexedGetterCallbackSlot1,     // Stores our indexed prop getter callback.
+  IndexedGetterCallbackSlot2,
+  IndexedSetterCallbackSlot1,     // Stores our indexed prop setter callback.
+  IndexedSetterCallbackSlot2,
+  IndexedQueryCallbackSlot1,      // Stores our indexed prop query callback.
+  IndexedQueryCallbackSlot2,
+  IndexedDeleterCallbackSlot1,    // Stores our indexed prop deleter callback.
+  IndexedDeleterCallbackSlot2,
+  IndexedEnumeratorCallbackSlot1, // Stores our indexed prop enumerator callback.
+  IndexedEnumeratorCallbackSlot2,
+  IndexedCallbackDataSlot,        // Stores our indexed prop callback data
+  GenericGetterCallbackSlot1,     // Stores our generic prop getter callback.
+  GenericGetterCallbackSlot2,
+  GenericSetterCallbackSlot1,     // Stores our generic prop setter callback.
+  GenericSetterCallbackSlot2,
+  GenericQueryCallbackSlot1,      // Stores our generic prop query callback.
+  GenericQueryCallbackSlot2,
+  GenericDeleterCallbackSlot1,    // Stores our generic prop deleter callback.
+  GenericDeleterCallbackSlot2,
+  GenericEnumeratorCallbackSlot1, // Stores our generic prop enumerator callback.
+  GenericEnumeratorCallbackSlot2,
+  GenericCallbackDataSlot,        // Stores our generic prop callback data
   NumSlots
 };
