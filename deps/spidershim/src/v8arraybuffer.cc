@@ -26,6 +26,40 @@
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
 
+namespace {
+using namespace v8;
+
+// For now, we implement the hidden creation mode using a property with a
+// symbol key. This is observable to script, so if this becomes an issue in the
+// future we'd need to do something more sophisticated.
+JS::Symbol* GetHiddenCreationModeSymbol(JSContext* cx) {
+  JS::RootedString name(
+      cx, JS_NewStringCopyZ(cx, "__spidershim_hidden_creation_mode__"));
+  return JS::GetSymbolFor(cx, name);
+}
+
+ArrayBufferCreationMode GetCreationMode(JSContext* cx, JS::HandleObject self) {
+  JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenCreationModeSymbol(cx)));
+  JS::RootedValue value(cx);
+  if (!JS_GetPropertyById(cx, self, id, &value) ||
+      value.isUndefined()) {
+    return ArrayBufferCreationMode::kInternalized;
+  }
+  assert(value.isInt32());
+  assert(value.toInt32() == int32_t(ArrayBufferCreationMode::kInternalized) ||
+         value.toInt32() == int32_t(ArrayBufferCreationMode::kExternalized));
+  return ArrayBufferCreationMode(value.toInt32());
+}
+
+bool SetCreationMode(JSContext* cx, JS::HandleObject self,
+                     ArrayBufferCreationMode mode) {
+  JS::RootedId id(cx, SYMBOL_TO_JSID(GetHiddenCreationModeSymbol(cx)));
+  JS::RootedValue value(cx);
+  value.setInt32(int32_t(mode));
+  return JS_SetPropertyById(cx, self, id, value);
+}
+}
+
 namespace v8 {
 
 ArrayBuffer* ArrayBuffer::Cast(Value* val) {
@@ -36,7 +70,10 @@ ArrayBuffer* ArrayBuffer::Cast(Value* val) {
 Local<ArrayBuffer> ArrayBuffer::New(Isolate* isolate, size_t size) {
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
-  JSObject* buf = JS_NewArrayBuffer(cx, size);
+  JS::RootedObject buf(cx, JS_NewArrayBuffer(cx, size));
+  if (!SetCreationMode(cx, buf, ArrayBufferCreationMode::kInternalized)) {
+    return Local<ArrayBuffer>();
+  }
   JS::Value val;
   val.setObject(*buf);
   return internal::Local<ArrayBuffer>::New(isolate, val);
@@ -46,15 +83,25 @@ Local<ArrayBuffer> ArrayBuffer::New(Isolate* isolate, void* data, size_t size,
                                     ArrayBufferCreationMode mode) {
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
-  JSObject* buf;
+  JS::RootedObject buf(cx);
   if (mode == ArrayBufferCreationMode::kExternalized) {
     buf = JS_NewArrayBufferWithExternalContents(cx, size, data);
   } else {
     buf = JS_NewArrayBufferWithContents(cx, size, data);
   }
+  if (!SetCreationMode(cx, buf, mode)) {
+    return Local<ArrayBuffer>();
+  }
   JS::Value val;
   val.setObject(*buf);
   return internal::Local<ArrayBuffer>::New(isolate, val);
+}
+
+bool ArrayBuffer::IsExternal() const {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedObject obj(cx, GetObject(this));
+  AutoJSAPI jsAPI(cx, obj);
+  return GetCreationMode(cx, obj) == ArrayBufferCreationMode::kExternalized;
 }
 
 size_t ArrayBuffer::ByteLength() const {
@@ -83,5 +130,16 @@ void ArrayBuffer::Neuter() {
   JS::RootedObject obj(cx, GetObject(this));
   AutoJSAPI jsAPI(cx, obj);
   JS_DetachArrayBuffer(cx, obj, KeepData);
+}
+
+auto ArrayBuffer::Externalize() -> Contents {
+  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
+  JS::RootedObject obj(cx, GetObject(this));
+  AutoJSAPI jsAPI(cx, obj);
+  Contents result;
+  result.byte_length_ = ByteLength();
+  result.data_ = JS_ExternalizeArrayBufferContents(cx, obj);
+  SetCreationMode(cx, obj, ArrayBufferCreationMode::kExternalized);
+  return result;
 }
 }

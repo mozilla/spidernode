@@ -2548,41 +2548,6 @@ TEST(SpiderShim, Equals) {
   EXPECT_TRUE(!False(isolate)->SameValue(Undefined(isolate)));
 }
 
-template <typename T, int N = T::kInternalFieldCount>
-static void CheckInternalFieldsAreZero(Local<T> value) {
-  EXPECT_EQ(N, value->InternalFieldCount());
-  for (int i = 0; i < value->InternalFieldCount(); i++) {
-    EXPECT_EQ(0u, value->GetInternalField(i)
-                     ->Int32Value(Isolate::GetCurrent()->GetCurrentContext())
-                     .FromJust());
-  }
-}
-
-TEST(SpiderShim, ArrayBuffer) {
-  V8Engine engine;
-
-  Isolate::Scope isolate_scope(engine.isolate());
-
-  HandleScope handle_scope(engine.isolate());
-  Local<Context> context = Context::New(engine.isolate());
-  Context::Scope context_scope(context);
-  Isolate* isolate = engine.isolate();
-
-  Local<ArrayBuffer> arr = ArrayBuffer::New(isolate, 0);
-  EXPECT_TRUE(arr->IsArrayBuffer());
-  EXPECT_EQ(0u, arr->ByteLength());
-  ArrayBuffer::Contents contents = arr->GetContents();
-  EXPECT_EQ(0u, contents.ByteLength());
-  CheckInternalFieldsAreZero(arr);
-  Local<ArrayBuffer> arr2 = ArrayBuffer::New(isolate, 2);
-  EXPECT_TRUE(arr2->IsArrayBuffer());
-  EXPECT_EQ(2u, arr2->ByteLength());
-  contents = arr2->GetContents();
-  EXPECT_EQ(2u, contents.ByteLength());
-  EXPECT_EQ(2u, ArrayBuffer::Cast(*arr2->ToObject())->ByteLength());
-  CheckInternalFieldsAreZero(arr2);
-}
-
 TEST(SpiderShim, Function) {
   V8Engine engine;
 
@@ -2717,86 +2682,6 @@ TEST(SpiderShim, ReturnNewHandle) {
   CHECK(context->Global()->Set(context, v8_str("f"), func).FromJust());
   Local<Value> result = engine.CompileRun(context, "f().foo");
   CHECK(v8::Integer::New(isolate, 42)->Equals(context, result).FromJust());
-}
-
-template <typename TypedArrayType, int kElementSize>
-static Local<TypedArrayType> CreateAndCheck(Local<ArrayBuffer> ab,
-                                            int byteOffset, int length) {
-  Local<TypedArrayType> ta = TypedArrayType::New(ab, byteOffset, length);
-  EXPECT_EQ(byteOffset, static_cast<int>(ta->ByteOffset()));
-  EXPECT_EQ(length * kElementSize, static_cast<int>(ta->ByteLength()));
-  EXPECT_EQ(length, static_cast<int>(ta->Length()));
-  EXPECT_EQ(ab->GetContents().Data(), ta->Buffer()->GetContents().Data());
-  EXPECT_EQ(ta->ByteOffset(), TypedArrayType::Cast(*ta->ToObject())->ByteOffset());
-  EXPECT_TRUE(ta->IsTypedArray());
-  EXPECT_TRUE(ta->IsArrayBufferView());
-  EXPECT_TRUE(TypedArray::Cast(*ta));
-  CheckInternalFieldsAreZero(ta);
-  return ta;
-}
-
-TEST(SpiderShim, ArrayBuffer_NeuteringApi) {
-  // This test is adopted from the V8 ArrayBuffer_NeuteringApi test.
-  V8Engine engine;
-
-  Isolate::Scope isolate_scope(engine.isolate());
-
-  HandleScope handle_scope(engine.isolate());
-  Local<Context> context = Context::New(engine.isolate());
-  Context::Scope context_scope(context);
-  Isolate* isolate = engine.isolate();
-
-  Local<ArrayBuffer> buffer = ArrayBuffer::New(isolate, 1024);
-
-  Local<Uint8Array> u8a =
-      CreateAndCheck<Uint8Array, 1>(buffer, 1, 1023);
-  Local<Uint8ClampedArray> u8c =
-      CreateAndCheck<Uint8ClampedArray, 1>(buffer, 1, 1023);
-  Local<Int8Array> i8a =
-      CreateAndCheck<Int8Array, 1>(buffer, 1, 1023);
-
-  Local<Uint16Array> u16a =
-      CreateAndCheck<Uint16Array, 2>(buffer, 2, 511);
-  Local<Int16Array> i16a =
-      CreateAndCheck<Int16Array, 2>(buffer, 2, 511);
-
-  Local<Uint32Array> u32a =
-      CreateAndCheck<Uint32Array, 4>(buffer, 4, 255);
-  Local<Int32Array> i32a =
-      CreateAndCheck<Int32Array, 4>(buffer, 4, 255);
-
-  Local<Float32Array> f32a =
-      CreateAndCheck<Float32Array, 4>(buffer, 4, 255);
-  Local<Float64Array> f64a =
-      CreateAndCheck<Float64Array, 8>(buffer, 8, 127);
-
-  // Avoid "unused variable" warnings.
-  EXPECT_FALSE(u8a->IsNull());
-  EXPECT_FALSE(u8c->IsNull());
-  EXPECT_FALSE(i8a->IsNull());
-  EXPECT_FALSE(u16a->IsNull());
-  EXPECT_FALSE(i16a->IsNull());
-  EXPECT_FALSE(u32a->IsNull());
-  EXPECT_FALSE(i32a->IsNull());
-  EXPECT_FALSE(f32a->IsNull());
-  EXPECT_FALSE(f64a->IsNull());
-}
-
-TEST(SpiderShim, ArrayBuffer_Neutering) {
-  V8Engine engine;
-
-  Isolate::Scope isolate_scope(engine.isolate());
-
-  HandleScope handle_scope(engine.isolate());
-  Local<Context> context = Context::New(engine.isolate());
-  Context::Scope context_scope(context);
-  Isolate* isolate = engine.isolate();
-
-  char buf[1024];
-  Local<ArrayBuffer> buffer = ArrayBuffer::New(isolate, buf, 1024);
-  CheckInternalFieldsAreZero(buffer);
-  buffer->Neuter();
-  CHECK_EQ(buffer->ByteLength(), 0);
 }
 
 TEST(SpiderShim, FunctionCall) {

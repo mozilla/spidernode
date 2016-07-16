@@ -52,5 +52,9 @@
       'target_name': 'valuemap',
       'sources': [ 'test/valuemap.cc' ],
     },
+    {
+      'target_name': 'arraybuffer',
+      'sources': [ 'test/arraybuffer.cc' ],
+    },
   ],
 }
