@@ -2764,8 +2764,8 @@ class V8_EXPORT V8 {
    *   handled entirely on the embedders' side.
    * - The call will abort if the data is invalid.
    */
-  static void SetNativesDataBlob(StartupData* startup_blob);
-  static void SetSnapshotDataBlob(StartupData* startup_blob);
+  static void SetNativesDataBlob(StartupData* startup_blob) {}
+  static void SetSnapshotDataBlob(StartupData* startup_blob) {}
 
  private:
   friend class Context;
