@@ -2535,7 +2535,7 @@ class V8_EXPORT ResourceConstraints {
    *   device, in bytes, or zero, if there is no limit.
    */
   void ConfigureDefaults(uint64_t physical_memory,
-                         uint64_t virtual_memory_limit);
+                         uint64_t virtual_memory_limit) {}
 };
 
 class V8_EXPORT Isolate {
