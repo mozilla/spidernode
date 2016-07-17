@@ -237,7 +237,11 @@ MaybeLocal<Value> Function::Call(Local<Context> context, Local<Value> recv,
   }
 
   for (int i = 0; i < argc; i++) {
-    args.infallibleAppend(*GetValue(argv[i]));
+    JS::RootedValue val(cx, *GetValue(argv[i]));
+    if (!JS_WrapValue(cx, &val)) {
+      return Local<Value>();
+    }
+    args.infallibleAppend(val);
   }
 
   JS::RootedValue func(cx, *GetValue(this));
