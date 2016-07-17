@@ -108,8 +108,8 @@ TEST(SpiderShim, GCCallbacks) {
 
 bool message_received;
 
-static void check_message(v8::Local<v8::Message> message,
-                            v8::Local<Value> data) {
+static void check_message(Local<Message> message,
+                            Local<Value> data) {
   Isolate* isolate = Isolate::GetCurrent();
   EXPECT_TRUE(data->IsNumber());
   EXPECT_EQ(1337,
@@ -170,22 +170,22 @@ TEST(SpiderShim, IsolateEmbedderData) {
   // This test is based on V8's IsolateEmbedderData.
   V8Engine engine;
   auto isolate = engine.isolate();
-  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+  for (uint32_t slot = 0; slot < Isolate::GetNumberOfDataSlots(); ++slot) {
     EXPECT_TRUE(!isolate->GetData(slot));
   }
-  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+  for (uint32_t slot = 0; slot < Isolate::GetNumberOfDataSlots(); ++slot) {
     void* data = reinterpret_cast<void*>(0xacce55ed + slot);
     isolate->SetData(slot, data);
   }
-  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+  for (uint32_t slot = 0; slot < Isolate::GetNumberOfDataSlots(); ++slot) {
     void* data = reinterpret_cast<void*>(0xacce55ed + slot);
     EXPECT_EQ(data, isolate->GetData(slot));
   }
-  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+  for (uint32_t slot = 0; slot < Isolate::GetNumberOfDataSlots(); ++slot) {
     void* data = reinterpret_cast<void*>(0xdecea5ed + slot);
     isolate->SetData(slot, data);
   }
-  for (uint32_t slot = 0; slot < v8::Isolate::GetNumberOfDataSlots(); ++slot) {
+  for (uint32_t slot = 0; slot < Isolate::GetNumberOfDataSlots(); ++slot) {
     void* data = reinterpret_cast<void*>(0xdecea5ed + slot);
     EXPECT_EQ(data, isolate->GetData(slot));
   }
@@ -307,6 +307,7 @@ TEST(SpiderShim, Microtask) {
   Context::Scope context_scope(context);
 
   Local<Object> global = context->Global();
+  engine.isolate()->SetAutorunMicrotasks(false);
 
   EXPECT_TRUE(global->Set(context, v8_str("onFulfilled"),
                           Function::New(context, OnFulfilled).ToLocalChecked())
@@ -408,3 +409,274 @@ TEST(SpiderShim, ThrowValues) {
             ->IsUndefined());
 }
 
+static void MicrotaskOne(const FunctionCallbackInfo<Value>& info) {
+  EXPECT_TRUE(MicrotasksScope::IsRunningMicrotasks(info.GetIsolate()));
+  HandleScope scope(info.GetIsolate());
+  MicrotasksScope microtasks(info.GetIsolate(),
+                                 MicrotasksScope::kDoNotRunMicrotasks);
+  CompileRun("ext1Calls++;");
+}
+
+static void MicrotaskTwo(const FunctionCallbackInfo<Value>& info) {
+  EXPECT_TRUE(MicrotasksScope::IsRunningMicrotasks(info.GetIsolate()));
+  HandleScope scope(info.GetIsolate());
+  MicrotasksScope microtasks(info.GetIsolate(),
+                                 MicrotasksScope::kDoNotRunMicrotasks);
+  CompileRun("ext2Calls++;");
+}
+
+void* g_passed_to_three = NULL;
+
+static void MicrotaskThree(void* data) {
+  g_passed_to_three = data;
+}
+
+TEST(SpiderShim, EnqueueMicrotask) {
+  // This test is based on V8's EnqueueMicrotask.
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  EXPECT_TRUE(!MicrotasksScope::IsRunningMicrotasks(context->GetIsolate()));
+  CompileRun(
+      "var ext1Calls = 0;"
+      "var ext2Calls = 0;");
+  CompileRun("1+1;");
+  EXPECT_EQ(0, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  g_passed_to_three = NULL;
+  context->GetIsolate()->EnqueueMicrotask(MicrotaskThree);
+  CompileRun("1+1;");
+  EXPECT_TRUE(!g_passed_to_three);
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+
+  int dummy;
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  context->GetIsolate()->EnqueueMicrotask(MicrotaskThree, &dummy);
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(&dummy, g_passed_to_three);
+  EXPECT_EQ(3, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  g_passed_to_three = NULL;
+}
+
+static void MicrotaskExceptionOne(
+    const FunctionCallbackInfo<Value>& info) {
+  HandleScope scope(info.GetIsolate());
+  CompileRun("exception1Calls++;");
+  info.GetIsolate()->ThrowException(
+      Exception::Error(v8_str("first")));
+}
+
+static void MicrotaskExceptionTwo(
+    const FunctionCallbackInfo<Value>& info) {
+  HandleScope scope(info.GetIsolate());
+  CompileRun("exception2Calls++;");
+  info.GetIsolate()->ThrowException(
+      Exception::Error(v8_str("second")));
+}
+
+TEST(SpiderShim, RunMicrotasksIgnoresThrownExceptions) {
+  // This test is based on V8's RunMicrotasksIgnoresThrownExceptions.
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  CompileRun(
+      "var exception1Calls = 0;"
+      "var exception2Calls = 0;");
+  isolate->EnqueueMicrotask(
+      Function::New(context, MicrotaskExceptionOne).ToLocalChecked());
+  isolate->EnqueueMicrotask(
+      Function::New(context, MicrotaskExceptionTwo).ToLocalChecked());
+  TryCatch try_catch(isolate);
+  CompileRun("1+1;");
+  EXPECT_TRUE(!try_catch.HasCaught());
+  EXPECT_EQ(1,
+           CompileRun("exception1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1,
+           CompileRun("exception2Calls")->Int32Value(context).FromJust());
+}
+
+TEST(SpiderShim, ScopedMicrotasks) {
+  // This test is based on V8's RunMicrotasksIgnoresThrownExceptions.
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  context->GetIsolate()->SetMicrotasksPolicy(MicrotasksPolicy::kScoped);
+  {
+    MicrotasksScope scope1(context->GetIsolate(),
+                               MicrotasksScope::kDoNotRunMicrotasks);
+    context->GetIsolate()->EnqueueMicrotask(
+        Function::New(context, MicrotaskOne).ToLocalChecked());
+    CompileRun(
+        "var ext1Calls = 0;"
+        "var ext2Calls = 0;");
+    CompileRun("1+1;");
+    EXPECT_EQ(0, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    {
+      MicrotasksScope scope2(context->GetIsolate(),
+                                 MicrotasksScope::kRunMicrotasks);
+      CompileRun("1+1;");
+      EXPECT_EQ(0, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+      EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+      {
+        MicrotasksScope scope3(context->GetIsolate(),
+                                   MicrotasksScope::kRunMicrotasks);
+        CompileRun("1+1;");
+        EXPECT_EQ(0,
+                 CompileRun("ext1Calls")->Int32Value(context).FromJust());
+        EXPECT_EQ(0,
+                 CompileRun("ext2Calls")->Int32Value(context).FromJust());
+      }
+      EXPECT_EQ(0, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+      EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    }
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    context->GetIsolate()->EnqueueMicrotask(
+        Function::New(context, MicrotaskTwo).ToLocalChecked());
+  }
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  {
+    MicrotasksScope scope1(context->GetIsolate(),
+                               MicrotasksScope::kRunMicrotasks);
+    CompileRun("1+1;");
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    {
+      MicrotasksScope scope2(context->GetIsolate(),
+                                 MicrotasksScope::kDoNotRunMicrotasks);
+    }
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    context->GetIsolate()->EnqueueMicrotask(
+        Function::New(context, MicrotaskTwo).ToLocalChecked());
+  }
+
+  {
+    Isolate::SuppressMicrotaskExecutionScope scope1(context->GetIsolate());
+    {
+      MicrotasksScope scope2(context->GetIsolate(),
+                                 MicrotasksScope::kRunMicrotasks);
+    }
+    MicrotasksScope scope3(context->GetIsolate(),
+                               MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  {
+    MicrotasksScope scope1(context->GetIsolate(),
+                               MicrotasksScope::kRunMicrotasks);
+    MicrotasksScope::PerformCheckpoint(context->GetIsolate());
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  MicrotasksScope::PerformCheckpoint(context->GetIsolate());
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    context->GetIsolate()->EnqueueMicrotask(
+        Function::New(context, MicrotaskTwo).ToLocalChecked());
+  }
+
+  MicrotasksScope::PerformCheckpoint(context->GetIsolate());
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  {
+    Isolate::SuppressMicrotaskExecutionScope scope1(context->GetIsolate());
+    MicrotasksScope::PerformCheckpoint(context->GetIsolate());
+    MicrotasksScope scope2(context->GetIsolate(),
+                               MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  MicrotasksScope::PerformCheckpoint(context->GetIsolate());
+
+  {
+    MicrotasksScope scope(context->GetIsolate(),
+                              MicrotasksScope::kDoNotRunMicrotasks);
+    EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  }
+
+  context->GetIsolate()->SetMicrotasksPolicy(MicrotasksPolicy::kAuto);
+}

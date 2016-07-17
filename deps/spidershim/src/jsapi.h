@@ -21,6 +21,7 @@
 #pragma once
 
 #include_next <jsapi.h>
+#include <assert.h>
 #include "v8.h"
 #include "conversions.h"
 
@@ -29,9 +30,11 @@ class AutoJSAPI : private JSAutoCompartment {
  public:
   AutoJSAPI(JSContext* cx, JSObject* obj) :
     JSAutoCompartment(cx, obj) {
+    init();
   }
   AutoJSAPI(JSContext* cx, const JSObject* obj) :
     JSAutoCompartment(cx, const_cast<JSObject*>(obj)) {
+    init();
   }
   template <class T>
   AutoJSAPI(JSContext* cx, T* val) :
@@ -61,12 +64,30 @@ class AutoJSAPI : private JSAutoCompartment {
     AutoJSAPI(JSContextFromIsolate(v8::Isolate::GetCurrent())) {
   }
   ~AutoJSAPI() {
-    HandleExistingException(JSContextFromIsolate(v8::Isolate::GetCurrent()));
+    auto isolate = v8::Isolate::GetCurrent();
+    isolate->AdjustCallDepth(-1);
+    HandleExistingException(JSContextFromIsolate(isolate));
+    if (scriptCall_) {
+      auto policy = isolate->GetMicrotasksPolicy();
+      if (policy == v8::MicrotasksPolicy::kAuto &&
+          !isolate->IsMicrotaskExecutionSuppressed() &&
+          isolate->GetCallDepth() == 0) {
+        isolate->RunMicrotasks();
+      }
+      if (policy == v8::MicrotasksPolicy::kScoped) {
+        assert(isolate->GetMicrotaskDepth() ||
+               isolate->GetMicrotaskDebugDepth());
+      }
+    }
   }
 
   void BleedThroughExceptions() { ignoreException_ = true; }
+  void MarkScriptCall() { scriptCall_ = true; }
 
  private:
+  void init() {
+    v8::Isolate::GetCurrent()->AdjustCallDepth(+1);
+  }
   void HandleExistingException(JSContext* cx) {
     if (!ignoreException_ &&
         !v8::Isolate::GetCurrent()->GetTopmostTryCatch() &&
@@ -75,5 +96,6 @@ class AutoJSAPI : private JSAutoCompartment {
     }
   }
   bool ignoreException_ = false;
+  bool scriptCall_ = false;
 };
 

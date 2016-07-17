@@ -18,31 +18,44 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#pragma once
 #include "v8.h"
-#include "jsapi.h"
-#include <vector>
-#include <utility>
-
-using JobQueue = JS::GCVector<JSObject*, 0, js::SystemAllocPolicy>;
-using JobQueueNative = std::vector<std::pair<v8::MicrotaskCallback, void*>>;
 
 namespace v8 {
 
-struct Context::Impl {
-  explicit Impl(JSContext* cx)
-      : oldCompartment(nullptr),
-        embedderData(cx, JS::ValueVector(cx)) {
-    jobQueue.init(cx, JobQueue(js::SystemAllocPolicy()));
+MicrotasksScope::MicrotasksScope(Isolate* isolate, Type type)
+  : isolate_(isolate),
+    type_(type) {
+  if (type_ == MicrotasksScope::kRunMicrotasks) {
+    isolate_->AdjustMicrotaskDepth(+1);
+  } else {
+    isolate_->AdjustMicrotaskDebugDepth(+1);
   }
-  JS::PersistentRootedObject global;
-  Persistent<Object> globalObj;
-  JSCompartment* oldCompartment;
-  JS::PersistentRooted<JS::ValueVector> embedderData;
-  JS::PersistentRooted<JobQueue> jobQueue;
-  JobQueueNative jobQueueNative;
-  void RunMicrotasks();
-};
+}
 
-JSContext* JSContextFromContext(Context* context);
+MicrotasksScope::~MicrotasksScope() {
+  if (type_ == MicrotasksScope::kRunMicrotasks) {
+    isolate_->AdjustMicrotaskDepth(-1);
+    if (isolate_->GetMicrotasksPolicy() == MicrotasksPolicy::kScoped) {
+      PerformCheckpoint(isolate_);
+    }
+  } else {
+    isolate_->AdjustMicrotaskDebugDepth(-1);
+  }
+}
+
+int MicrotasksScope::GetCurrentDepth(Isolate* isolate) {
+  return isolate->GetMicrotaskDepth();
+}
+
+void MicrotasksScope::PerformCheckpoint(Isolate* isolate) {
+  if (!isolate->IsExecutionTerminating() &&
+      !isolate->IsMicrotaskExecutionSuppressed() &&
+      !GetCurrentDepth(isolate)) {
+    isolate->RunMicrotasks();
+  }
+}
+
+bool MicrotasksScope::IsRunningMicrotasks(Isolate* isolate) {
+  return isolate->IsRunningMicrotasks();
+}
 }

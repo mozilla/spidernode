@@ -203,6 +203,7 @@ MaybeLocal<Object> Function::NewInstance(Local<Context> context, int argc,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
+  jsAPI.MarkScriptCall();
   JS::RootedObject thisObj(cx, GetObject(this));
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
@@ -228,6 +229,7 @@ MaybeLocal<Value> Function::Call(Local<Context> context, Local<Value> recv,
   Isolate* isolate = context->GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
+  jsAPI.MarkScriptCall();
   JS::RootedValue val(cx, *GetValue(recv));
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc) || !JS_WrapValue(cx, &val)) {

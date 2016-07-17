@@ -189,14 +189,21 @@ void Context::Impl::RunMicrotasks() {
   // Execute jobs in a loop until we've reached the end of the queue.
   // Since executing a job can trigger enqueuing of additional jobs,
   // it's crucial to re-check the queue length during each iteration.
-  for (size_t i = 0; i < jobQueue.length(); i++) {
-      job = jobQueue[i];
-      JSAutoCompartment ac(cx, job);
-      if (!JS::Call(cx, JS::UndefinedHandleValue, job, args, &rval))
-          JS_ReportPendingException(cx);
-      jobQueue[i].set(nullptr);
+  while (jobQueue.length() || jobQueueNative.size()) {
+    for (size_t i = 0; i < jobQueue.length(); i++) {
+        job = jobQueue[i];
+        JSAutoCompartment ac(cx, job);
+        if (!JS::Call(cx, JS::UndefinedHandleValue, job, args, &rval))
+            JS_ReportPendingException(cx);
+        jobQueue[i].set(nullptr);
+    }
+    jobQueue.clear();
+    for (size_t i = 0; i < jobQueueNative.size(); i++) {
+      const auto& job = jobQueueNative[i];
+      job.first(job.second);
+    }
+    jobQueueNative.clear();
   }
-  jobQueue.clear();
 }
 
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }

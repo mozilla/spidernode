@@ -80,6 +80,7 @@
         'src/v8isolate.cc',
         'src/v8isolate-heapstats.cc',
         'src/v8message.cc',
+        'src/v8microtaskscope.cc',
         'src/v8number.cc',
         'src/v8numberobject.cc',
         'src/v8object.cc',

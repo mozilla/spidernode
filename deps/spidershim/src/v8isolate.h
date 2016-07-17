@@ -43,7 +43,15 @@ struct Isolate::Impl {
         topTryCatch(nullptr),
         serviceInterrupt(false),
         terminatingExecution(false),
-        amountOfExternallyAllocatedMemory(0) {
+        runningMicrotasks(false),
+        amountOfExternallyAllocatedMemory(0),
+        callDepth(0),
+#ifdef DEBUG
+        debugMicrotaskDepth(0),
+#endif
+        microtaskDepth(0),
+        microtaskSuppressions(0),
+        microtaskPolicy(MicrotasksPolicy::kAuto) {
     memset(embeddedData, 0, sizeof(embeddedData));
   }
 
@@ -63,7 +71,15 @@ struct Isolate::Impl {
   void* embeddedData[internal::kNumIsolateDataSlots];
   bool serviceInterrupt;
   bool terminatingExecution;
+  bool runningMicrotasks;
   int64_t amountOfExternallyAllocatedMemory;
+  int callDepth;
+#ifdef DEBUG
+  int debugMicrotaskDepth;
+#endif
+  int microtaskDepth;
+  int microtaskSuppressions;
+  MicrotasksPolicy microtaskPolicy;
 
   void EnsurePersistents(Isolate* iso) {
     assert(!persistents);

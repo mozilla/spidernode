@@ -105,6 +105,7 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   JS::RootedValue result(cx);
   JS::RootedObject global(cx, GetObject(context_->Global()));
   AutoJSAPI jsAPI(cx, global);
+  jsAPI.MarkScriptCall();
   internal::TryCatch tryCatch(context_->GetIsolate());
   if (!JS::CloneAndExecuteScript(cx, JS::Handle<JSScript*>::fromMarkedLocation(&script_),
                                  &result) ||

@@ -648,6 +648,7 @@ MaybeLocal<Value> Object::CallAsConstructor(Local<Context> context, int argc,
   Isolate* isolate = context->GetIsolate();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
+  jsAPI.MarkScriptCall();
   JS::AutoValueVector args(cx);
   if (!args.reserve(argc)) {
     return Local<Value>();

@@ -212,17 +212,62 @@ void Isolate::AddUnboundScript(UnboundScript* script) {
   pimpl_->unboundScripts.push_back(script);
 }
 
+int Isolate::GetMicrotaskDepth() const {
+  return pimpl_->microtaskDepth;
+}
+
+void Isolate::AdjustMicrotaskDepth(int change) {
+  pimpl_->microtaskDepth += change;
+}
+
+#ifdef DEBUG
+int Isolate::GetMicrotaskDebugDepth() const {
+  return pimpl_->debugMicrotaskDepth;
+}
+
+void Isolate::AdjustMicrotaskDebugDepth(int change) {
+  pimpl_->debugMicrotaskDepth += change;
+}
+#endif
+
+bool Isolate::IsRunningMicrotasks() const {
+  return pimpl_->runningMicrotasks;
+}
+
+void Isolate::SetMicrotasksPolicy(MicrotasksPolicy policy) {
+  pimpl_->microtaskPolicy = policy;
+}
+
 void Isolate::SetAutorunMicrotasks(bool autorun) {
-  // Node only sets this to false.
-  // TODO: fully implement this https://github.com/mozilla/spidernode/issues/110
-  if (autorun) {
-    MOZ_CRASH("Only autorun false is supported.");
-  }
+  SetMicrotasksPolicy(autorun ? MicrotasksPolicy::kAuto : MicrotasksPolicy::kExplicit);
+}
+
+MicrotasksPolicy Isolate::GetMicrotasksPolicy() const {
+  return pimpl_->microtaskPolicy;
+}
+
+bool Isolate::WillAutorunMicrotasks() const {
+  return GetMicrotasksPolicy() == MicrotasksPolicy::kAuto;
 }
 
 void Isolate::RunMicrotasks() {
   Local<Context> context = GetCurrentContext();
+  pimpl_->runningMicrotasks = true;
   context->pimpl_->RunMicrotasks();
+  pimpl_->runningMicrotasks = false;
+}
+
+void Isolate::EnqueueMicrotask(Local<Function> microtask) {
+  auto context = JSContextFromIsolate(this);
+  AutoJSAPI jsAPI(context);
+  JSContext* cx = pimpl_->cx;
+  JS::RootedObject fun(cx, GetObject(microtask));
+  pimpl_->EnqueuePromiseJobCallback(cx, fun, nullptr, nullptr);
+}
+
+void Isolate::EnqueueMicrotask(MicrotaskCallback microtask, void* data) {
+  Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
+  return context->pimpl_->jobQueueNative.push_back(std::make_pair(microtask, data));
 }
 
 bool Isolate::IsExecutionTerminating() {
@@ -434,5 +479,28 @@ void Isolate::SetFatalErrorHandler(FatalErrorCallback that) {
 void Isolate::SetAbortOnUncaughtExceptionCallback(
   AbortOnUncaughtExceptionCallback callback) {
   // TODO: https://github.com/mozilla/spidernode/issues/126
+}
+
+Isolate::SuppressMicrotaskExecutionScope::SuppressMicrotaskExecutionScope
+  (Isolate* isolate) : isolate_(isolate) {
+  isolate_->pimpl_->microtaskSuppressions += 1;
+  isolate_->AdjustCallDepth(+1);
+}
+
+Isolate::SuppressMicrotaskExecutionScope::~SuppressMicrotaskExecutionScope() {
+  isolate_->pimpl_->microtaskSuppressions -= 1;
+  isolate_->AdjustCallDepth(-1);
+}
+
+bool Isolate::IsMicrotaskExecutionSuppressed() const {
+  return !!pimpl_->microtaskSuppressions;
+}
+
+int Isolate::GetCallDepth() const {
+  return pimpl_->callDepth;
+}
+
+void Isolate::AdjustCallDepth(int change) {
+  pimpl_->callDepth += change;
 }
 }

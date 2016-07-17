@@ -2451,6 +2451,16 @@ typedef void* (*CreateHistogramCallback)(const char* name, int min, int max,
                                          size_t buckets);
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
+typedef void (*MicrotaskCallback)(void* data);
+
+/**
+ * Policy for running microtasks:
+ *   - explicit: microtasks are invoked with Isolate::RunMicrotasks() method;
+ *   - scoped: microtasks invocation is controlled by MicrotasksScope objects;
+ *   - auto: microtasks are invoked when the script call depth decrements
+ *           to zero.
+ */
+enum class MicrotasksPolicy { kExplicit, kScoped, kAuto };
 
 /**
  * This scope is used to control microtasks when kScopeMicrotasksInvocation
@@ -2487,6 +2497,9 @@ class V8_EXPORT MicrotasksScope {
   // Prevent copying.
   MicrotasksScope(const MicrotasksScope&);
   MicrotasksScope& operator=(const MicrotasksScope&);
+
+  Isolate* isolate_;
+  Type type_;
 };
 
 enum GarbageCollectionType { kFullGarbageCollection, kMinorGarbageCollection };
@@ -2557,6 +2570,24 @@ class V8_EXPORT Isolate {
     Scope& operator=(const Scope&);
   };
 
+  /**
+   * Do not run microtasks while this scope is active, even if microtasks are
+   * automatically executed otherwise.
+   */
+  class V8_EXPORT SuppressMicrotaskExecutionScope {
+   public:
+    explicit SuppressMicrotaskExecutionScope(Isolate* isolate);
+    ~SuppressMicrotaskExecutionScope();
+
+   private:
+    Isolate* const isolate_;
+
+    // Prevent copying of Scope objects.
+    SuppressMicrotaskExecutionScope(const SuppressMicrotaskExecutionScope&);
+    SuppressMicrotaskExecutionScope& operator=(
+        const SuppressMicrotaskExecutionScope&);
+  };
+
   static Isolate* New(const CreateParams& params);
   static Isolate* New();
   static Isolate* GetCurrent();
@@ -2579,7 +2610,14 @@ class V8_EXPORT Isolate {
   Local<Context> GetCurrentContext();
   void SetPromiseRejectCallback(PromiseRejectCallback callback);
   void RunMicrotasks();
-  void SetAutorunMicrotasks(bool autorun);
+  void EnqueueMicrotask(Local<Function> microtask);
+  void EnqueueMicrotask(MicrotaskCallback microtask, void* data = NULL);
+  void SetMicrotasksPolicy(MicrotasksPolicy policy);
+  V8_DEPRECATE_SOON("Use SetMicrotasksPolicy",
+                    void SetAutorunMicrotasks(bool autorun));
+  MicrotasksPolicy GetMicrotasksPolicy() const;
+  V8_DEPRECATE_SOON("Use GetMicrotasksPolicy",
+                    bool WillAutorunMicrotasks() const);
   void SetFatalErrorHandler(FatalErrorCallback that);
   void SetJitCodeEventHandler(JitCodeEventOptions options,
                               JitCodeEventHandler event_handler);
@@ -2649,8 +2687,10 @@ class V8_EXPORT Isolate {
   void AddUnboundScript(UnboundScript* script);
   friend class ::AutoJSAPI;
   friend class Context;
+  friend class MicrotasksScope;
   friend class StackFrame;
   friend class StackTrace;
+  friend class SuppressMicrotaskExecutionScope;
   friend class TryCatch;
   friend class UnboundScript;
   friend class ::V8Engine;
@@ -2713,6 +2753,20 @@ class V8_EXPORT Isolate {
 
   TryCatch* GetTopmostTryCatch() const;
   void SetTopmostTryCatch(TryCatch* val);
+
+  int GetMicrotaskDepth() const;
+  void AdjustMicrotaskDepth(int change);
+#ifdef DEBUG
+  int GetMicrotaskDebugDepth() const;
+  void AdjustMicrotaskDebugDepth(int change);
+#else
+  int GetMicrotaskDebugDepth() const { return 0; }
+  void AdjustMicrotaskDebugDepth(int change) {}
+#endif
+  bool IsRunningMicrotasks() const;
+  bool IsMicrotaskExecutionSuppressed() const;
+  int GetCallDepth() const;
+  void AdjustCallDepth(int change);
 
   struct Impl;
   Impl* pimpl_;
