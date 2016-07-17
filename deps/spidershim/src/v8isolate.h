@@ -21,6 +21,7 @@
 #pragma once
 
 #include <stack>
+#include <set>
 
 #include "v8.h"
 #include "v8context.h"
@@ -68,6 +69,7 @@ struct Isolate::Impl {
   mozilla::Maybe<internal::RootStore> persistents;
   mozilla::Maybe<internal::RootStore> eternals;
   std::vector<MessageCallback> messageListeners;
+  std::set<MicrotasksCompletedCallback> microtaskCompletionCallbacks;
   void* embeddedData[internal::kNumIsolateDataSlots];
   bool serviceInterrupt;
   bool terminatingExecution;

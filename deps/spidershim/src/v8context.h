@@ -41,7 +41,7 @@ struct Context::Impl {
   JS::PersistentRooted<JS::ValueVector> embedderData;
   JS::PersistentRooted<JobQueue> jobQueue;
   JobQueueNative jobQueueNative;
-  void RunMicrotasks();
+  bool RunMicrotasks();
 };
 
 JSContext* JSContextFromContext(Context* context);

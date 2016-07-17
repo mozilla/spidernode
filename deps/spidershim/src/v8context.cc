@@ -179,9 +179,10 @@ void* Context::GetAlignedPointerFromEmbedderData(int idx) {
   return pimpl_->embedderData[idx].get().toPrivate();
 }
 
-void Context::Impl::RunMicrotasks() {
+bool Context::Impl::RunMicrotasks() {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   AutoJSAPI jsAPI(cx);
+  bool ranAny = false;
   // The following code was adapted from spidermonkey's shell.
   JS::RootedObject job(cx);
   JS::HandleValueArray args(JS::HandleValueArray::empty());
@@ -190,6 +191,7 @@ void Context::Impl::RunMicrotasks() {
   // Since executing a job can trigger enqueuing of additional jobs,
   // it's crucial to re-check the queue length during each iteration.
   while (jobQueue.length() || jobQueueNative.size()) {
+    ranAny = true;
     for (size_t i = 0; i < jobQueue.length(); i++) {
         job = jobQueue[i];
         JSAutoCompartment ac(cx, job);
@@ -204,6 +206,7 @@ void Context::Impl::RunMicrotasks() {
     }
     jobQueueNative.clear();
   }
+  return ranAny;
 }
 
 Isolate* Context::GetIsolate() { return Isolate::GetCurrent(); }

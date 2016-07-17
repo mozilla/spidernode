@@ -2451,6 +2451,7 @@ typedef void* (*CreateHistogramCallback)(const char* name, int min, int max,
                                          size_t buckets);
 typedef void (*AddHistogramSampleCallback)(void* histogram, int sample);
 typedef void (*PromiseRejectCallback)(PromiseRejectMessage message);
+typedef void (*MicrotasksCompletedCallback)(Isolate*);
 typedef void (*MicrotaskCallback)(void* data);
 
 /**
@@ -2618,6 +2619,8 @@ class V8_EXPORT Isolate {
   MicrotasksPolicy GetMicrotasksPolicy() const;
   V8_DEPRECATE_SOON("Use GetMicrotasksPolicy",
                     bool WillAutorunMicrotasks() const);
+  void AddMicrotasksCompletedCallback(MicrotasksCompletedCallback callback);
+  void RemoveMicrotasksCompletedCallback(MicrotasksCompletedCallback callback);
   void SetFatalErrorHandler(FatalErrorCallback that);
   void SetJitCodeEventHandler(JitCodeEventOptions options,
                               JitCodeEventHandler event_handler);

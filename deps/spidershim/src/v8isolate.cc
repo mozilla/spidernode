@@ -253,8 +253,13 @@ bool Isolate::WillAutorunMicrotasks() const {
 void Isolate::RunMicrotasks() {
   Local<Context> context = GetCurrentContext();
   pimpl_->runningMicrotasks = true;
-  context->pimpl_->RunMicrotasks();
+  bool ranAny = context->pimpl_->RunMicrotasks();
   pimpl_->runningMicrotasks = false;
+  if (ranAny) {
+    for (auto callback : pimpl_->microtaskCompletionCallbacks) {
+      callback(this);
+    }
+  }
 }
 
 void Isolate::EnqueueMicrotask(Local<Function> microtask) {
@@ -502,5 +507,16 @@ int Isolate::GetCallDepth() const {
 
 void Isolate::AdjustCallDepth(int change) {
   pimpl_->callDepth += change;
+}
+
+void Isolate::AddMicrotasksCompletedCallback(MicrotasksCompletedCallback callback) {
+  pimpl_->microtaskCompletionCallbacks.insert(callback);
+}
+
+void Isolate::RemoveMicrotasksCompletedCallback(MicrotasksCompletedCallback callback) {
+  auto existing = pimpl_->microtaskCompletionCallbacks.find(callback);
+  if (existing != pimpl_->microtaskCompletionCallbacks.end()) {
+    pimpl_->microtaskCompletionCallbacks.erase(existing);
+  }
 }
 }

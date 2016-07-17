@@ -535,6 +535,98 @@ TEST(SpiderShim, RunMicrotasksIgnoresThrownExceptions) {
            CompileRun("exception2Calls")->Int32Value(context).FromJust());
 }
 
+uint8_t microtasks_completed_callback_count = 0;
+
+static void MicrotasksCompletedCallback(Isolate* isolate) {
+  ++microtasks_completed_callback_count;
+}
+
+TEST(SpiderShim, SetAutorunMicrotasks) {
+  // This test is based on V8's SetAutorunMicrotasks.
+  V8Engine engine;
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  context->GetIsolate()->AddMicrotasksCompletedCallback(
+      &::MicrotasksCompletedCallback);
+  CompileRun(
+      "var ext1Calls = 0;"
+      "var ext2Calls = 0;");
+  CompileRun("1+1;");
+  EXPECT_EQ(0, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->SetMicrotasksPolicy(MicrotasksPolicy::kExplicit);
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(1, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(0, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->RunMicrotasks();
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(1, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->RunMicrotasks();
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(2, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(3u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->SetMicrotasksPolicy(MicrotasksPolicy::kAuto);
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(4u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskTwo).ToLocalChecked());
+  {
+    Isolate::SuppressMicrotaskExecutionScope scope(context->GetIsolate());
+    CompileRun("1+1;");
+    EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(3, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+    EXPECT_EQ(4u, microtasks_completed_callback_count);
+  }
+
+  CompileRun("1+1;");
+  EXPECT_EQ(2, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(4, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(5u, microtasks_completed_callback_count);
+
+  context->GetIsolate()->RemoveMicrotasksCompletedCallback(
+      &::MicrotasksCompletedCallback);
+  context->GetIsolate()->EnqueueMicrotask(
+      Function::New(context, MicrotaskOne).ToLocalChecked());
+  CompileRun("1+1;");
+  EXPECT_EQ(3, CompileRun("ext1Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(4, CompileRun("ext2Calls")->Int32Value(context).FromJust());
+  EXPECT_EQ(5u, microtasks_completed_callback_count);
+}
+
 TEST(SpiderShim, ScopedMicrotasks) {
   // This test is based on V8's RunMicrotasksIgnoresThrownExceptions.
   V8Engine engine;
