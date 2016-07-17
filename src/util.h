@@ -10,7 +10,12 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#ifdef __APPLE__
+// OSX 10.9 defaults to libc++ which provides a C++11 <type_traits> header.
+#if defined(__APPLE__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 1090
+#define USE_TR1_TYPE_TRAITS
+#endif
+
+#ifdef USE_TR1_TYPE_TRAITS
 #include <tr1/type_traits>
 #else
 #include <type_traits>  // std::remove_reference
@@ -18,7 +23,7 @@
 
 namespace node {
 
-#ifdef __APPLE__
+#ifdef USE_TR1_TYPE_TRAITS
 template <typename T> using remove_reference = std::tr1::remove_reference<T>;
 #else
 template <typename T> using remove_reference = std::remove_reference<T>;
