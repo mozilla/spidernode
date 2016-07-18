@@ -87,6 +87,10 @@ MaybeLocal<String> String::NewFromUtf8(Isolate* isolate, const char* data,
     length = strlen(data);
   }
 
+  if (!isolate) {
+    isolate = Isolate::GetCurrent();
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
 
