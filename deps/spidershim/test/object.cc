@@ -6,10 +6,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
+#include <utility>
 
 #include "v8engine.h"
 
 #include "gtest/gtest.h"
+
+#include "../src/instanceslots.h"
+#include "../src/conversions.h"
 
 TEST(SpiderShim, ReplaceConstantFunction) {
   // Based on the V8 test-api.cc ReplaceConstantFunction test.
@@ -65,4 +70,40 @@ TEST(SpiderShim, ObjectSetAccessorProperty) {
   EXPECT_EQ(42, returned.As<Integer>()->Value());
   String::Utf8Value utf8(setValue.As<String>());
   EXPECT_STREQ("Hello", *utf8);
+}
+
+TEST(SpiderShim, InstanceSlots) {
+  // Note that this is not an API test.  It is designed to test the
+  // functions defined in instanceslots.h.
+
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<ObjectTemplate> templ_1 = ObjectTemplate::New(isolate);
+  Local<Context> context = Context::New(isolate, nullptr, templ_1);
+  Context::Scope context_scope(context);
+
+  auto CheckSlots = [](JSObject* obj) {
+    std::vector<std::pair<int, JS::Value>> slots;
+    // Ensure that all of an object's slots are correctly accessible.
+    for (size_t slot = 0; slot < size_t(InstanceSlots::NumSlots); ++slot) {
+      const int value = rand();
+      JS::Value oldValue = GetInstanceSlot(obj, slot);
+      SetInstanceSlot(obj, slot, JS::Int32Value(value));
+      slots.push_back(std::make_pair(value, oldValue));
+    }
+    for (size_t slot = 0; slot < size_t(InstanceSlots::NumSlots); ++slot) {
+      EXPECT_EQ(slots[slot].first, GetInstanceSlot(obj, slot).toInt32());
+      SetInstanceSlot(obj, slot, slots[slot].second); // restore
+    }
+  };
+
+  Local<ObjectTemplate> templ_2 = ObjectTemplate::New(isolate);
+
+  // Check the slots of a GlobalObject.
+  CheckSlots(GetObject(context->Global()));
+  // Check the slots of a NormalObject.
+  CheckSlots(GetObject(templ_2->NewInstance()));
 }

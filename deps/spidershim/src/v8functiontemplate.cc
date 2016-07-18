@@ -207,7 +207,8 @@ MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
       internal::Local<Object>::New(isolate, JS::ObjectValue(*protoProto));
 
     MaybeLocal<Object> protoInstance =
-      protoTemplate->NewInstance(protoProtoObject);
+      protoTemplate->NewInstance(protoProtoObject,
+                                 ObjectTemplate::NormalObject);
     if (protoInstance.IsEmpty()) {
       return MaybeLocal<Function>();
     }
@@ -408,6 +409,24 @@ Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) 
   return templ;
 }
 
+void FunctionTemplate::SetPrototypeTemplate(Local<ObjectTemplate> protoTemplate) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &functionTemplateClass);
+
+#ifdef DEBUG
+  JS::RootedValue protoTemplateVal(cx, js::GetReservedSlot(obj, ProtoTemplateSlot));
+  assert(protoTemplateVal.isUndefined() &&
+         "Cannot call SetPrototypeTemplate after the object "
+         "has created a prototype template");
+#endif
+
+  js::SetReservedSlot(obj, ProtoTemplateSlot, *GetValue(protoTemplate));
+}
+
 bool FunctionTemplate::HasInstance(Local<Value> val) {
   if (val.IsEmpty() || !val->IsObject()) {
     return false;
@@ -521,6 +540,8 @@ bool FunctionTemplate::InstallInstanceProperties(Local<Object> target) {
   JS::RootedObject targetObj(cx, GetObject(target));
   assert(targetObj);
 
+  // JS_CopyPropertiesFrom wraps the property values into the current
+  // compartment for us.
   return JS_CopyPropertiesFrom(cx, targetObj, instanceObj);
 }
 

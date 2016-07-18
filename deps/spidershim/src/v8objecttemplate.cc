@@ -26,6 +26,7 @@
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 #include "accessor.h"
+#include "mozilla/Maybe.h"
 
 namespace v8 {
 
@@ -89,9 +90,10 @@ private:
 namespace {
 using namespace v8;
 
-template<uint32_t N>
+template<uint32_t N, bool IsInstanceSlots = false>
 void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
-  JS::Value classValue = js::GetReservedSlot(obj, N);
+  JS::Value classValue = IsInstanceSlots ? GetInstanceSlot(obj, N) :
+                         js::GetReservedSlot(obj, N);
   if (classValue.isUndefined()) {
     // We never got around to calling GetInstanceClass().
     return;
@@ -106,6 +108,7 @@ void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
 
 enum class TemplateSlots {
   InstanceClassSlot,              // Stores the InstanceClass* for our instances.
+  GlobalInstanceClassSlot,        // Stores the InstanceClass* for our global object instances.
   InternalFieldCountSlot,         // Stores the internal field count for our instances.
   ConstructorSlot,                // Stores our constructor FunctionTemplate.
   NamedGetterCallbackSlot1,       // Stores our named prop getter callback.
@@ -405,7 +408,8 @@ struct PropCallbackTraits<typename PropXerTraits<N>::PropEnumerator, N> :
 };
 
 template<typename N>
-static void CopyTemplateCallbackPropsOnInstance(JS::HandleObject templateObj,
+static void CopyTemplateCallbackPropsOnInstance(JSContext* cx,
+                                                JS::HandleObject templateObj,
                                                 JS::HandleObject instanceObj) {
   using Instance = SlotTraits<InstanceSlots, N>;
   using Template = SlotTraits<TemplateSlots, N>;
@@ -417,10 +421,10 @@ static void CopyTemplateCallbackPropsOnInstance(JS::HandleObject templateObj,
     js::GetReservedSlot(templateObj, Template::Prop## Xer ##Callback2);  \
   if (!callback1 ## Xer.isUndefined() &&                                 \
       !callback2 ## Xer.isUndefined()) {                                 \
-    js::SetReservedSlot(instanceObj, Instance::Prop## Xer ##Callback1,   \
-                        callback1 ## Xer);                               \
-    js::SetReservedSlot(instanceObj, Instance::Prop## Xer ##Callback2,   \
-                        callback2 ## Xer);                               \
+    SetInstanceSlot(instanceObj, Instance::Prop## Xer ##Callback1,       \
+                    callback1 ## Xer);                                   \
+    SetInstanceSlot(instanceObj, Instance::Prop## Xer ##Callback2,       \
+                    callback2 ## Xer);                                   \
   }
 
   COPIER(Getter)
@@ -431,11 +435,11 @@ static void CopyTemplateCallbackPropsOnInstance(JS::HandleObject templateObj,
 
 #undef COPIER
 
-  JS::Value namedCallbackData =
-    js::GetReservedSlot(templateObj, Template::PropData);
-  if (!namedCallbackData.isUndefined()) {
-    js::SetReservedSlot(instanceObj, Instance::PropData,
-                        namedCallbackData);
+  JS::RootedValue namedCallbackData(cx,
+    js::GetReservedSlot(templateObj, Template::PropData));
+  if (!namedCallbackData.isUndefined() &&
+      JS_WrapValue(cx, &namedCallbackData)) {
+    SetInstanceSlot(instanceObj, Instance::PropData, namedCallbackData);
   }
 }
 
@@ -500,14 +504,14 @@ void SetHandler(JSContext* cx, JS::HandleObject obj, Getter getter,
   typedef typename Traits::PropertyCallbackInfo PropertyCallbackInfo;    \
   CallbackType callback = nullptr;                                       \
   JS::RootedValue dataVal(cx,                                            \
-    js::GetReservedSlot(obj, Traits::Instance::PropData));               \
+    GetInstanceSlot(obj, Traits::Instance::PropData));                   \
   Local<Value> data = internal::Local<Value>::New(isolate, dataVal);     \
   Local<Object> thisObj =                                                \
     internal::Local<Object>::New(isolate, JS::ObjectValue(*obj));        \
   JS::RootedValue callback1(cx,                                          \
-    js::GetReservedSlot(obj, Traits::Instance::Prop## Xer ##Callback1)); \
+    GetInstanceSlot(obj, Traits::Instance::Prop## Xer ##Callback1));     \
   JS::RootedValue callback2(cx,                                          \
-    js::GetReservedSlot(obj, Traits::Instance::Prop## Xer ##Callback2)); \
+    GetInstanceSlot(obj, Traits::Instance::Prop## Xer ##Callback2));     \
   if (!callback1.isUndefined() && !callback2.isUndefined()) {            \
     callback = ValuesToCallback<CallbackType>(callback1, callback2);     \
   }
@@ -535,7 +539,7 @@ static bool GetterOp(JSContext* cx, JS::HandleObject obj,
     impl = GetterOpImpl<IndexedPropertyGetterCallback, uint32_t>;
   } else {
     JS::Value symbolPropGetterCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropGetterCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -591,7 +595,7 @@ static bool ResolveOp_Getter(JSContext* cx, JS::HandleObject obj,
     impl = ResolveOpImpl_Getter<IndexedPropertyGetterCallback, uint32_t>;
   } else {
     JS::Value symbolPropGetterCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropGetterCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -639,7 +643,7 @@ static bool SetterOp(JSContext* cx, JS::HandleObject obj,
     impl = SetterOpImpl<IndexedPropertySetterCallback, uint32_t>;
   } else {
     JS::Value symbolPropSetterCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropSetterCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -694,7 +698,7 @@ static bool GetOwnPropertyOp(JSContext* cx, JS::HandleObject obj,
     impl = GetOwnPropertyOpImpl<IndexedPropertyQueryCallback, uint32_t>;
   } else {
     JS::Value symbolPropQueryCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropQueryCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -760,7 +764,7 @@ static bool HasPropertyOp_Query(JSContext* cx, JS::HandleObject obj,
     impl = HasPropertyOpImpl_Query<IndexedPropertyQueryCallback, uint32_t>;
   } else {
     JS::Value symbolPropQueryCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropQueryCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -810,7 +814,7 @@ static bool DeleterOp(JSContext* cx, JS::HandleObject obj,
     impl = DeleterOpImpl<IndexedPropertyDeleterCallback, uint32_t>;
   } else {
     JS::Value symbolPropDeleterCallback =
-      js::GetReservedSlot(obj,
+      GetInstanceSlot(obj,
         SlotTraits<InstanceSlots, Name>::PropDeleterCallback1);
     if (JSID_IS_SYMBOL(id)) {
       // Symbols can only be intercepted with a callback accepting Names.
@@ -866,7 +870,7 @@ static bool EnumeratorOpImpl(JSContext* cx, JS::HandleObject obj,
 static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
                          JS::AutoIdVector& properties, bool enumerableOnly) {
   JS::Value indexedPropEnumeratorCallback =
-    js::GetReservedSlot(obj,
+    GetInstanceSlot(obj,
       SlotTraits<InstanceSlots, uint32_t>::PropEnumeratorCallback1);
   if (!indexedPropEnumeratorCallback.isUndefined()) {
     if (!EnumeratorOpImpl<IndexedPropertyEnumeratorCallback, uint32_t>
@@ -875,7 +879,7 @@ static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
     }
   }
   JS::Value namedPropEnumeratorCallback =
-    js::GetReservedSlot(obj,
+    GetInstanceSlot(obj,
       SlotTraits<InstanceSlots, String>::PropEnumeratorCallback1);
   if (!namedPropEnumeratorCallback.isUndefined()) {
     if (!EnumeratorOpImpl<NamedPropertyEnumeratorCallback, String>
@@ -884,7 +888,7 @@ static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
     }
   }
   JS::Value symbolPropEnumeratorCallback =
-    js::GetReservedSlot(obj,
+    GetInstanceSlot(obj,
       SlotTraits<InstanceSlots, Name>::PropEnumeratorCallback1);
   if (!symbolPropEnumeratorCallback.isUndefined()) {
     if (EnumeratorOpImpl<GenericNamedPropertyEnumeratorCallback, Name>
@@ -957,10 +961,11 @@ MaybeLocal<Object> ObjectTemplate::NewInstance(Local<Context> context) {
     return MaybeLocal<Object>();
   }
 
-  return NewInstance(prototype);
+  return NewInstance(prototype, NormalObject);
 }
 
-Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
+Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype,
+                                          ObjectType objectType) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
@@ -974,7 +979,7 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   assert(!prototype.IsEmpty());
   JS::RootedObject protoObj(cx, &GetValue(prototype)->toObject());
 
-  InstanceClass* instanceClass = GetInstanceClass();
+  InstanceClass* instanceClass = GetInstanceClass(objectType);
   assert(instanceClass);
 
   // XXXbz this needs more fleshing out to deal with the whole business of
@@ -983,23 +988,39 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
   // us.  For now, let's just go ahead and do the simple thing, since we don't
   // implement those parts of the API yet..
   JS::RootedObject instanceObj(cx);
-  instanceObj = JS_NewObjectWithGivenProto(cx, instanceClass, protoObj);
+  if (objectType == NormalObject) {
+    instanceObj = JS_NewObjectWithGivenProto(cx, instanceClass, protoObj);
+  } else if (objectType == GlobalObject) {
+    JS::CompartmentOptions options;
+    options.behaviors().setVersion(JSVERSION_LATEST);
+    instanceObj = JS_NewGlobalObject(cx, instanceClass, nullptr,
+                                     JS::FireOnNewGlobalHook, options);
+    if (!instanceObj) {
+      return Local<Object>();
+    }
+
+    JSAutoCompartment ac(cx, instanceObj);
+
+    if (!JS_InitStandardClasses(cx, instanceObj) ||
+        !JS_WrapObject(cx, &protoObj) ||
+        !JS_SplicePrototype(cx, instanceObj, protoObj)) {
+      return Local<Object>();
+    }
+  } else {
+    assert(false && "Unexpected object type");
+  }
   if (!instanceObj) {
     return Local<Object>();
   }
 
-  js::SetReservedSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
-                      JS::PrivateValue(instanceClass));
-  js::SetReservedSlot(instanceObj, size_t(InstanceSlots::ConstructorSlot),
-                      JS::ObjectValue(*GetObject(*GetConstructor())));
-
-  CopyTemplateCallbackPropsOnInstance<String>(obj, instanceObj);
-  CopyTemplateCallbackPropsOnInstance<Name>(obj, instanceObj);
-  CopyTemplateCallbackPropsOnInstance<uint32_t>(obj, instanceObj);
-
-  // Ensure that we keep our instance class, if any, alive as long as the
-  // instance is alive.
-  instanceClass->AddRef();
+  // If we are creating a global object, the newly created global will be in
+  // a different compartment than all of the template information we have at
+  // this point, so we need to enter the global's compartment and wrap
+  // everything into that compartment before attaching them to the global.
+  mozilla::Maybe<JSAutoCompartment> maybeAC;
+  if (objectType == GlobalObject) {
+    maybeAC.emplace(cx, instanceObj);
+  }
 
   JS::Value instanceVal = JS::ObjectValue(*instanceObj);
   Local<Object> instanceLocal =
@@ -1014,9 +1035,30 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype) {
     return Local<Object>();
   }
 
+  // JS_CopyPropertiesFrom wraps the property values into the current
+  // compartment for us.
   if (!JS_CopyPropertiesFrom(cx, instanceObj, obj)) {
     return Local<Object>();
   }
+
+  SetInstanceSlot(instanceObj, size_t(InstanceSlots::InstanceClassSlot),
+                  JS::PrivateValue(instanceClass));
+  JS::RootedValue ctor(cx, JS::ObjectValue(*GetObject(*GetConstructor())));
+  if (!JS_WrapValue(cx, &ctor)) {
+    return Local<Object>();
+  }
+  // Note: It is important for this to be called after the call to JS_CopyPropertiesFrom
+  // above, since that call may invoke the resolve hook, and that hook checks this slot
+  // for undefined to signal that it should not run yet.
+  SetInstanceSlot(instanceObj, size_t(InstanceSlots::ConstructorSlot), ctor);
+
+  CopyTemplateCallbackPropsOnInstance<String>(cx, obj, instanceObj);
+  CopyTemplateCallbackPropsOnInstance<Name>(cx, obj, instanceObj);
+  CopyTemplateCallbackPropsOnInstance<uint32_t>(cx, obj, instanceObj);
+
+  // Ensure that we keep our instance class, if any, alive as long as the
+  // instance is alive.
+  instanceClass->AddRef();
 
   return instanceLocal;
 }
@@ -1076,7 +1118,7 @@ Handle<String> ObjectTemplate::GetClassName() {
   return GetConstructor()->GetClassName();
 }
 
-ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
+ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objectType) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
@@ -1084,8 +1126,10 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
-  JS::Value classValue =
-    js::GetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot));
+  size_t slotIndex = (objectType == GlobalObject) ?
+                       size_t(TemplateSlots::InstanceClassSlot) :
+                       size_t(TemplateSlots::GlobalInstanceClassSlot);
+  JS::Value classValue = js::GetReservedSlot(obj, slotIndex);
   if (!classValue.isUndefined()) {
     return static_cast<InstanceClass*>(classValue.toPrivate());
   }
@@ -1098,7 +1142,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
   uint32_t flags = InstanceClass::instantiatedFromTemplate;
   Local<String> name = GetClassName();
   if (name.IsEmpty()) {
-    instanceClass->name = "Object";
+    instanceClass->name = (objectType == GlobalObject) ? "GlobalObject" : "Object";
   } else {
     JS::RootedString str(cx, GetValue(name)->toString());
     instanceClass->name = JS_EncodeStringToUTF8(cx, str);
@@ -1144,16 +1188,25 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
 
   uint32_t internalFieldCount = static_cast<uint32_t>(InternalFieldCount());
 
-  instanceClass->flags =
-    flags | JSCLASS_HAS_RESERVED_SLOTS(uint32_t(InstanceSlots::NumSlots) +
-                                       internalFieldCount);
+  auto reservedSlots = internalFieldCount + uint32_t(InstanceSlots::NumSlots);
+
+  if (objectType == GlobalObject) {
+    // SpiderMonkey allocates JSCLASS_GLOBAL_APPLICATION_SLOTS (5) reserved slots
+    // by default for global objects, so we need to allocate 5 fewer slots here.
+    // This also means that any access to these slots must account for this
+    // difference between the global and normal objects.
+    flags |= JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(reservedSlots - JSCLASS_GLOBAL_APPLICATION_SLOTS);
+    instanceClass->ModifyClassOps().trace = JS_GlobalObjectTraceHook;
+  } else {
+    flags |= JSCLASS_HAS_RESERVED_SLOTS(reservedSlots);
+  }
+  instanceClass->flags = flags;
   instanceClass->ModifyClassOps().finalize =
-    ObjectTemplateFinalize<uint32_t(InstanceSlots::InstanceClassSlot)>;
+    ObjectTemplateFinalize<uint32_t(InstanceSlots::InstanceClassSlot), true>;
 
   instanceClass->AddRef(); // Will be released in obj's finalizer.
 
-  js::SetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot),
-                      JS::PrivateValue(instanceClass));
+  js::SetReservedSlot(obj, slotIndex, JS::PrivateValue(instanceClass));
   return instanceClass;
 }
 
@@ -1213,7 +1266,7 @@ Local<FunctionTemplate> ObjectTemplate::GetObjectTemplateConstructor(Local<Objec
   assert(obj);
 
   JS::Value ctorVal =
-    js::GetReservedSlot(obj, size_t(InstanceSlots::ConstructorSlot));
+    GetInstanceSlot(obj, size_t(InstanceSlots::ConstructorSlot));
   assert(ctorVal.isObject());
   return internal::Local<FunctionTemplate>::NewTemplate(isolate, ctorVal);
 }

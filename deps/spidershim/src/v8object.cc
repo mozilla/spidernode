@@ -30,7 +30,6 @@
 #include "v8string.h"
 #include "v8trycatch.h"
 #include "instanceslots.h"
-#include "globalslots.h"
 #include "accessor.h"
 
 namespace {
@@ -81,9 +80,9 @@ JSObject* GetHiddenTable(JSContext* cx, JS::HandleObject self,
         numInternalFields = ArrayBufferView::kInternalFieldCount;
       }
       for (int i = 0; i < numInternalFields; ++i) {
-        js::SetReservedSlot(tableObj,
-                            uint32_t(InstanceSlots::NumSlots) + i,
-                            JS::Int32Value(0));
+        SetInstanceSlot(tableObj,
+                        uint32_t(InstanceSlots::NumSlots) + i,
+                        JS::Int32Value(0));
       }
       JS::RootedValue tableVal(cx);
       tableVal.setObject(*tableObj);
@@ -684,8 +683,12 @@ int Object::InternalFieldCount() {
   if (IsArrayBuffer() || IsArrayBufferView()) {
     return GetHiddenInternalFields(this)->InternalFieldCount();
   }
+  uint32_t globalClassAdjustment = 0;
+  if (JS_IsGlobalObject(GetObject(this))) {
+    globalClassAdjustment = JSCLASS_GLOBAL_APPLICATION_SLOTS;
+  }
   return JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(this))) -
-         uint32_t(InstanceSlots::NumSlots);
+         uint32_t(InstanceSlots::NumSlots) + globalClassAdjustment;
 }
 
 Local<Value> Object::GetInternalField(int index) {
@@ -693,8 +696,8 @@ Local<Value> Object::GetInternalField(int index) {
     return GetHiddenInternalFields(this)->GetInternalField(index);
   }
   assert(index < InternalFieldCount());
-  JS::Value retVal(js::GetReservedSlot(GetObject(this),
-                                       uint32_t(InstanceSlots::NumSlots) + index));
+  JS::Value retVal(GetInstanceSlot(GetObject(this),
+                                   uint32_t(InstanceSlots::NumSlots) + index));
   return internal::Local<Value>::New(Isolate::GetCurrent(), retVal);
 }
 
@@ -704,9 +707,9 @@ void Object::SetInternalField(int index, Local<Value> value) {
   }
   assert(index < InternalFieldCount());
   if (!value.IsEmpty()) {
-    js::SetReservedSlot(GetObject(this),
-                        uint32_t(InstanceSlots::NumSlots) + index,
-                        *GetValue(value));
+    SetInstanceSlot(GetObject(this),
+                    uint32_t(InstanceSlots::NumSlots) + index,
+                    *GetValue(value));
   }
 }
 
@@ -715,8 +718,8 @@ void* Object::GetAlignedPointerFromInternalField(int index) {
     return GetHiddenInternalFields(this)->GetAlignedPointerFromInternalField(index);
   }
   assert(index < InternalFieldCount());
-  JS::Value retVal(js::GetReservedSlot(GetObject(this),
-                                       uint32_t(InstanceSlots::NumSlots) + index));
+  JS::Value retVal(GetInstanceSlot(GetObject(this),
+                                   uint32_t(InstanceSlots::NumSlots) + index));
   // privates are stored as doubles.
   return (retVal.isDouble()) ? retVal.toPrivate() : nullptr;
 }
@@ -726,9 +729,9 @@ void Object::SetAlignedPointerInInternalField(int index, void* value) {
     return GetHiddenInternalFields(this)->SetAlignedPointerInInternalField(index, value);
   }
   assert(index < InternalFieldCount());
-  js::SetReservedSlot(GetObject(this),
-                      uint32_t(InstanceSlots::NumSlots) + index,
-                      JS::PrivateValue(value));
+  SetInstanceSlot(GetObject(this),
+                  uint32_t(InstanceSlots::NumSlots) + index,
+                  JS::PrivateValue(value));
 }
 
 Local<Context> Object::CreationContext() {
@@ -755,7 +758,7 @@ Local<Context> Object::CreationContext() {
     return Local<Context>();
   }
   auto context =
-    static_cast<Context*>(js::GetReservedSlot(global, uint32_t(GlobalSlots::ContextSlot)).toPrivate());
+    static_cast<Context*>(GetInstanceSlot(global, uint32_t(InstanceSlots::ContextSlot)).toPrivate());
   return Local<Context>::New(isolate, context);
 }
 

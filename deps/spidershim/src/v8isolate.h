@@ -71,6 +71,8 @@ struct Isolate::Impl {
   std::vector<MessageCallback> messageListeners;
   std::set<MicrotasksCompletedCallback> microtaskCompletionCallbacks;
   void* embeddedData[internal::kNumIsolateDataSlots];
+  Persistent<Object> hiddenGlobal;
+
   bool serviceInterrupt;
   bool terminatingExecution;
   bool runningMicrotasks;

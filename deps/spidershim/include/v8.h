@@ -2216,6 +2216,7 @@ class V8_EXPORT FunctionTemplate : public Template {
   friend struct internal::SignatureChecker;
   friend class Template;
   friend class ObjectTemplate;
+  friend class Context;
 
   // Callers are expected to put the JSContext in the right compartment before
   // making this call.
@@ -2246,6 +2247,7 @@ class V8_EXPORT FunctionTemplate : public Template {
   // Returns true if thisObj has been instantiated from this FunctionTemplate
   // or one inherited from this one.
   bool IsInstance(Local<Object> thisObj);
+  void SetPrototypeTemplate(Local<ObjectTemplate> protoTemplate);
 };
 
 enum class PropertyHandlerFlags {
@@ -2350,6 +2352,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   friend struct FunctionTemplateData;
   friend class Utils;
   friend class FunctionTemplate;
+  friend class Context;
 
   // Callers are expected to put the JSContext in the right compartment before
   // making this call.
@@ -2362,14 +2365,16 @@ class V8_EXPORT ObjectTemplate : public Template {
                            Handle<Value> data, AccessControl settings,
                            PropertyAttribute attribute,
                            Handle<AccessorSignature> signature);
-  Local<Object> NewInstance(Handle<Object> prototype);
+  enum ObjectType { NormalObject, GlobalObject };
+  Local<Object> NewInstance(Handle<Object> prototype,
+                            ObjectType objectType);
   Handle<String> GetClassName();
   Local<FunctionTemplate> GetConstructor();
 
   // GetInstanceClass creates it if needed, otherwise returns the existing
   // one.  Null is returned if objects should be created with the default
   // plain-object JSClass.
-  InstanceClass* GetInstanceClass();
+  InstanceClass* GetInstanceClass(ObjectType objectType);
   static bool IsObjectFromTemplate(Local<Object> object);
   // The object argument should be an object created from an ObjectTemplate,
   // i.e.,
@@ -2770,6 +2775,7 @@ class V8_EXPORT Isolate {
   bool IsMicrotaskExecutionSuppressed() const;
   int GetCallDepth() const;
   void AdjustCallDepth(int change);
+  Local<Object> GetHiddenGlobal();
 
   struct Impl;
   Impl* pimpl_;
@@ -3037,7 +3043,8 @@ class V8_EXPORT Context {
  private:
   Context(JSContext* cx);
 
-  bool CreateGlobal(JSContext* cx, Isolate* isolate);
+  bool CreateGlobal(JSContext* cx, Isolate* isolate,
+                    Local<ObjectTemplate> global_template);
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);

@@ -25,7 +25,7 @@
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
-#include "globalslots.h"
+#include "instanceslots.h"
 
 namespace v8 {
 
@@ -37,44 +37,51 @@ Local<Context> Context::New(Isolate* isolate,
                             ExtensionConfiguration* extensions,
                             Handle<ObjectTemplate> global_template,
                             Handle<Value> global_object) {
-  // TODO: Implement extensions, global_template and global_object.
+  // TODO: Implement extensions and global_object.
+  if (extensions) {
+    fprintf(stderr, "ExtensionConfiguration is not supported yet\n");
+  }
+  if (!global_object.IsEmpty()) {
+    fprintf(stderr, "Reusing global objects is not supported yet\n");
+  }
+
+  // This HandleScope is needed here so that creating a context without a
+  // HandleScope on the stack works correctly.
+  HandleScope handleScope(isolate);
+
   assert(isolate->Runtime());
   JSContext* cx = JSContextFromIsolate(isolate);
   Context* context = new Context(cx);
-  JSAutoRequest ar(cx);
-  if (!context->CreateGlobal(cx, isolate)) {
+  if (!context->CreateGlobal(cx, isolate, global_template)) {
     return Local<Context>();
   }
   isolate->AddContext(context);
   return Local<Context>::New(isolate, context);
 }
 
-bool Context::CreateGlobal(JSContext* cx, Isolate* isolate) {
-  static const JSClassOps cOps = {
-      nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
-  static const JSClass globalClass = {
-    "global",
-    JSCLASS_GLOBAL_FLAGS |
-      JSCLASS_HAS_RESERVED_SLOTS(uint32_t(GlobalSlots::NumSlots)),
-    &cOps};
+bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
+                           Local<ObjectTemplate> global_template) {
+  if (global_template.IsEmpty()) {
+    global_template = ObjectTemplate::New(isolate);
+  }
 
-  JS::RootedObject newGlobal(cx);
-  JS::CompartmentOptions options;
-  options.behaviors().setVersion(JSVERSION_LATEST);
-  newGlobal = JS_NewGlobalObject(cx, &globalClass, nullptr,
-                                 JS::FireOnNewGlobalHook, options);
-  if (!newGlobal) {
+  Local<Object> prototype =
+    global_template->GetConstructor()
+                   ->GetProtoInstance(isolate->GetCurrentContext());
+  if (prototype.IsEmpty()) {
+    return false;
+  }
+  Local<Object> global = global_template->NewInstance(prototype,
+                                                      ObjectTemplate::GlobalObject);
+  if (global.IsEmpty()) {
     return false;
   }
 
+  JS::RootedObject newGlobal(cx, GetObject(global));
   AutoJSAPI jsAPI(cx, newGlobal);
 
-  if (!JS_InitStandardClasses(cx, newGlobal)) {
-    return false;
-  }
-  js::SetReservedSlot(newGlobal, uint32_t(GlobalSlots::ContextSlot),
-                      JS::PrivateValue(this));
+  SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),
+                  JS::PrivateValue(this));
 
   pimpl_->global.init(isolate->Runtime());
   pimpl_->global = newGlobal;

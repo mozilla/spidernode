@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "jsfriendapi.h"
+
 // Object's internal fields are stored in indices InstanceSlots::NumSlots + i.
 enum class InstanceSlots {
   InstanceClassSlot,              // Stores a refcounted pointer to our InstanceClass*.
@@ -57,5 +59,25 @@ enum class InstanceSlots {
   GenericEnumeratorCallbackSlot1, // Stores our generic prop enumerator callback.
   GenericEnumeratorCallbackSlot2,
   GenericCallbackDataSlot,        // Stores our generic prop callback data
+  ContextSlot,                    // Stores our v8::Context pointer.  Only used on global objects.
   NumSlots
 };
+
+inline const JS::Value& GetInstanceSlot(JSObject* obj, size_t slot) {
+  if (JS_IsGlobalObject(obj)) {
+    // There are 5 preallocated application slots in global objects.
+    slot = (slot < JSCLASS_GLOBAL_APPLICATION_SLOTS) ?
+           slot : JSCLASS_GLOBAL_APPLICATION_SLOTS + slot;
+  }
+  return js::GetReservedSlot(obj, slot);
+}
+
+inline void SetInstanceSlot(JSObject* obj, size_t slot,
+                            const JS::Value& value) {
+  if (JS_IsGlobalObject(obj)) {
+    // There are 5 preallocated application slots in global objects.
+    slot = (slot < JSCLASS_GLOBAL_APPLICATION_SLOTS) ?
+           slot : JSCLASS_GLOBAL_APPLICATION_SLOTS + slot;
+  }
+  js::SetReservedSlot(obj, slot, value);
+}

@@ -772,3 +772,79 @@ TEST(SpiderShim, ScopedMicrotasks) {
 
   context->GetIsolate()->SetMicrotasksPolicy(MicrotasksPolicy::kAuto);
 }
+
+void RunGlobalObjectTemplateChecks(const char* obj, int dynamicProp) {
+  char buf[2048] = {'\0'};
+  snprintf(buf, 2048, "[%sx1, %sy1.x1, %sy1.x2, %sy2.x1, %sy2.x2, "
+                      "%sy2.y1.x1, %sy2.y1.x2, %sy1.y2, %sdynamic, "
+                      "{prop:%sdynamic}]",
+           obj, obj, obj, obj, obj, obj,
+           obj, obj, obj, obj, obj, obj);
+  Local<Value> result = CompileRun(buf);
+  Array* arr = Array::Cast(*result);
+
+  Local<Value> expected[] = {
+    v8_num(42),
+    v8_num(42),
+    v8_num(42),
+    v8_num(42),
+    v8_num(42),
+    v8_num(42),
+    v8_num(42),
+    Undefined(Isolate::GetCurrent()),
+    (dynamicProp >= 0) ?
+      v8_num(dynamicProp).As<Value>() :
+      Undefined(Isolate::GetCurrent()).As<Value>()
+  };
+  auto count = sizeof(expected)/sizeof(expected[0]);
+  for (auto i = 0; i < count; ++i) {
+    EXPECT_TRUE(expected[i]->Equals(arr->Get(i)));
+  }
+  Local<Object> last = arr->Get(count).As<Object>();
+  if (dynamicProp >= 0) {
+    EXPECT_EQ(24, last->Get(v8_str("prop"))->Int32Value());
+  } else {
+    EXPECT_TRUE(last->Get(v8_str("prop"))->IsUndefined());
+  }
+}
+
+void GlobalTemplateGetter(Local<Name> property,
+                          const PropertyCallbackInfo<Value>& info) {
+  EXPECT_TRUE(property->IsString());
+  String::Utf8Value utf8(property->ToString());
+  if (!strcmp(*utf8, "dynamic")) {
+    info.GetReturnValue().Set(24);
+  } else if (!strcmp(*utf8, "obj")) {
+    info.GetReturnValue().Set(info.Data());
+  } else {
+    info.GetReturnValue().Set(info.This()->Get(property));
+  }
+}
+
+TEST(SpiderShim, GlobalObjectTemplate) {
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<ObjectTemplate> global_template = ObjectTemplate::New(isolate);
+
+  global_template->Set(v8_str("x1"), v8_num(42));
+  global_template->Set(v8_str("x2"), v8_str("42"));
+  global_template->Set(v8_str("y1"), global_template->NewInstance());
+  global_template->Set(v8_str("y2"), global_template->NewInstance());
+  global_template->SetHandler(
+      NamedPropertyHandlerConfiguration(GlobalTemplateGetter,
+                                        nullptr,
+                                        nullptr,
+                                        nullptr,
+                                        nullptr,
+                                        global_template->NewInstance()));
+
+  Local<Context> context = Context::New(isolate, nullptr, global_template);
+  Context::Scope context_scope(context);
+
+  RunGlobalObjectTemplateChecks("", 24);
+  RunGlobalObjectTemplateChecks("this.", 24);
+  RunGlobalObjectTemplateChecks("obj.", -1);
+}

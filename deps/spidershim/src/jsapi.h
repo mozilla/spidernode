@@ -26,13 +26,16 @@
 #include "conversions.h"
 
 // All callsittes calling into SpiderMonkey MUST have a AutoJSAPI on the stack.
-class AutoJSAPI : private JSAutoCompartment {
+class AutoJSAPI : private JSAutoRequest,
+                  private JSAutoCompartment {
  public:
   AutoJSAPI(JSContext* cx, JSObject* obj) :
+    JSAutoRequest(cx),
     JSAutoCompartment(cx, obj) {
     init();
   }
   AutoJSAPI(JSContext* cx, const JSObject* obj) :
+    JSAutoRequest(cx),
     JSAutoCompartment(cx, const_cast<JSObject*>(obj)) {
     init();
   }
@@ -42,11 +45,15 @@ class AutoJSAPI : private JSAutoCompartment {
   }
   template <class T>
   AutoJSAPI(JSContext* cx, v8::Local<T> val) :
-    AutoJSAPI(cx, val.IsEmpty() ? v8::GetObject(v8::Isolate::GetCurrent()->GetCurrentContext()->Global()) :
+    AutoJSAPI(cx, val.IsEmpty() ? v8::GetObject(v8::Isolate::GetCurrent()->GetCurrentContext().IsEmpty() ?
+                                                v8::Isolate::GetCurrent()->GetHiddenGlobal() :
+                                                v8::Isolate::GetCurrent()->GetCurrentContext()->Global()) :
                                   v8::GetObject(val)) {
   }
   AutoJSAPI(JSContext* cx, v8::Isolate* isolate) :
-    AutoJSAPI(cx, v8::GetObject(isolate->GetCurrentContext()->Global())) {
+    AutoJSAPI(cx, v8::GetObject(isolate->GetCurrentContext().IsEmpty() ?
+                                isolate->GetHiddenGlobal() :
+                                isolate->GetCurrentContext()->Global())) {
   }
   AutoJSAPI(JSContext* cx) :
     AutoJSAPI(cx, v8::Isolate::GetCurrent()) {

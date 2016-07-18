@@ -25,6 +25,8 @@
 #include "v8.h"
 #include "v8-profiler.h"
 #include "v8isolate.h"
+#include "v8local.h"
+#include "instanceslots.h"
 #include "jsapi.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
@@ -175,6 +177,7 @@ void Isolate::Dispose() {
   for (auto context : pimpl_->contexts) {
     context->Dispose();
   }
+  pimpl_->hiddenGlobal.Reset();
   pimpl_->eternals.reset();
   pimpl_->persistents.reset();
   Exit();
@@ -198,6 +201,9 @@ void Isolate::PopCurrentContext() {
 
 Local<Context> Isolate::GetCurrentContext() {
   assert(pimpl_);
+  if (pimpl_->currentContexts.empty()) {
+    return Local<Context>();
+  }
   return Local<Context>::New(this, pimpl_->currentContexts.top());
 }
 
@@ -518,5 +524,46 @@ void Isolate::RemoveMicrotasksCompletedCallback(MicrotasksCompletedCallback call
   if (existing != pimpl_->microtaskCompletionCallbacks.end()) {
     pimpl_->microtaskCompletionCallbacks.erase(existing);
   }
+}
+
+Local<Object> Isolate::GetHiddenGlobal() {
+  if (pimpl_->hiddenGlobal.IsEmpty()) {
+    // Some V8 APIs are usable before a Context is created, but the
+    // underlying SpiderMonkey machinery requires a global object set up
+    // and etc.  So we need to create a hidden global object which is
+    // only used in those cases.
+    static const JSClassOps cOps = {
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
+    static const JSClass globalClass = {
+      "HiddenGlobalObject",
+      // SpiderMonkey allocates JSCLASS_GLOBAL_APPLICATION_SLOTS (5) reserved slots
+      // by default for global objects, so we need to allocate 5 fewer slots here.
+      // This also means that any access to these slots must account for this
+      // difference between the global and normal objects.
+      JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(uint32_t(InstanceSlots::NumSlots) - JSCLASS_GLOBAL_APPLICATION_SLOTS),
+      &cOps};
+
+    HandleScope handleScope(this);
+    JSContext* cx = pimpl_->cx;
+    JSAutoRequest ar(cx);
+    JS::RootedObject newGlobal(cx);
+    JS::CompartmentOptions options;
+    options.behaviors().setVersion(JSVERSION_LATEST);
+    newGlobal = JS_NewGlobalObject(cx, &globalClass, nullptr,
+                                   JS::FireOnNewGlobalHook, options);
+    if (!newGlobal) {
+      return Local<Object>();
+    }
+    JSAutoCompartment ac(cx, newGlobal);
+    if (!JS_InitStandardClasses(cx, newGlobal)) {
+      return Local<Object>();
+    }
+    Local<Object> global =
+      internal::Local<Object>::New(this, JS::ObjectValue(*newGlobal));
+    pimpl_->hiddenGlobal.Reset(this, global);
+  }
+
+  return Local<Object>::New(this, pimpl_->hiddenGlobal);
 }
 }
