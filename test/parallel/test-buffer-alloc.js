@@ -32,7 +32,7 @@ assert.strictEqual(0, d.length);
 
 var ui32 = new Uint32Array(4).fill(42);
 var e = Buffer.from(ui32);
-for (const [index, value] of e.entries()) {
+for (let [index, value] of e.entries()) {
   assert.strictEqual(value, ui32[index]);
 }
 
