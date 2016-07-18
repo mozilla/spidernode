@@ -321,7 +321,7 @@ struct PropXerTraits<uint32_t> {
 template<typename N>
 struct PropCallbackTraits<typename PropXerTraits<N>::PropGetter, N> :
   public PropXerTraits<N> {
-  typedef PropertyCallbackInfo<Value> PropertyCallbackInfo;
+  typedef v8::PropertyCallbackInfo<Value> PropertyCallbackInfo;
   using Instance = SlotTraits<InstanceSlots, N>;
 
   static void doCall(Isolate* isolate,
@@ -344,7 +344,7 @@ struct PropCallbackTraits<typename PropXerTraits<N>::PropGetter, N> :
 template<typename N>
 struct PropCallbackTraits<typename PropXerTraits<N>::PropSetter, N> :
   public PropXerTraits<N> {
-  typedef PropertyCallbackInfo<Value> PropertyCallbackInfo;
+  typedef v8::PropertyCallbackInfo<Value> PropertyCallbackInfo;
   using Instance = SlotTraits<InstanceSlots, N>;
 
   static void doCall(Isolate* isolate,
@@ -362,7 +362,7 @@ struct PropCallbackTraits<typename PropXerTraits<N>::PropSetter, N> :
 template<typename N>
 struct PropCallbackTraits<typename PropXerTraits<N>::PropQuery, N> :
   public PropXerTraits<N> {
-  typedef PropertyCallbackInfo<Integer> PropertyCallbackInfo;
+  typedef v8::PropertyCallbackInfo<Integer> PropertyCallbackInfo;
   using Instance = SlotTraits<InstanceSlots, N>;
 
   static void doCall(Isolate* isolate,
@@ -378,7 +378,7 @@ struct PropCallbackTraits<typename PropXerTraits<N>::PropQuery, N> :
 template<typename N>
 struct PropCallbackTraits<typename PropXerTraits<N>::PropDeleter, N> :
   public PropXerTraits<N> {
-  typedef PropertyCallbackInfo<Boolean> PropertyCallbackInfo;
+  typedef v8::PropertyCallbackInfo<Boolean> PropertyCallbackInfo;
   using Instance = SlotTraits<InstanceSlots, N>;
 
   static void doCall(Isolate* isolate,
@@ -394,7 +394,7 @@ struct PropCallbackTraits<typename PropXerTraits<N>::PropDeleter, N> :
 template<typename N>
 struct PropCallbackTraits<typename PropXerTraits<N>::PropEnumerator, N> :
   public PropXerTraits<N> {
-  typedef PropertyCallbackInfo<Array> PropertyCallbackInfo;
+  typedef v8::PropertyCallbackInfo<Array> PropertyCallbackInfo;
   using Instance = SlotTraits<InstanceSlots, N>;
 
   static void doCall(Isolate* isolate,
