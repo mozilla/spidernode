@@ -142,6 +142,7 @@ template<typename CallbackType, typename N>
 bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   using namespace v8;
   Isolate* isolate = Isolate::GetCurrent();
+  HandleScope handleScope(isolate); // Make sure there is _a_ handlescope on the stack!
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject callee(cx, &args.callee());
 

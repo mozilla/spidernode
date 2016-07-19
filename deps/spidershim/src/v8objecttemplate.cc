@@ -500,6 +500,8 @@ void SetHandler(JSContext* cx, JS::HandleObject obj, Getter getter,
 
 #define PREPARE_CALLBACK(Xer)                                            \
   Isolate* isolate = Isolate::GetCurrent();                              \
+  /* Make sure there is _a_ handlescope on the stack */                  \
+  HandleScope handleScope(isolate);                                      \
   typedef PropCallbackTraits<CallbackType, N> Traits;                    \
   typedef typename Traits::PropertyCallbackInfo PropertyCallbackInfo;    \
   CallbackType callback = nullptr;                                       \

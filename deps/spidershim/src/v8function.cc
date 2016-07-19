@@ -116,6 +116,7 @@ class FunctionCallback {
  public:
   static bool NativeFunctionCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
     Isolate* isolate = Isolate::GetCurrent();
+    HandleScope handleScope(isolate); // Make sure there is _a_ handlescope on the stack!
     JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
     JS::RootedObject callee(cx, &args.callee());
     JS::Value calleeVal;
