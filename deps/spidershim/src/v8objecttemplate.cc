@@ -554,10 +554,11 @@ static bool GetterOp(JSContext* cx, JS::HandleObject obj,
 }
 
 template<typename CallbackType, typename N>
-static bool GetOwnPropertyOpImpl_Getter(JSContext* cx, JS::HandleObject obj,
-                                        JS::HandleId id,
-                                        JS::MutableHandle<JS::PropertyDescriptor> desc) {
+static bool ResolveOpImpl_Getter(JSContext* cx, JS::HandleObject obj,
+                                 JS::HandleId id, bool* resolved) {
   PREPARE_CALLBACK(Getter)
+
+  *resolved = false;
 
   if (callback) {
     JS::RootedValue value(cx);
@@ -565,22 +566,29 @@ static bool GetOwnPropertyOpImpl_Getter(JSContext* cx, JS::HandleObject obj,
     PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
                                                 info, &value);
     if (!value.isUndefined()) {
-      // We only need to set the object since it is used to signal the existence
-      // of the property.
-      desc.object().set(obj);
+      if (!JS_DefinePropertyById(cx, obj, id, value, JSPROP_RESOLVING)) {
+        return false;
+      }
+      *resolved = true;
     }
   }
 
   return !isolate->IsExecutionTerminating() && !JS_IsExceptionPending(cx);
 }
 
-// This function is used as a hook when a V8 getter hook (and not a query hook) is being used.
-static bool GetOwnPropertyOp_Getter(JSContext* cx, JS::HandleObject obj,
-                                    JS::HandleId id,
-                                    JS::MutableHandle<JS::PropertyDescriptor> desc) {
-  js::GetOwnPropertyOp impl = nullptr;
+static bool ResolveOp_Getter(JSContext* cx, JS::HandleObject obj,
+                             JS::HandleId id, bool* resolved) {
+  JS::Value ctor = GetInstanceSlot(obj, size_t(InstanceSlots::ConstructorSlot));
+  if (ctor.isUndefined()) {
+    // The resolve hook is being called before NewInstance() has finished creating the
+    // object, so ignore this call.
+    *resolved = false;
+    return true;
+  }
+
+  JSResolveOp impl = nullptr;
   if (JSID_IS_INT(id)) {
-    impl = GetOwnPropertyOpImpl_Getter<IndexedPropertyGetterCallback, uint32_t>;
+    impl = ResolveOpImpl_Getter<IndexedPropertyGetterCallback, uint32_t>;
   } else {
     JS::Value symbolPropGetterCallback =
       js::GetReservedSlot(obj,
@@ -590,15 +598,15 @@ static bool GetOwnPropertyOp_Getter(JSContext* cx, JS::HandleObject obj,
       if (symbolPropGetterCallback.isUndefined()) {
         return false;
       }
-      impl = GetOwnPropertyOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
+      impl = ResolveOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
     } else if (symbolPropGetterCallback.isUndefined()) {
-      impl = GetOwnPropertyOpImpl_Getter<NamedPropertyGetterCallback, String>;
+      impl = ResolveOpImpl_Getter<NamedPropertyGetterCallback, String>;
     } else {
-      impl = GetOwnPropertyOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
+      impl = ResolveOpImpl_Getter<GenericNamedPropertyGetterCallback, Name>;
     }
   }
   assert(impl);
-  return impl(cx, obj, id, desc);
+  return impl(cx, obj, id, resolved);
 }
 
 template<typename CallbackType, typename N>
@@ -1102,8 +1110,10 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass() {
       HasGetterProp<uint32_t>(obj)) {
     instanceClass->ModifyClassOps().getProperty = GetterOp;
     // A getProperty hook doesn't cover things such as HasOwnProperty, so we need
-    // to set this additional hook too.
-    instanceClass->ModifyObjectOps().getOwnPropertyDescriptor = GetOwnPropertyOp_Getter;
+    // to set this additional hook too.  This is technically not correct since the
+    // way the resolve hook works is by defining the properties that it resolves on
+    // the object, but it seems like we can get away with this for now...
+    instanceClass->ModifyClassOps().resolve = ResolveOp_Getter;
   }
 
   if (HasSetterProp<Name>(obj) ||
