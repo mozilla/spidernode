@@ -90,22 +90,6 @@ private:
 namespace {
 using namespace v8;
 
-template<uint32_t N, bool IsInstanceSlots = false>
-void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
-  JS::Value classValue = IsInstanceSlots ? GetInstanceSlot(obj, N) :
-                         js::GetReservedSlot(obj, N);
-  if (classValue.isUndefined()) {
-    // We never got around to calling GetInstanceClass().
-    return;
-  }
-
-  auto instanceClass =
-    static_cast<v8::ObjectTemplate::InstanceClass*>(classValue.toPrivate());
-  assert(instanceClass);
-
-  instanceClass->Release();
-}
-
 enum class TemplateSlots {
   InstanceClassSlot,              // Stores the InstanceClass* for our instances.
   GlobalInstanceClassSlot,        // Stores the InstanceClass* for our global object instances.
@@ -147,6 +131,39 @@ enum class TemplateSlots {
   NumSlots
 };
 
+void ReleaseInstanceClass(const JS::Value& classValue) {
+  auto instanceClass =
+    static_cast<ObjectTemplate::InstanceClass*>(classValue.toPrivate());
+  assert(instanceClass);
+
+  instanceClass->Release();
+}
+
+void InstanceTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
+  JS::Value classValue =
+      GetInstanceSlot(obj, size_t(InstanceSlots::InstanceClassSlot));
+  if (classValue.isUndefined()) {
+    // We never got around to calling GetInstanceClass().
+    return;
+  }
+
+  ReleaseInstanceClass(classValue);
+}
+
+void ObjectTemplateFinalize(JSFreeOp* fop, JSObject* obj) {
+  JS::Value classValue =
+    js::GetReservedSlot(obj, size_t(TemplateSlots::InstanceClassSlot));
+  if (!classValue.isUndefined()) {
+    ReleaseInstanceClass(classValue);
+  }
+
+  classValue =
+    js::GetReservedSlot(obj, size_t(TemplateSlots::GlobalInstanceClassSlot));
+  if (!classValue.isUndefined()) {
+    ReleaseInstanceClass(classValue);
+  }
+}
+
 const JSClassOps objectTemplateClassOps = {
   nullptr, // addProperty
   nullptr, // delProperty
@@ -155,7 +172,7 @@ const JSClassOps objectTemplateClassOps = {
   nullptr, // enumerate
   nullptr, // resolve
   nullptr, // mayResolve
-  ObjectTemplateFinalize<uint32_t(TemplateSlots::InstanceClassSlot)>,
+  ObjectTemplateFinalize,
   nullptr, // call
   nullptr, // hasInstance
   nullptr, // construct
@@ -1203,8 +1220,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objec
     flags |= JSCLASS_HAS_RESERVED_SLOTS(reservedSlots);
   }
   instanceClass->flags = flags;
-  instanceClass->ModifyClassOps().finalize =
-    ObjectTemplateFinalize<uint32_t(InstanceSlots::InstanceClassSlot), true>;
+  instanceClass->ModifyClassOps().finalize = InstanceTemplateFinalize;
 
   instanceClass->AddRef(); // Will be released in obj's finalizer.
 
