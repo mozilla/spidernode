@@ -49,14 +49,14 @@ TEST(SpiderShim, ObjectTemplateDetails) {
                                      acc->GetFunction(context).ToLocalChecked())
               .FromJust());
 
-  Local<v8::FunctionTemplate> fun = v8::FunctionTemplate::New(isolate);
+  Local<FunctionTemplate> fun = FunctionTemplate::New(isolate);
   Local<String> class_name = v8_str("the_class_name");
   fun->SetClassName(class_name);
   Local<ObjectTemplate> templ1 = ObjectTemplate::New(isolate, fun);
   templ1->Set(isolate, "x", v8_num(10));
   templ1->Set(isolate, "y", v8_num(13));
   templ1->Set(v8_str("foo"), acc);
-  Local<v8::Object> instance1 =
+  Local<Object> instance1 =
       templ1->NewInstance(context).ToLocalChecked();
   EXPECT_TRUE(class_name->StrictEquals(instance1->GetConstructorName()));
   EXPECT_TRUE(context->Global()->Set(context, v8_str("p"), instance1).FromJust());
@@ -140,12 +140,12 @@ TEST(SpiderShim, ObjectTemplateDetails) {
 }
 
 static void GetNirk(Local<String> name,
-                    const PropertyCallbackInfo<v8::Value>& info) {
+                    const PropertyCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_num(900));
 }
 
 static void GetRino(Local<String> name,
-                    const PropertyCallbackInfo<v8::Value>& info) {
+                    const PropertyCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_num(560));
 }
 
@@ -387,7 +387,7 @@ TEST(SpiderShim, FunctionTemplateSetLength) {
 static int signature_callback_count;
 static Local<Value> signature_expected_receiver;
 static void IncrementingSignatureCallback(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
+    const FunctionCallbackInfo<Value>& args) {
   signature_callback_count++;
   EXPECT_TRUE(signature_expected_receiver->Equals(
                                        args.GetIsolate()->GetCurrentContext(),
@@ -397,11 +397,11 @@ static void IncrementingSignatureCallback(
                                        args.GetIsolate()->GetCurrentContext(),
                                        args.This())
                 .FromJust());
-  v8::Local<v8::Array> result =
-      v8::Array::New(args.GetIsolate(), args.Length());
+  Local<Array> result =
+      Array::New(args.GetIsolate(), args.Length());
   for (int i = 0; i < args.Length(); i++) {
     EXPECT_TRUE(result->Set(args.GetIsolate()->GetCurrentContext(),
-                      v8::Integer::New(args.GetIsolate(), i), args[i])
+                      Integer::New(args.GetIsolate(), i), args[i])
                   .FromJust());
   }
   args.GetReturnValue().Set(result);
@@ -419,7 +419,7 @@ static void TestSignature(V8Engine& engine, Local<Context> context,
   signature_callback_count = 0;
   signature_expected_receiver = receiver;
   bool expected_to_throw = receiver.IsEmpty();
-  v8::TryCatch try_catch(isolate);
+  TryCatch try_catch(isolate);
   engine.CompileRun(context, source);
   EXPECT_EQ(expected_to_throw, try_catch.HasCaught());
   if (!expected_to_throw) {
@@ -444,18 +444,18 @@ TEST(SpiderShim, FunctionTemplateReceiverSignature) {
   Context::Scope context_scope(context);
 
   // Setup templates.
-  v8::Local<v8::FunctionTemplate> fun = v8::FunctionTemplate::New(isolate);
-  v8::Local<v8::Signature> sig = v8::Signature::New(isolate, fun);
-  v8::Local<v8::FunctionTemplate> callback_sig = v8::FunctionTemplate::New(
+  Local<FunctionTemplate> fun = FunctionTemplate::New(isolate);
+  Local<Signature> sig = Signature::New(isolate, fun);
+  Local<FunctionTemplate> callback_sig = FunctionTemplate::New(
       isolate, IncrementingSignatureCallback, Local<Value>(), sig);
-  v8::Local<v8::FunctionTemplate> callback =
-      v8::FunctionTemplate::New(isolate, IncrementingSignatureCallback);
-  v8::Local<v8::FunctionTemplate> sub_fun = v8::FunctionTemplate::New(isolate);
+  Local<FunctionTemplate> callback =
+      FunctionTemplate::New(isolate, IncrementingSignatureCallback);
+  Local<FunctionTemplate> sub_fun = FunctionTemplate::New(isolate);
   sub_fun->Inherit(fun);
-  v8::Local<v8::FunctionTemplate> unrel_fun =
-      v8::FunctionTemplate::New(isolate);
+  Local<FunctionTemplate> unrel_fun =
+      FunctionTemplate::New(isolate);
   // Install properties.
-  v8::Local<v8::ObjectTemplate> fun_proto = fun->PrototypeTemplate();
+  Local<ObjectTemplate> fun_proto = fun->PrototypeTemplate();
   fun_proto->Set(v8_str("prop_sig"), callback_sig);
   fun_proto->Set(v8_str("prop"), callback);
   fun_proto->SetAccessorProperty(
@@ -543,12 +543,12 @@ TEST(SpiderShim, InternalFields) {
   Local<Context> context = Context::New(isolate);
   Context::Scope context_scope(context);
 
-  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
-  Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
+  Local<ObjectTemplate> instance_templ = templ->InstanceTemplate();
   EXPECT_EQ(0, instance_templ->InternalFieldCount());
   instance_templ->SetInternalFieldCount(1);
   EXPECT_EQ(1, instance_templ->InternalFieldCount());
-  Local<v8::Object> obj = templ->GetFunction(context)
+  Local<Object> obj = templ->GetFunction(context)
                               .ToLocalChecked()
                               ->NewInstance(context)
                               .ToLocalChecked();
@@ -558,7 +558,7 @@ TEST(SpiderShim, InternalFields) {
   EXPECT_EQ(17, obj->GetInternalField(0)->Int32Value(context).FromJust());
 }
 
-static void CheckAlignedPointerInInternalField(Local<v8::Object> obj,
+static void CheckAlignedPointerInInternalField(Local<Object> obj,
                                                void* value) {
   EXPECT_EQ(0, static_cast<int>(reinterpret_cast<uintptr_t>(value) & 0x1));
   obj->SetAlignedPointerInInternalField(0, value);
@@ -576,12 +576,12 @@ TEST(SpiderShim, InternalFieldsAlignedPointers) {
   Local<Context> context = Context::New(isolate);
   Context::Scope context_scope(context);
 
-  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
-  Local<v8::ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
+  Local<ObjectTemplate> instance_templ = templ->InstanceTemplate();
   EXPECT_EQ(0, instance_templ->InternalFieldCount());
   instance_templ->SetInternalFieldCount(1);
   EXPECT_EQ(1, instance_templ->InternalFieldCount());
-  Local<v8::Object> obj = templ->GetFunction(context)
+  Local<Object> obj = templ->GetFunction(context)
                               .ToLocalChecked()
                               ->NewInstance(context)
                               .ToLocalChecked();
@@ -599,7 +599,7 @@ TEST(SpiderShim, InternalFieldsAlignedPointers) {
   void* huge = reinterpret_cast<void*>(~static_cast<uintptr_t>(1));
   CheckAlignedPointerInInternalField(obj, huge);
 
-  v8::Global<v8::Object> persistent(isolate, obj);
+  Global<Object> persistent(isolate, obj);
   EXPECT_EQ(1, Object::InternalFieldCount(persistent));
   EXPECT_EQ(huge, Object::GetAlignedPointerFromInternalField(persistent, 0));
 }
@@ -607,7 +607,7 @@ TEST(SpiderShim, InternalFieldsAlignedPointers) {
 static int instance_checked_getter_count = 0;
 static void InstanceCheckedGetter(
     Local<String> name,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
+    const PropertyCallbackInfo<Value>& info) {
   EXPECT_TRUE(name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
             .FromJust());
   instance_checked_getter_count++;
@@ -617,7 +617,7 @@ static void InstanceCheckedGetter(
 static int instance_checked_setter_count = 0;
 static void InstanceCheckedSetter(Local<String> name,
                       Local<Value> value,
-                      const v8::PropertyCallbackInfo<void>& info) {
+                      const PropertyCallbackInfo<void>& info) {
   EXPECT_TRUE(name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
             .FromJust());
   EXPECT_TRUE(value->Equals(info.GetIsolate()->GetCurrentContext(), v8_num(23))
@@ -680,8 +680,8 @@ TEST(SpiderShim, InstanceCheckOnInstanceAccessor) {
   Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
   Local<ObjectTemplate> inst = templ->InstanceTemplate();
   inst->SetAccessor(v8_str("foo"), InstanceCheckedGetter, InstanceCheckedSetter,
-                    Local<Value>(), v8::DEFAULT, v8::None,
-                    v8::AccessorSignature::New(context->GetIsolate(), templ));
+                    Local<Value>(), DEFAULT, None,
+                    AccessorSignature::New(context->GetIsolate(), templ));
   EXPECT_TRUE(context->Global()
             ->Set(context, v8_str("f"),
                   templ->GetFunction(context).ToLocalChecked())
@@ -711,9 +711,9 @@ TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
   Local<FunctionTemplate> templ = FunctionTemplate::New(context->GetIsolate());
   Local<ObjectTemplate> proto = templ->PrototypeTemplate();
   proto->SetAccessor(v8_str("foo"), InstanceCheckedGetter,
-                     InstanceCheckedSetter, Local<Value>(), v8::DEFAULT,
-                     v8::None,
-                     v8::AccessorSignature::New(context->GetIsolate(), templ));
+                     InstanceCheckedSetter, Local<Value>(), DEFAULT,
+                     None,
+                     AccessorSignature::New(context->GetIsolate(), templ));
   EXPECT_TRUE(context->Global()
             ->Set(context, v8_str("f"),
                   templ->GetFunction(context).ToLocalChecked())
@@ -739,7 +739,7 @@ TEST(SpiderShim, InstanceCheckOnPrototypeAccessor) {
   CheckInstanceCheckedAccessors(true);
 }
 
-static void SimpleCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+static void SimpleCallback(const FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(v8_num(51423 + info.Length()));
 }
 
@@ -973,7 +973,7 @@ TEST(SpiderShim, IsConstructCall) {
   Context::Scope context_scope(context);
 
   // Function template with call handler.
-  Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate);
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
   templ->SetCallHandler(IsConstructHandler);
 
   EXPECT_TRUE(context->Global()
@@ -1019,13 +1019,13 @@ TEST(SpiderShim, CallbackFunctionName) {
 
 static void ArgumentsTestCallback(
     const FunctionCallbackInfo<Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
+  Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
   EXPECT_EQ(3, args.Length());
-  EXPECT_TRUE(v8::Integer::New(isolate, 1)->Equals(context, args[0]).FromJust());
-  EXPECT_TRUE(v8::Integer::New(isolate, 2)->Equals(context, args[1]).FromJust());
-  EXPECT_TRUE(v8::Integer::New(isolate, 3)->Equals(context, args[2]).FromJust());
-  EXPECT_TRUE(v8::Undefined(isolate)->Equals(context, args[3]).FromJust());
+  EXPECT_TRUE(Integer::New(isolate, 1)->Equals(context, args[0]).FromJust());
+  EXPECT_TRUE(Integer::New(isolate, 2)->Equals(context, args[1]).FromJust());
+  EXPECT_TRUE(Integer::New(isolate, 3)->Equals(context, args[2]).FromJust());
+  EXPECT_TRUE(Undefined(isolate)->Equals(context, args[3]).FromJust());
 }
 
 TEST(SpiderShim, Arguments) {
@@ -1744,4 +1744,242 @@ TEST(SpiderShim, InstanceCheckOnInstanceAccessorWithInterceptor) {
   EXPECT_TRUE(!templ->HasInstance(
       context->Global()->Get(context, v8_str("obj")).ToLocalChecked()));
   CheckInstanceCheckedAccessors(false);
+}
+
+void ThrowValue(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  EXPECT_EQ(1, args.Length());
+  args.GetIsolate()->ThrowException(args[0]);
+}
+
+static void ConstructorCallback(
+    const FunctionCallbackInfo<Value>& args) {
+  Local<Object> This;
+
+  Local<Context> context = args.GetIsolate()->GetCurrentContext();
+  if (args.IsConstructCall()) {
+    Local<Object> Holder = args.Holder();
+    This = Object::New(args.GetIsolate());
+    Local<Value> proto = Holder->GetPrototype();
+    if (proto->IsObject()) {
+      This->SetPrototype(context, proto).FromJust();
+    }
+  } else {
+    This = args.This();
+  }
+
+  This->Set(context, v8_str("a"), args[0]).FromJust();
+  args.GetReturnValue().Set(This);
+}
+
+static void FakeConstructorCallback(
+    const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(args[0]);
+}
+
+TEST(SpiderShim, ConstructorForObject) {
+  // Based on the V8 test-api.cc ConstructorForObject test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  {
+    Local<ObjectTemplate> instance_template = ObjectTemplate::New(isolate);
+    instance_template->SetCallAsFunctionHandler(ConstructorCallback);
+    Local<Object> instance =
+        instance_template->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(context->Global()
+              ->Set(context, v8_str("obj"), instance)
+              .FromJust());
+    TryCatch try_catch(isolate);
+    Local<Value> value;
+    EXPECT_TRUE(!try_catch.HasCaught());
+
+    // Call the Object's constructor with a 32-bit signed integer.
+    value = CompileRun("(function() { var o = new obj(28); return o.a; })()");
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsInt32());
+    EXPECT_EQ(28, value->Int32Value(context).FromJust());
+
+    Local<Value> args1[] = {v8_num(28)};
+    Local<Value> value_obj1 =
+        instance->CallAsConstructor(context, 1, args1).ToLocalChecked();
+    EXPECT_TRUE(value_obj1->IsObject());
+    Local<Object> object1 = Local<Object>::Cast(value_obj1);
+    value = object1->Get(context, v8_str("a")).ToLocalChecked();
+    EXPECT_TRUE(value->IsInt32());
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_EQ(28, value->Int32Value(context).FromJust());
+
+    // Call the Object's constructor with a String.
+    value =
+        CompileRun("(function() { var o = new obj('tipli'); return o.a; })()");
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsString());
+    String::Utf8Value string_value1(
+        value->ToString(context).ToLocalChecked());
+    EXPECT_EQ(0, strcmp("tipli", *string_value1));
+
+    Local<Value> args2[] = {v8_str("tipli")};
+    Local<Value> value_obj2 =
+        instance->CallAsConstructor(context, 1, args2).ToLocalChecked();
+    EXPECT_TRUE(value_obj2->IsObject());
+    Local<Object> object2 = Local<Object>::Cast(value_obj2);
+    value = object2->Get(context, v8_str("a")).ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsString());
+    String::Utf8Value string_value2(
+        value->ToString(context).ToLocalChecked());
+    EXPECT_EQ(0, strcmp("tipli", *string_value2));
+
+    // Call the Object's constructor with a Boolean.
+    value = CompileRun("(function() { var o = new obj(true); return o.a; })()");
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsBoolean());
+    EXPECT_EQ(true, value->BooleanValue(context).FromJust());
+
+    Local<Value> args3[] = {True(isolate)};
+    Local<Value> value_obj3 =
+        instance->CallAsConstructor(context, 1, args3).ToLocalChecked();
+    EXPECT_TRUE(value_obj3->IsObject());
+    Local<Object> object3 = Local<Object>::Cast(value_obj3);
+    value = object3->Get(context, v8_str("a")).ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsBoolean());
+    EXPECT_EQ(true, value->BooleanValue(context).FromJust());
+
+    // Call the Object's constructor with undefined.
+    Local<Value> args4[] = {Undefined(isolate)};
+    Local<Value> value_obj4 =
+        instance->CallAsConstructor(context, 1, args4).ToLocalChecked();
+    EXPECT_TRUE(value_obj4->IsObject());
+    Local<Object> object4 = Local<Object>::Cast(value_obj4);
+    value = object4->Get(context, v8_str("a")).ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsUndefined());
+
+    // Call the Object's constructor with null.
+    Local<Value> args5[] = {Null(isolate)};
+    Local<Value> value_obj5 =
+        instance->CallAsConstructor(context, 1, args5).ToLocalChecked();
+    EXPECT_TRUE(value_obj5->IsObject());
+    Local<Object> object5 = Local<Object>::Cast(value_obj5);
+    value = object5->Get(context, v8_str("a")).ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsNull());
+  }
+
+  // Check exception handling when there is no constructor set for the Object.
+  {
+    Local<ObjectTemplate> instance_template = ObjectTemplate::New(isolate);
+    Local<Object> instance =
+        instance_template->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(context->Global()
+              ->Set(context, v8_str("obj2"), instance)
+              .FromJust());
+    TryCatch try_catch(isolate);
+    Local<Value> value;
+    EXPECT_TRUE(!try_catch.HasCaught());
+
+    value = CompileRun("new obj2(28)");
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value1(try_catch.Exception());
+    EXPECT_STREQ(
+        "TypeError: obj2 is not a constructor", *exception_value1);
+    try_catch.Reset();
+
+    Local<Value> args[] = {v8_num(29)};
+    EXPECT_TRUE(instance->CallAsConstructor(context, 1, args).IsEmpty());
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value2(try_catch.Exception());
+    EXPECT_STREQ(
+        "TypeError: ({}) is not a constructor", *exception_value2);
+    try_catch.Reset();
+  }
+
+  // Check the case when constructor throws exception.
+  {
+    Local<ObjectTemplate> instance_template = ObjectTemplate::New(isolate);
+    instance_template->SetCallAsFunctionHandler(ThrowValue);
+    Local<Object> instance =
+        instance_template->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(context->Global()
+              ->Set(context, v8_str("obj3"), instance)
+              .FromJust());
+    TryCatch try_catch(isolate);
+    Local<Value> value;
+    EXPECT_TRUE(!try_catch.HasCaught());
+
+    value = CompileRun("new obj3(22)");
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value1(try_catch.Exception());
+    EXPECT_EQ(0, strcmp("22", *exception_value1));
+    try_catch.Reset();
+
+    Local<Value> args[] = {v8_num(23)};
+    EXPECT_TRUE(instance->CallAsConstructor(context, 1, args).IsEmpty());
+    EXPECT_TRUE(try_catch.HasCaught());
+    String::Utf8Value exception_value2(try_catch.Exception());
+    EXPECT_EQ(0, strcmp("23", *exception_value2));
+    try_catch.Reset();
+  }
+
+  // Check whether constructor returns with an object or non-object.
+  {
+    Local<FunctionTemplate> function_template =
+        FunctionTemplate::New(isolate, FakeConstructorCallback);
+    Local<Function> function =
+        function_template->GetFunction(context).ToLocalChecked();
+    Local<Object> instance1 = function;
+    EXPECT_TRUE(context->Global()
+              ->Set(context, v8_str("obj4"), instance1)
+              .FromJust());
+    TryCatch try_catch(isolate);
+    Local<Value> value;
+    EXPECT_TRUE(!try_catch.HasCaught());
+
+    EXPECT_TRUE(instance1->IsObject());
+    EXPECT_TRUE(instance1->IsFunction());
+
+    value = CompileRun("new obj4(28)");
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsObject());
+
+    Local<Value> args1[] = {v8_num(28)};
+    value = instance1->CallAsConstructor(context, 1, args1)
+                .ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(value->IsObject());
+
+    Local<ObjectTemplate> instance_template = ObjectTemplate::New(isolate);
+    instance_template->SetCallAsFunctionHandler(FakeConstructorCallback);
+    Local<Object> instance2 =
+        instance_template->NewInstance(context).ToLocalChecked();
+    EXPECT_TRUE(context->Global()
+              ->Set(context, v8_str("obj5"), instance2)
+              .FromJust());
+    EXPECT_TRUE(!try_catch.HasCaught());
+
+    EXPECT_TRUE(instance2->IsObject());
+    EXPECT_TRUE(instance2->IsFunction());
+
+    value = CompileRun("new obj5(28)");
+    EXPECT_TRUE(!try_catch.HasCaught());
+    // Note that V8 would return a Primitive here, but we are intentionally
+    // not adhering to it in order to comply with ES6.  See the discussion in
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1287342.
+    EXPECT_TRUE(value->IsObject());
+
+    Local<Value> args2[] = {v8_num(28)};
+    value = instance2->CallAsConstructor(context, 1, args2)
+                .ToLocalChecked();
+    EXPECT_TRUE(!try_catch.HasCaught());
+    // Note that V8 would return a Primitive here, but we are intentionally
+    // not adhering to it in order to comply with ES6.  See the discussion in
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1287342.
+    EXPECT_TRUE(value->IsObject());
+  }
 }

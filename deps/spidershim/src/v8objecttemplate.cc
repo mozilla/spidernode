@@ -95,6 +95,7 @@ enum class TemplateSlots {
   GlobalInstanceClassSlot,        // Stores the InstanceClass* for our global object instances.
   InternalFieldCountSlot,         // Stores the internal field count for our instances.
   ConstructorSlot,                // Stores our constructor FunctionTemplate.
+  CallCallbackSlot,               // Stores our call as function callback function.
   NamedGetterCallbackSlot1,       // Stores our named prop getter callback.
   NamedGetterCallbackSlot2,
   NamedSetterCallbackSlot1,       // Stores our named prop setter callback.
@@ -919,6 +920,32 @@ static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
 }
 
 #undef PREPARE_CALLBACK
+
+static bool CallOp(JSContext* cx, unsigned argc, JS::Value* vp) {
+  Isolate* isolate = Isolate::GetCurrent();
+  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
+  JS::RootedObject callee(cx, &args.callee());
+  JS::RootedValue callAsFunctionHandler(cx,
+    GetInstanceSlot(callee, size_t(InstanceSlots::CallCallbackSlot)));
+  if (callAsFunctionHandler.isUndefined() ||
+      !callAsFunctionHandler.isObject()) {
+    return false;
+  }
+
+  if (args.isConstructing()) {
+    JS::RootedObject rval(cx);
+    auto result = JS::Construct(cx, callAsFunctionHandler,
+                                JS::HandleValueArray(args), &rval);
+    if (result) {
+      args.rval().setObject(*rval);
+    }
+    return result;
+  } else {
+    JS::RootedObject thisObj(cx);
+    return JS::Call(cx, thisObj, callAsFunctionHandler,
+                    JS::HandleValueArray(args), args.rval());
+  }
+}
 } // anonymous namespace
 
 namespace v8 {
@@ -1071,6 +1098,13 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype,
   // for undefined to signal that it should not run yet.
   SetInstanceSlot(instanceObj, size_t(InstanceSlots::ConstructorSlot), ctor);
 
+  JS::RootedValue callCallback(cx,
+      js::GetReservedSlot(obj, size_t(TemplateSlots::CallCallbackSlot)));
+  if (!callCallback.isUndefined()) {
+    SetInstanceSlot(instanceObj, size_t(InstanceSlots::CallCallbackSlot),
+                    callCallback);
+  }
+
   CopyTemplateCallbackPropsOnInstance<String>(cx, obj, instanceObj);
   CopyTemplateCallbackPropsOnInstance<Name>(cx, obj, instanceObj);
   CopyTemplateCallbackPropsOnInstance<uint32_t>(cx, obj, instanceObj);
@@ -1130,8 +1164,6 @@ void ObjectTemplate::SetAccessorInternal(Handle<N> name,
 }
 
 // TODO SetAccessCheckCallbacks: Can this just be a no-op?
-
-// TODO SetCallAsFunctionHandler
 
 Handle<String> ObjectTemplate::GetClassName() {
   return GetConstructor()->GetClassName();
@@ -1203,6 +1235,13 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objec
       HasEnumeratorProp<String>(obj) ||
       HasEnumeratorProp<uint32_t>(obj)) {
     instanceClass->ModifyObjectOps().enumerate = EnumeratorOp;
+  }
+
+  JS::Value callAsFunctionHandler =
+    js::GetReservedSlot(obj, size_t(TemplateSlots::CallCallbackSlot));
+  if (!callAsFunctionHandler.isUndefined()) {
+    instanceClass->ModifyClassOps().call = CallOp;
+    instanceClass->ModifyClassOps().construct = CallOp;
   }
 
   uint32_t internalFieldCount = static_cast<uint32_t>(InternalFieldCount());
@@ -1340,5 +1379,33 @@ void ObjectTemplate::SetHandler(const IndexedPropertyHandlerConfiguration& confi
                             config.deleter,
                             config.enumerator,
                             config.data);
+}
+
+void ObjectTemplate::SetCallAsFunctionHandler(FunctionCallback callback,
+                                              Local<Value> data) {
+  Isolate* isolate = Isolate::GetCurrent();
+  if (data.IsEmpty()) {
+    data = Undefined(isolate);
+  }
+
+  MaybeLocal<Function> func = Function::New(isolate->GetCurrentContext(), callback, data, 0,
+                                            Local<FunctionTemplate>(),
+                                            Local<String>());
+  if (func.IsEmpty()) {
+    // TODO: Do something better here.
+    return;
+  }
+
+  JSContext* cx = JSContextFromIsolate(isolate);
+  AutoJSAPI jsAPI(cx, this);
+  JS::RootedObject obj(cx, GetObject(this));
+  assert(obj);
+  assert(JS_GetClass(obj) == &objectTemplateClass);
+
+  JS::RootedObject funcObj(cx, GetObject(func.ToLocalChecked()));
+  assert(funcObj);
+
+  js::SetReservedSlot(obj, size_t(TemplateSlots::CallCallbackSlot),
+                      JS::ObjectValue(*funcObj));
 }
 } // namespace v8

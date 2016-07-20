@@ -152,6 +152,7 @@ class FunctionCallback {
 
     ::FunctionCallback callback = GetHiddenCallback(cx, callee);
     JS::RootedValue retval(cx);
+    retval.setUndefined();
     if (callback) {
       mozilla::UniquePtr<Value*[]> v8args(new Value*[argc]);
       for (unsigned i = 0; i < argc; ++i) {
@@ -178,14 +179,19 @@ class FunctionCallback {
       callback(info);
 
       if (auto rval = info.GetReturnValue().Get()) {
-        retval.set(*GetValue(rval));
-      } else {
-        retval.setUndefined();
+        if (args.isConstructing()) {
+          // Constructors must return an Object per ES6 spec.
+          JS::RootedValue retVal(cx, *GetValue(rval));
+          retval.setObject(*JS::ToObject(cx, retVal));
+        } else {
+          retval.set(*GetValue(rval));
+        }
       }
     }
 
     if (args.isConstructing()) {
       if (!retval.isNullOrUndefined()) {
+        assert(retval.isObject());
         args.rval().set(retval);
       } else {
         args.rval().set(*GetValue(_this));
@@ -336,6 +342,8 @@ MaybeLocal<Function> Function::New(Local<Context> context,
   }
   if (!templ.IsEmpty()) {
     js::SetFunctionNativeReserved(funobj, 0, *GetValue(*templ));
+  } else {
+    js::SetFunctionNativeReserved(funobj, 0, JS::UndefinedValue());
   }
   JS::Value retVal;
   retVal.setObject(*funobj);

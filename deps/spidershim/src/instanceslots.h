@@ -26,6 +26,7 @@
 enum class InstanceSlots {
   InstanceClassSlot,              // Stores a refcounted pointer to our InstanceClass*.
   ConstructorSlot,                // Stores the JSObject for the constructor of our ObjectTemplate
+  CallCallbackSlot,               // Stores our call as function callback function.
   NamedGetterCallbackSlot1,       // Stores our named prop getter callback.
   NamedGetterCallbackSlot2,
   NamedSetterCallbackSlot1,       // Stores our named prop setter callback.

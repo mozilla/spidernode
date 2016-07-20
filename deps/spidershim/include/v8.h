@@ -1934,6 +1934,7 @@ class V8_EXPORT Function : public Object {
 
  private:
   friend class FunctionTemplate;
+  friend class ObjectTemplate;
 };
 
 class V8_EXPORT Promise : public Object {
