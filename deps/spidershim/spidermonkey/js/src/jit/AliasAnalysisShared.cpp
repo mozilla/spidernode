@@ -47,13 +47,15 @@ static inline const MDefinition*
 MaybeUnwrap(const MDefinition* object)
 {
 
-    while (object->isSlots() || object->isElements() || object->isConvertElementsToDoubles() ||
-           object->isTypedArrayElements() || object->isTypedObjectElements())
-    {
+    while (object->isSlots() || object->isElements() || object->isConvertElementsToDoubles()) {
         MOZ_ASSERT(object->numOperands() == 1);
         object = object->getOperand(0);
     }
 
+    if (object->isTypedArrayElements())
+        return nullptr;
+    if (object->isTypedObjectElements())
+        return nullptr;
     if (object->isConstantElements())
         return nullptr;
 
@@ -140,6 +142,8 @@ GetObject(const MDefinition* ins)
       case MDefinition::Op_AtomicTypedArrayElementBinop:
       case MDefinition::Op_AsmJSLoadHeap:
       case MDefinition::Op_AsmJSStoreHeap:
+      case MDefinition::Op_WasmLoad:
+      case MDefinition::Op_WasmStore:
       case MDefinition::Op_AsmJSCompareExchangeHeap:
       case MDefinition::Op_AsmJSAtomicBinopHeap:
       case MDefinition::Op_AsmJSLoadGlobalVar:

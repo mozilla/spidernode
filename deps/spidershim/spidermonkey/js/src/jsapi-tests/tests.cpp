@@ -13,44 +13,37 @@
 
 JSAPITest* JSAPITest::list;
 
-bool JSAPITest::setup()
+bool JSAPITest::init()
 {
-    cx = createContext();
-    if (!cx)
+    rt = createRuntime();
+    if (!rt)
+        return false;
+    cx = JS_GetContext(rt);
+    if (!JS::InitSelfHostedCode(cx))
         return false;
     JS_BeginRequest(cx);
     global.init(rt);
     createGlobal();
     if (!global)
         return false;
-    oldCompartment = JS_EnterCompartment(cx, global);
+    JS_EnterCompartment(cx, global);
     return true;
-}
-
-bool JSAPITest::init()
-{
-    rt = createRuntime();
-    if (!rt)
-        return false;
-    return setup();
-}
-
-void JSAPITest::teardown()
-{
-    if (global) {
-        JS_LeaveCompartment(cx, oldCompartment);
-        global = nullptr;
-    }
-    if (cx) {
-        JS_EndRequest(cx);
-        JS_DestroyContext(cx);
-        cx = nullptr;
-    }
 }
 
 void JSAPITest::uninit()
 {
-    teardown();
+    if (oldCompartment) {
+        JS_LeaveCompartment(cx, oldCompartment);
+        oldCompartment = nullptr;
+    }
+    if (global) {
+        JS_LeaveCompartment(cx, nullptr);
+        global = nullptr;
+    }
+    if (cx) {
+        JS_EndRequest(cx);
+        cx = nullptr;
+    }
     if (rt) {
         destroyRuntime();
         rt = nullptr;
@@ -64,6 +57,14 @@ bool JSAPITest::exec(const char* bytes, const char* filename, int lineno)
     opts.setFileAndLine(filename, lineno);
     return JS::Evaluate(cx, opts, bytes, strlen(bytes), &v) ||
         fail(JSAPITestString(bytes), filename, lineno);
+}
+
+bool JSAPITest::execDontReport(const char* bytes, const char* filename, int lineno)
+{
+    JS::RootedValue v(cx);
+    JS::CompileOptions opts(cx);
+    opts.setFileAndLine(filename, lineno);
+    return JS::Evaluate(cx, opts, bytes, strlen(bytes), &v);
 }
 
 bool JSAPITest::evaluate(const char* bytes, const char* filename, int lineno,

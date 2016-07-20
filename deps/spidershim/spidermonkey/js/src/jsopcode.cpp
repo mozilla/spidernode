@@ -201,8 +201,9 @@ js::DumpPCCounts(JSContext* cx, HandleScript script, Sprinter* sp)
 void
 js::DumpCompartmentPCCounts(JSContext* cx)
 {
-    for (ZoneCellIter i(cx->zone(), gc::AllocKind::SCRIPT); !i.done(); i.next()) {
-        RootedScript script(cx, i.get<JSScript>());
+    RootedScript script(cx);
+    for (auto iter = cx->zone()->cellIter<JSScript>(); !iter.done(); iter.next()) {
+        script = iter;
         if (script->compartment() != cx->compartment())
             continue;
 
@@ -713,7 +714,7 @@ js::Disassemble(JSContext* cx, HandleScript script, bool lines, Sprinter* sp)
 }
 
 JS_FRIEND_API(bool)
-js::DumpPC(JSContext* cx)
+js::DumpPC(JSContext* cx, FILE* fp)
 {
     gc::AutoSuppressGC suppressGC(cx);
     Sprinter sprinter(cx);
@@ -721,17 +722,17 @@ js::DumpPC(JSContext* cx)
         return false;
     ScriptFrameIter iter(cx);
     if (iter.done()) {
-        fprintf(stdout, "Empty stack.\n");
+        fprintf(fp, "Empty stack.\n");
         return true;
     }
     RootedScript script(cx, iter.script());
     bool ok = DisassembleAtPC(cx, script, true, iter.pc(), false, &sprinter);
-    fprintf(stdout, "%s", sprinter.string());
+    fprintf(fp, "%s", sprinter.string());
     return ok;
 }
 
 JS_FRIEND_API(bool)
-js::DumpScript(JSContext* cx, JSScript* scriptArg)
+js::DumpScript(JSContext* cx, JSScript* scriptArg, FILE* fp)
 {
     gc::AutoSuppressGC suppressGC(cx);
     Sprinter sprinter(cx);
@@ -739,7 +740,7 @@ js::DumpScript(JSContext* cx, JSScript* scriptArg)
         return false;
     RootedScript script(cx, scriptArg);
     bool ok = Disassemble(cx, script, true, &sprinter);
-    fprintf(stdout, "%s", sprinter.string());
+    fprintf(fp, "%s", sprinter.string());
     return ok;
 }
 
@@ -890,7 +891,7 @@ js::Disassemble1(JSContext* cx, HandleScript script, jsbytecode* pc,
 
       case JOF_SCOPECOORD: {
         RootedValue v(cx,
-            StringValue(ScopeCoordinateName(cx->runtime()->scopeCoordinateNameCache, script, pc)));
+            StringValue(ScopeCoordinateName(cx->caches.scopeCoordinateNameCache, script, pc)));
         JSAutoByteString bytes;
         if (!ToDisassemblySource(cx, v, &bytes))
             return 0;
@@ -1142,7 +1143,7 @@ ExpressionDecompiler::decompilePC(jsbytecode* pc)
         return write("(intermediate value)");
       }
       case JSOP_GETALIASEDVAR: {
-        JSAtom* atom = ScopeCoordinateName(cx->runtime()->scopeCoordinateNameCache, script, pc);
+        JSAtom* atom = ScopeCoordinateName(cx->caches.scopeCoordinateNameCache, script, pc);
         MOZ_ASSERT(atom);
         return write(atom);
       }
@@ -1657,8 +1658,7 @@ js::StopPCCountProfiling(JSContext* cx)
         return;
 
     for (ZonesIter zone(rt, SkipAtoms); !zone.done(); zone.next()) {
-        for (ZoneCellIter i(zone, AllocKind::SCRIPT); !i.done(); i.next()) {
-            JSScript* script = i.get<JSScript>();
+        for (auto script = zone->cellIter<JSScript>(); !script.done(); script.next()) {
             if (script->hasScriptCounts() && script->types()) {
                 if (!vec->append(script))
                     return;
@@ -2021,12 +2021,11 @@ GenerateLcovInfo(JSContext* cx, JSCompartment* comp, GenericPrinter& out)
 
     // Collect the list of scripts which are part of the current compartment.
     {
-        js::gc::AutoPrepareForTracing apft(rt, SkipAtoms);
+        js::gc::AutoPrepareForTracing apft(cx, SkipAtoms);
     }
     Rooted<ScriptVector> topScripts(cx, ScriptVector(cx));
     for (ZonesIter zone(rt, SkipAtoms); !zone.done(); zone.next()) {
-        for (ZoneCellIter i(zone, AllocKind::SCRIPT); !i.done(); i.next()) {
-            JSScript* script = i.get<JSScript>();
+        for (auto script = zone->cellIter<JSScript>(); !script.done(); script.next()) {
             if (script->compartment() != comp ||
                 !script->isTopLevel() ||
                 !script->filename())
