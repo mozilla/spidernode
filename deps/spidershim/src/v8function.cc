@@ -146,7 +146,6 @@ class FunctionCallback {
         }
       }
     } else {
-      // TODO: Verify that computeThis() here is the right thing to do!
       _this = internal::Local<Object>::New(isolate, args.computeThis(cx));
     }
 

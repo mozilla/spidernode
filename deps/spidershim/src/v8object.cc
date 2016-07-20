@@ -679,6 +679,30 @@ Local<Value> Object::CallAsConstructor(int argc, Local<Value> argv[]) {
   return CallAsConstructor(ctx, argc, argv).ToLocalChecked();
 }
 
+MaybeLocal<Value> Object::CallAsFunction(Local<Context> context,
+                                         Local<Value> recv,
+                                         int argc,
+                                         Handle<Value> argv[]) {
+  if (!IsFunction()) {
+    return Local<Value>();
+  }
+  Local<Object> thisObj =
+    internal::Local<Object>::New(context->GetIsolate(),
+                                 JS::ObjectValue(*GetObject(this)));
+  if (ObjectTemplate::ObjectHasNativeCallHandler(thisObj)) {
+    // If the this function has a native callback, the receiver is forced
+    // to be the this object.
+    recv = thisObj;
+  }
+  return Function::Cast(this)->Call(context, recv, argc, argv);
+}
+
+Local<Value> Object::CallAsFunction(Local<Value> recv, int argc,
+                                    Local<Value> argv[]) {
+  Local<Context> ctx = Isolate::GetCurrent()->GetCurrentContext();
+  return CallAsFunction(ctx, recv, argc, argv).ToLocalChecked();
+}
+
 int Object::InternalFieldCount() {
   if (IsArrayBuffer() || IsArrayBufferView()) {
     return GetHiddenInternalFields(this)->InternalFieldCount();

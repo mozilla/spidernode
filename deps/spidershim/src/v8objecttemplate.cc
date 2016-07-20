@@ -941,8 +941,8 @@ static bool CallOp(JSContext* cx, unsigned argc, JS::Value* vp) {
     }
     return result;
   } else {
-    JS::RootedObject thisObj(cx);
-    return JS::Call(cx, thisObj, callAsFunctionHandler,
+    JS::RootedValue thisv(cx, args.computeThis(cx));
+    return JS::Call(cx, thisv, callAsFunctionHandler,
                     JS::HandleValueArray(args), args.rval());
   }
 }
@@ -1312,6 +1312,15 @@ Local<FunctionTemplate> ObjectTemplate::GetConstructor() {
 bool ObjectTemplate::IsObjectFromTemplate(Local<Object> object) {
   assert(!object.IsEmpty());
   return !!(JS_GetClass(GetObject(object))->flags & InstanceClass::instantiatedFromTemplate);
+}
+
+bool ObjectTemplate::ObjectHasNativeCallHandler(Local<Object> object) {
+  if (!IsObjectFromTemplate(object)) {
+    return false;
+  }
+  auto clasp = JS_GetClass(GetObject(object));
+  assert(clasp->cOps->call == clasp->cOps->construct);
+  return !!clasp->cOps->call;
 }
 
 Local<FunctionTemplate> ObjectTemplate::GetObjectTemplateConstructor(Local<Object> object) {

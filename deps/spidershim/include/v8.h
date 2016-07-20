@@ -2354,6 +2354,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   friend class Utils;
   friend class FunctionTemplate;
   friend class Context;
+  friend class Object;
 
   // Callers are expected to put the JSContext in the right compartment before
   // making this call.
@@ -2377,6 +2378,7 @@ class V8_EXPORT ObjectTemplate : public Template {
   // plain-object JSClass.
   InstanceClass* GetInstanceClass(ObjectType objectType);
   static bool IsObjectFromTemplate(Local<Object> object);
+  static bool ObjectHasNativeCallHandler(Local<Object> object);
   // The object argument should be an object created from an ObjectTemplate,
   // i.e.,
   // an object for which IsObjectFromTemplate() returns true.
