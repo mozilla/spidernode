@@ -13,7 +13,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey &&
-            make -k V= -C out BUILDTYPE=Release;
+            make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal
@@ -26,7 +26,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V= -C out BUILDTYPE=Debug;
+            make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -39,7 +39,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey &&
-            make -k V= -C out BUILDTYPE=Release;
+            make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal
@@ -52,7 +52,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V= -C out BUILDTYPE=Debug;
+            make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -65,7 +65,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey &&
-            make -k V= -C out BUILDTYPE=Release;
+            make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal
@@ -78,7 +78,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug &&
-            make -k V= -C out BUILDTYPE=Debug;
+            make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
@@ -91,7 +91,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --enable-gczeal &&
-            make -k V= -C out BUILDTYPE=Release;
+            make V= -C out BUILDTYPE=Release;
             export JS_GC_MAX_ZEAL=1;
             ./deps/spidershim/scripts/run-tests.py
           "
@@ -105,7 +105,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-gczeal &&
-            make -k V= -C out BUILDTYPE=Debug;
+            make V= -C out BUILDTYPE=Debug;
             export JS_GC_MAX_ZEAL=1;
             ./deps/spidershim/scripts/run-tests.py
           "
@@ -119,7 +119,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --enable-asan &&
-            make -k V= -C out BUILDTYPE=Release;
+            make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true
@@ -132,7 +132,7 @@ matrix:
           sh -c "
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-asan &&
-            make -k V= -C out BUILDTYPE=Debug;
+            make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
@@ -191,7 +191,7 @@ before_script:
   - if [ "$USE_CCACHE" == "true" ]; then ccache -s; fi
   - ./configure $(if [ "$ENABLE_DEBUG" == "true" ]; then echo '--debug'; fi) --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
 script:
-  - travis_wait 60 make V= -k $MAKE_ARGS -C out BUILDTYPE=$(if [ "$ENABLE_DEBUG" == "true" ]; then echo 'Debug'; else echo 'Release'; fi) || true
+  - travis_wait 60 make V= $MAKE_ARGS -C out BUILDTYPE=$(if [ "$ENABLE_DEBUG" == "true" ]; then echo 'Debug'; else echo 'Release'; fi)
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi
   - ./deps/spidershim/scripts/run-tests.py
 after_script:
