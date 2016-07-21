@@ -29,11 +29,7 @@ namespace v8 {
 
 int64_t Integer::Value() const {
   assert(IsNumber());
-  if (IsNumber()) {
-    return static_cast<int64_t>(Number::Value());
-  } else {
-    return static_cast<int64_t>(GetValue(this)->toDouble());
-  }
+  return static_cast<int64_t>(Number::Value());
 }
 
 Local<Integer> Integer::New(Isolate* isolate, int32_t value) {
