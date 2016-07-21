@@ -117,7 +117,7 @@ JS::Symbol* GetHiddenInternalFieldsSymbol(JSContext* cx) {
 //
 // Note that the hidden internal fields are lazily created when needed.
 // See the code in GetHiddenTable for the special casing of these types.
-Local<Object> GetHiddenInternalFields(Object* self) {
+Local<Object> GetHiddenInternalFields(Local<Object> self) {
   assert(JS_IsArrayBufferObject(GetObject(self)) ||
          JS_IsArrayBufferViewObject(GetObject(self)));
   Isolate* isolate = Isolate::GetCurrent();
@@ -126,6 +126,16 @@ Local<Object> GetHiddenInternalFields(Object* self) {
   JS::RootedObject selfObj(cx, GetObject(self));
   JS::RootedObject obj(cx, GetHiddenTable(cx, selfObj, true, GetHiddenInternalFieldsSymbol(cx)));
   return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*obj));
+}
+
+Local<Object> UnwrapProxyIfNeeded(Object* object) {
+  assert(object);
+  JSObject* obj = GetObject(object);
+  JSObject* target = obj;
+  if (js::IsProxy(obj)) {
+    target = js::GetProxyTargetObject(obj);
+  }
+  return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*target));
 }
 }
 
@@ -704,56 +714,61 @@ Local<Value> Object::CallAsFunction(Local<Value> recv, int argc,
 }
 
 int Object::InternalFieldCount() {
+  Local<Object> thisObj = UnwrapProxyIfNeeded(this);
   if (IsArrayBuffer() || IsArrayBufferView()) {
-    return GetHiddenInternalFields(this)->InternalFieldCount();
+    return GetHiddenInternalFields(thisObj)->InternalFieldCount();
   }
   uint32_t globalClassAdjustment = 0;
-  if (JS_IsGlobalObject(GetObject(this))) {
+  if (JS_IsGlobalObject(GetObject(thisObj))) {
     globalClassAdjustment = JSCLASS_GLOBAL_APPLICATION_SLOTS;
   }
-  return JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(this))) -
+  return JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(thisObj))) -
          uint32_t(InstanceSlots::NumSlots) + globalClassAdjustment;
 }
 
 Local<Value> Object::GetInternalField(int index) {
+  Local<Object> thisObj = UnwrapProxyIfNeeded(this);
   if (IsArrayBuffer() || IsArrayBufferView()) {
-    return GetHiddenInternalFields(this)->GetInternalField(index);
+    return GetHiddenInternalFields(thisObj)->GetInternalField(index);
   }
   assert(index < InternalFieldCount());
-  JS::Value retVal(GetInstanceSlot(GetObject(this),
+  JS::Value retVal(GetInstanceSlot(GetObject(thisObj),
                                    uint32_t(InstanceSlots::NumSlots) + index));
   return internal::Local<Value>::New(Isolate::GetCurrent(), retVal);
 }
 
 void Object::SetInternalField(int index, Local<Value> value) {
+  Local<Object> thisObj = UnwrapProxyIfNeeded(this);
   if (IsArrayBuffer() || IsArrayBufferView()) {
-    return GetHiddenInternalFields(this)->SetInternalField(index, value);
+    return GetHiddenInternalFields(thisObj)->SetInternalField(index, value);
   }
   assert(index < InternalFieldCount());
   if (!value.IsEmpty()) {
-    SetInstanceSlot(GetObject(this),
+    SetInstanceSlot(GetObject(thisObj),
                     uint32_t(InstanceSlots::NumSlots) + index,
                     *GetValue(value));
   }
 }
 
 void* Object::GetAlignedPointerFromInternalField(int index) {
+  Local<Object> thisObj = UnwrapProxyIfNeeded(this);
   if (IsArrayBuffer() || IsArrayBufferView()) {
-    return GetHiddenInternalFields(this)->GetAlignedPointerFromInternalField(index);
+    return GetHiddenInternalFields(thisObj)->GetAlignedPointerFromInternalField(index);
   }
   assert(index < InternalFieldCount());
-  JS::Value retVal(GetInstanceSlot(GetObject(this),
+  JS::Value retVal(GetInstanceSlot(GetObject(thisObj),
                                    uint32_t(InstanceSlots::NumSlots) + index));
   // privates are stored as doubles.
   return (retVal.isDouble()) ? retVal.toPrivate() : nullptr;
 }
 
 void Object::SetAlignedPointerInInternalField(int index, void* value) {
+  Local<Object> thisObj = UnwrapProxyIfNeeded(this);
   if (IsArrayBuffer() || IsArrayBufferView()) {
-    return GetHiddenInternalFields(this)->SetAlignedPointerInInternalField(index, value);
+    return GetHiddenInternalFields(thisObj)->SetAlignedPointerInInternalField(index, value);
   }
   assert(index < InternalFieldCount());
-  SetInstanceSlot(GetObject(this),
+  SetInstanceSlot(GetObject(thisObj),
                   uint32_t(InstanceSlots::NumSlots) + index,
                   JS::PrivateValue(value));
 }

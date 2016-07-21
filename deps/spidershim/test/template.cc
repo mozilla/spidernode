@@ -556,6 +556,19 @@ TEST(SpiderShim, InternalFields) {
   EXPECT_TRUE(obj->GetInternalField(0)->IsUndefined());
   obj->SetInternalField(0, v8_num(17));
   EXPECT_EQ(17, obj->GetInternalField(0)->Int32Value(context).FromJust());
+
+  // Also ensure that the InternalFields APIs are available when the underlying
+  // object is proxied.
+  Local<Context> context2 = Context::New(isolate);
+  Context::Scope context_scope2(context2);
+  EXPECT_TRUE(context2->Global()
+            ->Set(context2, v8_str("obj"), obj)
+            .FromJust());
+  Local<Object> obj2 = context2->Global()->Get(v8_str("obj")).As<Object>();
+  EXPECT_EQ(1, obj2->InternalFieldCount());
+  EXPECT_EQ(17, obj2->GetInternalField(0)->Int32Value(context2).FromJust());
+  obj2->SetInternalField(0, Undefined(isolate));
+  EXPECT_TRUE(obj2->GetInternalField(0)->IsUndefined());
 }
 
 static void CheckAlignedPointerInInternalField(Local<Object> obj,
