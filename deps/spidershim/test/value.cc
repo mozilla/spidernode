@@ -136,6 +136,16 @@ TEST(SpiderShim, Boolean) {
 }
 
 template<class T>
+void CheckIsUint32(Local<Number> number) {
+  EXPECT_TRUE(number->IsUint32());
+}
+
+template<>
+void CheckIsUint32<double>(Local<Number> number) {
+  EXPECT_FALSE(number->IsUint32());
+}
+
+template<class T>
 void TestNumber(Isolate* isolate, T value, const char* strValue) {
   Local<Number> number = Number::New(isolate, value);
   EXPECT_TRUE(number->IsNumber());
@@ -155,6 +165,7 @@ void TestNumber(Isolate* isolate, T value, const char* strValue) {
   EXPECT_EQ(value < 0 ? uint32_t(ceil(value)) : floor(value), number->Uint32Value());
   EXPECT_TRUE(number->ToObject()->IsNumberObject());
   EXPECT_EQ(value, NumberObject::Cast(*number->ToObject())->ValueOf());
+  CheckIsUint32<T>(number);
 }
 
 TEST(SpiderShim, Number) {

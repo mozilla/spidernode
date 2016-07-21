@@ -64,7 +64,7 @@ bool Value::IsUint32() const {
   if (!IsNumber()) {
     return false;
   }
-  double value = GetValue(this)->toDouble();
+  double value = GetValue(this)->toNumber();
   return !internal::IsMinusZero(value) && value >= 0 &&
          value <= internal::kMaxUInt32 &&
          value == internal::FastUI2D(internal::FastD2UI(value));
