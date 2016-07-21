@@ -131,4 +131,11 @@ Local<StackTrace> Message::GetStackTrace() const {
 Local<String> Message::Get() const {
   return pimpl_->stringMessage_;
 }
+
+ScriptOrigin Message::GetScriptOrigin() const {
+  Isolate* isolate = Isolate::GetCurrent();
+  return ScriptOrigin(pimpl_->resourceName_,
+                      Integer::New(isolate, pimpl_->lineNumber_),
+                      Integer::New(isolate, pimpl_->columnNumber_));
+}
 }

@@ -993,6 +993,8 @@ class V8_EXPORT Message {
 
   Local<StackTrace> GetStackTrace() const;
 
+  ScriptOrigin GetScriptOrigin() const;
+
   static const int kNoLineNumberInfo = 0;
   static const int kNoColumnInfo = 0;
   static const int kNoScriptIdInfo = 0;
