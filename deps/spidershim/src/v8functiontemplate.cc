@@ -313,7 +313,7 @@ Handle<String> FunctionTemplate::GetClassName() {
 
 void
 FunctionTemplate::SetHiddenPrototype(bool value) {
-  // TODO: Do we really need to implement this?  Let's hope not!
+  // We don't support hidden prototypes...
 }
 
 void

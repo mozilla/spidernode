@@ -858,4 +858,25 @@ void Object::SetAccessorProperty(Local<Name> name, Local<Function> getter,
   internal::SetAccessor(cx, obj, name, getterObj, setterObj,
                         settings, attribute);
 }
+
+MaybeLocal<Value> Object::GetRealNamedProperty(Local<Context> context,
+                                               Local<Name> key) {
+  // We don't support hidden prototypes...
+  return Get(context, key);
+}
+
+Local<Value> Object::GetRealNamedProperty(Local<String> key) {
+  return GetRealNamedProperty(Isolate::GetCurrent()->GetCurrentContext(), key)
+      .FromMaybe(Local<Value>());
+}
+
+Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<Context> context,
+                                                                Local<Name> key) {
+  // We don't support hidden prototypes...
+  return GetPropertyAttributes(context, key);
+}
+
+Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<String> key) {
+  return GetRealNamedPropertyAttributes(Isolate::GetCurrent()->GetCurrentContext(), key);
+}
 }
