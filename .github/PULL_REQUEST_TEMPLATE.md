@@ -1,9 +1,7 @@
 <!--
-Thank you for your pull request. Please review below requirements and walk
-through the checklist. You can 'tick' a box by using the letter "x": [x].
+Thank you for your pull request. Please review below requirements.
 
-Run the test suite with: `make -j4 test` on UNIX or `vcbuild test nosign` on
-Windows.
+Bug fixes and new features should include tests and possibly benchmarks.
 
 - [ ] Have you enabled debug builds by passing `--debug` to `./configure`?
 - [ ] Have you run the test binaries under `out/{Debug,Release}/` after running

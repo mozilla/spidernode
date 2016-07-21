@@ -17,7 +17,7 @@ var dh2 = crypto.createDiffieHellman(p1, 'buffer');
 var key1 = dh1.generateKeys();
 var key2 = dh2.generateKeys('hex');
 var secret1 = dh1.computeSecret(key2, 'hex', 'base64');
-var secret2 = dh2.computeSecret(key1, 'binary', 'buffer');
+var secret2 = dh2.computeSecret(key1, 'latin1', 'buffer');
 
 assert.equal(secret1, secret2.toString('base64'));
 assert.equal(dh1.verifyError, 0);
@@ -57,19 +57,19 @@ var secret3 = dh3.computeSecret(key2, 'hex', 'base64');
 assert.equal(secret1, secret3);
 
 // Run this one twice to make sure that the dh3 clears its error properly
-(function() {
-  var c = crypto.createDecipheriv('aes-128-ecb', crypto.randomBytes(16), '');
+{
+  const c = crypto.createDecipheriv('aes-128-ecb', crypto.randomBytes(16), '');
   assert.throws(function() { c.final('utf8'); }, /wrong final block length/);
-})();
+}
 
 assert.throws(function() {
   dh3.computeSecret('');
 }, /key is too small/i);
 
-(function() {
-  var c = crypto.createDecipheriv('aes-128-ecb', crypto.randomBytes(16), '');
+{
+  const c = crypto.createDecipheriv('aes-128-ecb', crypto.randomBytes(16), '');
   assert.throws(function() { c.final('utf8'); }, /wrong final block length/);
-})();
+}
 
 // Create a shared using a DH group.
 var alice = crypto.createDiffieHellmanGroup('modp5');
@@ -155,7 +155,7 @@ const ecdh2 = crypto.createECDH('prime256v1');
 key1 = ecdh1.generateKeys();
 key2 = ecdh2.generateKeys('hex');
 secret1 = ecdh1.computeSecret(key2, 'hex', 'base64');
-secret2 = ecdh2.computeSecret(key1, 'binary', 'buffer');
+secret2 = ecdh2.computeSecret(key1, 'latin1', 'buffer');
 
 assert.equal(secret1, secret2.toString('base64'));
 
@@ -176,7 +176,7 @@ const ecdh3 = crypto.createECDH('secp256k1');
 const key3 = ecdh3.generateKeys();
 
 assert.throws(function() {
-  ecdh2.computeSecret(key3, 'binary', 'buffer');
+  ecdh2.computeSecret(key3, 'latin1', 'buffer');
 });
 
 // ECDH should allow .setPrivateKey()/.setPublicKey()

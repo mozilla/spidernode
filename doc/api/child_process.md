@@ -164,8 +164,8 @@ The `stdout` and `stderr` arguments passed to the callback will contain the
 stdout and stderr output of the child process. By default, Node.js will decode
 the output as UTF-8 and pass strings to the callback. The `encoding` option
 can be used to specify the character encoding used to decode the stdout and
-stderr output. If `encoding` is `'buffer'`, `Buffer` objects will be passed to
-the callback instead.
+stderr output. If `encoding` is `'buffer'`, or an unrecognized character
+encoding, `Buffer` objects will be passed to the callback instead.
 
 The `options` argument may be passed as the second argument to customize how
 the process is spawned. The default options are:
@@ -233,8 +233,8 @@ The `stdout` and `stderr` arguments passed to the callback will contain the
 stdout and stderr output of the child process. By default, Node.js will decode
 the output as UTF-8 and pass strings to the callback. The `encoding` option
 can be used to specify the character encoding used to decode the stdout and
-stderr output. If `encoding` is `'buffer'`, `Buffer` objects will be passed to
-the callback instead.
+stderr output. If `encoding` is `'buffer'`, or an unrecognized character
+encoding, `Buffer` objects will be passed to the callback instead.
 
 ### child_process.fork(modulePath[, args][, options])
 <!-- YAML
@@ -430,7 +430,7 @@ const spawn = require('child_process').spawn;
 
 const child = spawn(process.argv[0], ['child_program.js'], {
   detached: true,
-  stdio: ['ignore']
+  stdio: 'ignore'
 });
 
 child.unref();

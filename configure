@@ -24,6 +24,10 @@ from gyp.common import GetFlavor
 sys.path.insert(0, os.path.join(root_dir, 'tools', 'configure.d'))
 import nodedownload
 
+# imports in tools/
+sys.path.insert(0, os.path.join(root_dir, 'tools'))
+import getmoduleversion
+
 # parse our options
 parser = optparse.OptionParser()
 
@@ -244,6 +248,11 @@ parser.add_option('--release-urlbase',
          '`sourceUrl` and `headersUrl`. When compiling a release build, this '
          'will default to https://nodejs.org/download/release/')
 
+parser.add_option('--enable-d8',
+    action='store_true',
+    dest='enable_d8',
+    help=optparse.SUPPRESS_HELP)  # Unsupported, undocumented.
+
 parser.add_option('--v8-options',
     action='store',
     dest='v8_options',
@@ -415,6 +424,11 @@ parser.add_option('--no-browser-globals',
     help='do not export browser globals like setTimeout, console, etc. ' +
          '(This mode is not officially supported for regular applications)')
 
+parser.add_option('--without-inspector',
+    action='store_true',
+    dest='without_inspector',
+    help='disable experimental V8 inspector support')
+
 parser.add_option('--enable-gczeal',
     action='store_true',
     dest='enable_gczeal',
@@ -426,6 +440,25 @@ parser.add_option('--engine',
     default='spidermonkey',
     help='Use specified JS engine (default is SpiderMonkey)')
 
+parser.add_option('--shared',
+    action='store_true',
+    dest='shared',
+    help='compile shared library for embedding node in another project. ' +
+         '(This mode is not officially supported for regular applications)')
+
+parser.add_option('--without-v8-platform',
+    action='store_true',
+    dest='without_v8_platform',
+    default=False,
+    help='do not initialize v8 platform during node.js startup. ' +
+         '(This mode is not officially supported for regular applications)')
+
+parser.add_option('--without-bundled-v8',
+    action='store_true',
+    dest='without_bundled_v8',
+    default=False,
+    help='do not use V8 includes from the bundled deps folder. ' +
+         '(This mode is not officially supported for regular applications)')
 
 (options, args) = parser.parse_args()
 
@@ -819,11 +852,15 @@ def configure_node(o):
     o['variables']['node_target_type'] = 'static_library'
 
   o['variables']['node_no_browser_globals'] = b(options.no_browser_globals)
+  o['variables']['node_shared'] = b(options.shared)
+  o['variables']['node_module_version'] = int(getmoduleversion.get_version())
 
   if options.linked_module:
     o['variables']['library_files'] = options.linked_module
 
   o['variables']['asan'] = int(options.enable_asan or 0)
+  o['variables']['v8_inspector'] = b(not options.without_inspector)
+  o['variables']['debug_devtools'] = 'node'
 
   if options.use_xcode and options.use_ninja:
     raise Exception('--xcode and --ninja cannot be used together.')
@@ -863,6 +900,14 @@ def configure_v8(o):
   o['variables']['v8_optimized_debug'] = 0  # Compile with -O0 in debug builds.
   o['variables']['v8_random_seed'] = 0  # Use a random seed for hash tables.
   o['variables']['v8_use_snapshot'] = 'false' if options.without_snapshot else 'true'
+  o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
+  o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
+  o['variables']['node_enable_d8'] = b(options.enable_d8)
+  if options.enable_d8:
+    o['variables']['test_isolation_mode'] = 'noop'  # Needed by d8.gyp.
+  if options.without_bundled_v8 and options.enable_d8:
+    raise Exception('--enable-d8 is incompatible with --without-bundled-v8.')
+
 
 
 def configure_spidermonkey(o):

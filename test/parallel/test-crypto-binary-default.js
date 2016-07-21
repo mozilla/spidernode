@@ -14,7 +14,7 @@ var crypto = require('crypto');
 var tls = require('tls');
 const DH_NOT_SUITABLE_GENERATOR = crypto.constants.DH_NOT_SUITABLE_GENERATOR;
 
-crypto.DEFAULT_ENCODING = 'binary';
+crypto.DEFAULT_ENCODING = 'latin1';
 
 var fs = require('fs');
 var path = require('path');
@@ -346,11 +346,11 @@ var a3 = crypto.createHash('sha512').update('Test123').digest(); // binary
 var a4 = crypto.createHash('sha1').update('Test123').digest('buffer');
 
 if (!common.hasFipsCrypto) {
-  var a0 = crypto.createHash('md5').update('Test123').digest('binary');
+  var a0 = crypto.createHash('md5').update('Test123').digest('latin1');
   assert.equal(
     a0,
     'h\u00ea\u00cb\u0097\u00d8o\fF!\u00fa+\u000e\u0017\u00ca\u00bd\u008c',
-    'Test MD5 as binary'
+    'Test MD5 as latin1'
   );
 }
 
@@ -364,7 +364,7 @@ assert.equal(a3, '\u00c1(4\u00f1\u0003\u001fd\u0097!O\'\u00d4C/&Qz\u00d4' +
                  '\u00d6\u0092\u00a3\u00df\u00a2i\u00a1\u009b\n\n*\u000f' +
                  '\u00d7\u00d6\u00a2\u00a8\u0085\u00e3<\u0083\u009c\u0093' +
                  '\u00c2\u0006\u00da0\u00a1\u00879(G\u00ed\'',
-             'Test SHA512 as assumed binary');
+             'Test SHA512 as assumed latin1');
 
 assert.deepStrictEqual(
   a4,
@@ -530,7 +530,7 @@ var dh2 = crypto.createDiffieHellman(p1, 'base64');
 var key1 = dh1.generateKeys();
 var key2 = dh2.generateKeys('hex');
 var secret1 = dh1.computeSecret(key2, 'hex', 'base64');
-var secret2 = dh2.computeSecret(key1, 'binary', 'buffer');
+var secret2 = dh2.computeSecret(key1, 'latin1', 'buffer');
 
 assert.equal(secret1, secret2.toString('base64'));
 
@@ -580,58 +580,58 @@ assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
 //
 // Test RSA signing and verification
 //
-(function() {
-  var privateKey = fs.readFileSync(
+{
+  const privateKey = fs.readFileSync(
       common.fixturesDir + '/test_rsa_privkey_2.pem');
 
-  var publicKey = fs.readFileSync(
+  const publicKey = fs.readFileSync(
       common.fixturesDir + '/test_rsa_pubkey_2.pem');
 
-  var input = 'I AM THE WALRUS';
+  const input = 'I AM THE WALRUS';
 
-  var signature =
+  const signature =
       '79d59d34f56d0e94aa6a3e306882b52ed4191f07521f25f505a078dc2f89' +
       '396e0c8ac89e996fde5717f4cb89199d8fec249961fcb07b74cd3d2a4ffa' +
       '235417b69618e4bcd76b97e29975b7ce862299410e1b522a328e44ac9bb2' +
       '8195e0268da7eda23d9825ac43c724e86ceeee0d0d4465678652ccaf6501' +
       '0ddfb299bedeb1ad';
 
-  var sign = crypto.createSign('RSA-SHA256');
+  const sign = crypto.createSign('RSA-SHA256');
   sign.update(input);
 
-  var output = sign.sign(privateKey, 'hex');
-  assert.equal(output, signature);
+  const output = sign.sign(privateKey, 'hex');
+  assert.strictEqual(output, signature);
 
-  var verify = crypto.createVerify('RSA-SHA256');
+  const verify = crypto.createVerify('RSA-SHA256');
   verify.update(input);
 
   assert.strictEqual(verify.verify(publicKey, signature, 'hex'), true);
-})();
+}
 
 
 //
 // Test DSA signing and verification
 //
-(function() {
-  var privateKey = fs.readFileSync(
+{
+  const privateKey = fs.readFileSync(
       common.fixturesDir + '/test_dsa_privkey.pem');
 
-  var publicKey = fs.readFileSync(
+  const publicKey = fs.readFileSync(
       common.fixturesDir + '/test_dsa_pubkey.pem');
 
-  var input = 'I AM THE WALRUS';
+  const input = 'I AM THE WALRUS';
 
   // DSA signatures vary across runs so there is no static string to verify
   // against
-  var sign = crypto.createSign('DSS1');
+  const sign = crypto.createSign('DSS1');
   sign.update(input);
-  var signature = sign.sign(privateKey, 'hex');
+  const signature = sign.sign(privateKey, 'hex');
 
-  var verify = crypto.createVerify('DSS1');
+  const verify = crypto.createVerify('DSS1');
   verify.update(input);
 
   assert.strictEqual(verify.verify(publicKey, signature, 'hex'), true);
-})();
+}
 
 
 //

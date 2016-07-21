@@ -9,7 +9,7 @@ via a simple [TCP-based protocol][] and built-in debugging client. To use it,
 start Node.js with the `debug` argument followed by the path to the script to
 debug; a prompt will be displayed indicating successful launch of the debugger:
 
-```
+```txt
 $ node debug myscript.js
 < debugger listening on port 5858
 connecting... ok
@@ -38,7 +38,7 @@ console.log('hello');
 
 Once the debugger is run, a breakpoint will occur at line 4:
 
-```
+```txt
 $ node debug myscript.js
 < debugger listening on port 5858
 connecting... ok
@@ -119,7 +119,7 @@ on line 1
 It is also possible to set a breakpoint in a file (module) that
 isn't loaded yet:
 
-```
+```txt
 $ ./node debug test/fixtures/break-in-module/main.js
 < debugger listening on port 5858
 connecting to port 5858... ok
@@ -178,5 +178,19 @@ process or via URI reference to the listening debugger:
 * `node debug -p <pid>` - Connects to the process via the `pid`
 * `node debug <URI>` - Connects to the process via the URI such as
 localhost:5858
+
+## V8 Inspector Integration for Node.js
+
+__NOTE: This is an experimental feature.__
+
+V8 Inspector integration allows attaching Chrome DevTools to Node.js
+instances for debugging and profiling.
+
+V8 Inspector can be enabled by passing the `--inspect` flag when starting a
+Node.js application. It is also possible to supply a custom port with that flag,
+e.g. `--inspect=9222` will accept DevTools connections on port 9222.
+
+To break on the first line of the application code, provide the `--debug-brk`
+flag in addition to `--inspect`.
 
 [TCP-based protocol]: https://github.com/v8/v8/wiki/Debugging-Protocol

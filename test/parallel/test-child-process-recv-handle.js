@@ -24,7 +24,7 @@ function master() {
   });
   proc.stdout.on('data', function(data) {
     assert.equal(data, 'ok\r\n');
-    net.createServer(common.fail).listen(common.PORT, function() {
+    net.createServer(common.fail).listen(0, function() {
       handle = this._handle;
       proc.send('one');
       proc.send('two', handle);
@@ -49,14 +49,12 @@ function worker() {
     if (n === 1) {
       assert.equal(msg, 'one');
       assert.equal(handle, undefined);
-    }
-    else if (n === 2) {
+    } else if (n === 2) {
       assert.equal(msg, 'two');
       assert.equal(typeof handle, 'object');  // Also matches null, therefore...
       assert.ok(handle);                      // also check that it's truthy.
       handle.close();
-    }
-    else if (n === 3) {
+    } else if (n === 3) {
       assert.equal(msg, 'three');
       assert.equal(handle, undefined);
       process.exit();

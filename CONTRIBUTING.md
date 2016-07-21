@@ -119,6 +119,12 @@ run `git shortlog` or `git log --oneline`.
 Check the output of `git log --oneline files_that_you_changed` to find out
 what subsystem (or subsystems) your changes touch.
 
+If your patch fixes an open issue, you can add a reference to it at the end
+of the log. Use the `Fixes:` prefix and the full issue URL. For example:
+
+```
+Fixes: https://github.com/nodejs/node/issues/1337
+```
 
 ### Step 4: Rebase
 
@@ -133,8 +139,9 @@ $ git rebase upstream/master
 ### Step 5: Test
 
 Bug fixes and features **should come with tests**. Add your tests in the
-test/parallel/ directory. Look at other tests to see how they should be
-structured (license boilerplate, common includes, etc.).
+`test/parallel/` directory. For guidance on how to write a test for the Node.js
+project, see this [guide](./doc/guides/writing_tests.md). Looking at other tests
+to see how they should be structured can also help.
 
 ```text
 $ ./configure && make -j8 test
@@ -142,6 +149,9 @@ $ ./configure && make -j8 test
 
 Make sure the linter is happy and that all tests pass. Please, do not submit
 patches that fail either check.
+
+Running `make test` will run the linter as well unless one or more tests fail.
+If you want to run the linter without running tests, use `make lint`.
 
 If you are updating tests and just want to run a single test to check it, you
 can use this syntax to run it exactly as the test harness would:

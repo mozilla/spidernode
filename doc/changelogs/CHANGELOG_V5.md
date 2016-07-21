@@ -6,6 +6,7 @@
 </tr>
 <tr>
 <td>
+<a href="#5.12.0">5.12.0</a><br/>
 <a href="#5.11.1">5.11.1</a><br/>
 <a href="#5.11.0">5.11.0</a><br/>
 <a href="#5.10.1">5.10.1</a><br/>
@@ -38,6 +39,27 @@
 
 **Note:** Official support for the v5 release line is scheduled to expire
 around June 2016. Users of v5 should upgrade to [Node.js v6](CHANGELOG_V6.md).
+
+<a id="5.12.0"></a>
+## 2016-06-23, Version 5.12.0 (Stable), @evanlucas
+
+### Notable changes
+
+This is a security release. All Node.js users should consult the security release summary at https://nodejs.org/en/blog/vulnerability/june-2016-security-releases for details on patched vulnerabilities.
+
+* **buffer**
+  * backport allocUnsafeSlow (Сковорода Никита Андреевич) [#7169](https://github.com/nodejs/node/pull/7169)
+  * ignore negative allocation lengths (Anna Henningsen) [#7221](https://github.com/nodejs/node/pull/7221)
+* **deps**: backport 3a9bfec from v8 upstream (Ben Noordhuis) [nodejs/node-private#40](https://github.com/nodejs/node-private/pull/40)
+  * Fixes a Buffer overflow vulnerability discovered in v8. More details can be found in the CVE (CVE-2016-1699).
+
+### Commits
+
+* [[`0ca0827b71`](https://github.com/nodejs/node/commit/0ca0827b71)] - **(SEMVER-MINOR)** **buffer**: backport allocUnsafeSlow (Сковорода Никита Андреевич) [#7169](https://github.com/nodejs/node/pull/7169)
+* [[`27785aeb37`](https://github.com/nodejs/node/commit/27785aeb37)] - **buffer**: ignore negative allocation lengths (Anna Henningsen) [#7221](https://github.com/nodejs/node/pull/7221)
+* [[`34b96c1322`](https://github.com/nodejs/node/commit/34b96c1322)] - **deps**: backport 3a9bfec from v8 upstream (Ben Noordhuis) [nodejs/node-private#40](https://github.com/nodejs/node-private/pull/40)
+* [[`2ebeb82852`](https://github.com/nodejs/node/commit/2ebeb82852)] - **test**: fix test-net-* error code check for getaddrinfo(3) (Natanael Copa) [#5099](https://github.com/nodejs/node/pull/5099)
+* [[`03d36aea4f`](https://github.com/nodejs/node/commit/03d36aea4f)] - **(SEMVER-MINOR)** **test**: add buffer testcase for resetting kZeroFill (Сковорода Никита Андреевич) [#7169](https://github.com/nodejs/node/pull/7169)
 
 <a id="5.11.1"></a>
 ## 2016-05-05, Version 5.11.1 (Stable), @evanlucas
@@ -137,7 +159,7 @@ around June 2016. Users of v5 should upgrade to [Node.js v6](CHANGELOG_V6.md).
 * [[`a259ee4018`](https://github.com/nodejs/node/commit/a259ee4018)] - **http**: unref socket timer on parser execute (Fedor Indutny) [#6286](https://github.com/nodejs/node/pull/6286)
 * [[`d4abca5b27`](https://github.com/nodejs/node/commit/d4abca5b27)] - **lib**: remove bootstrap global context indirection (Jeremiah Senkpiel) [#5881](https://github.com/nodejs/node/pull/5881)
 * [[`c8783aff21`](https://github.com/nodejs/node/commit/c8783aff21)] - **lib,test,tools**: alignment on variable assignments (Rich Trott) [#6242](https://github.com/nodejs/node/pull/6242)
-* [[`d5d4f194f1`](https://github.com/nodejs/node/commit/d5d4f194f1)] - **net**: replace __defineGetter__ with defineProperty (Fedor Indutny) [#6284](https://github.com/nodejs/node/pull/6284)
+* [[`d5d4f194f1`](https://github.com/nodejs/node/commit/d5d4f194f1)] - **net**: replace `__defineGetter__` with defineProperty (Fedor Indutny) [#6284](https://github.com/nodejs/node/pull/6284)
 * [[`6d9c0c9aa7`](https://github.com/nodejs/node/commit/6d9c0c9aa7)] - **(SEMVER-MINOR)** **net**: support DNS hints in createConnection() (Colin Ihrig) [#6000](https://github.com/nodejs/node/pull/6000)
 * [[`457f24f19c`](https://github.com/nodejs/node/commit/457f24f19c)] - **(SEMVER-MINOR)** **node**: make builtin libs available for `--eval` (Anna Henningsen) [#6207](https://github.com/nodejs/node/pull/6207)
 * [[`fc89d17656`](https://github.com/nodejs/node/commit/fc89d17656)] - **path**: fixing a test that breaks on some machines. (Mike Kaufman) [#6067](https://github.com/nodejs/node/pull/6067)
@@ -243,10 +265,10 @@ around June 2016. Users of v5 should upgrade to [Node.js v6](CHANGELOG_V6.md).
 * **fs**: add the fs.mkdtemp() function. (Florian MARGAINE) [#5333](https://github.com/nodejs/node/pull/5333)
 * **net**: emit host in lookup event (HUANG Wei) [#5598](https://github.com/nodejs/node/pull/5598)
 * **node**: --no-browser-globals configure flag (Fedor Indutny) [#5853](https://github.com/nodejs/node/pull/5853)
-* **npm**: Upgrade to v3.8.3. Fixes a security flaw in the use of authentication tokens in HTTP requests that 
-  would allow an attacker to set up a server that could collect tokens from users of the command-line interface. 
-  Authentication tokens have previously been sent with every request made by the CLI for logged-in users, 
-  regardless of the destination of the request. This update fixes this by only including those tokens for requests 
+* **npm**: Upgrade to v3.8.3. Fixes a security flaw in the use of authentication tokens in HTTP requests that
+  would allow an attacker to set up a server that could collect tokens from users of the command-line interface.
+  Authentication tokens have previously been sent with every request made by the CLI for logged-in users,
+  regardless of the destination of the request. This update fixes this by only including those tokens for requests
   made against the registry or registries used for the current install. (Forrest L Norvell) [npm/node#6](https://github.com/npm/node/pull/6)
 * **repl**: support standalone blocks (Prince J Wesley) [#5581](https://github.com/nodejs/node/pull/5581)
 * **src**: override v8 thread defaults using cli options (Tom Gallacher) [#4344](https://github.com/nodejs/node/pull/4344)
@@ -266,7 +288,7 @@ around June 2016. Users of v5 should upgrade to [Node.js v6](CHANGELOG_V6.md).
 * [[`5ee5fa292f`](https://github.com/nodejs/node/commit/5ee5fa292f)] - **build**: add missing `openssl_fips%` to common.gypi (Fedor Indutny) [#5919](https://github.com/nodejs/node/pull/5919)
 * [[`5681ffecf7`](https://github.com/nodejs/node/commit/5681ffecf7)] - **build**: enable compilation for linuxOne (Michael Dawson) [#5941](https://github.com/nodejs/node/pull/5941)
 * [[`660ec9f889`](https://github.com/nodejs/node/commit/660ec9f889)] - **child_process**: refactor self=this in socket_list (Benjamin Gruenbaum) [#5860](https://github.com/nodejs/node/pull/5860)
-* [[`e1a012f277`](https://github.com/nodejs/node/commit/e1a012f277)] - **deps**: upgrade npm to 3.8.3 (Forrest L Norvell) 
+* [[`e1a012f277`](https://github.com/nodejs/node/commit/e1a012f277)] - **deps**: upgrade npm to 3.8.3 (Forrest L Norvell)
 * [[`ec1813199d`](https://github.com/nodejs/node/commit/ec1813199d)] - **deps**: backport 8d00c2c from v8 upstream (Ben Noordhuis) [#5577](https://github.com/nodejs/node/pull/5577)
 * [[`2a5c6d7006`](https://github.com/nodejs/node/commit/2a5c6d7006)] - **dns**: Refactor forEach to map (Benjamin Gruenbaum) [#5803](https://github.com/nodejs/node/pull/5803)
 * [[`6a6112a2f3`](https://github.com/nodejs/node/commit/6a6112a2f3)] - **dns**: Use object without protoype for map (Benjamin Gruenbaum) [#5843](https://github.com/nodejs/node/pull/5843)
@@ -821,7 +843,7 @@ This is an important security release. All Node.js users should consult the secu
 * [[`2844cc03dc`](https://github.com/nodejs/node/commit/2844cc03dc)] - **repl**: remove variable redeclaration (Rich Trott) [#4977](https://github.com/nodejs/node/pull/4977)
 * [[`ac6627a0fe`](https://github.com/nodejs/node/commit/ac6627a0fe)] - **src**: avoid compiler warning in node_revert.cc (James M Snell)
 * [[`459c5844c8`](https://github.com/nodejs/node/commit/459c5844c8)] - **(SEMVER-MINOR)** **src**: add --security-revert command line flag (James M Snell)
-* [[`95615196de`](https://github.com/nodejs/node/commit/95615196de)] - **src**: clean up usage of __proto__ (Jackson Tian) [#5069](https://github.com/nodejs/node/pull/5069)
+* [[`95615196de`](https://github.com/nodejs/node/commit/95615196de)] - **src**: clean up usage of `__proto__` (Jackson Tian) [#5069](https://github.com/nodejs/node/pull/5069)
 * [[`e93b024214`](https://github.com/nodejs/node/commit/e93b024214)] - **src**: remove no longer relevant comments (Chris911) [#4843](https://github.com/nodejs/node/pull/4843)
 * [[`a2c257a3ef`](https://github.com/nodejs/node/commit/a2c257a3ef)] - **src**: fix negative values in process.hrtime() (Ben Noordhuis) [#4757](https://github.com/nodejs/node/pull/4757)
 * [[`b46f3b84d4`](https://github.com/nodejs/node/commit/b46f3b84d4)] - **src,deps**: replace LoadLibrary by LoadLibraryW (Cheng Zhao) [iojs/io.js#226](https://github.com/iojs/io.js/pull/226)

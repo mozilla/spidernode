@@ -1,18 +1,16 @@
 'use strict';
+const common = require('../common');
 var assert = require('assert');
-var common = require('../common');
 var net = require('net');
 
-var server = net.createServer(assert.fail);
+var server = net.createServer(common.fail);
 var closeEvents = 0;
 
 server.on('close', function() {
   ++closeEvents;
 });
 
-server.listen(common.PORT, function() {
-  assert(false);
-});
+server.listen(0, common.fail);
 
 server.close('bad argument');
 

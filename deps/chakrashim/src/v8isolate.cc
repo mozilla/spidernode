@@ -26,10 +26,9 @@ namespace v8 {
 
 HeapProfiler dummyHeapProfiler;
 CpuProfiler dummyCpuProfiler;
-extern bool g_enableSimdjs;
 
 Isolate* Isolate::New(const CreateParams& params) {
-  Isolate* iso = jsrt::IsolateShim::New(g_enableSimdjs);
+  Isolate* iso = jsrt::IsolateShim::New();
   if (params.array_buffer_allocator) {
     V8::SetArrayBufferAllocator(params.array_buffer_allocator);
   }
@@ -191,13 +190,13 @@ void Isolate::GetHeapStatistics(HeapStatistics *heap_statistics) {
 }
 
 size_t Isolate::NumberOfHeapSpaces() {
-  //Chakra doesn't expose HEAP space stats
+  // Chakra doesn't expose HEAP space stats
   return 0;
 }
 
 bool Isolate::GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
                                      size_t index) {
-  //Chakra doesn't expose HEAP space stats
+  // Chakra doesn't expose HEAP space stats
   return true;
 }
 

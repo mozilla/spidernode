@@ -11,10 +11,7 @@ var net = require('net');
 
 // Create a TCP server
 var srv = net.createServer(function(c) {
-  var data = '';
   c.on('data', function(d) {
-    data += d.toString('utf8');
-
     c.write('HTTP/1.1 101\r\n');
     c.write('hello: world\r\n');
     c.write('connection: upgrade\r\n');
@@ -30,10 +27,10 @@ var srv = net.createServer(function(c) {
 
 var gotUpgrade = false;
 
-srv.listen(common.PORT, '127.0.0.1', function() {
+srv.listen(0, '127.0.0.1', function() {
 
   var options = {
-    port: common.PORT,
+    port: this.address().port,
     host: '127.0.0.1',
     headers: {
       'connection': 'upgrade',

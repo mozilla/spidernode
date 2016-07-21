@@ -102,6 +102,14 @@ assert(
     Buffer.from(b.toString('ascii'), 'ascii')
     .includes(Buffer.from('d', 'ascii'), 0, 'ascii'));
 
+// test latin1 encoding
+assert(
+    Buffer.from(b.toString('latin1'), 'latin1')
+    .includes('d', 0, 'latin1'));
+assert(
+    Buffer.from(b.toString('latin1'), 'latin1')
+    .includes(Buffer.from('d', 'latin1'), 0, 'latin1'));
+
 // test binary encoding
 assert(
     Buffer.from(b.toString('binary'), 'binary')
@@ -256,3 +264,19 @@ assert.throws(function() {
 assert.throws(function() {
   b.includes([]);
 });
+
+// test truncation of Number arguments to uint8
+{
+  const buf = Buffer.from('this is a test');
+  assert.ok(buf.includes(0x6973));
+  assert.ok(buf.includes(0x697320));
+  assert.ok(buf.includes(0x69732069));
+  assert.ok(buf.includes(0x697374657374));
+  assert.ok(buf.includes(0x69737374));
+  assert.ok(buf.includes(0x69737465));
+  assert.ok(buf.includes(0x69737465));
+  assert.ok(buf.includes(-140));
+  assert.ok(buf.includes(-152));
+  assert.ok(!buf.includes(0xff));
+  assert.ok(!buf.includes(0xffff));
+}

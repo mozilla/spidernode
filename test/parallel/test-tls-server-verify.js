@@ -256,8 +256,6 @@ function runTest(port, testIndex) {
     rejectUnauthorized: tcase.rejectUnauthorized
   };
 
-  var connections = 0;
-
   /*
    * If renegotiating - session might be resumed and openssl won't request
    * client's certificate (probably because of bug in the openssl)
@@ -292,7 +290,6 @@ function runTest(port, testIndex) {
       return;
     }
 
-    connections++;
     if (c.authorized) {
       console.error(prefix + '- authed connection: ' +
                     c.getPeerCertificate().subject.CN);
@@ -317,6 +314,7 @@ function runTest(port, testIndex) {
   }
 
   server.listen(port, function() {
+    port = server.address().port;
     if (tcase.debug) {
       console.error(prefix + 'TLS server running on port ' + port);
     } else {
@@ -341,8 +339,8 @@ function runTest(port, testIndex) {
 
 
 var nextTest = 0;
-runTest(common.PORT, nextTest++);
-runTest(common.PORT + 1, nextTest++);
+runTest(0, nextTest++);
+runTest(0, nextTest++);
 
 
 process.on('exit', function() {

@@ -27,12 +27,10 @@ switch (process.argv[2]) {
 function parent() {
   const http = require('http');
   const bigResponse = Buffer.alloc(10240, 'x');
-  var requests = 0;
   var connections = 0;
   var backloggedReqs = 0;
 
   const server = http.createServer(function(req, res) {
-    requests++;
     res.setHeader('content-length', bigResponse.length);
     if (!res.write(bigResponse)) {
       if (backloggedReqs === 0) {
@@ -54,9 +52,9 @@ function parent() {
     connections++;
   });
 
-  server.listen(common.PORT, function() {
+  server.listen(0, function() {
     const spawn = require('child_process').spawn;
-    const args = [__filename, 'child'];
+    const args = [__filename, 'child', this.address().port];
     const child = spawn(process.execPath, args, { stdio: 'inherit' });
     child.on('close', common.mustCall(function() {
       server.close();
@@ -75,10 +73,10 @@ function parent() {
 function child() {
   const net = require('net');
 
-  const conn = net.connect({ port: common.PORT });
+  const port = +process.argv[3];
+  const conn = net.connect({ port: port });
 
-  var req = 'GET / HTTP/1.1\r\nHost: localhost:' +
-            common.PORT + '\r\nAccept: */*\r\n\r\n';
+  var req = `GET / HTTP/1.1\r\nHost: localhost:${port}\r\nAccept: */*\r\n\r\n`;
 
   req = new Array(10241).join(req);
 

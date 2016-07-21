@@ -2,13 +2,16 @@
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);NOMINMAX;USE_EDGEMODE_JSRT</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);_CHAKRACOREBUILD;NOMINMAX;USE_EDGEMODE_JSRT</PreprocessorDefinitions>
       <!-- Some of our STDMETHOD can throw
            TODO: Code review STDMETHOD and separate out API that can throw and those that can't -->
       <PreprocessorDefinitions>%(PreprocessorDefinitions);COM_STDMETHOD_CAN_THROW</PreprocessorDefinitions>
 
       <PreprocessorDefinitions Condition="'$(RuntimeLib)'=='static_library'">%(PreprocessorDefinitions);USE_STATIC_RUNTIMELIB</PreprocessorDefinitions>
 
+      <!-- Add any preprocessor definitions passed using msbuild environment -->
+      <PreprocessorDefinitions Condition="'$(AdditionalPreprocessorDefinitions)'!=''">%(PreprocessorDefinitions);$(AdditionalPreprocessorDefinitions)</PreprocessorDefinitions>
+      
       <!-- /W4 -->
       <WarningLevel>Level4</WarningLevel>
       <!-- /WX -->
@@ -91,7 +94,7 @@
     </ResourceCompile>
     <Link>
       <LinkTimeCodeGeneration Condition="'$(PlatformToolset)'=='v120' OR '$(TF_BUILD)'!=''">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <LinkTimeCodeGeneration Condition="'$(PlatformToolset)'!='v120'">UseFastLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <LinkTimeCodeGeneration Condition="'$(PlatformToolset)'!='v120' AND '$(TF_BUILD)'==''">UseFastLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <Lib>
       <LinkTimeCodeGeneration>true</LinkTimeCodeGeneration>

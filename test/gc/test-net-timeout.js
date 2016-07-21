@@ -19,9 +19,8 @@ function serverHandler(sock) {
 
 const net = require('net');
 const weak = require('weak');
-const common = require('../common');
+require('../common');
 const assert = require('assert');
-const PORT = common.PORT;
 const todo = 500;
 let done = 0;
 let count = 0;
@@ -30,25 +29,22 @@ let countGC = 0;
 console.log('We should do ' + todo + ' requests');
 
 var server = net.createServer(serverHandler);
-server.listen(PORT, getall);
+server.listen(0, getall);
 
 function getall() {
   if (count >= todo)
     return;
 
-  (function() {
-    var req = net.connect(PORT, '127.0.0.1');
-    req.resume();
-    req.setTimeout(10, function() {
-      //console.log('timeout (expected)')
-      req.destroy();
-      done++;
-      global.gc();
-    });
+  const req = net.connect(server.address().port, server.address().address);
+  req.resume();
+  req.setTimeout(10, function() {
+    req.destroy();
+    done++;
+    global.gc();
+  });
 
-    count++;
-    weak(req, afterGC);
-  })();
+  count++;
+  weak(req, afterGC);
 
   setImmediate(getall);
 }
@@ -77,4 +73,3 @@ function status() {
     }, 200);
   }
 }
-

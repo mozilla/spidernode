@@ -50,14 +50,17 @@ function kill(child) {
   try {
     process.kill(-child.pid);  // Kill process group.
   } catch (e) {
-    assert.strictEqual(e.code, 'ESRCH');  // Already gone.
+    // Generally ESRCH is returned when the process group is already gone. On
+    // some platforms such as OS X it may be EPERM though.
+    assert.ok((e.code === 'EPERM') || (e.code === 'ESRCH'));
   }
 }
 
 process.on('exit', function() {
   for (const child of children) {
-    const one = RegExp(`Debugger listening on port ${child.test.port}`);
-    const two = RegExp(`connecting to 127.0.0.1:${child.test.port}`);
+    const port = child.test.port;
+    const one = RegExp(`Debugger listening on (\\[::\\]|0\.0\.0\.0):${port}`);
+    const two = RegExp(`connecting to 127.0.0.1:${port}`);
     assert(one.test(child.test.stdout));
     assert(two.test(child.test.stdout));
   }

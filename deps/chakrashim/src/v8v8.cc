@@ -29,7 +29,7 @@ namespace v8 {
 bool g_disposed = false;
 bool g_exposeGC = false;
 bool g_useStrict = false;
-bool g_enableSimdjs = false;
+bool g_disableIdleGc = false;
 ArrayBuffer::Allocator* g_arrayBufferAllocator = nullptr;
 
 const char *V8::GetVersion() {
@@ -83,6 +83,9 @@ static bool startsWith(const char* str, const char (&prefix)[N]) {
   return strncmp(str, prefix, N - 1) == 0;
 }
 
+
+
+
 void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
   for (int i = 1; i < *argc; i++) {
     // Note: Node now exits on invalid options. We may not recognize V8 flags
@@ -98,8 +101,8 @@ void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
       if (remove_flags) {
         argv[i] = nullptr;
       }
-    } else if (equals("--harmony-simd", arg) || equals("--harmony_simd", arg)) {
-      g_enableSimdjs = true;
+    } else if (equals("--off-idlegc", arg) || equals("--off_idlegc", arg)) {
+      g_disableIdleGc = true;
       if (remove_flags) {
         argv[i] = nullptr;
       }
@@ -116,7 +119,10 @@ void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
           "     type: bool  default: false\n"
           " --expose_gc (expose gc extension)\n"
           "     type: bool  default: false\n"
-          " --harmony (Ignored in node running with chakracore)\n"
+          " --off_idlegc (turn off idle GC)\n"
+          " --harmony_simd (enable \"harmony simd\" (in progress))\n"
+          " --harmony (Other flags are ignored in node running with "
+          "chakracore)\n"
           " --debug (Ignored in node running with chakracore)\n"
           " --stack-size (Ignored in node running with chakracore)\n";
         fprintf(stdout, helpText);
@@ -132,7 +138,7 @@ void V8::SetFlagsFromCommandLine(int *argc, char **argv, bool remove_flags) {
 
 bool V8::Initialize() {
   if (g_disposed) {
-    return false; // Can no longer Initialize if Disposed
+    return false;  // Can no longer Initialize if Disposed
   }
 #ifndef NODE_ENGINE_CHAKRACORE
   if (g_EnableDebug && JsStartDebugging() != JsNoError) {
