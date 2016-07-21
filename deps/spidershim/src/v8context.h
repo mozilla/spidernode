@@ -31,13 +31,11 @@ namespace v8 {
 
 struct Context::Impl {
   explicit Impl(JSContext* cx)
-      : oldCompartment(nullptr),
-        embedderData(cx, JS::ValueVector(cx)) {
+      : embedderData(cx, JS::ValueVector(cx)) {
     jobQueue.init(cx, JobQueue(js::SystemAllocPolicy()));
   }
   JS::PersistentRootedObject global;
   Persistent<Object> globalObj;
-  JSCompartment* oldCompartment;
   JS::PersistentRooted<JS::ValueVector> embedderData;
   JS::PersistentRooted<JobQueue> jobQueue;
   JobQueueNative jobQueueNative;

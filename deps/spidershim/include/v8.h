@@ -2694,7 +2694,7 @@ class V8_EXPORT Isolate {
 
   void AddContext(Context* context);
   void PushCurrentContext(Context* context);
-  void PopCurrentContext();
+  Context* PopCurrentContext();
   void AddStackFrame(StackFrame* frame);
   void AddStackTrace(StackTrace* trace);
   void AddUnboundScript(UnboundScript* script);
