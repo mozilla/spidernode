@@ -71,6 +71,10 @@ struct TryCatch::Impl {
     exception_ = exception.get();
   }
   void ReThrow() {
+    if (rethrow_) {
+      // Nothing to do!
+      return;
+    }
     if (!GetAndClearExceptionIfNeeded()) {
       return;
     }

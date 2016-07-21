@@ -430,6 +430,7 @@ static void TryCatchNested1Helper(int depth) {
     TryCatchNested1Helper(depth - 1);
     EXPECT_TRUE(try_catch.HasCaught());
     try_catch.ReThrow();
+    try_catch.ReThrow();
   } else {
     Isolate::GetCurrent()->ThrowException(v8_str("E1"));
   }
