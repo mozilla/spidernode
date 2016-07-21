@@ -129,8 +129,7 @@ struct TryCatch::Impl {
     if (JS_GetPendingException(cx, &exc)) {
       if (verbose_) {
         // This function clears the pending exception automatically.
-        JS_ReportPendingException(cx);
-        assert(!JS_IsExceptionPending(cx));
+        v8::ReportException(cx);
       } else {
         JS_ClearPendingException(cx);
       }

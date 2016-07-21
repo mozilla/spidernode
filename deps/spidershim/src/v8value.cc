@@ -35,6 +35,8 @@ namespace v8 {
 #define SIMPLE_VALUE(V8_VAL, SM_VAL) \
   bool Value::Is##V8_VAL() const { return GetValue(this)->is##SM_VAL(); }
 #define COMMON_VALUE(NAME) SIMPLE_VALUE(NAME, NAME)
+// Needed to get around clang preprocessor issue with pasting next to :: token.
+#define CONCATENATE(X) ESClass:: X
 #define ES_BUILTIN(V8_NAME, CLASS_NAME)                          \
   bool Value::Is##V8_NAME() const {                              \
     if (!IsObject()) {                                           \
@@ -43,9 +45,9 @@ namespace v8 {
     JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent()); \
     AutoJSAPI jsAPI(cx);                                         \
     JS::RootedObject obj(cx, GetObject(this));                   \
-    js::ESClassValue cls = js::ESClass_Other;                    \
+    js::ESClass cls = js::ESClass::Other;                        \
     return js::GetBuiltinClass(cx, obj, &cls) &&                 \
-           cls == js::ESClass_##CLASS_NAME;                      \
+           cls == js::CONCATENATE(CLASS_NAME);                   \
   }
 #define TYPED_ARRAY(NAME)                       \
   bool Value::Is##NAME##Array() const {         \
@@ -57,6 +59,7 @@ namespace v8 {
 #include "valuemap.inc"
 #undef COMMON_VALUE
 #undef SIMPLE_VALUE
+#undef CONCATENATE
 #undef ES_BUILTIN
 #undef TYPED_ARRAY
 

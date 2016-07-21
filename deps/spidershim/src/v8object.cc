@@ -645,7 +645,7 @@ Local<String> Object::GetConstructorName() {
   }
   JSString* displayID = JS_GetFunctionDisplayId(func);
   if (!displayID) {
-    displayID = JS_GetEmptyString(JS_GetRuntime(cx));
+    displayID = JS_GetEmptyString(cx);
   }
   JS::Value retVal;
   retVal.setString(displayID);

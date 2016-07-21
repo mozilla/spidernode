@@ -68,6 +68,7 @@
       },
 
       'sources': [
+        'src/util.cc',
         'src/v8array.cc',
         'src/v8arraybuffer.cc',
         'src/v8arraybufferview.cc',

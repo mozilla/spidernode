@@ -90,9 +90,14 @@ bool Isolate::Impl::OnInterrupt(JSContext* cx) {
 }
 
 bool Isolate::Impl::EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job,
-                                              JS::HandleObject allocationSite, void* data) {
+                                              JS::HandleObject allocationSite,
+                                              JS::HandleObject incumbentGlobal, void* data) {
   Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
   return context->pimpl_->jobQueue.append(job);
+}
+
+static JSObject* GetIncumbentGlobalCallback(JSContext* cx) {
+  return JS::CurrentGlobalOrNull(cx);
 }
 
 Isolate::Isolate() : pimpl_(new Impl()) {
@@ -101,30 +106,34 @@ Isolate::Isolate() : pimpl_(new Impl()) {
                                        512 * 1024 * 1024;  // 512MB
   pimpl_->rt = JS_NewRuntime(defaultHeapSize, JS::DefaultNurseryBytes, nullptr);
   if (pimpl_->rt) {
-    pimpl_->cx = JS_NewContext(pimpl_->rt, 32 * 1024);
+    pimpl_->cx = JS_GetContext(pimpl_->rt);
   }
   // Assert success for now!
   if (!pimpl_->rt || !pimpl_->cx) {
     MOZ_CRASH("Creating the JS Runtime failed!");
   }
-  JS_SetErrorReporter(pimpl_->rt, Impl::ErrorReporter);
+  JS::SetWarningReporter(pimpl_->cx, Impl::WarningReporter);
   const size_t defaultStackQuota = 128 * sizeof(size_t) * 1024;
-  JS_SetGCParameter(pimpl_->rt, JSGC_MODE, JSGC_MODE_INCREMENTAL);
-  JS_SetGCParameter(pimpl_->rt, JSGC_MAX_BYTES, 0xffffffff);
-  JS_SetNativeStackQuota(pimpl_->rt, defaultStackQuota);
-  JS_SetDefaultLocale(pimpl_->rt, "UTF-8");
+  JS_SetGCParameter(pimpl_->cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
+  JS_SetGCParameter(pimpl_->cx, JSGC_MAX_BYTES, 0xffffffff);
+  JS_SetNativeStackQuota(pimpl_->cx, defaultStackQuota);
+  JS_SetDefaultLocale(pimpl_->cx, "UTF-8");
 
 #ifndef DEBUG
-  JS::RuntimeOptionsRef(pimpl_->rt)
+  JS::ContextOptionsRef(pimpl_->cx)
       .setBaseline(true)
       .setIon(true)
       .setAsmJS(true)
       .setNativeRegExp(true);
 #endif
 
-  JS::SetEnqueuePromiseJobCallback(pimpl_->rt, Isolate::Impl::EnqueuePromiseJobCallback);
-  JS_SetInterruptCallback(pimpl_->rt, Isolate::Impl::OnInterrupt);
-  JS_SetGCCallback(pimpl_->rt, Isolate::Impl::OnGC, NULL);
+  JS::SetEnqueuePromiseJobCallback(pimpl_->cx, Isolate::Impl::EnqueuePromiseJobCallback);
+  JS::SetGetIncumbentGlobalCallback(pimpl_->cx, GetIncumbentGlobalCallback);
+  JS_SetInterruptCallback(pimpl_->cx, Isolate::Impl::OnInterrupt);
+  JS_SetGCCallback(pimpl_->cx, Isolate::Impl::OnGC, NULL);
+  if (!JS::InitSelfHostedCode(pimpl_->cx)) {
+    MOZ_CRASH("InitSelfHostedCode failed");
+  }
 
   pimpl_->EnsurePersistents(this);
   pimpl_->EnsureEternals(this);
@@ -132,8 +141,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
 Isolate::~Isolate() {
   assert(pimpl_->rt);
-  JS_SetInterruptCallback(pimpl_->rt, NULL);
-  JS_DestroyContext(pimpl_->cx);
+  JS_SetInterruptCallback(pimpl_->cx, NULL);
   JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }
@@ -164,7 +172,7 @@ void Isolate::Exit() {
 
 void Isolate::Dispose() {
   Enter();
-  JS_SetGCCallback(pimpl_->rt, NULL, NULL);
+  JS_SetGCCallback(pimpl_->cx, NULL, NULL);
   for (auto frame : pimpl_->stackFrames) {
     delete frame;
   }
@@ -274,7 +282,7 @@ void Isolate::EnqueueMicrotask(Local<Function> microtask) {
   AutoJSAPI jsAPI(context);
   JSContext* cx = pimpl_->cx;
   JS::RootedObject fun(cx, GetObject(microtask));
-  pimpl_->EnqueuePromiseJobCallback(cx, fun, nullptr, nullptr);
+  pimpl_->EnqueuePromiseJobCallback(cx, fun, nullptr, nullptr, nullptr);
 }
 
 void Isolate::EnqueueMicrotask(MicrotaskCallback microtask, void* data) {
@@ -348,10 +356,12 @@ void Isolate::RemoveGCEpilogueCallback(GCCallback callback) {
 }
 
 void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
-  JS_GC(Runtime());
+  JS_GC(pimpl_->cx);
 }
 
 JSRuntime* Isolate::Runtime() const { return pimpl_->rt; }
+
+JSContext* Isolate::RuntimeContext() const { return pimpl_->cx; }
 
 Value* Isolate::AddPersistent(Value* val) {
   return pimpl_->persistents->Add(val);
