@@ -77,6 +77,10 @@ struct TryCatch::Impl {
     JSContext* cx = JSContextFromIsolate(isolate_);
     assert(hasExceptionSet_ && HasException() && !HasExceptionPending(cx));
     JS::RootedValue exc(cx, *exception_.unsafeGet());
+    if (!JS_WrapValue(cx, &exc)) {
+      // TODO: signal the failure somehow.
+      return;
+    }
     JS_SetPendingException(cx, exc);
     rethrow_ = true;
   }

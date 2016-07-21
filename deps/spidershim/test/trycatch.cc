@@ -390,3 +390,187 @@ TEST(SpiderShim, TryCatchFunctionCall) {
   String::Utf8Value stackTrace(try_catch.StackTrace());
   EXPECT_STREQ("Foo@:2:9\n", *stackTrace);
 }
+
+void WithTryCatch(const FunctionCallbackInfo<Value>& args) {
+  TryCatch try_catch(args.GetIsolate());
+}
+
+TEST(SpiderShim, TryCatchAndFinally) {
+  // This test is based on V8's TryCatchAndFinally test.
+  V8Engine engine;
+
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("native_with_try_catch"),
+                  FunctionTemplate::New(isolate, WithTryCatch)
+                      ->GetFunction(context)
+                      .ToLocalChecked())
+            .FromJust());
+  TryCatch try_catch(isolate);
+  EXPECT_TRUE(!try_catch.HasCaught());
+  CompileRun(
+      "try {\n"
+      "  throw new Error('a');\n"
+      "} finally {\n"
+      "  native_with_try_catch();\n"
+      "}\n");
+  EXPECT_TRUE(try_catch.HasCaught());
+}
+
+static void TryCatchNested1Helper(int depth) {
+  if (depth > 0) {
+    TryCatch try_catch(Isolate::GetCurrent());
+    try_catch.SetVerbose(true);
+    TryCatchNested1Helper(depth - 1);
+    EXPECT_TRUE(try_catch.HasCaught());
+    try_catch.ReThrow();
+  } else {
+    Isolate::GetCurrent()->ThrowException(v8_str("E1"));
+  }
+}
+
+static void TryCatchNested2Helper(int depth) {
+  if (depth > 0) {
+    TryCatch try_catch(Isolate::GetCurrent());
+    try_catch.SetVerbose(true);
+    TryCatchNested2Helper(depth - 1);
+    EXPECT_TRUE(try_catch.HasCaught());
+    try_catch.ReThrow();
+  } else {
+    CompileRun("throw 'E2';");
+  }
+}
+
+TEST(SpiderShim, TryCatchNested) {
+  // This test is based on V8's TryCatchNested test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  {
+    // Test nested try-catch with a native throw in the end.
+    TryCatch try_catch(context->GetIsolate());
+    TryCatchNested1Helper(5);
+    EXPECT_TRUE(try_catch.HasCaught());
+    EXPECT_EQ(0, strcmp(*String::Utf8Value(try_catch.Exception()), "E1"));
+  }
+
+  {
+    // Test nested try-catch with a JavaScript throw in the end.
+    TryCatch try_catch(context->GetIsolate());
+    TryCatchNested2Helper(5);
+    EXPECT_TRUE(try_catch.HasCaught());
+    EXPECT_EQ(0, strcmp(*String::Utf8Value(try_catch.Exception()), "E2"));
+  }
+}
+
+void TryCatchMixedNestingCheck(TryCatch* try_catch) {
+  EXPECT_TRUE(try_catch->HasCaught());
+  Local<Message> message = try_catch->Message();
+  Local<Value> resource = message->GetScriptOrigin().ResourceName();
+  EXPECT_EQ(0, strcmp(*String::Utf8Value(resource), "inner"));
+  EXPECT_EQ(0,
+           strcmp(*String::Utf8Value(message->Get()), "Uncaught Error: a"));
+  EXPECT_EQ(1, message->GetLineNumber(Isolate::GetCurrent()->GetCurrentContext())
+                  .FromJust());
+  EXPECT_EQ(7, message->GetStartColumn(Isolate::GetCurrent()->GetCurrentContext())
+                  .FromJust());
+}
+
+void TryCatchMixedNestingHelper(
+    const FunctionCallbackInfo<Value>& args) {
+  TryCatch try_catch(args.GetIsolate());
+  CompileRunWithOrigin("throw new Error('a');\n", "inner", 0, 0);
+  EXPECT_TRUE(try_catch.HasCaught());
+  TryCatchMixedNestingCheck(&try_catch);
+  try_catch.ReThrow();
+}
+
+// This test ensures that an outer TryCatch in the following situation:
+//   C++/TryCatch -> JS -> C++/TryCatch -> JS w/ SyntaxError
+// does not clobber the Message object generated for the inner TryCatch.
+// This exercises the ability of TryCatch.ReThrow() to restore the
+// inner pending Message before throwing the exception again.
+TEST(SpiderShim, TryCatchMixedNesting) {
+  // This test is based on V8's TryCatchMixedNesting test.
+  V8Engine engine;
+
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+  Local<Context> context = Context::New(isolate);
+  Context::Scope context_scope(context);
+
+  TryCatch try_catch(isolate);
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->Set(v8_str("TryCatchMixedNestingHelper"),
+             FunctionTemplate::New(isolate, TryCatchMixedNestingHelper));
+  Local<Context> context2 = Context::New(isolate, nullptr, templ);
+  Context::Scope context_scope2(context2);
+  CompileRunWithOrigin("TryCatchMixedNestingHelper();\n", "outer", 1, 1);
+  TryCatchMixedNestingCheck(&try_catch);
+}
+
+void TryCatchNativeHelper(const FunctionCallbackInfo<Value>& args) {
+  TryCatch try_catch(args.GetIsolate());
+  args.GetIsolate()->ThrowException(v8_str("boom"));
+  EXPECT_TRUE(try_catch.HasCaught());
+}
+
+TEST(SpiderShim, TryCatchNative) {
+  // This test is based on V8's TryCatchNative test.
+  V8Engine engine;
+
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+
+  TryCatch try_catch(isolate);
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->Set(v8_str("TryCatchNativeHelper"),
+             FunctionTemplate::New(isolate, TryCatchNativeHelper));
+  Local<Context> context = Context::New(isolate, nullptr, templ);
+  Context::Scope context_scope(context);
+  CompileRun("TryCatchNativeHelper();");
+  EXPECT_TRUE(!try_catch.HasCaught());
+}
+
+void TryCatchNativeResetHelper(
+    const FunctionCallbackInfo<Value>& args) {
+  TryCatch try_catch(args.GetIsolate());
+  args.GetIsolate()->ThrowException(v8_str("boom"));
+  EXPECT_TRUE(try_catch.HasCaught());
+  try_catch.Reset();
+  EXPECT_TRUE(!try_catch.HasCaught());
+}
+
+TEST(SpiderShim, TryCatchNativeReset) {
+  // This test is based on V8's TryCatchNativeReset test.
+  V8Engine engine;
+
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+
+  HandleScope handle_scope(isolate);
+
+  TryCatch try_catch(isolate);
+  Local<ObjectTemplate> templ = ObjectTemplate::New(isolate);
+  templ->Set(v8_str("TryCatchNativeResetHelper"),
+             FunctionTemplate::New(isolate, TryCatchNativeResetHelper));
+  Local<Context> context = Context::New(isolate, nullptr, templ);
+  Context::Scope context_scope(context);
+  CompileRun("TryCatchNativeResetHelper();");
+  EXPECT_TRUE(!try_catch.HasCaught());
+}

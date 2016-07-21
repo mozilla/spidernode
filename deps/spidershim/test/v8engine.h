@@ -79,6 +79,21 @@ static inline Local<Value> CompileRun(const char* str) {
   return script->Run();
 }
 
+static inline Local<Value> CompileRunWithOrigin(const char* str,
+                                                const char* resource,
+                                                int line,
+                                                int column) {
+  Isolate* isolate = Isolate::GetCurrent();
+  ScriptOrigin origin(v8_str(resource),
+                      Integer::New(isolate, line),
+                      Integer::New(isolate, column));
+  Local<Script> script = Script::Compile(v8_str(str), &origin);
+  if (script.IsEmpty()) {
+    return Local<Value>();
+  }
+  return script->Run();
+}
+
 static inline int32_t v8_run_int32value(Local<Script> script) {
   return script->Run()->ToInt32()->Value();
 }
