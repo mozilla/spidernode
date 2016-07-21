@@ -403,6 +403,13 @@
               'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++0x',  # -std=gnu++0x
             },
           }],
+          ['node_engine=="spidermonkey"', {
+            'xcode_settings': {
+              # SpiderMonkey uses libc++, so we have to target OSX 10.9 here so that
+              # Node is also linked with libc++.
+              'MACOSX_DEPLOYMENT_TARGET': '10.9',       # -mmacosx-version-min=10.9
+            },
+          }],
         ],
       }],
       ['OS=="freebsd" and node_use_dtrace=="true"', {
