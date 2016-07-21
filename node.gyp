@@ -249,16 +249,16 @@
             }]
           ],
         }],
-        [ 'node_enable_d8=="true"', {
+        [ 'node_enable_d8=="true" and node_engine=="v8"', {
           'dependencies': [ 'deps/v8/src/d8.gyp:d8' ],
         }],
-        [ 'node_use_bundled_v8=="true"', {
+        [ 'node_use_bundled_v8=="true" and node_engine=="v8"', {
           'dependencies': [
             'deps/v8/tools/gyp/v8.gyp:v8',
             'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
           ],
         }],
-        [ 'node_use_v8_platform=="true"', {
+        [ 'node_use_v8_platform=="true" and node_engine=="v8"', {
           'defines': [
             'NODE_USE_V8_PLATFORM=1',
           ],
@@ -449,7 +449,7 @@
         [ 'node_no_browser_globals=="true"', {
           'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
         } ],
-        [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true"', {
+        [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true" and node_engine=="v8"', {
           'dependencies': [ 'deps/v8/tools/gyp/v8.gyp:postmortem-metadata' ],
           'conditions': [
             # -force_load is not applicable for the static library
@@ -875,12 +875,12 @@
             }]
                 ]
               }],
-              ['node_use_v8_platform=="true"', {
+              ['node_use_v8_platform=="true" and node_engine=="v8"', {
                  'dependencies': [
                     'deps/v8/tools/gyp/v8.gyp:v8_libplatform',
                 ],
               }],
-              ['node_use_bundled_v8=="true"', {
+              ['node_use_bundled_v8=="true" and node_engine=="v8"', {
                 'dependencies': [
                     'deps/v8/tools/gyp/v8.gyp:v8',
                     'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
