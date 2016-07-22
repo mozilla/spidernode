@@ -995,10 +995,8 @@ TEST(SpiderShim, IsConstructCall) {
             .FromJust());
   Local<Value> value = v8_compile("f()")->Run(context).ToLocalChecked();
   EXPECT_TRUE(!value->BooleanValue(context).FromJust());
-  // TODO: new f() hits a SpiderMonkey assert.  See
-  // https://github.com/mozilla/spidernode/issues/157
-  // value = v8_compile("new f()")->Run(context).ToLocalChecked();
-  // EXPECT_TRUE(value->BooleanValue(context).FromJust());
+  value = v8_compile("new f()")->Run(context).ToLocalChecked();
+  EXPECT_TRUE(value->BooleanValue(context).FromJust());
 }
 
 static void FunctionNameCallback(
