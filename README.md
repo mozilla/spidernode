@@ -11,21 +11,9 @@ Right now we're focused on using this project in the [Positron](https://github.c
 To enable building and running Node.js with SpiderMonkey, a V8 API shim (SpiderShim) is created on top of the SpiderMonkey API.  This is based on Microsoft's [node-chakracore](https://github.com/nodejs/node-chakracore), but it doesn't share much code with it besides the build system integration.
 
 ### Current status
-This is a _work in progress_, and Node cannot be successfully built yet because of the missing V8 APIs causing linker errors when building the Node.js binary.  So far enough of the V8 API has been implemented to enable running a minimal JavaScript program on top of SpiderShim.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) currently pass.  Nothing else will work out of the box yet!
+This is a _work in progress_.  Node can now be successfully built on top of SpiderMonkey, and the very basics seem to work, but there are probably still a lot of issues to discover and fix.
 
-We're actively working on this, so if you're interested in the status of this project, please check here again soon.
-
-In order to find what members of a class need to be implemented, run the following command in a built tree (replacing Isolate with the name of the class you are interested in):
-
-```bash
-./deps/spidershim/scripts/find_methods_to_implement.sh Isolate
-```
-
-To find everything that is yet to be implemented, run:
-
-```bash
-./deps/spidershim/scripts/find_all_unimplemented_methods.sh
-```
+We have implemented a fair portion of the V8 API.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) currently passes.  Many of those tests have been ported from the V8 API tests.
 
 ### How to build
 Before building please make sure you have the prerequisites for building Node.js as documented [here](https://github.com/nodejs/node/blob/master/BUILDING.md).
@@ -34,8 +22,12 @@ Building on any OS other than Linux or OS X has not been tested.
 
 Build Command:
 ```bash
-./configure [options]
-make
+$ ./configure [options]
+...
+$ make
+...
+$ ./node -e 'console.log("hello from " + process.jsEngine)'
+hello from spidermonkey
 ```
 
 Where `options` is zero or more of:
@@ -43,10 +35,10 @@ Where `options` is zero or more of:
 * `--debug`: Also build in debug mode.  The default build configuration is release.
 * `--enable-gczeal`: Enable SpiderMonkey gc-zeal support.  This is useful for debugging GC rooting correctness issues.
 
-Note that right now the build will fail as stated above when linking Node.  To run the tests, do:
+To run the API tests, do:
 
 ```bash
-./deps/spidershim/scripts/run-tests.py
+$ ./deps/spidershim/scripts/run-tests.py
 ```
 
 ### Repository structure
