@@ -16,15 +16,10 @@ def main():
 
     for test, config in matrix:
         cmd = "%s/out/%s/%s" % (base_dir, config, test)
-        if is_executable(cmd):
-            try:
-                subprocess.check_call(cmd)
-            except:
-                print >> sys.stderr, '%s failed, see the log above' % cmd
-                return 1
-            ran_test = True
-        else:
-            print >> sys.stderr, 'Skipping %s since it does not exist' % cmd
+        ran_test = run_test([cmd]) or ran_test
+
+    for node in get_node_binaries(base_dir):
+        ran_test = run_test([node, '-e', 'console.log("hello, world")']) or ran_test
 
     if not ran_test:
         print >> sys.stderr, 'Did not run any tests! Did you forget to build?'
@@ -68,6 +63,27 @@ def get_targets(base_dir):
                  default_variables=default_variables)
 
     return [target['target_name'] for target in data['deps/spidershim/tests.gyp']['targets']]
+
+def get_node_binaries(base_dir):
+    nodes = []
+    for name in ['node', 'node_g']:
+        path = "%s/%s" % (base_dir, name)
+        if is_executable(path):
+            nodes.append(path)
+
+    return nodes
+
+def run_test(cmd):
+    if is_executable(cmd[0]):
+        try:
+            subprocess.check_call(cmd)
+        except:
+            print >> sys.stderr, '%s failed, see the log above' % (" ".join(cmd))
+            return False
+        return True
+    else:
+        print >> sys.stderr, 'Skipping %s since it does not exist' % (" ".join(cmd))
+    return False
 
 if __name__ == '__main__':
     sys.exit(main())
