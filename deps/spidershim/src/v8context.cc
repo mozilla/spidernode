@@ -26,6 +26,31 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "instanceslots.h"
+#include "spidershim_natives.h"
+
+namespace {
+
+bool InitLibraries(JSContext* cx) {
+  for (auto& native : spidershim::natives) {
+    JS::CompileOptions options(cx);
+    options.setVersion(JSVERSION_DEFAULT)
+        .setNoScriptRval(true)
+        .setUTF8(true)
+        .setSourceIsLazy(false)
+        .setFile(native.name)
+        .setLine(1)
+        .setColumn(0)
+        .forceAsync = true;
+    JS::RootedValue value(cx);
+    if (!JS::Evaluate(cx, options,
+                      reinterpret_cast<const char*>(native.source),
+                      native.source_len, &value)) {
+      return false;
+    }
+  }
+  return true;
+}
+}
 
 namespace v8 {
 
@@ -119,7 +144,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
   }
 #endif
 
-  return true;
+  return InitLibraries(cx);
 }
 
 Local<Object> Context::Global() { return pimpl_->globalObj; }

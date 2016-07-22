@@ -2,15 +2,21 @@
   'variables': {
     'library%': 'static_library',
     'node_engine%': 'spidermonkey',
+    'library_files': [
+      'lib/spidershim.js',
+    ],
   },
   'targets': [
     {
       'target_name': 'spidershim',
       'type': '<(library)',
 
-        'include_dirs': [
-          'include',
-        ],
+      'dependencies': [ 'spidershim_js#host' ],
+
+      'include_dirs': [
+        'include',
+        '<(SHARED_INTERMEDIATE_DIR)',
+      ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],
         [ 'target_arch=="x64"', { 'defines': [ '__x86_64__=1' ] } ],
@@ -101,6 +107,30 @@
         'src/v8unboundscript.cc',
         'src/v8v8.cc',
         'src/v8value.cc',
+      ],
+    },
+
+    {
+      'target_name': 'spidershim_js',
+      'type': 'none',
+      'toolsets': ['host'],
+      'actions': [
+        {
+          'action_name': 'spidershim_js2c',
+          'inputs': [
+            '<@(library_files)'
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/spidershim_natives.h',
+          ],
+          'action': [
+            '<(python)',
+            './../../tools/js2c.py',
+            '--namespace=spidershim',
+            '<@(_outputs)',
+            '<@(_inputs)',
+          ],
+        },
       ],
     },
   ],
