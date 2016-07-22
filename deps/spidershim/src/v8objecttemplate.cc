@@ -27,7 +27,7 @@
 #include "instanceslots.h"
 #include "accessor.h"
 #include "mozilla/Maybe.h"
-#include "util.h"
+#include "utils.h"
 
 namespace v8 {
 

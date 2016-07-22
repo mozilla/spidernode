@@ -25,7 +25,7 @@
 #include "jsfriendapi.h"
 #include "accessor.h"
 #include "v8local.h"
-#include "util.h"
+#include "utils.h"
 
 namespace v8 {
 

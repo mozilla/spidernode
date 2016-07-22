@@ -24,7 +24,7 @@
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
-#include "util.h"
+#include "utils.h"
 
 namespace {
 enum FunctionTemplatePrivateSlots {

@@ -27,7 +27,7 @@
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 #include "spidershim_natives.h"
-#include "util.h"
+#include "utils.h"
 
 namespace {
 
