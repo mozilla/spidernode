@@ -135,6 +135,19 @@ TEST(SpiderShim, Boolean) {
   TestBoolean(engine.isolate(), false);
 }
 
+TEST(SpiderShim, Undefined) {
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+
+  Local<Value> undefined = Undefined(engine.isolate());
+  EXPECT_EQ(0.0, undefined->ToInteger()->Value());
+}
+
 template<class T>
 void CheckIsUint32(Local<Number> number) {
   EXPECT_TRUE(number->IsUint32());

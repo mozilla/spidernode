@@ -132,7 +132,7 @@ MaybeLocal<Number> Value::ToNumber(Local<Context> context) const {
   AutoJSAPI jsAPI(cx);
   JS::RootedValue thisVal(cx, *GetValue(this));
   double num = 0.0;
-  if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
+  if (!thisVal.isUndefined() && !JS::ToNumber(cx, thisVal, &num) || num != num) {
     return MaybeLocal<Number>();
   }
   JS::Value numVal;
@@ -164,7 +164,7 @@ MaybeLocal<Integer> Value::ToInteger(Local<Context> context) const {
   AutoJSAPI jsAPI(cx);
   JS::RootedValue thisVal(cx, *GetValue(this));
   double num = 0.0;
-  if (!JS::ToNumber(cx, thisVal, &num) || num != num) {
+  if (!thisVal.isUndefined() && (!JS::ToNumber(cx, thisVal, &num) || num != num)) {
     return MaybeLocal<Integer>();
   }
   JS::Value numVal;
