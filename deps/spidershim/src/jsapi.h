@@ -24,6 +24,7 @@
 #include <assert.h>
 #include "v8.h"
 #include "conversions.h"
+#include "util.h"
 
 // All callsittes calling into SpiderMonkey MUST have a AutoJSAPI on the stack.
 class AutoJSAPI : private JSAutoRequest,
@@ -99,7 +100,7 @@ class AutoJSAPI : private JSAutoRequest,
     if (!ignoreException_ &&
         !v8::Isolate::GetCurrent()->GetTopmostTryCatch() &&
         JS_IsExceptionPending(cx)) {
-      JS_ReportPendingException(cx);
+      v8::ReportException(cx);
     }
   }
   bool ignoreException_ = false;

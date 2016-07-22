@@ -92,12 +92,6 @@ ObjectElements::MakeElementsCopyOnWrite(ExclusiveContext* cx, NativeObject* obj)
 
     ObjectElements* header = obj->getElementsHeader();
 
-    // As soon as we have (or may soon have) multiple objects referencing a
-    // single header, it isn't clear which object the "I'm already in the
-    // whole-cell store buffer" bit is describing, so just disable that
-    // optimization.
-    header->clearInWholeCellBuffer();
-
     // Note: this method doesn't update type information to indicate that the
     // elements might be copy on write. Handling this is left to the caller.
     MOZ_ASSERT(!header->isCopyOnWrite());
@@ -1049,7 +1043,7 @@ CallAddPropertyHookDense(ExclusiveContext* cx, HandleNativeObject obj, uint32_t 
 }
 
 static bool
-UpdateShapeTypeAndValue(ExclusiveContext* cx, NativeObject* obj, Shape* shape, const Value& value)
+UpdateShapeTypeAndValue(ExclusiveContext* cx, HandleNativeObject obj, HandleShape shape, const Value& value)
 {
     jsid id = shape->propid();
     if (shape->hasSlot()) {

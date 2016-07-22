@@ -13,6 +13,7 @@
 #include "builtin/TypedObjectConstants.h"
 #include "js/Conversions.h"
 #include "vm/ArrayBufferObject.h"
+#include "vm/ShapedObject.h"
 
 /*
  * -------------
@@ -250,6 +251,10 @@ class ScalarTypeDescr : public SimpleTypeDescr
                       "TypedObjectConstants.h must be consistent with Scalar::Type");
         static_assert(Scalar::Float32x4 == JS_SCALARTYPEREPR_FLOAT32X4,
                       "TypedObjectConstants.h must be consistent with Scalar::Type");
+        static_assert(Scalar::Int8x16 == JS_SCALARTYPEREPR_INT8X16,
+                      "TypedObjectConstants.h must be consistent with Scalar::Type");
+        static_assert(Scalar::Int16x8 == JS_SCALARTYPEREPR_INT16X8,
+                      "TypedObjectConstants.h must be consistent with Scalar::Type");
         static_assert(Scalar::Int32x4 == JS_SCALARTYPEREPR_INT32X4,
                       "TypedObjectConstants.h must be consistent with Scalar::Type");
 
@@ -485,7 +490,7 @@ class TypedObjectModuleObject : public NativeObject {
 };
 
 /* Base type for transparent and opaque typed objects. */
-class TypedObject : public JSObject
+class TypedObject : public ShapedObject
 {
     static const bool IsTypedObjectClass = true;
 
@@ -497,8 +502,6 @@ class TypedObject : public JSObject
 
   protected:
     static const ObjectOps objectOps_;
-
-    GCPtrShape shape_;
 
     static MOZ_MUST_USE bool obj_lookupProperty(JSContext* cx, HandleObject obj,
                                                 HandleId id, MutableHandleObject objp,

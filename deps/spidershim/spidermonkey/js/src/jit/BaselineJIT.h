@@ -94,15 +94,15 @@ struct PCMappingIndexEntry
     uint32_t bufferOffset;
 };
 
-// Describes a single wasm::Module::ImportExit which jumps (via an import with
+// Describes a single wasm::ImportExit which jumps (via an import with
 // the given index) directly to a BaselineScript or IonScript.
-struct DependentWasmModuleImport
+struct DependentWasmImport
 {
-    wasm::Module* module;
+    wasm::Instance* instance;
     size_t importIndex;
 
-    DependentWasmModuleImport(wasm::Module* module, size_t importIndex)
-      : module(module),
+    DependentWasmImport(wasm::Instance& instance, size_t importIndex)
+      : instance(&instance),
         importIndex(importIndex)
     { }
 };
@@ -139,7 +139,7 @@ struct BaselineScript
 
     // If non-null, the list of wasm::Modules that contain an optimized call
     // directly to this script.
-    Vector<DependentWasmModuleImport>* dependentWasmModules_;
+    Vector<DependentWasmImport>* dependentWasmImports_;
 
     // Native code offset right before the scope chain is initialized.
     uint32_t prologueOffset_;
@@ -415,11 +415,10 @@ struct BaselineScript
     // the result may not be accurate.
     jsbytecode* approximatePcForNativeAddress(JSScript* script, uint8_t* nativeAddress);
 
-    MOZ_MUST_USE bool addDependentWasmModule(JSContext* cx, wasm::Module& module,
-                                             uint32_t importIndex);
-    void unlinkDependentWasmModules(FreeOp* fop);
-    void clearDependentWasmModules();
-    void removeDependentWasmModule(wasm::Module& module, uint32_t importIndex);
+    MOZ_MUST_USE bool addDependentWasmImport(JSContext* cx, wasm::Instance& instance, uint32_t idx);
+    void removeDependentWasmImport(wasm::Instance& instance, uint32_t idx);
+    void unlinkDependentWasmImports(FreeOp* fop);
+    void clearDependentWasmImports();
 
     // Toggle debug traps (used for breakpoints and step mode) in the script.
     // If |pc| is nullptr, toggle traps for all ops in the script. Else, only
@@ -486,19 +485,19 @@ struct BaselineScript
         MOZ_ASSERT(hasPendingIonBuilder());
         return pendingBuilder_;
     }
-    void setPendingIonBuilder(JSContext* maybecx, JSScript* script, js::jit::IonBuilder* builder) {
+    void setPendingIonBuilder(JSRuntime* maybeRuntime, JSScript* script, js::jit::IonBuilder* builder) {
         MOZ_ASSERT(script->baselineScript() == this);
         MOZ_ASSERT(!builder || !hasPendingIonBuilder());
 
         if (script->isIonCompilingOffThread())
-            script->setIonScript(maybecx, ION_PENDING_SCRIPT);
+            script->setIonScript(maybeRuntime, ION_PENDING_SCRIPT);
 
         pendingBuilder_ = builder;
 
         // lazy linking cannot happen during asmjs to ion.
-        clearDependentWasmModules();
+        clearDependentWasmImports();
 
-        script->updateBaselineOrIonRaw(maybecx);
+        script->updateBaselineOrIonRaw(maybeRuntime);
     }
     void removePendingIonBuilder(JSScript* script) {
         setPendingIonBuilder(nullptr, script, nullptr);
@@ -516,7 +515,7 @@ IsBaselineEnabled(JSContext* cx)
 #ifdef JS_CODEGEN_NONE
     return false;
 #else
-    return cx->runtime()->options().baseline();
+    return cx->options().baseline();
 #endif
 }
 

@@ -95,9 +95,9 @@ struct Isolate::Impl {
     eternals.emplace(iso);
   }
 
-  static void ErrorReporter(JSContext* cx, const char* message,
-                            JSErrorReport* report) {
-    fprintf(stderr, "JS error at %s:%u: %s\n",
+  static void WarningReporter(JSContext* cx, const char* message,
+                              JSErrorReport* report) {
+    fprintf(stderr, "JS warning at %s:%u: %s\n",
             report->filename ? report->filename : "<no filename>",
             (unsigned int)report->lineno, message);
   }
@@ -105,7 +105,8 @@ struct Isolate::Impl {
   static bool OnInterrupt(JSContext* cx);
   static void OnGC(JSRuntime *rt, JSGCStatus status, void *data);
   static bool EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job,
-                                        JS::HandleObject allocationSite, void* data);
+                                        JS::HandleObject allocationSite,
+                                        JS::HandleObject incumbentGlobal, void* data);
 
 };
 

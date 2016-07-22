@@ -6,9 +6,15 @@ Bug 1287298 - Add an API to give up ownership of ArrayBuffer data; r=jorendorff
 This is similar to stealing the buffer, except that the ArrayBuffer
 won't be detached.  The caller is still responsible for freeing the
 buffer.
+---
+ js/src/jsapi-tests/testArrayBuffer.cpp | 44 +++++++++++++++++++++++
+ js/src/jsapi.h                         |  9 +++++
+ js/src/vm/ArrayBufferObject.cpp        | 66 ++++++++++++++++++++++++++++++----
+ js/src/vm/ArrayBufferObject.h          |  7 ++--
+ 4 files changed, 117 insertions(+), 9 deletions(-)
 
 diff --git a/js/src/jsapi-tests/testArrayBuffer.cpp b/js/src/jsapi-tests/testArrayBuffer.cpp
-index bc0fa11e..ce4d78a 100644
+index bc0fa11e..727cab6 100644
 --- a/js/src/jsapi-tests/testArrayBuffer.cpp
 +++ b/js/src/jsapi-tests/testArrayBuffer.cpp
 @@ -153,8 +153,52 @@ static void GC(JSContext* cx)
@@ -54,8 +60,8 @@ index bc0fa11e..ce4d78a 100644
 +
 +static void GC(JSContext* cx)
 +{
-+    JS_GC(JS_GetRuntime(cx));
-+    JS_GC(JS_GetRuntime(cx)); // Trigger another to wait for background finalization to end
++    JS_GC(cx);
++    JS_GC(cx); // Trigger another to wait for background finalization to end
 +}
 +
 +bool hasExpectedLength(JS::HandleObject obj, int32_t n) {
@@ -65,7 +71,7 @@ index bc0fa11e..ce4d78a 100644
 +
 +END_TEST(testArrayBuffer_externalize)
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
-index 993f8a8..1ec4559 100644
+index 2c4752b..e3e4863 100644
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
 @@ -3427,16 +3427,25 @@ JS_NewArrayBufferWithExternalContents(JSContext* cx, size_t nbytes, void* conten
@@ -95,10 +101,10 @@ index 993f8a8..1ec4559 100644
  
  /**
 diff --git a/js/src/vm/ArrayBufferObject.cpp b/js/src/vm/ArrayBufferObject.cpp
-index a6e951a..84a5961 100644
+index 3437c0c..0d2b64d 100644
 --- a/js/src/vm/ArrayBufferObject.cpp
 +++ b/js/src/vm/ArrayBufferObject.cpp
-@@ -304,32 +304,32 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
+@@ -305,32 +305,32 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
              MOZ_ASSERT(buffer->firstView()->is<InlineTransparentTypedObject>());
          } else {
              NoteViewBufferWasDetached(buffer->firstView(), newContents, cx);
@@ -134,7 +140,7 @@ index a6e951a..84a5961 100644
  
  void
  ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view,
-@@ -350,23 +350,24 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
+@@ -351,23 +351,24 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
  
      // Notify compiled jit code that the base pointer has moved.
      MarkObjectStateChange(cx, view);
@@ -155,13 +161,13 @@ index a6e951a..84a5961 100644
 +    setNewData(cx->runtime()->defaultFreeOp(), newContents, ownsState);
  
      // Update all views.
-     if (InnerViewTable::ViewVector* views = cx->compartment()->innerViews.maybeViewsUnbarriered(this)) {
+     auto& innerViews = cx->compartment()->innerViews;
+     if (InnerViewTable::ViewVector* views = innerViews.maybeViewsUnbarriered(this)) {
          for (size_t i = 0; i < views->length(); i++)
              changeViewContents(cx, (*views)[i], oldDataPointer, newContents);
      }
      if (firstView())
-         changeViewContents(cx, firstView(), oldDataPointer, newContents);
-@@ -498,17 +499,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
+@@ -500,17 +501,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
          }
  
          // Copy over the current contents of the typed array.
@@ -180,7 +186,7 @@ index a6e951a..84a5961 100644
      }
  
      if (buffer->forInlineTypedObject()) {
-@@ -516,17 +517,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
+@@ -518,17 +519,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
          return false;
      }
  
@@ -199,7 +205,7 @@ index a6e951a..84a5961 100644
  
  ArrayBufferObject::BufferContents
  ArrayBufferObject::createMappedContents(int fd, size_t offset, size_t length)
-@@ -721,16 +722,40 @@ ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args
+@@ -723,16 +724,40 @@ ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args
  bool
  ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp)
  {
@@ -240,7 +246,7 @@ index a6e951a..84a5961 100644
      BufferContents oldContents(buffer->dataPointer(), buffer->bufferKind());
      BufferContents newContents = AllocateArrayBufferContents(cx, buffer->byteLength());
      if (!newContents)
-@@ -1267,16 +1292,43 @@ JS_FRIEND_API(JSObject*)
+@@ -1269,16 +1294,43 @@ JS_FRIEND_API(JSObject*)
  js::UnwrapSharedArrayBuffer(JSObject* obj)
  {
      if (JSObject* unwrapped = CheckedUnwrap(obj))
@@ -285,7 +291,7 @@ index a6e951a..84a5961 100644
      if (!obj->is<ArrayBufferObject>()) {
          JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
 diff --git a/js/src/vm/ArrayBufferObject.h b/js/src/vm/ArrayBufferObject.h
-index 129de74..9b23b11 100644
+index 31c44fd..511c0b4 100644
 --- a/js/src/vm/ArrayBufferObject.h
 +++ b/js/src/vm/ArrayBufferObject.h
 @@ -241,16 +241,19 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared

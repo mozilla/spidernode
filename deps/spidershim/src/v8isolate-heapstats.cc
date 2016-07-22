@@ -49,7 +49,7 @@ namespace v8 {
 
 void Isolate::GetHeapStatistics(HeapStatistics *heap_statistics) {
   SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
-  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
+  if (!JS::CollectRuntimeStats(RuntimeContext(), &rtStats, nullptr, false)) {
     return;
   }
   heap_statistics->total_heap_size_ = rtStats.gcHeapChunkTotal;
@@ -64,7 +64,7 @@ HeapObjectStatistics::HeapObjectStatistics()
 
 size_t Isolate::NumberOfTrackedHeapObjectTypes() {
   SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
-  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
+  if (!JS::CollectRuntimeStats(RuntimeContext(), &rtStats, nullptr, false)) {
     return 0;
   }
   // The number of object types is 1 (for non-notable classes) +
@@ -75,7 +75,7 @@ size_t Isolate::NumberOfTrackedHeapObjectTypes() {
 bool Isolate::GetHeapObjectStatisticsAtLastGC(HeapObjectStatistics* object_statistics,
                                               size_t type_index) {
   SimpleJSRuntimeStats rtStats(moz_malloc_size_of);
-  if (!JS::CollectRuntimeStats(Runtime(), &rtStats, nullptr, false)) {
+  if (!JS::CollectRuntimeStats(RuntimeContext(), &rtStats, nullptr, false)) {
     return false;
   }
   size_t max_length = (1 + rtStats.cTotals.notableClasses.length());

@@ -244,18 +244,18 @@ js::CopyErrorReport(JSContext* cx, JSErrorReport* report)
 struct SuppressErrorsGuard
 {
     JSContext* cx;
-    JSErrorReporter prevReporter;
+    JS::WarningReporter prevReporter;
     JS::AutoSaveExceptionState prevState;
 
     explicit SuppressErrorsGuard(JSContext* cx)
       : cx(cx),
-        prevReporter(JS_SetErrorReporter(cx->runtime(), nullptr)),
+        prevReporter(JS::SetWarningReporter(cx, nullptr)),
         prevState(cx)
     {}
 
     ~SuppressErrorsGuard()
     {
-        JS_SetErrorReporter(cx->runtime(), prevReporter);
+        JS::SetWarningReporter(cx, prevReporter);
     }
 };
 
@@ -510,7 +510,7 @@ ErrorObject::createConstructor(JSContext* cx, JSProtoKey key)
 }
 
 JS_FRIEND_API(JSFlatString*)
-js::GetErrorTypeName(JSRuntime* rt, int16_t exnType)
+js::GetErrorTypeName(JSContext* cx, int16_t exnType)
 {
     /*
      * JSEXN_INTERNALERR returns null to prevent that "InternalError: "
@@ -522,24 +522,23 @@ js::GetErrorTypeName(JSRuntime* rt, int16_t exnType)
         return nullptr;
     }
     JSProtoKey key = GetExceptionProtoKey(JSExnType(exnType));
-    return ClassName(key, rt);
+    return ClassName(key, cx);
 }
 
-bool
+void
 js::ErrorToException(JSContext* cx, const char* message, JSErrorReport* reportp,
                      JSErrorCallback callback, void* userRef)
 {
-    // Tell our caller to report immediately if this report is just a warning.
     MOZ_ASSERT(reportp);
-    if (JSREPORT_IS_WARNING(reportp->flags))
-        return false;
+    MOZ_ASSERT(!JSREPORT_IS_WARNING(reportp->flags));
 
-    // Similarly, we cannot throw a proper object inside the self-hosting
-    // compartment, as we cannot construct the Error constructor without
-    // self-hosted code. Tell our caller to report immediately.
-    // Without self-hosted code, we cannot get started anyway.
-    if (cx->runtime()->isSelfHostingCompartment(cx->compartment()))
-        return false;
+    // We cannot throw a proper object inside the self-hosting compartment, as
+    // we cannot construct the Error constructor without self-hosted code. Just
+    // print the error to stderr to help debugging.
+    if (cx->runtime()->isSelfHostingCompartment(cx->compartment())) {
+        PrintError(cx, stderr, message, reportp, true);
+        return;
+    }
 
     // Find the exception index associated with this error.
     JSErrNum errorNumber = static_cast<JSErrNum>(reportp->errorNumber);
@@ -551,48 +550,46 @@ js::ErrorToException(JSContext* cx, const char* message, JSErrorReport* reportp,
 
     if (exnType == JSEXN_WARN) {
         // werror must be enabled, so we use JSEXN_ERR.
-        MOZ_ASSERT(cx->runtime()->options().werror());
+        MOZ_ASSERT(cx->options().werror());
         exnType = JSEXN_ERR;
     }
 
     // Prevent infinite recursion.
     if (cx->generatingError)
-        return false;
+        return;
     AutoScopedAssign<bool> asa(&cx->generatingError, true);
 
     // Create an exception object.
     RootedString messageStr(cx, reportp->ucmessage ? JS_NewUCStringCopyZ(cx, reportp->ucmessage)
                                                    : JS_NewStringCopyZ(cx, message));
     if (!messageStr)
-        return cx->isExceptionPending();
+        return;
 
     RootedString fileName(cx, JS_NewStringCopyZ(cx, reportp->filename));
     if (!fileName)
-        return cx->isExceptionPending();
+        return;
 
     uint32_t lineNumber = reportp->lineno;
     uint32_t columnNumber = reportp->column;
 
     RootedObject stack(cx);
     if (!CaptureStack(cx, &stack))
-        return cx->isExceptionPending();
+        return;
 
     js::ScopedJSFreePtr<JSErrorReport> report(CopyErrorReport(cx, reportp));
     if (!report)
-        return cx->isExceptionPending();
+        return;
 
     RootedObject errObject(cx, ErrorObject::create(cx, exnType, stack, fileName,
                                                    lineNumber, columnNumber, &report, messageStr));
     if (!errObject)
-        return cx->isExceptionPending();
+        return;
 
     // Throw it.
-    RootedValue errValue(cx, ObjectValue(*errObject));
-    JS_SetPendingException(cx, errValue);
+    cx->setPendingException(ObjectValue(*errObject));
 
     // Flag the error report passed in to indicate an exception was raised.
     reportp->flags |= JSREPORT_EXCEPTION;
-    return true;
 }
 
 static bool
@@ -633,7 +630,10 @@ ErrorReportToString(JSContext* cx, JSErrorReport* reportp)
      * goes out of its way to avoid this.
      */
     JSExnType type = static_cast<JSExnType>(reportp->exnType);
-    RootedString str(cx, ClassName(GetExceptionProtoKey(type), cx));
+    RootedString str(cx);
+    if (type != JSEXN_WARN)
+        str = ClassName(GetExceptionProtoKey(type), cx);
+
     /*
      * If "str" is null at this point, that means we just want to use
      * reportp->ucmessage without prefixing it with anything.
@@ -655,32 +655,6 @@ ErrorReportToString(JSContext* cx, JSErrorReport* reportp)
         return message;
 
     return ConcatStrings<CanGC>(cx, str, message);
-}
-
-bool
-js::ReportUncaughtException(JSContext* cx)
-{
-    if (!cx->isExceptionPending())
-        return true;
-
-    RootedValue exn(cx);
-    if (!cx->getPendingException(&exn)) {
-        cx->clearPendingException();
-        return false;
-    }
-
-    cx->clearPendingException();
-
-    ErrorReport err(cx);
-    if (!err.init(cx, exn, js::ErrorReport::WithSideEffects)) {
-        cx->clearPendingException();
-        return false;
-    }
-
-    cx->setPendingException(exn);
-    CallErrorReporter(cx, err.message(), err.report());
-    cx->clearPendingException();
-    return true;
 }
 
 ErrorReport::ErrorReport(JSContext* cx)
@@ -970,7 +944,7 @@ ErrorReport::populateUncaughtExceptionReportVA(JSContext* cx, va_list ap)
 
     if (!ExpandErrorArgumentsVA(cx, GetErrorMessage, nullptr,
                                 JSMSG_UNCAUGHT_EXCEPTION, &ownedMessage,
-                                &ownedReport, ArgumentsAreASCII, ap)) {
+                                ArgumentsAreASCII, &ownedReport, ap)) {
         return false;
     }
 
@@ -1048,13 +1022,13 @@ js::ValueToSourceForError(JSContext* cx, HandleValue val, JSAutoByteString& byte
     StringBuffer sb(cx);
     if (val.isObject()) {
         RootedObject valObj(cx, val.toObjectOrNull());
-        ESClassValue cls;
+        ESClass cls;
         if (!GetBuiltinClass(cx, valObj, &cls))
             return "<<error determining class of value>>";
         const char* s;
-        if (cls == ESClass_Array)
+        if (cls == ESClass::Array)
             s = "the array ";
-        else if (cls == ESClass_ArrayBuffer)
+        else if (cls == ESClass::ArrayBuffer)
             s = "the array buffer ";
         else if (JS_IsArrayBufferViewObject(valObj))
             s = "the typed array ";

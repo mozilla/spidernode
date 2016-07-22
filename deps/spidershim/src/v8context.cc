@@ -117,9 +117,6 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
   pimpl_->globalObj.Reset(isolate,
       internal::Local<Object>::New(Isolate::GetCurrent(), globalObj));
 
-  // Ensure that JS errors appear as exceptions to us.
-  JS::ContextOptionsRef(cx).setAutoJSAPIOwnsErrorReporting(true);
-
 #ifdef JS_GC_ZEAL
   const char* env = getenv("JS_GC_MAX_ZEAL");
   if (env && *env) {
@@ -233,7 +230,7 @@ bool Context::Impl::RunMicrotasks() {
         job = jobQueue[i];
         JSAutoCompartment ac(cx, job);
         if (!JS::Call(cx, JS::UndefinedHandleValue, job, args, &rval))
-            JS_ReportPendingException(cx);
+            v8::ReportException(cx);
         jobQueue[i].set(nullptr);
     }
     jobQueue.clear();

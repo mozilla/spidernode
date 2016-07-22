@@ -63,7 +63,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     allocationMetadataBuilder(nullptr),
     lastAnimationTime(0),
     regExps(runtime_),
-    globalWriteBarriered(false),
+    globalWriteBarriered(0),
     detachedTypedObjects(0),
     objectMetadataState(ImmediateMetadata()),
     propertyTree(thisForCtor()),
@@ -71,7 +71,9 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     initialShapes(zone, InitialShapeSet()),
     selfHostingScriptSource(nullptr),
     objectMetadataTable(nullptr),
+    innerViews(zone, InnerViewTable()),
     lazyArrayBuffers(nullptr),
+    wasmInstances(zone, WasmInstanceObjectSet()),
     nonSyntacticLexicalScopes_(nullptr),
     gcIncomingGrayPointers(nullptr),
     debugModeBits(0),
@@ -226,7 +228,6 @@ class WrapperMapRef : public BufferableRef
         const char* name_;
         TraceFunctor(JSTracer *trc, const char* name) : trc_(trc), name_(name) {}
 
-        using ReturnType = void;
         template <class T> void operator()(T* t) { TraceManuallyBarrieredEdge(trc_, t, name_); }
     };
     void trace(JSTracer* trc) override {
@@ -249,7 +250,6 @@ class WrapperMapRef : public BufferableRef
 #ifdef JSGC_HASH_TABLE_CHECKS
 namespace {
 struct CheckGCThingAfterMovingGCFunctor {
-    using ReturnType = void;
     template <class T> void operator()(T* t) { CheckGCThingAfterMovingGC(*t); }
 };
 } // namespace (anonymous)
@@ -274,7 +274,6 @@ JSCompartment::checkWrapperMapAfterMovingGC()
 
 namespace {
 struct IsInsideNurseryFunctor {
-    using ReturnType = bool;
     template <class T> bool operator()(T tp) { return IsInsideNursery(*tp); }
 };
 } // namespace (anonymous)
@@ -680,16 +679,10 @@ JSCompartment::traceRoots(JSTracer* trc, js::gc::GCRuntime::TraceOrMarkRuntime t
 void
 JSCompartment::sweepAfterMinorGC()
 {
-    globalWriteBarriered = false;
+    globalWriteBarriered = 0;
 
     if (innerViews.needsSweepAfterMinorGC())
         innerViews.sweepAfterMinorGC();
-}
-
-void
-JSCompartment::sweepInnerViews()
-{
-    innerViews.sweep();
 }
 
 void
@@ -774,11 +767,9 @@ struct TraceRootFunctor {
     JSTracer* trc;
     const char* name;
     TraceRootFunctor(JSTracer* trc, const char* name) : trc(trc), name(name) {}
-    using ReturnType = void;
-    template <class T> ReturnType operator()(T* t) { return TraceRoot(trc, t, name); }
+    template <class T> void operator()(T* t) { return TraceRoot(trc, t, name); }
 };
 struct NeedsSweepUnbarrieredFunctor {
-    using ReturnType = bool;
     template <class T> bool operator()(T* t) const { return IsAboutToBeFinalizedUnbarriered(t); }
 };
 } // namespace (anonymous)
@@ -916,6 +907,8 @@ JSCompartment::clearTables()
         baseShapes.clear();
     if (initialShapes.initialized())
         initialShapes.clear();
+    if (wasmInstances.initialized())
+        wasmInstances.clear();
     if (savedStacks_.initialized())
         savedStacks_.clear();
 }
@@ -984,8 +977,8 @@ AddLazyFunctionsForCompartment(JSContext* cx, AutoObjectVector& lazyFunctions, A
     // want to delazify in that case: this pointer is weak so the JSScript
     // could be destroyed at the next GC.
 
-    for (gc::ZoneCellIter i(cx->zone(), kind); !i.done(); i.next()) {
-        JSFunction* fun = &i.get<JSObject>()->as<JSFunction>();
+    for (auto i = cx->zone()->cellIter<JSObject>(kind); !i.done(); i.next()) {
+        JSFunction* fun = &i->as<JSFunction>();
 
         // Sweeping is incremental; take care to not delazify functions that
         // are about to be finalized. GC things referenced by objects that are
@@ -1157,8 +1150,7 @@ JSCompartment::clearScriptCounts()
 void
 JSCompartment::clearBreakpointsIn(FreeOp* fop, js::Debugger* dbg, HandleObject handler)
 {
-    for (gc::ZoneCellIter i(zone(), gc::AllocKind::SCRIPT); !i.done(); i.next()) {
-        JSScript* script = i.get<JSScript>();
+    for (auto script = zone()->cellIter<JSScript>(); !script.done(); script.next()) {
         if (script->compartment() == this && script->hasAnyBreakpointsOrStepMode())
             script->clearBreakpointsIn(fop, dbg, handler);
     }
@@ -1186,7 +1178,8 @@ JSCompartment::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                         tiArrayTypeTables, tiObjectTypeTables,
                                         compartmentTables);
     *compartmentTables += baseShapes.sizeOfExcludingThis(mallocSizeOf)
-                        + initialShapes.sizeOfExcludingThis(mallocSizeOf);
+                        + initialShapes.sizeOfExcludingThis(mallocSizeOf)
+                        + wasmInstances.sizeOfExcludingThis(mallocSizeOf);
     *innerViewsArg += innerViews.sizeOfExcludingThis(mallocSizeOf);
     if (lazyArrayBuffers)
         *lazyArrayBuffersArg += lazyArrayBuffers->sizeOfIncludingThis(mallocSizeOf);

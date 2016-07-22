@@ -23,12 +23,14 @@
 namespace js {
 
 class AutoLockGC;
+class AutoLockHelperThreadState;
 class VerifyPreTracer;
 
 namespace gc {
 
 typedef Vector<JS::Zone*, 4, SystemAllocPolicy> ZoneVector;
 
+class AutoMaybeStartBackgroundAllocation;
 class MarkingValidator;
 class AutoTraceSession;
 struct MovingTracer;
@@ -83,7 +85,24 @@ class BackgroundAllocTask : public GCParallelTask
     bool enabled() const { return enabled_; }
 
   protected:
-    virtual void run() override;
+    void run() override;
+};
+
+// Search the provided Chunks for free arenas and decommit them.
+class BackgroundDecommitTask : public GCParallelTask
+{
+  public:
+    using ChunkVector = mozilla::Vector<Chunk*>;
+
+    explicit BackgroundDecommitTask(JSRuntime *rt) : runtime(rt) {}
+    void setChunksToScan(ChunkVector &chunks);
+
+  protected:
+    void run() override;
+
+  private:
+    JSRuntime* runtime;
+    ChunkVector toDecommit;
 };
 
 /*
@@ -696,7 +715,7 @@ class GCRuntime
     }
 
     void lockGC() {
-        PR_Lock(lock);
+        lock.lock();
 #ifdef DEBUG
         MOZ_ASSERT(!lockOwner);
         lockOwner = PR_GetCurrentThread();
@@ -708,7 +727,7 @@ class GCRuntime
         MOZ_ASSERT(lockOwner == PR_GetCurrentThread());
         lockOwner = nullptr;
 #endif
-        PR_Unlock(lock);
+        lock.unlock();
     }
 
 #ifdef DEBUG
@@ -875,7 +894,7 @@ class GCRuntime
                                          size_t nDynamicSlots);
     template <typename T, AllowGC allowGC>
     static T* tryNewTenuredThing(ExclusiveContext* cx, AllocKind kind, size_t thingSize);
-    static void* refillFreeListInGC(Zone* zone, AllocKind thingKind);
+    static TenuredCell* refillFreeListInGC(Zone* zone, AllocKind thingKind);
 
   private:
     enum IncrementalProgress
@@ -897,11 +916,11 @@ class GCRuntime
     MOZ_MUST_USE bool gcIfNeededPerAllocation(JSContext* cx);
     template <typename T>
     static void checkIncrementalZoneState(ExclusiveContext* cx, T* t);
-    static void* refillFreeListFromAnyThread(ExclusiveContext* cx, AllocKind thingKind,
-                                             size_t thingSize);
-    static void* refillFreeListFromMainThread(JSContext* cx, AllocKind thingKind,
-                                              size_t thingSize);
-    static void* refillFreeListOffMainThread(ExclusiveContext* cx, AllocKind thingKind);
+    static TenuredCell* refillFreeListFromAnyThread(ExclusiveContext* cx, AllocKind thingKind,
+                                                    size_t thingSize);
+    static TenuredCell* refillFreeListFromMainThread(JSContext* cx, AllocKind thingKind,
+                                                     size_t thingSize);
+    static TenuredCell* refillFreeListOffMainThread(ExclusiveContext* cx, AllocKind thingKind);
 
     /*
      * Return the list of chunks that can be released outside the GC lock.
@@ -913,7 +932,7 @@ class GCRuntime
 
     friend class BackgroundAllocTask;
     friend class AutoMaybeStartBackgroundAllocation;
-    inline bool wantBackgroundAllocation(const AutoLockGC& lock) const;
+    bool wantBackgroundAllocation(const AutoLockGC& lock) const;
     void startBackgroundAllocTaskIfIdle();
 
     void requestMajorGC(JS::gcreason::Reason reason);
@@ -964,7 +983,7 @@ class GCRuntime
     void endSweepPhase(bool lastGC, AutoLockForExclusiveAccess& lock);
     void sweepZones(FreeOp* fop, bool lastGC);
     void decommitAllWithoutUnlocking(const AutoLockGC& lock);
-    void decommitArenas(AutoLockGC& lock);
+    void startDecommit();
     void expireChunksAndArenas(bool shouldShrink, AutoLockGC& lock);
     void queueZonesForBackgroundSweep(ZoneList& zones);
     void sweepBackgroundThings(ZoneList& zones, LifoAlloc& freeBlocks, ThreadType threadType);
@@ -1197,8 +1216,8 @@ class GCRuntime
     /*
      * Concurrent sweep infrastructure.
      */
-    void startTask(GCParallelTask& task, gcstats::Phase phase);
-    void joinTask(GCParallelTask& task, gcstats::Phase phase);
+    void startTask(GCParallelTask& task, gcstats::Phase phase, AutoLockHelperThreadState& locked);
+    void joinTask(GCParallelTask& task, gcstats::Phase phase, AutoLockHelperThreadState& locked);
 
     /*
      * List head of arenas allocated during the sweep phase.
@@ -1349,12 +1368,14 @@ class GCRuntime
 #endif
 
     /* Synchronize GC heap access between main thread and GCHelperState. */
-    PRLock* lock;
+    friend class js::AutoLockGC;
+    js::Mutex lock;
 #ifdef DEBUG
     mozilla::Atomic<PRThread*> lockOwner;
 #endif
 
     BackgroundAllocTask allocTask;
+    BackgroundDecommitTask decommitTask;
     GCHelperState helperState;
 
     /*

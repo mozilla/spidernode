@@ -21,7 +21,6 @@
 #include "mozilla/CheckedInt.h"
 #include "mozilla/MathAlgorithms.h"
 
-#include "asmjs/Wasm.h"
 #include "asmjs/WasmBinaryIterator.h"
 
 using namespace js;
@@ -69,10 +68,6 @@ class AstDecodeContext
     Decoder& d;
     bool generateNames;
 
-    uint32_t numTableElems;
-    Maybe<uint32_t> initialSizePages;
-    Maybe<uint32_t> maxSizePages;
-
   private:
     AstModule& module_;
     AstIndexVector funcSigs_;
@@ -87,14 +82,12 @@ class AstDecodeContext
        lifo(lifo),
        d(d),
        generateNames(generateNames),
-       numTableElems(0),
-       initialSizePages(),
-       maxSizePages(),
        module_(module),
        funcSigs_(lifo),
        iter_(nullptr),
        locals_(nullptr),
-       blockLabels_(lifo)
+       blockLabels_(lifo),
+       currentLabelIndex_(0)
     {}
 
     AstModule& module() { return module_; }
@@ -302,7 +295,7 @@ AstDecodeCallImport(AstDecodeContext& c)
         return c.iter().fail("import index out of range");
 
     AstImport* import = c.module().imports()[importIndex];
-    AstSig* sig = c.module().sigs()[import->sig().index()];
+    AstSig* sig = c.module().sigs()[import->funcSig().index()];
     AstRef funcRef;
     if (!AstDecodeGenerateRef(c, AstName(MOZ_UTF16("import")), importIndex, &funcRef))
         return false;
@@ -1120,17 +1113,18 @@ AstDecodeTableSection(AstDecodeContext& c)
     if (sectionStart == Decoder::NotStarted)
         return true;
 
-    if (!c.d.readVarU32(&c.numTableElems))
+    uint32_t numElems;
+    if (!c.d.readVarU32(&numElems))
         return AstDecodeFail(c, "expected number of table elems");
 
-    if (c.numTableElems > MaxTableElems)
+    if (numElems > MaxTableElems)
         return AstDecodeFail(c, "too many table elements");
 
-    AstTableElemVector elems(c.lifo);
-    if (!elems.resize(c.numTableElems))
+    AstRefVector elems(c.lifo);
+    if (!elems.resize(numElems))
         return false;
 
-    for (uint32_t i = 0; i < c.numTableElems; i++) {
+    for (uint32_t i = 0; i < numElems; i++) {
         uint32_t funcIndex;
         if (!c.d.readVarU32(&funcIndex))
             return AstDecodeFail(c, "expected table element");
@@ -1141,11 +1135,12 @@ AstDecodeTableSection(AstDecodeContext& c)
         elems[i] = AstRef(AstName(), funcIndex);
     }
 
-    AstTable* table = new(c.lifo) AstTable(Move(elems));
-    if (!table)
+    AstElemSegment* seg = new(c.lifo) AstElemSegment(0, Move(elems));
+    if (!seg || !c.module().append(seg))
         return false;
 
-    c.module().initTable(table);
+    if (!c.module().setTable(AstResizable(numElems, Nothing())))
+        return AstDecodeFail(c, "already have a table");
 
     if (!c.d.finishSection(sectionStart, sectionSize))
         return AstDecodeFail(c, "table section byte size mismatch");
@@ -1156,13 +1151,18 @@ AstDecodeTableSection(AstDecodeContext& c)
 static bool
 AstDecodeName(AstDecodeContext& c, AstName* name)
 {
-    Bytes bytes;
-    if (!c.d.readBytes(&bytes))
+    uint32_t length;
+    if (!c.d.readVarU32(&length))
         return false;
-    size_t length = bytes.length();
-    char16_t *buffer = static_cast<char16_t *>(c.lifo.alloc(length * sizeof(char16_t)));
+
+    const uint8_t* bytes;
+    if (!c.d.readBytes(length, &bytes))
+        return false;
+
+    char16_t* buffer = static_cast<char16_t *>(c.lifo.alloc(length * sizeof(char16_t)));
     for (size_t i = 0; i < length; i++)
         buffer[i] = bytes[i];
+
     *name = AstName(buffer, length);
     return true;
 }
@@ -1261,13 +1261,9 @@ AstDecodeMemorySection(AstDecodeContext& c)
     if (!c.d.readFixedU8(&exported))
         return AstDecodeFail(c, "expected exported byte");
 
-    c.initialSizePages.emplace(initialSizePages);
-    if (initialSizePages != maxSizePages) {
-      c.maxSizePages.emplace(maxSizePages);
-    }
-
     if (exported) {
-        AstExport* export_ = new(c.lifo) AstExport(AstName(MOZ_UTF16("memory")));
+        AstName fieldName(MOZ_UTF16("memory"));
+        AstExport* export_ = new(c.lifo) AstExport(fieldName, DefinitionKind::Memory);
         if (!export_ || !c.module().append(export_))
             return false;
     }
@@ -1275,6 +1271,7 @@ AstDecodeMemorySection(AstDecodeContext& c)
     if (!c.d.finishSection(sectionStart, sectionSize))
         return AstDecodeFail(c, "memory section byte size mismatch");
 
+    c.module().setMemory(AstResizable(initialSizePages, Some(maxSizePages)));
     return true;
 }
 
@@ -1342,7 +1339,7 @@ AstDecodeFunctionBody(AstDecodeContext &c, uint32_t funcIndex, AstFunc** func)
     const uint8_t* bodyBegin = c.d.currentPosition();
     const uint8_t* bodyEnd = bodyBegin + bodySize;
 
-    AstDecodeExprIter iter(AstDecodePolicy(), c.d);
+    AstDecodeExprIter iter(c.d);
 
     uint32_t sigIndex = c.funcSigs()[funcIndex];
     const AstSig* sig = c.module().sigs()[sigIndex];
@@ -1451,25 +1448,14 @@ AstDecodeDataSection(AstDecodeContext &c)
     uint32_t sectionStart, sectionSize;
     if (!c.d.startSection(DataSectionId, &sectionStart, &sectionSize))
         return AstDecodeFail(c, "failed to start section");
-    AstSegmentVector segments(c.lifo);
-    if (sectionStart == Decoder::NotStarted) {
-        if (!c.initialSizePages)
-            return true;
-
-        AstMemory* memory = new(c.lifo) AstMemory(*c.initialSizePages, c.maxSizePages, Move(segments));
-        if (!memory)
-            return false;
-
-        c.module().setMemory(memory);
+    if (sectionStart == Decoder::NotStarted)
         return true;
-    }
 
     uint32_t numSegments;
     if (!c.d.readVarU32(&numSegments))
         return AstDecodeFail(c, "failed to read number of data segments");
 
-    uint32_t initialSizePages = c.initialSizePages ? *c.initialSizePages : 0;
-    uint32_t heapLength = initialSizePages * PageSize;
+    const uint32_t heapLength = c.module().hasMemory() ? c.module().memory().initial() : 0;
     uint32_t prevEnd = 0;
 
     for (uint32_t i = 0; i < numSegments; i++) {
@@ -1488,7 +1474,7 @@ AstDecodeDataSection(AstDecodeContext &c)
             return AstDecodeFail(c, "data segment does not fit in memory");
 
         const uint8_t* src;
-        if (!c.d.readBytesRaw(numBytes, &src))
+        if (!c.d.readBytes(numBytes, &src))
             return AstDecodeFail(c, "data segment shorter than declared");
 
         char16_t *buffer = static_cast<char16_t *>(c.lifo.alloc(numBytes * sizeof(char16_t)));
@@ -1496,18 +1482,12 @@ AstDecodeDataSection(AstDecodeContext &c)
             buffer[i] = src[i];
 
         AstName name(buffer, numBytes);
-        AstSegment* segment = new(c.lifo) AstSegment(dstOffset, name);
-        if (!segment || !segments.append(segment))
+        AstDataSegment* segment = new(c.lifo) AstDataSegment(dstOffset, name);
+        if (!segment || !c.module().append(segment))
             return false;
 
         prevEnd = dstOffset + numBytes;
     }
-
-    AstMemory* memory = new(c.lifo) AstMemory(initialSizePages, c.maxSizePages, Move(segments));
-    if (!memory)
-        return false;
-
-    c.module().setMemory(memory);
 
     if (!c.d.finishSection(sectionStart, sectionSize))
         return AstDecodeFail(c, "data section byte size mismatch");
