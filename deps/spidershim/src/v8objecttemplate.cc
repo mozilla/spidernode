@@ -543,9 +543,14 @@ static bool GetterOpImpl(JSContext* cx, JS::HandleObject obj,
   PREPARE_CALLBACK(Getter)
 
   if (callback) {
+    JS::RootedValue value(cx);
     PropertyCallbackInfo info(data, thisObj, thisObj);
     PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
-                                                info, vp);
+                                                info, &value);
+    if (!JS_WrapValue(cx, &value)) {
+      return false;
+    }
+    vp.set(value);
   } else {
     vp.set(JS::UndefinedValue());
   }
