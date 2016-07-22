@@ -20,10 +20,26 @@
 
 #pragma once
 
-#include <jsapi.h>
+#include "v8.h"
+#include "jsapi.h"
+#include "js/Proxy.h"
+#include "v8local.h"
 
 namespace v8 {
 
 void ReportException(JSContext* cx);
 
+inline JSObject* UnwrapProxyIfNeeded(JSObject* obj) {
+  assert(obj);
+  JSObject* target = obj;
+  if (js::IsProxy(obj)) {
+    target = js::GetProxyTargetObject(obj);
+  }
+  return target;
+}
+
+inline Local<Object> UnwrapProxyIfNeeded(Object* object) {
+  JSObject* target = UnwrapProxyIfNeeded(GetObject(object));
+  return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*target));
+}
 }
