@@ -27,6 +27,7 @@
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 #include "spidershim_natives.h"
+#include "utils.h"
 
 namespace {
 
@@ -102,7 +103,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
     return false;
   }
 
-  JS::RootedObject newGlobal(cx, GetObject(global));
+  JS::RootedObject newGlobal(cx, UnwrapProxyIfNeeded(GetObject(global)));
   AutoJSAPI jsAPI(cx, newGlobal);
 
   SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),

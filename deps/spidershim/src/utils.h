@@ -22,11 +22,12 @@
 
 #include "v8.h"
 #include "jsapi.h"
+#include "js/Proxy.h"
 #include "v8local.h"
 
 namespace v8 {
 
-JSObject* UnwrapProxyIfNeeded(JSObject* obj) {
+inline JSObject* UnwrapProxyIfNeeded(JSObject* obj) {
   assert(obj);
   JSObject* target = obj;
   if (js::IsProxy(obj)) {
@@ -35,7 +36,7 @@ JSObject* UnwrapProxyIfNeeded(JSObject* obj) {
   return target;
 }
 
-Local<Object> UnwrapProxyIfNeeded(Object* object) {
+inline Local<Object> UnwrapProxyIfNeeded(Object* object) {
   JSObject* target = UnwrapProxyIfNeeded(GetObject(object));
   return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*target));
 }

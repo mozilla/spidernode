@@ -27,6 +27,7 @@
 #include "instanceslots.h"
 #include "accessor.h"
 #include "mozilla/Maybe.h"
+#include "utils.h"
 
 namespace v8 {
 
@@ -985,7 +986,7 @@ Local<ObjectTemplate> ObjectTemplate::New(Isolate* isolate,
   }
 
   Local<ObjectTemplate> objectTempl(static_cast<ObjectTemplate*>(*templ));
-  JS::RootedObject obj(cx, GetObject(*templ));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(*templ)));
 
   if (setInstance) {
     constructor->SetInstanceTemplate(objectTempl);
@@ -1016,7 +1017,7 @@ Local<Object> ObjectTemplate::NewInstance(Local<Object> prototype,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1156,7 +1157,7 @@ void ObjectTemplate::SetAccessorInternal(Handle<N> name,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1174,7 +1175,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objec
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1272,7 +1273,7 @@ int ObjectTemplate::InternalFieldCount() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1289,7 +1290,7 @@ void ObjectTemplate::SetInternalFieldCount(int value) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1301,7 +1302,7 @@ Local<FunctionTemplate> ObjectTemplate::GetConstructor() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1329,7 +1330,7 @@ Local<FunctionTemplate> ObjectTemplate::GetObjectTemplateConstructor(Local<Objec
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, object);
-  JS::RootedObject obj(cx, GetObject(*object));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(*object)));
   assert(obj);
 
   JS::Value ctorVal =
@@ -1347,7 +1348,7 @@ void ObjectTemplate::SetNamedPropertyHandler(NamedPropertyGetterCallback getter,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1358,7 +1359,7 @@ void ObjectTemplate::SetHandler(const NamedPropertyHandlerConfiguration& config)
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1375,7 +1376,7 @@ void ObjectTemplate::SetIndexedPropertyHandler(IndexedPropertyGetterCallback get
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 
@@ -1408,7 +1409,7 @@ void ObjectTemplate::SetCallAsFunctionHandler(FunctionCallback callback,
 
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &objectTemplateClass);
 

@@ -25,6 +25,7 @@
 #include "jsfriendapi.h"
 #include "accessor.h"
 #include "v8local.h"
+#include "utils.h"
 
 namespace v8 {
 
@@ -57,7 +58,7 @@ void Template::SetAccessorProperty(Local<Name> name,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
 
   JS::RootedObject getterObj(cx, GetObject(getter->GetFunction()));
   JS::RootedObject setterObj(cx);

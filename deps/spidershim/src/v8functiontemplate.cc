@@ -24,6 +24,7 @@
 #include "v8local.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "utils.h"
 
 namespace {
 enum FunctionTemplatePrivateSlots {
@@ -110,7 +111,7 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
     return Local<FunctionTemplate>();
   }
 
-  JSObject* obj = GetObject(*templ);
+  JSObject* obj = UnwrapProxyIfNeeded(GetObject(*templ));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -139,7 +140,7 @@ MaybeLocal<Function> FunctionTemplate::GetFunction(Local<Context> context) {
   JSContext* cx = JSContextFromContext(*context);
   AutoJSAPI jsAPI(cx, this);
   Isolate* isolate = context->GetIsolate();
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -276,7 +277,7 @@ void FunctionTemplate::SetClassName(Handle<String> name) {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -298,7 +299,7 @@ Handle<String> FunctionTemplate::GetClassName() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -321,7 +322,7 @@ FunctionTemplate::SetCallHandler(FunctionCallback callback,
                                  Handle<Value> data) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -340,7 +341,7 @@ void
 FunctionTemplate::Inherit(Handle<FunctionTemplate> parent) {
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -383,7 +384,7 @@ Local<ObjectTemplate> FunctionTemplate::FetchOrCreateTemplate(size_t slotIndex) 
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -413,7 +414,7 @@ void FunctionTemplate::SetPrototypeTemplate(Local<ObjectTemplate> protoTemplate)
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
 
@@ -470,7 +471,7 @@ void FunctionTemplate::SetInstanceTemplate(Local<ObjectTemplate> instanceTemplat
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
   assert(obj);
   assert(JS_GetClass(obj) == &functionTemplateClass);
   assert(!instanceTemplate.IsEmpty());

@@ -836,7 +836,7 @@ Maybe<bool> Object::SetAccessorInternal(JSContext* cx,
                                         AccessControl settings,
                                         PropertyAttribute attribute) {
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
 
   if (!internal::SetAccessor(cx, obj, name, getter, setter, data,
                              settings, attribute)) {
@@ -851,7 +851,7 @@ void Object::SetAccessorProperty(Local<Name> name, Local<Function> getter,
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
-  JS::RootedObject obj(cx, GetObject(this));
+  JS::RootedObject obj(cx, UnwrapProxyIfNeeded(GetObject(this)));
 
   JS::RootedObject getterObj(cx, GetObject(getter));
   JS::RootedObject setterObj(cx);
