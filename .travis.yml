@@ -37,7 +37,7 @@ matrix:
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
             ./configure --engine=spidermonkey &&
             make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
@@ -50,7 +50,7 @@ matrix:
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
             ./configure --engine=spidermonkey --debug &&
             make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
@@ -63,7 +63,7 @@ matrix:
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            export CC=\"ccache gcc\" CXX=\"ccache g++\";
             ./configure --engine=spidermonkey &&
             make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
@@ -76,7 +76,7 @@ matrix:
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            export CC=\"ccache gcc\" CXX=\"ccache g++\";
             ./configure --engine=spidermonkey --debug &&
             make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
