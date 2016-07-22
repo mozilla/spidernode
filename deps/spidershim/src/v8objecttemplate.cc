@@ -590,7 +590,8 @@ static bool ResolveOpImpl_Getter(JSContext* cx, JS::HandleObject obj,
     PropCallbackTraits<CallbackType, N>::doCall(isolate, callback, id,
                                                 info, &value);
     if (!value.isUndefined()) {
-      if (!JS_DefinePropertyById(cx, obj, id, value, JSPROP_RESOLVING)) {
+      if (!JS_WrapValue(cx, &value) ||
+          !JS_DefinePropertyById(cx, obj, id, value, JSPROP_RESOLVING)) {
         return false;
       }
       *resolved = true;
