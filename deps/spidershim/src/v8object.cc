@@ -31,6 +31,7 @@
 #include "v8trycatch.h"
 #include "instanceslots.h"
 #include "accessor.h"
+#include "utils.h"
 
 namespace {
 
@@ -126,16 +127,6 @@ Local<Object> GetHiddenInternalFields(Local<Object> self) {
   JS::RootedObject selfObj(cx, GetObject(self));
   JS::RootedObject obj(cx, GetHiddenTable(cx, selfObj, true, GetHiddenInternalFieldsSymbol(cx)));
   return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*obj));
-}
-
-Local<Object> UnwrapProxyIfNeeded(Object* object) {
-  assert(object);
-  JSObject* obj = GetObject(object);
-  JSObject* target = obj;
-  if (js::IsProxy(obj)) {
-    target = js::GetProxyTargetObject(obj);
-  }
-  return internal::Local<Object>::New(Isolate::GetCurrent(), JS::ObjectValue(*target));
 }
 }
 
@@ -776,10 +767,7 @@ void Object::SetAlignedPointerInInternalField(int index, void* value) {
 Local<Context> Object::CreationContext() {
   Isolate* isolate = Isolate::GetCurrent();
   JSContext* cx = JSContextFromIsolate(isolate);
-  JSObject* thisObj = GetObject(this);
-  if (js::IsProxy(thisObj)) {
-    thisObj = js::GetProxyTargetObject(thisObj);
-  }
+  JSObject* thisObj = UnwrapProxyIfNeeded(GetObject(this));
   AutoJSAPI jsAPI(cx, thisObj);
   if (JS_ObjectIsFunction(cx, thisObj)) {
     JS::RootedValue thisVal(cx, JS::ObjectValue(*thisObj));
