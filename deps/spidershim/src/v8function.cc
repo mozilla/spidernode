@@ -178,13 +178,15 @@ class FunctionCallback {
       callback(info);
 
       if (auto rval = info.GetReturnValue().Get()) {
+        JS::RootedValue retVal(cx, *GetValue(rval));
         if (args.isConstructing()) {
           // Constructors must return an Object per ES6 spec.
-          JS::RootedValue retVal(cx, *GetValue(rval));
-          retval.setObject(*JS::ToObject(cx, retVal));
-        } else {
-          retval.set(*GetValue(rval));
+          retVal.setObject(*JS::ToObject(cx, retVal));
         }
+        if (!JS_WrapValue(cx, &retVal)) {
+          return false;
+        }
+        retval.set(retVal);
       }
     }
 
