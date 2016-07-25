@@ -146,6 +146,7 @@ TEST(SpiderShim, Undefined) {
 
   Local<Value> undefined = Undefined(engine.isolate());
   EXPECT_EQ(0.0, undefined->ToInteger()->Value());
+  EXPECT_EQ(false, undefined->IsExternal());
 }
 
 template<class T>

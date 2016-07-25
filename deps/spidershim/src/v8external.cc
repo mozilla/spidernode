@@ -32,7 +32,7 @@ static const JSClassOps classOps = {nullptr, nullptr, nullptr,
                                     nullptr, nullptr, nullptr};
 static const JSClass clazz = {"External", JSCLASS_HAS_PRIVATE, &classOps};
 
-bool IsExternal(JSContext* cx, JSObject* obj) {
+bool IsExternal(JSObject* obj) {
   return JS_GetClass(obj) == &clazz;
 }
 
@@ -45,7 +45,7 @@ Local<External> External::New(Isolate* isolate, void* value) {
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
   JSObject* obj = CreateExternal(cx);
-  assert(::IsExternal(cx, obj));
+  assert(::IsExternal(obj));
   JS_SetPrivate(obj, value);
   JS::Value retVal;
   retVal.setObject(*obj);
@@ -56,9 +56,9 @@ Local<Value> External::Wrap(void* data) {
   return New(Isolate::GetCurrent(), data);
 }
 
-bool External::IsExternal(const class Value* obj) {
-  JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  return ::IsExternal(cx, GetObject(obj));
+bool External::IsExternal(const class Value* val) {
+  JSObject* obj = GetObject(val);
+  return obj ? ::IsExternal(obj) : false;
 }
 
 void* External::Unwrap(Handle<class Value> obj) {
