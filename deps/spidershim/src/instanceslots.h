@@ -68,7 +68,7 @@ inline const JS::Value& GetInstanceSlot(JSObject* obj, size_t slot) {
   if (JS_IsGlobalObject(obj)) {
     // There are 5 preallocated application slots in global objects.
     slot = (slot < JSCLASS_GLOBAL_APPLICATION_SLOTS) ?
-           slot : JSCLASS_GLOBAL_APPLICATION_SLOTS + slot;
+           slot : JSCLASS_GLOBAL_SLOT_COUNT + slot - JSCLASS_GLOBAL_APPLICATION_SLOTS;
   }
   return js::GetReservedSlot(obj, slot);
 }
@@ -78,7 +78,7 @@ inline void SetInstanceSlot(JSObject* obj, size_t slot,
   if (JS_IsGlobalObject(obj)) {
     // There are 5 preallocated application slots in global objects.
     slot = (slot < JSCLASS_GLOBAL_APPLICATION_SLOTS) ?
-           slot : JSCLASS_GLOBAL_APPLICATION_SLOTS + slot;
+           slot : JSCLASS_GLOBAL_SLOT_COUNT + slot - JSCLASS_GLOBAL_APPLICATION_SLOTS;
   }
   js::SetReservedSlot(obj, slot, value);
 }
