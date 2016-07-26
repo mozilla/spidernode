@@ -9,9 +9,9 @@ for ac in "$AUTOCONF" autoconf213 autoconf2.13; do
   fi
 done
 
-if test -z "$AUTOCONF"; then
+if test -z "$AUTOCONF" -o `$AUTOCONF --version | head -1 | sed -e 's/[^0-9\.]//g'` != "2.13"; then
   >&2 echo 'autoconf 2.13 is required for building SpiderMonkey, but we could not find it.'
-  >&2 echo 'Please set the AUTOCONF environment variable before running this script.'
+  >&2 echo 'Please set the AUTOCONF environment variable to the path of autoconf 2.13 on your system before running this script.'
   exit 1
 fi
 
