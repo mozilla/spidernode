@@ -1476,6 +1476,22 @@ TEST(SpiderShim, PropertyHandlers) {
   EXPECT_EQ(50, Int32::Cast(*val)->Value());
   val = CompileRun("delete P[400];");
   EXPECT_TRUE(val->IsFalse());
+
+  Local<ObjectTemplate> templ2 = ObjectTemplate::New(isolate);
+  templ2->SetHandler(NamedPropertyHandlerConfiguration(Getter_41, nullptr, nullptr, nullptr, Enum, five));
+  EXPECT_TRUE(context->Global()
+            ->Set(context, v8_str("Q"),
+                  templ2->NewInstance(context).ToLocalChecked())
+            .FromJust());
+  val = CompileRun("var sum = ''; for (var x in Q) sum += x; sum;");
+  String::Utf8Value utf8_2(val->ToString());
+  EXPECT_STREQ("foopyeknardslirp", *utf8_2);
+  val = CompileRun("Q.foo;");
+  EXPECT_EQ(41, Int32::Cast(*val)->Value());
+  val = CompileRun("Q.bar = 50;");
+  EXPECT_EQ(50, Int32::Cast(*val)->Value());
+  val = CompileRun("Q.foo;");
+  EXPECT_EQ(41, Int32::Cast(*val)->Value());
 }
 
 static void ShadowFunctionCallback(

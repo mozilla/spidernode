@@ -918,7 +918,7 @@ static bool EnumeratorOp(JSContext* cx, JS::HandleObject obj,
     GetInstanceSlot(obj,
       SlotTraits<InstanceSlots, Name>::PropEnumeratorCallback1);
   if (!symbolPropEnumeratorCallback.isUndefined()) {
-    if (EnumeratorOpImpl<GenericNamedPropertyEnumeratorCallback, Name>
+    if (!EnumeratorOpImpl<GenericNamedPropertyEnumeratorCallback, Name>
           (cx, obj, properties, enumerableOnly)) {
       return false;
     }
