@@ -364,6 +364,11 @@ TEST(SpiderShim, TryCatchStackTrace) {
   EXPECT_STREQ(expectedStack, *stackTrace);
 }
 
+static void dont_expect_exception(Local<Message> message,
+                                  Local<Value> data) {
+  EXPECT_TRUE(false);
+}
+
 TEST(SpiderShim, TryCatchFunctionCall) {
   V8Engine engine;
 
@@ -375,20 +380,38 @@ TEST(SpiderShim, TryCatchFunctionCall) {
 
   engine.CompileRun(context,
       "function Foo() {\n"
-      "  throw new Error('quirk');\n"
+      "  if (!arguments.length) {\n"
+      "    throw new Error('quirk');\n"
+      "  }\n"
       "}");
   Local<Function> Foo = Local<Function>::Cast(
       context->Global()->Get(context, v8_str("Foo")).ToLocalChecked());
-  TryCatch try_catch(context->GetIsolate());
-  Local<Value>* args0 = NULL;
-  MaybeLocal<Value> a0 = Foo->Call(context, Foo, 0, args0);
-  EXPECT_TRUE(a0.IsEmpty());
-  EXPECT_TRUE(try_catch.HasCaught());
-  EXPECT_TRUE(*try_catch.Exception());
-  String::Utf8Value str_value(try_catch.Exception());
-  EXPECT_STREQ("Error: quirk", *str_value);
-  String::Utf8Value stackTrace(try_catch.StackTrace());
-  EXPECT_STREQ("Foo@:2:9\n", *stackTrace);
+
+  {
+    TryCatch try_catch(context->GetIsolate());
+    Local<Value>* args0 = NULL;
+    MaybeLocal<Value> a0 = Foo->Call(context, Foo, 0, args0);
+    EXPECT_TRUE(a0.IsEmpty());
+    EXPECT_TRUE(try_catch.HasCaught());
+    EXPECT_TRUE(*try_catch.Exception());
+    String::Utf8Value str_value(try_catch.Exception());
+    EXPECT_STREQ("Error: quirk", *str_value);
+    String::Utf8Value stackTrace(try_catch.StackTrace());
+    EXPECT_STREQ("Foo@:3:11\n", *stackTrace);
+  }
+
+  {
+    TryCatch try_catch(context->GetIsolate());
+    Local<Value> args1[] = {
+      Integer::New(context->GetIsolate(), 42)
+    };
+    context->GetIsolate()->AddMessageListener(dont_expect_exception);
+    MaybeLocal<Value> a0 = Foo->Call(context, Foo, 1, args1);
+    EXPECT_TRUE(a0.ToLocalChecked()->IsUndefined());
+    EXPECT_TRUE(!try_catch.HasCaught());
+    EXPECT_TRUE(try_catch.Exception().IsEmpty());
+    context->GetIsolate()->RemoveMessageListeners(dont_expect_exception);
+  }
 }
 
 void WithTryCatch(const FunctionCallbackInfo<Value>& args) {
