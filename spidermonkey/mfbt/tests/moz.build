@@ -1,0 +1,73 @@
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+CppUnitTests([
+    'TestArrayUtils',
+    'TestAtomics',
+    'TestBinarySearch',
+    'TestBloomFilter',
+    'TestBufferList',
+    'TestCasting',
+    'TestCeilingFloor',
+    'TestCheckedInt',
+    'TestCountPopulation',
+    'TestCountZeroes',
+    'TestEndian',
+    'TestEnumSet',
+    'TestFastBernoulliTrial',
+    'TestFloatingPoint',
+    'TestFunction',
+    'TestInitializerList',
+    'TestIntegerPrintfMacros',
+    'TestIntegerRange',
+    'TestJSONWriter',
+    'TestLinkedList',
+    'TestMacroArgs',
+    'TestMacroForEach',
+    'TestMathAlgorithms',
+    'TestMaybe',
+    'TestNotNull',
+    'TestPair',
+    'TestRefPtr',
+    'TestRollingMean',
+    'TestSaturate',
+    'TestScopeExit',
+    'TestSegmentedVector',
+    'TestSHA1',
+    'TestSplayTree',
+    'TestTemplateLib',
+    'TestTuple',
+    'TestTypedEnum',
+    'TestTypeTraits',
+    'TestUniquePtr',
+    'TestVariant',
+    'TestVector',
+    'TestWeakPtr',
+    'TestXorShift128PlusRNG',
+])
+
+if not CONFIG['MOZ_ASAN']:
+    CppUnitTests([
+        'TestPoisonArea',
+    ])
+
+# Since we link directly with MFBT object files, define IMPL_MFBT
+DEFINES['IMPL_MFBT'] = True
+
+DISABLE_STL_WRAPPING = True
+
+if CONFIG['_MSC_VER']:
+  CXXFLAGS += [
+    '-wd4275', # non dll-interface class used as base for dll-interface class
+    '-wd4530', # C++ exception handler used, but unwind semantics are not enabled
+  ]
+
+USE_LIBS += [
+    'mfbt',
+]
+
+if CONFIG['GNU_CXX']:
+    CXXFLAGS += ['-Wno-error=shadow']

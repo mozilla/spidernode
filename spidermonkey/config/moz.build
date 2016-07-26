@@ -1,0 +1,49 @@
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+with Files('**'):
+    BUG_COMPONENT = ('Core', 'Build Config')
+
+DIST_INSTALL = False
+# For sanity's sake, we compile nsinstall without the wrapped system
+# headers, so that we can use it to set up the wrapped system headers.
+NO_VISIBILITY_FLAGS = True
+
+CONFIGURE_SUBST_FILES += [
+    'doxygen.cfg',
+    'makefiles/test/Makefile',
+    'tests/makefiles/autodeps/Makefile',
+    'tests/src-simple/Makefile',
+]
+
+if CONFIG['HOST_OS_ARCH'] != 'WINNT':
+    HOST_SOURCES += [
+        'nsinstall.c',
+        'pathsub.c',
+    ]
+    # stdc++compat depends on config/export, so avoid a circular
+    # dependency added by HostProgram depending on stdc++compat,
+    # while the program here is in C.
+    HostProgram('nsinstall_real', c_only=True)
+
+if CONFIG['MOZ_SYSTEM_ICU']:
+    DEFINES['MOZ_SYSTEM_ICU'] = True
+
+PYTHON_UNIT_TESTS += [
+    'tests/test_mozbuild_reading.py',
+    'tests/unit-expandlibs.py',
+    'tests/unit-mozunit.py',
+    'tests/unit-nsinstall.py',
+    'tests/unit-printprereleasesuffix.py',
+]
+
+if CONFIG['GNU_CC'] and CONFIG['MOZ_OPTIMIZE']:
+    CFLAGS += ['-O3']
+
+HOST_DEFINES = {
+    'UNICODE': True,
+    '_UNICODE': True,
+}
