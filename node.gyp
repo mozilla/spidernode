@@ -226,6 +226,7 @@
         'NODE_ARCH="<(target_arch)"',
         'NODE_PLATFORM="<(OS)"',
         'NODE_WANT_INTERNALS=1',
+        'NODE_SHARED_MODE',
         # Warn when using deprecated V8 APIs.
         'V8_DEPRECATION_WARNINGS=1',
       ],
@@ -245,7 +246,7 @@
           ],
           'conditions': [
             [ 'node_module_version!=""', {
-              'product_extension': 'so.<(node_module_version)',
+              'product_extension': 'dylib',
             }]
           ],
         }],

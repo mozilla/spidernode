@@ -119,10 +119,10 @@ class RootStore {
   }
 
  private:
-  JS::Rooted<ValueVector> values;
-  JS::Rooted<ScriptVector> scripts;
+  JS::PersistentRooted<ValueVector> values;
+  JS::PersistentRooted<ScriptVector> scripts;
   std::vector<Script*> scriptObjects;
-  JS::Rooted<SymbolVector> symbols;
+  JS::PersistentRooted<SymbolVector> symbols;
   std::vector<Private*> privateObjects;
   std::vector<Message*> messages;
 };

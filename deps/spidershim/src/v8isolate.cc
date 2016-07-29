@@ -117,7 +117,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   JS_SetGCParameter(pimpl_->cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
   JS_SetGCParameter(pimpl_->cx, JSGC_MAX_BYTES, 0xffffffff);
   JS_SetNativeStackQuota(pimpl_->cx, defaultStackQuota);
-  JS_SetDefaultLocale(pimpl_->cx, "UTF-8");
+  // JS_SetDefaultLocale(pimpl_->cx, "UTF-8");
 
 #ifndef DEBUG
   JS::ContextOptionsRef(pimpl_->cx)
@@ -139,10 +139,21 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   pimpl_->EnsureEternals(this);
 }
 
+Isolate::Isolate(void* rt_) : pimpl_(new Impl()) {
+  auto rt = (JSRuntime*)rt_;
+  pimpl_->rt = rt;
+  pimpl_->cx = JS_GetContext(rt);
+  pimpl_->EnsurePersistents(this);
+  pimpl_->EnsureEternals(this);
+  if (!pimpl_->rt || !pimpl_->cx) {
+    MOZ_CRASH("Creating the JS Runtime failed!");
+  }
+}
+
 Isolate::~Isolate() {
   assert(pimpl_->rt);
-  JS_SetInterruptCallback(pimpl_->cx, NULL);
-  JS_DestroyRuntime(pimpl_->rt);
+  // JS_SetInterruptCallback(pimpl_->cx, NULL);
+  // JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }
 
@@ -152,6 +163,10 @@ Isolate* Isolate::New(const CreateParams& params) {
     V8::SetArrayBufferAllocator(params.array_buffer_allocator);
   }
   return isolate;
+}
+
+Isolate* Isolate::New(void* jsRuntime) {
+  return new Isolate(jsRuntime);
 }
 
 Isolate* Isolate::New() { return new Isolate(); }

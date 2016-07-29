@@ -87,27 +87,32 @@ Local<Context> Context::New(Isolate* isolate,
 
 bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
                            Local<ObjectTemplate> global_template) {
-  if (global_template.IsEmpty()) {
-    global_template = ObjectTemplate::New(isolate);
+  // if (global_template.IsEmpty()) {
+  //   global_template = ObjectTemplate::New(isolate);
+  // }
+
+  // Local<Object> prototype =
+  //   global_template->GetConstructor()
+  //                  ->GetProtoInstance(isolate->GetCurrentContext());
+  // if (prototype.IsEmpty()) {
+  //   return false;
+  // }
+  // Local<Object> global = global_template->NewInstance(prototype,
+  //                                                     ObjectTemplate::GlobalObject);
+  // if (global.IsEmpty()) {
+  //   return false;
+  // }
+
+  JS::Rooted<JSObject*> newGlobal(cx, JS::CurrentGlobalOrNull(cx));
+  if (!newGlobal) {
+      return false;
   }
 
-  Local<Object> prototype =
-    global_template->GetConstructor()
-                   ->GetProtoInstance(isolate->GetCurrentContext());
-  if (prototype.IsEmpty()) {
-    return false;
-  }
-  Local<Object> global = global_template->NewInstance(prototype,
-                                                      ObjectTemplate::GlobalObject);
-  if (global.IsEmpty()) {
-    return false;
-  }
-
-  JS::RootedObject newGlobal(cx, UnwrapProxyIfNeeded(GetObject(global)));
+  // JS::RootedObject newGlobal(cx, UnwrapProxyIfNeeded(GetObject(global)));
   AutoJSAPI jsAPI(cx, newGlobal);
 
-  SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),
-                  JS::PrivateValue(this));
+  // SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),
+  //                 JS::PrivateValue(this));
 
   pimpl_->global.init(isolate->Runtime());
   pimpl_->global = newGlobal;
