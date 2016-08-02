@@ -117,7 +117,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   JS_SetGCParameter(pimpl_->cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
   JS_SetGCParameter(pimpl_->cx, JSGC_MAX_BYTES, 0xffffffff);
   JS_SetNativeStackQuota(pimpl_->cx, defaultStackQuota);
-  // JS_SetDefaultLocale(pimpl_->cx, "UTF-8");
+  JS_SetDefaultLocale(pimpl_->cx, "UTF-8");
 
 #ifndef DEBUG
   JS::ContextOptionsRef(pimpl_->cx)
