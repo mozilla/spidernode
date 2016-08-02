@@ -139,10 +139,10 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   pimpl_->EnsureEternals(this);
 }
 
-Isolate::Isolate(void* rt_) : pimpl_(new Impl()) {
-  auto rt = (JSRuntime*)rt_;
-  pimpl_->rt = rt;
-  pimpl_->cx = JS_GetContext(rt);
+Isolate::Isolate(void* cx_) : pimpl_(new Impl()) {
+  auto cx = (JSContext*)cx_;
+  pimpl_->rt = js::GetRuntime(cx);
+  pimpl_->cx = cx;
   pimpl_->EnsurePersistents(this);
   pimpl_->EnsureEternals(this);
   if (!pimpl_->rt || !pimpl_->cx) {
@@ -165,8 +165,8 @@ Isolate* Isolate::New(const CreateParams& params) {
   return isolate;
 }
 
-Isolate* Isolate::New(void* jsRuntime) {
-  return new Isolate(jsRuntime);
+Isolate* Isolate::New(void* jsContext) {
+  return new Isolate(jsContext);
 }
 
 Isolate* Isolate::New() { return new Isolate(); }

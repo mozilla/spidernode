@@ -2601,7 +2601,7 @@ class V8_EXPORT Isolate {
 
   static Isolate* New(const CreateParams& params);
   static Isolate* New();
-  static Isolate* New(void* jsRuntime);
+  static Isolate* New(void* jsContext);
   static Isolate* GetCurrent();
   typedef bool (*AbortOnUncaughtExceptionCallback)(Isolate*);
   void SetAbortOnUncaughtExceptionCallback(
