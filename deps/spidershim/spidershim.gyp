@@ -16,6 +16,7 @@
       'include_dirs': [
         'include',
         '<(SHARED_INTERMEDIATE_DIR)',
+        '/Users/bdahl/projects/positron/obj.debug.noindex/dist/include',
       ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],
@@ -23,11 +24,9 @@
         [ 'target_arch=="arm"', { 'defines': [ '__arm__=1' ] } ],
         ['node_engine=="spidermonkey"', {
           'dependencies': [
-            'spidermonkey.gyp:spidermonkey',
             '../zlib/zlib.gyp:zlib',
           ],
           'export_dependent_settings': [
-            'spidermonkey.gyp:spidermonkey',
             '../zlib/zlib.gyp:zlib',
           ],
         }],
@@ -43,9 +42,11 @@
           'include',
         ],
         'libraries': [
-          '-ljs_static',
           '-lspidershim',
           '-lz',
+          '/Users/bdahl/projects/positron/obj.debug.noindex/js/src/libjs_static.a',
+          '/Users/bdahl/projects/positron/obj.debug.noindex/mozglue/build/libmozglue.dylib',
+          '/Users/bdahl/projects/positron/obj.debug.noindex/dist/PositronDebug.app/Contents/MacOS/libnss3.dylib',
         ],
         'conditions': [
           [ 'target_arch=="arm"', {
@@ -59,11 +60,11 @@
               '-lrt',
             ],
           }],
-          ['OS == "mac"', {
-            'libraries': [
-              '-lmozglue',
-            ],
-          }],
+          # ['OS == "mac"', {
+          #   'libraries': [
+          #     '-lmozglue',
+          #   ],
+          # }],
         ],
       },
 
