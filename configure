@@ -434,6 +434,11 @@ parser.add_option('--enable-gczeal',
     dest='enable_gczeal',
     help='enable SpiderMonkey gczeal')
 
+parser.add_option('--spidermonkey-obj-dir',
+    action='store',
+    dest='spidermonkey_obj_dir',
+    help='absolute path to SpiderMonkey obj dir')
+
 parser.add_option('--engine',
     action='store',
     dest='engine',
@@ -912,6 +917,7 @@ def configure_v8(o):
 
 def configure_spidermonkey(o):
   o['variables']['spidermonkey_gczeal'] = 1 if options.enable_gczeal else 0
+  o['variables']['spidermonkey_obj_dir'] = options.spidermonkey_obj_dir if options.spidermonkey_obj_dir else './'
 
 
 def configure_openssl(o):

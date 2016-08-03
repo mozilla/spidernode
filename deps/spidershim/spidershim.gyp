@@ -16,7 +16,7 @@
       'include_dirs': [
         'include',
         '<(SHARED_INTERMEDIATE_DIR)',
-        '/Users/bdahl/projects/positron/obj.debug.noindex/dist/include',
+        '<(spidermonkey_obj_dir)/dist/include',
       ],
       'conditions': [
         [ 'target_arch=="ia32"', { 'defines': [ '__i386__=1' ] } ],
@@ -44,9 +44,9 @@
         'libraries': [
           '-lspidershim',
           '-lz',
-          '/Users/bdahl/projects/positron/obj.debug.noindex/js/src/libjs_static.a',
-          '/Users/bdahl/projects/positron/obj.debug.noindex/mozglue/build/libmozglue.dylib',
-          '/Users/bdahl/projects/positron/obj.debug.noindex/dist/PositronDebug.app/Contents/MacOS/libnss3.dylib',
+          '<(spidermonkey_obj_dir)/js/src/libjs_static.a',
+          '<(spidermonkey_obj_dir)/mozglue/build/libmozglue.dylib',
+          '<(spidermonkey_obj_dir)/dist/PositronDebug.app/Contents/MacOS/libnss3.dylib',
         ],
         'conditions': [
           [ 'target_arch=="arm"', {
