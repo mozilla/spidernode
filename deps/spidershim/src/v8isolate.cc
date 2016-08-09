@@ -43,7 +43,7 @@ namespace internal {
 bool InitializeIsolate() { return sCurrentIsolate.init(); }
 }
 
-void Isolate::Impl::OnGC(JSRuntime* rt, JSGCStatus status, void* data) {
+void Isolate::Impl::OnGC(JSContext* cx, JSGCStatus status, void* data) {
   auto isolate = Isolate::GetCurrent();
   switch (status) {
     case JSGC_BEGIN:
@@ -104,12 +104,9 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   const uint32_t defaultHeapSize = sizeof(void*) == 8 ? 1024 * 1024 * 1024
                                                       :    // 1GB
                                        512 * 1024 * 1024;  // 512MB
-  pimpl_->rt = JS_NewRuntime(defaultHeapSize, JS::DefaultNurseryBytes, nullptr);
-  if (pimpl_->rt) {
-    pimpl_->cx = JS_GetContext(pimpl_->rt);
-  }
+  pimpl_->cx = JS_NewContext(defaultHeapSize);
   // Assert success for now!
-  if (!pimpl_->rt || !pimpl_->cx) {
+  if (!pimpl_->cx) {
     MOZ_CRASH("Creating the JS Runtime failed!");
   }
   JS::SetWarningReporter(pimpl_->cx, Impl::WarningReporter);
@@ -140,9 +137,9 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 }
 
 Isolate::~Isolate() {
-  assert(pimpl_->rt);
+  assert(pimpl_->cx);
   JS_SetInterruptCallback(pimpl_->cx, NULL);
-  JS_DestroyRuntime(pimpl_->rt);
+  JS_DestroyContext(pimpl_->cx);
   delete pimpl_;
 }
 
@@ -295,14 +292,14 @@ bool Isolate::IsExecutionTerminating() {
 }
 
 void Isolate::TerminateExecution() {
-  assert(pimpl_->rt);
+  assert(pimpl_->cx);
   pimpl_->terminatingExecution = true;
   pimpl_->serviceInterrupt = true;
-  JS_RequestInterruptCallback(pimpl_->rt);
+  JS_RequestInterruptCallback(pimpl_->cx);
 }
 
 void Isolate::CancelTerminateExecution() {
-  assert(pimpl_->rt);
+  assert(pimpl_->cx);
   pimpl_->terminatingExecution = false;
 }
 
@@ -359,7 +356,7 @@ void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
   JS_GC(pimpl_->cx);
 }
 
-JSRuntime* Isolate::Runtime() const { return pimpl_->rt; }
+JSRuntime* Isolate::Runtime() const { return JS_GetRuntime(pimpl_->cx); }
 
 JSContext* Isolate::RuntimeContext() const { return pimpl_->cx; }
 

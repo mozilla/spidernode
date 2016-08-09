@@ -39,8 +39,7 @@ bool InitializeIsolate();
 
 struct Isolate::Impl {
   Impl()
-      : rt(nullptr),
-        cx(nullptr),
+      : cx(nullptr),
         topTryCatch(nullptr),
         serviceInterrupt(false),
         terminatingExecution(false),
@@ -56,7 +55,6 @@ struct Isolate::Impl {
     memset(embeddedData, 0, sizeof(embeddedData));
   }
 
-  JSRuntime* rt;
   JSContext* cx;
   TryCatch* topTryCatch;
   std::vector<Context*> contexts;
@@ -103,7 +101,7 @@ struct Isolate::Impl {
   }
 
   static bool OnInterrupt(JSContext* cx);
-  static void OnGC(JSRuntime *rt, JSGCStatus status, void *data);
+  static void OnGC(JSContext* cx, JSGCStatus status, void *data);
   static bool EnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job,
                                         JS::HandleObject allocationSite,
                                         JS::HandleObject incumbentGlobal, void* data);
