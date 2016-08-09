@@ -22,6 +22,14 @@
 #include <vector>
 #include <algorithm>
 
+#ifdef _MSC_VER
+#include <windows.h>
+#define pthread_self() GetCurrentThreadId()
+#else
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 #include "v8.h"
 #include "v8-profiler.h"
 #include "v8isolate.h"
@@ -36,11 +44,22 @@ namespace v8 {
 HeapProfiler dummyHeapProfiler;
 CpuProfiler dummyCpuProfiler;
 
-static MOZ_THREAD_LOCAL(Isolate*) sCurrentIsolate;
+struct IsolateStackItem {
+  IsolateStackItem(uintptr_t id, IsolateStackItem* prev, Isolate* iso)
+    : thread_id(id),
+      prev_item(prev),
+      isolate(iso) {}
+  uintptr_t thread_id;
+  IsolateStackItem* prev_item;
+  Isolate* isolate;
+  int count = 1;
+};
+
+static MOZ_THREAD_LOCAL(IsolateStackItem*) sIsolateStack;
 
 namespace internal {
 
-bool InitializeIsolate() { return sCurrentIsolate.init(); }
+bool InitializeIsolate() { return sIsolateStack.init(); }
 }
 
 void Isolate::Impl::OnGC(JSContext* cx, JSGCStatus status, void* data) {
@@ -153,18 +172,42 @@ Isolate* Isolate::New(const CreateParams& params) {
 
 Isolate* Isolate::New() { return new Isolate(); }
 
-Isolate* Isolate::GetCurrent() { return sCurrentIsolate.get(); }
+Isolate* Isolate::GetCurrent() { return sIsolateStack.get()->isolate; }
 
 void Isolate::Enter() {
-  // TODO: Multiple isolates not currently supported.
-  assert(!sCurrentIsolate.get());
-  sCurrentIsolate.set(this);
+  auto current = sIsolateStack.get();
+  if (current) {
+    assert(current->isolate);
+    if (current->isolate == this) {
+      // Re-entering the current isolate.  Must be on the same thread!
+      assert(!current->prev_item ||
+             current->prev_item->thread_id == uintptr_t(pthread_self()));
+      ++current->count;
+      return;
+    }
+  }
+
+  // Entering a new Isolate. Push a new entry on top of the stack.
+  sIsolateStack.set(new IsolateStackItem(uintptr_t(pthread_self()),
+                                         current,
+                                         this));
 }
 
 void Isolate::Exit() {
-  // TODO: Multiple isolates not currently supported.
-  assert(sCurrentIsolate.get() == this);
-  sCurrentIsolate.set(nullptr);
+  auto current = sIsolateStack.get();
+  assert(current);
+  assert(current->thread_id == uintptr_t(pthread_self()));
+  assert(current->isolate == this);
+  assert(current->count > 0);
+
+  if (--current->count > 0) {
+    // Leave an Isolate that has been entered multiple times.
+    return;
+  }
+
+  // Pop the stack.
+  sIsolateStack.set(current->prev_item);
+  delete current;
 }
 
 void Isolate::Dispose() {

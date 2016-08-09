@@ -848,3 +848,12 @@ TEST(SpiderShim, GlobalObjectTemplate) {
   RunGlobalObjectTemplateChecks("this.", 24);
   RunGlobalObjectTemplateChecks("obj.", -1);
 }
+
+TEST(SpiderShim, IsolateMultipleEnter) {
+  V8Engine engine;
+  auto isolate = engine.isolate();
+  Isolate::Scope isolate_scope_1(isolate);
+  Isolate::Scope isolate_scope_2(isolate);
+  Isolate::Scope isolate_scope_3(isolate);
+  Isolate::Scope isolate_scope_4(isolate);
+}
