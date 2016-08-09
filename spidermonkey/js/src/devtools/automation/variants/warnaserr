@@ -1,3 +1,0 @@
-{
-    "configure-args": "--enable-optimize --enable-warnings-as-errors"
-}
