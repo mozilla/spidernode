@@ -314,7 +314,7 @@ parser.add_option('--with-etw',
 intl_optgroup.add_option('--with-intl',
     action='store',
     dest='with_intl',
-    default='small-icu',
+    default='system-icu',
     choices=valid_intl_modes,
     help='Intl mode (valid choices: {0}) [default: %default]'.format(
         ', '.join(valid_intl_modes)))
@@ -1026,8 +1026,13 @@ def configure_intl(o):
   with_intl = options.with_intl
   with_icu_source = options.with_icu_source
   have_icu_path = bool(options.with_icu_path)
+  spidermonkey = options.engine.lower() == "spidermonkey"
   if have_icu_path and with_intl != 'none':
     print 'Error: Cannot specify both --with-icu-path and --with-intl'
+    sys.exit(1)
+  elif spidermonkey and with_intl not in ['none', 'system-icu']:
+    print ('Error: Invalid ICU mode %s when building with SpiderMonkey.\n' +
+           'Please specify "system-icu".') % with_intl
     sys.exit(1)
   elif have_icu_path:
     # Chromium .gyp mode: --with-icu-path
