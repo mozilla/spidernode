@@ -157,6 +157,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
 Isolate::~Isolate() {
   assert(pimpl_->cx);
+  assert(!sIsolateStack.get());
   JS_SetInterruptCallback(pimpl_->cx, NULL);
   JS_DestroyContext(pimpl_->cx);
   delete pimpl_;
@@ -211,6 +212,9 @@ void Isolate::Exit() {
 }
 
 void Isolate::Dispose() {
+  if (sIsolateStack.get()) {
+    MOZ_CRASH("Cannot dispose an Isolate that is entered by a thread");
+  }
   Enter();
   JS_SetGCCallback(pimpl_->cx, NULL, NULL);
   for (auto frame : pimpl_->stackFrames) {
