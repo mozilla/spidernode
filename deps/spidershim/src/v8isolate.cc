@@ -139,10 +139,21 @@ Isolate::Isolate() : pimpl_(new Impl()) {
   pimpl_->EnsureEternals(this);
 }
 
+Isolate::Isolate(void* cx_) : pimpl_(new Impl()) {
+  auto cx = (JSContext*)cx_;
+  pimpl_->rt = js::GetRuntime(cx);
+  pimpl_->cx = cx;
+  pimpl_->EnsurePersistents(this);
+  pimpl_->EnsureEternals(this);
+  if (!pimpl_->rt || !pimpl_->cx) {
+    MOZ_CRASH("Creating the JS Runtime failed!");
+  }
+}
+
 Isolate::~Isolate() {
   assert(pimpl_->rt);
-  JS_SetInterruptCallback(pimpl_->cx, NULL);
-  JS_DestroyRuntime(pimpl_->rt);
+  // JS_SetInterruptCallback(pimpl_->cx, NULL);
+  // JS_DestroyRuntime(pimpl_->rt);
   delete pimpl_;
 }
 
@@ -152,6 +163,10 @@ Isolate* Isolate::New(const CreateParams& params) {
     V8::SetArrayBufferAllocator(params.array_buffer_allocator);
   }
   return isolate;
+}
+
+Isolate* Isolate::New(void* jsContext) {
+  return new Isolate(jsContext);
 }
 
 Isolate* Isolate::New() { return new Isolate(); }
