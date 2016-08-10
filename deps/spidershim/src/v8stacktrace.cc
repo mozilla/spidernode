@@ -206,7 +206,8 @@ Local<StackTrace> StackTrace::CurrentStackTrace(Isolate* isolate,
   AutoJSAPI jsAPI(cx);
   JS::RootedObject stack(cx);
   frame_limit = std::max(frame_limit, 0);  // no negative values
-  if (!JS::CaptureCurrentStack(cx, &stack, unsigned(frame_limit))) {
+  if (!JS::CaptureCurrentStack(cx, &stack,
+                               JS::StackCapture(JS::MaxFrames(frame_limit)))) {
     return Local<StackTrace>();
   }
   return CreateStackTrace(isolate, stack, options);

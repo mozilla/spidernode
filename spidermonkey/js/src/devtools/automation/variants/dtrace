@@ -1,3 +1,0 @@
-{
-    "configure-args": "--enable-optimize --enable-debug --enable-dtrace --enable-debug-symbols"
-}

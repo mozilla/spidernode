@@ -2,6 +2,7 @@
   'variables': {
     'library%': 'static_library',
     'node_engine%': 'spidermonkey',
+    'python%': 'python',
     'library_files': [
       'lib/spidershim.js',
     ],
