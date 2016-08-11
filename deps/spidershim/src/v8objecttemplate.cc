@@ -22,7 +22,7 @@
 
 #include "conversions.h"
 #include "v8local.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 #include "accessor.h"

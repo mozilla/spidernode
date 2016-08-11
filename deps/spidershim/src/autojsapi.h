@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include_next <jsapi.h>
+#include <jsapi.h>
 #include <assert.h>
 #include "v8.h"
 #include "conversions.h"

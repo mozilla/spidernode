@@ -21,7 +21,7 @@
 #pragma once
 
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "js/Proxy.h"
 #include "v8local.h"
 

@@ -25,7 +25,7 @@
 #include "v8.h"
 #include "conversions.h"
 #include "v8local.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 
 namespace v8 {

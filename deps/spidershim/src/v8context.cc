@@ -23,7 +23,7 @@
 #include "v8.h"
 #include "v8context.h"
 #include "v8local.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 #include "instanceslots.h"
 #include "spidershim_natives.h"

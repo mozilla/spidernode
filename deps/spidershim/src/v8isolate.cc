@@ -35,7 +35,7 @@
 #include "v8isolate.h"
 #include "v8local.h"
 #include "instanceslots.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/ThreadLocal.h"
 

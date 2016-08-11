@@ -23,7 +23,7 @@
 #include "v8.h"
 #include "v8handlescope.h"
 #include "v8isolate.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "js/Initialization.h"
 
 namespace v8 {

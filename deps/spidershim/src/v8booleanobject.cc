@@ -21,7 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "js/Class.h"
 #include "js/Conversions.h"
 #include "conversions.h"

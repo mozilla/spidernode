@@ -23,7 +23,7 @@
 #include <list>
 
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "js/GCPolicyAPI.h"
 
 namespace v8 {

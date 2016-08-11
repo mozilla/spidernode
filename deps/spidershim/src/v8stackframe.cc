@@ -22,7 +22,7 @@
 
 #include "v8.h"
 #include "v8local.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 
 namespace v8 {

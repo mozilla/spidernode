@@ -23,7 +23,7 @@
 
 #include "v8.h"
 #include "v8handlescope.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "rootstore.h"
 #include "mozilla/ThreadLocal.h"
 
