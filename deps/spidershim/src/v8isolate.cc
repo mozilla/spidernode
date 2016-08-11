@@ -157,11 +157,10 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
 Isolate::Isolate(void* cx_) : pimpl_(new Impl()) {
   auto cx = (JSContext*)cx_;
-  pimpl_->rt = js::GetRuntime(cx);
   pimpl_->cx = cx;
   pimpl_->EnsurePersistents(this);
   pimpl_->EnsureEternals(this);
-  if (!pimpl_->rt || !pimpl_->cx) {
+  if (!pimpl_->cx) {
     MOZ_CRASH("Creating the JS Runtime failed!");
   }
 }
