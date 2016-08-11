@@ -20,7 +20,7 @@
 
 #pragma once
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include <vector>
 #include <utility>
 

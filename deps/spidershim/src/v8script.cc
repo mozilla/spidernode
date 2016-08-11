@@ -19,7 +19,7 @@
 // IN THE SOFTWARE.
 
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "js/CharacterEncoding.h"
 #include "v8local.h"
 #include "v8string.h"

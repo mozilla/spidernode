@@ -21,7 +21,7 @@
 #pragma once
 
 #include <assert.h>
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "v8.h"
 #include "v8local.h"
 

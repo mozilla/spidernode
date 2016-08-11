@@ -21,7 +21,7 @@
 #include <assert.h>
 
 #include "v8.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 
 namespace v8 {
 

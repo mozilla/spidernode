@@ -23,7 +23,7 @@
 #include "v8conversions.h"
 #include "v8local.h"
 #include "v8trycatch.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 #include "js/Conversions.h"
 #include "accessor.h"

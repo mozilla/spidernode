@@ -21,7 +21,7 @@
 #include <assert.h>
 
 #include "conversions.h"
-#include "jsapi.h"
+#include "autojsapi.h"
 #include "jsfriendapi.h"
 #include "accessor.h"
 #include "v8local.h"
