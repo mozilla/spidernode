@@ -29,19 +29,26 @@
 namespace v8 {
 
 namespace internal {
+bool gJSInitNeeded = false;
 bool gDisposed = false;
 }
 
 bool V8::Initialize() {
   assert(!internal::gDisposed);
+  internal::gJSInitNeeded = !JS_IsInitialized();
+  if (internal::gJSInitNeeded && !JS_Init()) {
+    return false;
+  }
   return v8::internal::InitializeIsolate() &&
-         v8::internal::InitializeHandleScope() && JS_Init();
+         v8::internal::InitializeHandleScope();
 }
 
 bool V8::Dispose() {
   assert(!internal::gDisposed);
   internal::gDisposed = true;
-  JS_ShutDown();
+  if (internal::gJSInitNeeded) {
+    JS_ShutDown();
+  }
   return true;
 }
 
