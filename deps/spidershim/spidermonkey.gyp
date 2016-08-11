@@ -3,6 +3,7 @@
     'target_arch%': 'ia32',
     'spidermonkey_gczeal%': 0,
     'asan%': 0,
+    'spidermonkey_objdir': '<(PRODUCT_DIR)/spidermonkey',
 
     'conditions': [
       ['target_arch=="ia32"', { 'Platform': 'x86' }],
@@ -29,20 +30,7 @@
         'spidermonkey_extra_args%': [],  # Allow embedders to customize SpiderMonkey
                                          # configure flags.
         'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
-        'spidermonkey_binaries': [
-          '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
-        ],
         'conditions': [
-          ['OS == "linux"', {
-            'spidermonkey_binaries+': [
-              '<(PRODUCT_DIR)/spidermonkey/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
-            ],
-          }],
-          ['OS == "mac"', {
-            'spidermonkey_binaries': [
-              '<(PRODUCT_DIR)/spidermonkey/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-            ],
-          }],
           ['spidermonkey_gczeal==1', {
             'spidermonkey_args': ['--enable-gczeal'],
           }],
@@ -53,6 +41,7 @@
       },
 
       'includes': [
+        'spidermonkey-common.gypi',
         'spidermonkey-files.gypi',
       ],
 
@@ -72,28 +61,6 @@
           ],
         },
       ],
-
-      'copies': [
-        {
-          'destination': '<(PRODUCT_DIR)',
-          'files': [ '<@(spidermonkey_binaries)' ],
-        },
-      ],
-
-      'direct_dependent_settings': {
-        'library_dirs': [ '<(PRODUCT_DIR)' ],
-        'configurations': {
-          'Release': {
-            'defines': ['NDEBUG'],
-          },
-          'Debug': {
-            'defines': ['DEBUG'],
-          },
-        },
-        'include_dirs': [
-          '<(PRODUCT_DIR)/spidermonkey/dist/include',
-        ],
-      },
 
     },
   ],
