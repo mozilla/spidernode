@@ -13,7 +13,7 @@ To enable building and running Node.js with SpiderMonkey, a V8 API shim (SpiderS
 ### Current status
 This is a _work in progress_.  Node can now be successfully built on top of SpiderMonkey, and the very basics seem to work, but there are probably still a lot of issues to discover and fix.
 
-We have implemented a fair portion of the V8 API.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) currently passes.  Many of those tests have been ported from the V8 API tests.
+We have implemented a fair portion of the V8 API.  More specifically [these tests](https://github.com/mozilla/spidernode/blob/master/deps/spidershim/test) are currently passing.  Many of those tests have been ported from the V8 API tests.
 
 ### How to build
 Before building please make sure you have the prerequisites for building Node.js as documented [here](https://github.com/nodejs/node/blob/master/BUILDING.md).
