@@ -403,8 +403,6 @@ void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
   JS_GC(pimpl_->cx);
 }
 
-JSRuntime* Isolate::Runtime() const { return JS_GetRuntime(pimpl_->cx); }
-
 JSContext* Isolate::RuntimeContext() const { return pimpl_->cx; }
 
 Value* Isolate::AddPersistent(Value* val) {

@@ -75,7 +75,7 @@ Local<Context> Context::New(Isolate* isolate,
   // HandleScope on the stack works correctly.
   HandleScope handleScope(isolate);
 
-  assert(isolate->Runtime());
+  assert(isolate->RuntimeContext());
   JSContext* cx = JSContextFromIsolate(isolate);
   Context* context = new Context(cx);
   if (!context->CreateGlobal(cx, isolate, global_template)) {
@@ -109,7 +109,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
   SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),
                   JS::PrivateValue(this));
 
-  pimpl_->global.init(isolate->Runtime());
+  pimpl_->global.init(isolate->RuntimeContext());
   pimpl_->global = newGlobal;
   JS::Value globalObj;
   globalObj.setObject(*newGlobal);

@@ -2762,7 +2762,6 @@ class V8_EXPORT Isolate {
   Context* AddEternal(Context* val);              // not supported yet
   UnboundScript* AddEternal(UnboundScript* val);  // not supported yet
 
-  JSRuntime* Runtime() const;
   JSContext* RuntimeContext() const;
 
   TryCatch* GetTopmostTryCatch() const;
