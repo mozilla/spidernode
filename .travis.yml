@@ -137,6 +137,90 @@ matrix:
           "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
 
+    - os: linux
+      compiler: clang
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            mkdir /tmp/sm; BUILDTYPE=Release ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --with-external-spidermonkey-release=/tmp/sm &&
+            make V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal EXTERNAL_SPIDERMONKEY=true
+
+    - os: linux
+      compiler: clang
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache clang\" CXX=\"ccache clang++\";
+            mkdir /tmp/sm; BUILDTYPE=Debug ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --debug --with-external-spidermonkey-release=/tmp/sm --with-external-spidermonkey-debug=/tmp/sm &&
+            make V= -C out BUILDTYPE=Debug;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true EXTERNAL_SPIDERMONKEY=true
+
+    - os: linux
+      compiler: gcc-4.8
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            mkdir /tmp/sm; BUILDTYPE=Release ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --with-external-spidermonkey-release=/tmp/sm &&
+            make V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal EXTERNAL_SPIDERMONKEY=true
+
+    - os: linux
+      compiler: gcc-4.8
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            mkdir /tmp/sm; BUILDTYPE=Debug ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --debug --with-external-spidermonkey-release=/tmp/sm --with-external-spidermonkey-debug=/tmp/sm &&
+            make V= -C out BUILDTYPE=Debug;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true EXTERNAL_SPIDERMONKEY=true
+
+    - os: linux
+      compiler: gcc-5
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache gcc\" CXX=\"ccache g++\";
+            mkdir /tmp/sm; BUILDTYPE=Release ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --with-external-spidermonkey-release=/tmp/sm &&
+            make V= -C out BUILDTYPE=Release;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal EXTERNAL_SPIDERMONKEY=true
+
+    - os: linux
+      compiler: gcc-5
+      services: docker
+      script:
+        - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
+          sh -c "
+            export CC=\"ccache gcc\" CXX=\"ccache g++\";
+            mkdir /tmp/sm; BUILDTYPE=Debug ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
+            ./configure --engine=spidermonkey --debug --with-external-spidermonkey-release=/tmp/sm --with-external-spidermonkey-debug=/tmp/sm &&
+            make V= -C out BUILDTYPE=Debug;
+            ./deps/spidershim/scripts/run-tests.py
+          "
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true EXTERNAL_SPIDERMONKEY=true
+
     - os: osx
       compiler: clang
       env: BUILD_CONFIG=normal
@@ -152,6 +236,14 @@ matrix:
     - os: osx
       compiler: clang
       env: BUILD_CONFIG=gczeal MAKE_ARGS=-j2 ENABLE_DEBUG=true
+
+    - os: osx
+      compiler: clang
+      env: BUILD_CONFIG=normal EXTERNAL_SPIDERMONKEY=true
+
+    - os: osx
+      compiler: clang
+      env: BUILD_CONFIG=normal ENABLE_DEBUG=true EXTERNAL_SPIDERMONKEY=true
 
 # Disabled for intermittently failing too many times.
 #    - os: osx
@@ -190,7 +282,8 @@ after_install:
   - if [ "$USE_CCACHE" == "true" ]; then export CC="`which ccache` $CC" CXX="`which ccache` $CXX"; fi
 before_script:
   - if [ "$USE_CCACHE" == "true" ]; then ccache -s; fi
-  - ./configure $(if [ "$ENABLE_DEBUG" == "true" ]; then echo '--debug'; fi) --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi)
+  - if [ "$TRAVIS_OS_NAME" == "osx" -a "$EXTERNAL_SPIDERMONKEY" == "true" ]; then mkdir /tmp/sm; BUILDTYPE=$(if [ "$ENABLE_DEBUG" == "true" ]; then echo 'Debug'; else echo 'Release'; fi) ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm; fi
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then ./configure $(if [ "$ENABLE_DEBUG" == "true" ]; then echo '--debug'; fi) --engine=spidermonkey $(if [ "$ENABLE_ASAN" == "true" ]; then echo "--enable-asan"; fi) $(if [ "$BUILD_CONFIG" == "gczeal" ]; then echo "--enable-gczeal"; fi) $(if [ "$EXTERNAL_SPIDERMONKEY" == "true" ]; then echo "--with-external-spidermonkey-debug=/tmp/sm --with-external-spidermonkey-release=/tmp/sm"; fi); fi
 script:
   - travis_wait 60 make V= $MAKE_ARGS -C out BUILDTYPE=$(if [ "$ENABLE_DEBUG" == "true" ]; then echo 'Debug'; else echo 'Release'; fi)
   - if [ "$BUILD_CONFIG" == "gczeal" ]; then export JS_GC_MAX_ZEAL=1; fi

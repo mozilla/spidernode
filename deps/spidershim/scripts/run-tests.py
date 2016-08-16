@@ -11,15 +11,19 @@ def main():
         return 1
 
     ran_test = False
-    targets = get_targets(base_dir)
+    targets, external_sm = get_targets(base_dir)
     matrix = [(test, config) for test in targets for config in ['Debug', 'Release']]
+    lib_path = 'DYLD_LIBRARY_PATH' if sys.platform == 'darwin' else 'LD_LIBRARY_PATH'
 
     for test, config in matrix:
         cmd = "%s/out/%s/%s" % (base_dir, config, test)
-        ran_test = run_test([cmd]) or ran_test
+        env = ({lib_path: '%s/out/%s/spidermonkey/%s' % (base_dir, config, config)}) if external_sm else None
+        ran_test = run_test([cmd], env) or ran_test
 
     for node in get_node_binaries(base_dir):
-        ran_test = run_test([node, '-e', 'console.log("hello, world")']) or ran_test
+        config = 'Debug' if node.find('node_g') > 0 else 'Release'
+        env = ({lib_path: '%s/out/%s/spidermonkey/%s' % (base_dir, config, config)}) if external_sm else None
+        ran_test = run_test([node, '-e', 'console.log("hello, world")'], env) or ran_test
 
     if not ran_test:
         print >> sys.stderr, 'Did not run any tests! Did you forget to build?'
@@ -62,7 +66,9 @@ def get_targets(base_dir):
                  params=params, includes=includes, \
                  default_variables=default_variables)
 
-    return [target['target_name'] for target in data['deps/spidershim/tests.gyp']['targets']]
+    targets = [target['target_name'] for target in data['deps/spidershim/tests.gyp']['targets']]
+    return (targets, 'deps/spidershim/spidermonkey-external.gyp' in data)
+
 
 def get_node_binaries(base_dir):
     nodes = []
@@ -73,10 +79,10 @@ def get_node_binaries(base_dir):
 
     return nodes
 
-def run_test(cmd):
+def run_test(cmd, env):
     if is_executable(cmd[0]):
         try:
-            subprocess.check_call(cmd)
+            subprocess.check_call(cmd, env=env)
         except:
             print >> sys.stderr, '%s failed, see the log above' % (" ".join(cmd))
             return False

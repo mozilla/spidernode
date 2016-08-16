@@ -1,6 +1,8 @@
 #!/bin/bash
 
-source `dirname "$0"`/travis.sh
+mydir=`dirname $0`
+
+source "$mydir/travis.sh"
 
 for ac in "$AUTOCONF" autoconf213 autoconf2.13 autoconf-2.13; do
   if which $ac >/dev/null; then
@@ -29,7 +31,7 @@ case "$config" in
     ;;
 esac
 
-srcdir="$PWD"
+srcdir=`cd "$mydir/.." && pwd`
 build="$1"
 shift
 

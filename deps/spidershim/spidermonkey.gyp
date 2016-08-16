@@ -80,7 +80,7 @@
         },
       ],
 
-      'direct_dependent_settings': {
+      'all_dependent_settings': {
         'library_dirs': [ '<(PRODUCT_DIR)' ],
         'configurations': {
           'Release': {
@@ -93,6 +93,28 @@
         'include_dirs': [
           '<(PRODUCT_DIR)/spidermonkey/dist/include',
         ],
+	'libraries': [
+	  '-ljs_static',
+	  '-lz',
+	],
+	'conditions': [
+	  [ 'target_arch=="arm"', {
+	    'defines': [ '__arm__=1' ]
+	  }],
+	  ['OS == "linux"', {
+	    'libraries': [
+	      '-ldl',
+	      '-lzlib',
+              '<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+	      '-lrt',
+	    ],
+	  }],
+	  ['OS == "mac"', {
+	    'libraries': [
+	      '-lmozglue',
+	    ],
+	  }],
+	],
       },
 
     },

@@ -2,6 +2,17 @@
   'variables': {
     'library%': 'static_library',
     'node_engine%': 'spidermonkey',
+    'external_spidermonkey_release%': '',
+    'variables': {
+      'external_spidermonkey_debug%': '<(external_spidermonkey_release)',
+    },
+    'conditions': [
+      ['external_spidermonkey_debug=="" and external_spidermonkey_release==""', {
+        'spidermonkey_gyp': 'spidermonkey.gyp',
+      }, {
+        'spidermonkey_gyp': 'spidermonkey-external.gyp',
+      }],
+    ],
     'python%': 'python',
     'library_files': [
       'lib/spidershim.js',
@@ -24,12 +35,12 @@
         [ 'target_arch=="arm"', { 'defines': [ '__arm__=1' ] } ],
         ['node_engine=="spidermonkey"', {
           'dependencies': [
-            'spidermonkey.gyp:spidermonkey',
             '../zlib/zlib.gyp:zlib',
+            '<(spidermonkey_gyp):spidermonkey',
           ],
           'export_dependent_settings': [
-            'spidermonkey.gyp:spidermonkey',
             '../zlib/zlib.gyp:zlib',
+            '<(spidermonkey_gyp):spidermonkey',
           ],
         }],
         [ 'OS=="mac" or OS=="ios"', {
@@ -43,29 +54,10 @@
         'include_dirs': [
           'include',
         ],
-        'libraries': [
-          '-ljs_static',
-          '-lspidershim',
-          '-lz',
-        ],
-        'conditions': [
-          [ 'target_arch=="arm"', {
-            'defines': [ '__arm__=1' ]
-          }],
-          ['OS == "linux"', {
-            'libraries': [
-              '-ldl',
-              '-lzlib',
-              '<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
-              '-lrt',
-            ],
-          }],
-          ['OS == "mac"', {
-            'libraries': [
-              '-lmozglue',
-            ],
-          }],
-        ],
+        'library_dirs': [ '<(PRODUCT_DIR)' ],
+	'libraries': [
+	  '-lspidershim',
+	],
       },
 
       'sources': [

@@ -34,6 +34,7 @@ Where `options` is zero or more of:
 * `--engine`: The JavaScript engine to use.  The default engine is `spidermonkey`.
 * `--debug`: Also build in debug mode.  The default build configuration is release.
 * `--enable-gczeal`: Enable SpiderMonkey gc-zeal support.  This is useful for debugging GC rooting correctness issues.
+* `--with-external-spidermonkey-release` and `--with-external-spidermonkey-debug`: Enable building against an out of tree SpiderMonkey. Expects a path to a built SpiderMonkey object directory (in release and debug modes, respectively)
 
 To run the API tests, do:
 
