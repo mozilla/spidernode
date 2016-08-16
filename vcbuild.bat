@@ -83,6 +83,7 @@ if /i "%1"=="ignore-flaky"  set test_args=%test_args% --flaky-tests=dontcare&got
 if /i "%1"=="enable-vtune"  set enable_vtune_arg=1&goto arg-ok
 if /i "%1"=="v8"            set engine=v8&goto arg-ok
 if /i "%1"=="chakracore"    set engine=chakracore&set chakra_jslint=deps\chakrashim\lib&goto arg-ok
+if /i "%1"=="spidermonkey"  set engine=spidermonkey&goto arg-ok
 
 echo Warning: ignoring invalid command line option `%1`.
 
@@ -118,6 +119,7 @@ if "%i18n_arg%"=="small-icu" set configure_flags=%configure_flags% --with-intl=s
 if "%i18n_arg%"=="intl-none" set configure_flags=%configure_flags% --with-intl=none
 if "%i18n_arg%"=="without-intl" set configure_flags=%configure_flags% --without-intl
 if "%engine%"=="chakracore" set configure_flags=%configure_flags% --without-intl --without-inspector --without-v8-platform --without-bundled-v8
+if "%engine%"=="spidermonkey" set configure_flags=%configure_flags% --without-intl --without-inspector --without-v8-platform --without-bundled-v8
 
 if defined config_flags set configure_flags=%configure_flags% %config_flags%
 
