@@ -147,20 +147,20 @@ static inline JSString* GetString(const Local<Value>& val) {
 }
 
 // Various callbacks cannot be represented in a single JS::Value, because the
-// max size of the stored private is 63 bits and code addresses can have their
-// least significant bit set, whereas JS::PrivateValue assumes the thing being
-// stored has the LSB clear.  So we need to encode FunctionCallback as two
-// private values.  The first one stores all but the least significant bit,
-// while the second one stores the LSB left-shifted by one.
+// max size of the stored private is 60 bits.  So we need to encode pointer
+// values as two private values.  The first one stores the most significant 60
+// bits, while the second one stores the remaining 4 bits.  Since the lowest
+// significant bit of private values cannot be set, we need to shift to the right
+// by 3 instead of 4.
 template<typename T>
 static inline T ValuesToCallback(JS::HandleValue val1,
                                  JS::HandleValue val2) {
   void* ptr1 = val1.toPrivate();
   void* ptr2 = val2.toPrivate();
-  assert(ptr2 == reinterpret_cast<void*>(0x0) ||
-         ptr2 == reinterpret_cast<void*>(0x1 << 1));
+  assert(((reinterpret_cast<uintptr_t>(ptr1) << 3) & 0x000000000000000f) == 0);
+  assert(((reinterpret_cast<uintptr_t>(ptr2) >> 1) & 0xfffffffffffffff0) == 0);
   return reinterpret_cast<T>
-    (reinterpret_cast<uintptr_t>(ptr1) |
+    ((reinterpret_cast<uintptr_t>(ptr1) << 3) |
      (reinterpret_cast<uintptr_t>(ptr2) >> 1));
 }
 
@@ -169,9 +169,9 @@ static inline void CallbackToValues(T callback,
                                     JS::MutableHandleValue val1,
                                     JS::MutableHandleValue val2) {
   void* ptr1 = reinterpret_cast<void*>
-    (reinterpret_cast<uintptr_t>(callback) & ~uintptr_t(0x1));
+    ((reinterpret_cast<uintptr_t>(callback) & 0xfffffffffffffff0) >> 3);
   void* ptr2 = reinterpret_cast<void*>
-    (((reinterpret_cast<uintptr_t>(callback) & uintptr_t(0x1)) << 1));
+    ((reinterpret_cast<uintptr_t>(callback) & 0x000000000000000f) << 1);
   val1.setPrivate(ptr1);
   val2.setPrivate(ptr2);
   assert(ValuesToCallback<T>(val1, val2) == callback);
