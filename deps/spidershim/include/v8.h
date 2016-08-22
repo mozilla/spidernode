@@ -2712,6 +2712,7 @@ class V8_EXPORT Isolate {
   friend class PersistentBase;
   template <class T>
   friend class Eternal;
+  friend class V8;
 
   Value* AddPersistent(Value* val);
   void RemovePersistent(Value* val);
@@ -2781,6 +2782,8 @@ class V8_EXPORT Isolate {
   int GetCallDepth() const;
   void AdjustCallDepth(int change);
   Local<Object> GetHiddenGlobal();
+
+  static uintptr_t sStackSize;
 
   struct Impl;
   Impl* pimpl_;
