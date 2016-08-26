@@ -183,7 +183,8 @@ const JSClassOps objectTemplateClassOps = {
 
 const JSClass objectTemplateClass = {
   "ObjectTemplate",
-  JSCLASS_HAS_RESERVED_SLOTS(uint32_t(TemplateSlots::NumSlots)),
+  JSCLASS_HAS_RESERVED_SLOTS(uint32_t(TemplateSlots::NumSlots)) |
+  JSCLASS_FOREGROUND_FINALIZE,
   &objectTemplateClassOps
 };
 
@@ -1197,7 +1198,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objec
     MOZ_CRASH();
   }
 
-  uint32_t flags = InstanceClass::instantiatedFromTemplate;
+  uint32_t flags = InstanceClass::instantiatedFromTemplate | JSCLASS_FOREGROUND_FINALIZE;
   Local<String> name = GetClassName();
   if (name.IsEmpty()) {
     instanceClass->name = (objectType == GlobalObject) ? "GlobalObject" : "Object";
