@@ -110,7 +110,8 @@
             'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Release/icudata.o']},
             'conditions': [
               ['external_spidermonkey_release_has_nspr == 1', {
-                'libraries': [ '-lnspr4' ],
+                # Normally we'd use libraries here, but gyp doesn't allow us.
+                'ldflags': [ '-lnspr4' ],
               }],
             ],
           },
@@ -122,7 +123,8 @@
             'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Debug/icudata.o']},
             'conditions': [
               ['external_spidermonkey_debug_has_nspr == 1', {
-                'libraries': [ '-lnspr4' ],
+                # Normally we'd use libraries here, but gyp doesn't allow us.
+                'ldflags': [ '-lnspr4' ],
               }],
             ],
           },
