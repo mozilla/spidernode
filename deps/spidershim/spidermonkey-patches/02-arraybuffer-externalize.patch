@@ -1,28 +1,18 @@
-# HG changeset patch
-# User Ehsan Akhgari <ehsan@mozilla.com>
+commit fc6918be6fbe809f06c655f8fa54894815c5300b (HEAD -> work)
+Author: Ehsan Akhgari <ehsan@mozilla.com>
+Date:   Sat Jul 16 17:52:39 2016 -0400
 
-Bug 1287298 - Add an API to give up ownership of ArrayBuffer data; r=jorendorff
-
-This is similar to stealing the buffer, except that the ArrayBuffer
-won't be detached.  The caller is still responsible for freeing the
-buffer.
----
- js/src/jsapi-tests/testArrayBuffer.cpp | 44 +++++++++++++++++++++++
- js/src/jsapi.h                         |  9 +++++
- js/src/vm/ArrayBufferObject.cpp        | 66 ++++++++++++++++++++++++++++++----
- js/src/vm/ArrayBufferObject.h          |  7 ++--
- 4 files changed, 117 insertions(+), 9 deletions(-)
+    Bug 1287298 - Add an API to give up ownership of ArrayBuffer data; r=jorendorff
+    
+    This is similar to stealing the buffer, except that the ArrayBuffer
+    won't be detached.  The caller is still responsible for freeing the
+    buffer.
 
 diff --git a/js/src/jsapi-tests/testArrayBuffer.cpp b/js/src/jsapi-tests/testArrayBuffer.cpp
-index bc0fa11e..727cab6 100644
+index bc0fa11e..3d12069 100644
 --- a/js/src/jsapi-tests/testArrayBuffer.cpp
 +++ b/js/src/jsapi-tests/testArrayBuffer.cpp
-@@ -153,8 +153,52 @@ static void GC(JSContext* cx)
- }
- 
- bool hasDetachedBuffer(JS::HandleObject obj) {
-     JS::RootedValue v(cx);
-     return JS_GetProperty(cx, obj, "byteLength", &v) && v.toInt32() == 0;
+@@ -158,3 +158,48 @@ bool hasDetachedBuffer(JS::HandleObject obj) {
  }
  
  END_TEST(testArrayBuffer_bug720949_viewList)
@@ -43,6 +33,7 @@ index bc0fa11e..727cab6 100644
 +
 +    buffer = JS_NewArrayBuffer(cx, n);
 +    JS::RootedObject view(cx, JS_NewUint8ArrayWithBuffer(cx, buffer, 0, -1));
++    CHECK(view != nullptr);
 +    void* contents = JS_ExternalizeArrayBufferContents(cx, buffer);
 +    CHECK(contents != nullptr);
 +    CHECK(hasExpectedLength(view, n));
@@ -71,22 +62,16 @@ index bc0fa11e..727cab6 100644
 +
 +END_TEST(testArrayBuffer_externalize)
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
-index 2c4752b..e3e4863 100644
+index 9f4858e..c049199 100644
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
-@@ -3427,16 +3427,25 @@ JS_NewArrayBufferWithExternalContents(JSContext* cx, size_t nbytes, void* conten
-  * length set to 0 and its contents array cleared. The caller takes ownership
-  * of the return value and must free it or transfer ownership via
-  * JS_NewArrayBufferWithContents when done using it.
-  */
- extern JS_PUBLIC_API(void*)
+@@ -3417,6 +3417,14 @@ extern JS_PUBLIC_API(void*)
  JS_StealArrayBufferContents(JSContext* cx, JS::HandleObject obj);
  
  /**
 + * Externalizes the contents of the given array buffer.  The array buffer length is not modified,
 + * and its contents array still points to the returned buffer. The caller takes ownership of the
-+ * return value and must free it or transfer ownership via JS_NewArrayBufferWithContents when done
-+ * using it.
++ * return value and must free it after calling JS_DetachArrayBuffer.
 + */
 +extern JS_PUBLIC_API(void*)
 +JS_ExternalizeArrayBufferContents(JSContext* cx, JS::HandleObject obj);
@@ -95,21 +80,11 @@ index 2c4752b..e3e4863 100644
   * Create a new mapped array buffer with the given memory mapped contents. It
   * must be legal to free the contents pointer by unmapping it. On success,
   * ownership is transferred to the new mapped array buffer.
-  */
- extern JS_PUBLIC_API(JSObject*)
- JS_NewMappedArrayBufferWithContents(JSContext* cx, size_t nbytes, void* contents);
- 
- /**
 diff --git a/js/src/vm/ArrayBufferObject.cpp b/js/src/vm/ArrayBufferObject.cpp
-index 3437c0c..0d2b64d 100644
+index 7f99c18..9784e8e 100644
 --- a/js/src/vm/ArrayBufferObject.cpp
 +++ b/js/src/vm/ArrayBufferObject.cpp
-@@ -305,32 +305,32 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
-             MOZ_ASSERT(buffer->firstView()->is<InlineTransparentTypedObject>());
-         } else {
-             NoteViewBufferWasDetached(buffer->firstView(), newContents, cx);
-             buffer->setFirstView(nullptr);
-         }
+@@ -309,21 +309,21 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
      }
  
      if (newContents.data() != buffer->dataPointer())
@@ -118,7 +93,6 @@ index 3437c0c..0d2b64d 100644
  
      buffer->setByteLength(0);
      buffer->setIsDetached();
-     return true;
  }
  
  void
@@ -135,17 +109,7 @@ index 3437c0c..0d2b64d 100644
  }
  
  // This is called *only* from changeContents(), below.
- // By construction, every view parameter will be mapping unshared memory (an ArrayBuffer).
- // Hence no reason to worry about shared memory here.
- 
- void
- ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view,
-@@ -351,23 +351,24 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
- 
-     // Notify compiled jit code that the base pointer has moved.
-     MarkObjectStateChange(cx, view);
- }
- 
+@@ -354,13 +354,14 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
  // BufferContents is specific to ArrayBuffer, hence it will not represent shared memory.
  
  void
@@ -162,17 +126,7 @@ index 3437c0c..0d2b64d 100644
  
      // Update all views.
      auto& innerViews = cx->compartment()->innerViews;
-     if (InnerViewTable::ViewVector* views = innerViews.maybeViewsUnbarriered(this)) {
-         for (size_t i = 0; i < views->length(); i++)
-             changeViewContents(cx, (*views)[i], oldDataPointer, newContents);
-     }
-     if (firstView())
-@@ -500,17 +501,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
-         }
- 
-         // Copy over the current contents of the typed array.
-         memcpy(data, buffer->dataPointer(), buffer->byteLength());
- 
+@@ -503,7 +504,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
          // Swap the new elements into the ArrayBufferObject. Mark the
          // ArrayBufferObject so we don't do this again.
          BufferContents newContents = BufferContents::create<WASM_MAPPED>(data);
@@ -181,17 +135,7 @@ index 3437c0c..0d2b64d 100644
          MOZ_ASSERT(data == buffer->dataPointer());
          return true;
  #else
-         MOZ_CRASH("shouldn't be using signal handlers for out-of-bounds");
- #endif  // ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_OOB
-     }
- 
-     if (buffer->forInlineTypedObject()) {
-@@ -518,17 +519,17 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
-         return false;
-     }
- 
-     if (!buffer->ownsData()) {
-         BufferContents contents = AllocateArrayBufferContents(cx, buffer->byteLength());
+@@ -521,7 +522,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
          if (!contents)
              return false;
          memcpy(contents.data(), buffer->dataPointer(), buffer->byteLength());
@@ -200,17 +144,7 @@ index 3437c0c..0d2b64d 100644
      }
  
      buffer->setIsWasmMalloced();
-     return true;
- }
- 
- ArrayBufferObject::BufferContents
- ArrayBufferObject::createMappedContents(int fd, size_t offset, size_t length)
-@@ -723,16 +724,40 @@ ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args
- bool
- ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp)
- {
-     CallArgs args = CallArgsFromVp(argc, vp);
-     return CallNonGenericMethod<IsArrayBuffer, createDataViewForThisImpl>(cx, args);
+@@ -726,6 +727,30 @@ ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp
  }
  
  /* static */ ArrayBufferObject::BufferContents
@@ -241,17 +175,7 @@ index 3437c0c..0d2b64d 100644
  ArrayBufferObject::stealContents(JSContext* cx, Handle<ArrayBufferObject*> buffer,
                                   bool hasStealableContents)
  {
-     MOZ_ASSERT_IF(hasStealableContents, buffer->hasStealableContents());
- 
-     BufferContents oldContents(buffer->dataPointer(), buffer->bufferKind());
-     BufferContents newContents = AllocateArrayBufferContents(cx, buffer->byteLength());
-     if (!newContents)
-@@ -1269,16 +1294,43 @@ JS_FRIEND_API(JSObject*)
- js::UnwrapSharedArrayBuffer(JSObject* obj)
- {
-     if (JSObject* unwrapped = CheckedUnwrap(obj))
-         return unwrapped->is<SharedArrayBufferObject>() ? unwrapped : nullptr;
-     return nullptr;
+@@ -1278,6 +1303,33 @@ js::UnwrapSharedArrayBuffer(JSObject* obj)
  }
  
  JS_PUBLIC_API(void*)
@@ -284,22 +208,12 @@ index 3437c0c..0d2b64d 100644
 +JS_PUBLIC_API(void*)
  JS_StealArrayBufferContents(JSContext* cx, HandleObject objArg)
  {
-     JSObject* obj = CheckedUnwrap(objArg);
-     if (!obj)
-         return nullptr;
- 
-     if (!obj->is<ArrayBufferObject>()) {
-         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
+     AssertHeapIsIdle(cx);
 diff --git a/js/src/vm/ArrayBufferObject.h b/js/src/vm/ArrayBufferObject.h
-index 31c44fd..511c0b4 100644
+index 627a90e..9240c39 100644
 --- a/js/src/vm/ArrayBufferObject.h
 +++ b/js/src/vm/ArrayBufferObject.h
-@@ -241,16 +241,19 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
- 
-     static void copyData(Handle<ArrayBufferObject*> toBuffer,
-                          Handle<ArrayBufferObject*> fromBuffer,
-                          uint32_t fromIndex, uint32_t count);
- 
+@@ -243,6 +243,9 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
      static void trace(JSTracer* trc, JSObject* obj);
      static void objectMoved(JSObject* obj, const JSObject* old);
  
@@ -309,17 +223,7 @@ index 31c44fd..511c0b4 100644
      static BufferContents stealContents(JSContext* cx,
                                          Handle<ArrayBufferObject*> buffer,
                                          bool hasStealableContents);
- 
-     bool hasStealableContents() const {
-         // Inline elements strictly adhere to the corresponding buffer.
-         if (!ownsData())
-             return false;
-@@ -276,18 +279,18 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
-     // later views are (weakly) stored in the compartment's InnerViewTable
-     // below. Buffers usually only have one view, so this slot optimizes for
-     // the common case. Avoiding entries in the InnerViewTable saves memory and
-     // non-incrementalized sweep time.
-     ArrayBufferViewObject* firstView();
+@@ -270,8 +273,8 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
  
      bool addView(JSContext* cx, JSObject* view);
  
@@ -330,9 +234,3 @@ index 31c44fd..511c0b4 100644
  
      // Detach this buffer from its original memory.  (This necessarily makes
      // views of this buffer unusable for modifying that original memory.)
-     static MOZ_MUST_USE bool
-     detach(JSContext* cx, Handle<ArrayBufferObject*> buffer, BufferContents newContents);
- 
-   private:
-     void changeViewContents(JSContext* cx, ArrayBufferViewObject* view,
-
