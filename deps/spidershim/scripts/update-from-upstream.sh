@@ -9,6 +9,9 @@ fi
 
 if test -d spidermonkey; then
   rm -rf spidermonkey
+else
+  >&2 echo 'Please run this script from the deps/spidershim subdirectory.'
+  exit 1
 fi
 
 SM_DIR="$1"
