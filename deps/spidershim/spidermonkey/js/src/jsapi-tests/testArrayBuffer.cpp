@@ -175,6 +175,7 @@ bool testWithSize(JSContext* cx, int32_t n)
 
     buffer = JS_NewArrayBuffer(cx, n);
     JS::RootedObject view(cx, JS_NewUint8ArrayWithBuffer(cx, buffer, 0, -1));
+    CHECK(view != nullptr);
     void* contents = JS_ExternalizeArrayBufferContents(cx, buffer);
     CHECK(contents != nullptr);
     CHECK(hasExpectedLength(view, n));

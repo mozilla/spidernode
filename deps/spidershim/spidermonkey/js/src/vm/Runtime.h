@@ -26,8 +26,9 @@
 # include "asmjs/WasmSignalHandlers.h"
 #endif
 #include "builtin/AtomicsObject.h"
+#include "builtin/Promise.h"
 #include "ds/FixedSizeHash.h"
-#include "frontend/ParseMaps.h"
+#include "frontend/NameCollections.h"
 #include "gc/GCRuntime.h"
 #include "gc/Tracer.h"
 #include "irregexp/RegExpStack.h"
@@ -44,6 +45,7 @@
 #include "vm/CommonPropertyNames.h"
 #include "vm/DateTime.h"
 #include "vm/MallocProvider.h"
+#include "vm/Scope.h"
 #include "vm/SharedImmutableStringsCache.h"
 #include "vm/SPSProfiler.h"
 #include "vm/Stack.h"
@@ -64,6 +66,8 @@ class EnterDebuggeeNoExecute;
 #ifdef JS_TRACE_LOGGING
 class TraceLoggerThread;
 #endif
+
+typedef Vector<UniquePtr<PromiseTask>, 0, SystemAllocPolicy> PromiseTaskPtrVector;
 
 /* Thread Local Storage slot for storing the runtime for a thread. */
 extern MOZ_THREAD_LOCAL(PerThreadData*) TlsPerThreadData;
@@ -118,22 +122,26 @@ class FreeOp : public JSFreeOp
 {
     Vector<void*, 0, SystemAllocPolicy> freeLaterList;
     jit::JitPoisonRangeVector jitPoisonRanges;
-    ThreadType threadType;
 
   public:
     static FreeOp* get(JSFreeOp* fop) {
         return static_cast<FreeOp*>(fop);
     }
 
-    explicit FreeOp(JSRuntime* rt, ThreadType thread = MainThread)
-      : JSFreeOp(rt), threadType(thread)
-    {}
-
+    explicit FreeOp(JSRuntime* maybeRuntime);
     ~FreeOp();
 
-    bool onBackgroundThread() {
-        return threadType == BackgroundThread;
+    bool onMainThread() const {
+        return runtime_ != nullptr;
     }
+
+    bool maybeOffMainThread() const {
+        // Sometimes background finalization happens on the main thread so
+        // runtime_ being null doesn't always mean we are off the main thread.
+        return !runtime_;
+    }
+
+    bool isDefaultFreeOp() const;
 
     inline void free_(void* p);
     inline void freeLater(void* p);
@@ -294,8 +302,10 @@ class PerThreadData
     bool gcSweeping;
 #endif
 
-    // Number of active bytecode compilation on this thread.
-    unsigned activeCompilations;
+    // Pools used for recycling name maps and vectors when parsing and
+    // emitting bytecode. Purged on GC when there are no active script
+    // compilations.
+    frontend::NameCollectionPool frontendCollectionPool;
 
     explicit PerThreadData(JSRuntime* runtime);
     ~PerThreadData();
@@ -309,8 +319,6 @@ class PerThreadData
     JSContext* contextFromMainThread();
 
     inline bool exclusiveThreadsPresent();
-    inline void addActiveCompilation(AutoLockForExclusiveAccess& lock);
-    inline void removeActiveCompilation(AutoLockForExclusiveAccess& lock);
 
     // For threads which may be associated with different runtimes, depending
     // on the work they are doing.
@@ -639,6 +647,10 @@ struct JSRuntime : public JS::shadow::Runtime,
     JSPromiseRejectionTrackerCallback promiseRejectionTrackerCallback;
     void* promiseRejectionTrackerCallbackData;
 
+    JS::StartAsyncTaskCallback startAsyncTaskCallback;
+    JS::FinishAsyncTaskCallback finishAsyncTaskCallback;
+    js::ExclusiveData<js::PromiseTaskPtrVector> promiseTasksToDestroy;
+
   private:
     /*
      * Lock taken when using per-runtime or per-zone data that could otherwise
@@ -685,7 +697,7 @@ struct JSRuntime : public JS::shadow::Runtime,
 
   private:
     /* See comment for JS_AbortIfWrongThread in jsapi.h. */
-    void* ownerThread_;
+    js::Thread::Id ownerThread_;
     size_t ownerThreadNative_;
     friend bool js::CurrentThreadCanAccessRuntime(JSRuntime* rt);
   public:
@@ -913,11 +925,12 @@ struct JSRuntime : public JS::shadow::Runtime,
 #endif
 
   private:
-    js::FreeOp          defaultFreeOp_;
+    js::FreeOp*         defaultFreeOp_;
 
   public:
     js::FreeOp* defaultFreeOp() {
-        return &defaultFreeOp_;
+        MOZ_ASSERT(defaultFreeOp_);
+        return defaultFreeOp_;
     }
 
     uint32_t            debuggerMutations;
@@ -967,26 +980,6 @@ struct JSRuntime : public JS::shadow::Runtime,
         return parentRuntime ? parentRuntime->sharedImmutableStrings() : *sharedImmutableStrings_;
     }
 
-    // Pool of maps used during parse/emit. This may be modified by threads
-    // with an ExclusiveContext and requires a lock. Active compilations
-    // prevent the pool from being purged during GCs.
-  private:
-    js::frontend::ParseMapPool parseMapPool_;
-    unsigned activeCompilations_;
-  public:
-    js::frontend::ParseMapPool& parseMapPool(js::AutoLockForExclusiveAccess& lock) {
-        return parseMapPool_;
-    }
-    bool hasActiveCompilations() {
-        return activeCompilations_ != 0;
-    }
-    void addActiveCompilation(js::AutoLockForExclusiveAccess& lock) {
-        activeCompilations_++;
-    }
-    void removeActiveCompilation(js::AutoLockForExclusiveAccess& lock) {
-        activeCompilations_--;
-    }
-
     // Count of AutoKeepAtoms instances on the main thread's stack. When any
     // instances exist, atoms in the runtime will not be collected. Threads
     // with an ExclusiveContext do not increment this value, but the presence
@@ -1001,7 +994,6 @@ struct JSRuntime : public JS::shadow::Runtime,
     friend class js::AutoKeepAtoms;
   public:
     bool keepAtoms() {
-        MOZ_ASSERT(CurrentThreadCanAccessRuntime(this));
         return keepAtoms_ != 0 || exclusiveThreadsPresent();
     }
 
@@ -1039,6 +1031,7 @@ struct JSRuntime : public JS::shadow::Runtime,
   public:
     bool initializeAtoms(JSContext* cx);
     void finishAtoms();
+    bool atomsAreFinished() const { return !atoms_; }
 
     void sweepAtoms();
 
@@ -1333,7 +1326,7 @@ FreeOp::freeLater(void* p)
 {
     // FreeOps other than the defaultFreeOp() are constructed on the stack,
     // and won't hold onto the pointers to free indefinitely.
-    MOZ_ASSERT(this != runtime()->defaultFreeOp());
+    MOZ_ASSERT(!isDefaultFreeOp());
 
     AutoEnterOOMUnsafeRegion oomUnsafe;
     if (!freeLaterList.append(p))
@@ -1345,7 +1338,7 @@ FreeOp::appendJitPoisonRange(const jit::JitPoisonRange& range)
 {
     // FreeOps other than the defaultFreeOp() are constructed on the stack,
     // and won't hold onto the pointers to free indefinitely.
-    MOZ_ASSERT(this != runtime()->defaultFreeOp());
+    MOZ_ASSERT(!isDefaultFreeOp());
 
     return jitPoisonRanges.append(range);
 }
@@ -1463,21 +1456,6 @@ inline bool
 PerThreadData::exclusiveThreadsPresent()
 {
     return runtime_->exclusiveThreadsPresent();
-}
-
-inline void
-PerThreadData::addActiveCompilation(AutoLockForExclusiveAccess& lock)
-{
-    activeCompilations++;
-    runtime_->addActiveCompilation(lock);
-}
-
-inline void
-PerThreadData::removeActiveCompilation(AutoLockForExclusiveAccess& lock)
-{
-    MOZ_ASSERT(activeCompilations);
-    activeCompilations--;
-    runtime_->removeActiveCompilation(lock);
 }
 
 /************************************************************************/
@@ -1702,6 +1680,20 @@ namespace JS {
 template <typename T>
 struct DeletePolicy<js::GCPtr<T>> : public js::GCManagedDeletePolicy<js::GCPtr<T>>
 {};
+
+// Scope data that contain GCPtrs must use the correct DeletePolicy.
+//
+// This is defined here because vm/Scope.h cannot #include "vm/Runtime.h"
+
+template <>
+struct DeletePolicy<js::FunctionScope::Data>
+  : public js::GCManagedDeletePolicy<js::FunctionScope::Data>
+{ };
+
+template <>
+struct DeletePolicy<js::ModuleScope::Data>
+  : public js::GCManagedDeletePolicy<js::ModuleScope::Data>
+{ };
 
 } /* namespace JS */
 

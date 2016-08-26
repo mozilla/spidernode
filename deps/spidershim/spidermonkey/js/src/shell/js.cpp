@@ -14,7 +14,7 @@
 #include "mozilla/mozalloc.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/SizePrintfMacros.h"
-#include "mozilla/Snprintf.h"
+#include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
 
 #ifdef XP_WIN
@@ -49,7 +49,6 @@
 #include "jsatom.h"
 #include "jscntxt.h"
 #include "jsfun.h"
-#include "jslock.h"
 #include "jsobj.h"
 #include "jsprf.h"
 #include "jsscript.h"
@@ -150,7 +149,103 @@ static const TimeDuration MAX_TIMEOUT_INTERVAL = TimeDuration::FromSeconds(1800.
 
 #ifdef SPIDERMONKEY_PROMISE
 using JobQueue = GCVector<JSObject*, 0, SystemAllocPolicy>;
+
+struct ShellAsyncTasks
+{
+    explicit ShellAsyncTasks(JSContext* cx)
+      : outstanding(0),
+        finished(cx)
+    {}
+
+    size_t outstanding;
+    Vector<JS::AsyncTask*> finished;
+};
 #endif // SPIDERMONKEY_PROMISE
+
+enum class ScriptKind
+{
+    Script,
+    Module
+};
+
+class OffThreadState {
+    enum State {
+        IDLE,           /* ready to work; no token, no source */
+        COMPILING,      /* working; no token, have source */
+        DONE            /* compilation done: have token and source */
+    };
+
+  public:
+    OffThreadState() : monitor(), state(IDLE), token(), source(nullptr) { }
+
+    bool startIfIdle(JSContext* cx, ScriptKind kind,
+                     ScopedJSFreePtr<char16_t>& newSource)
+    {
+        AutoLockMonitor alm(monitor);
+        if (state != IDLE)
+            return false;
+
+        MOZ_ASSERT(!token);
+
+        source = newSource.forget();
+
+        scriptKind = kind;
+        state = COMPILING;
+        return true;
+    }
+
+    void abandon(JSContext* cx) {
+        AutoLockMonitor alm(monitor);
+        MOZ_ASSERT(state == COMPILING);
+        MOZ_ASSERT(!token);
+        MOZ_ASSERT(source);
+
+        js_free(source);
+        source = nullptr;
+
+        state = IDLE;
+    }
+
+    void markDone(void* newToken) {
+        AutoLockMonitor alm(monitor);
+        MOZ_ASSERT(state == COMPILING);
+        MOZ_ASSERT(!token);
+        MOZ_ASSERT(source);
+        MOZ_ASSERT(newToken);
+
+        token = newToken;
+        state = DONE;
+        alm.notify();
+    }
+
+    void* waitUntilDone(JSContext* cx, ScriptKind kind) {
+        AutoLockMonitor alm(monitor);
+        if (state == IDLE || scriptKind != kind)
+            return nullptr;
+
+        if (state == COMPILING) {
+            while (state != DONE)
+                alm.wait();
+        }
+
+        MOZ_ASSERT(source);
+        js_free(source);
+        source = nullptr;
+
+        MOZ_ASSERT(token);
+        void* holdToken = token;
+        token = nullptr;
+        state = IDLE;
+        return holdToken;
+    }
+
+  private:
+    Monitor monitor;
+    ScriptKind scriptKind;
+    State state;
+    void* token;
+    char16_t* source;
+};
 
 // Per-context shell state.
 struct ShellContext
@@ -168,6 +263,8 @@ struct ShellContext
 #ifdef SPIDERMONKEY_PROMISE
     JS::PersistentRootedValue promiseRejectionTrackerCallback;
     JS::PersistentRooted<JobQueue> jobQueue;
+    ExclusiveData<ShellAsyncTasks> asyncTasks;
+    bool drainingJobQueue;
 #endif // SPIDERMONKEY_PROMISE
 
     /*
@@ -189,6 +286,8 @@ struct ShellContext
     static const uint32_t SpsProfilingMaxStackSize = 1000;
     ProfileEntry spsProfilingStack[SpsProfilingMaxStackSize];
     uint32_t spsProfilingStackSize;
+
+    OffThreadState offThreadState;
 };
 
 struct MOZ_STACK_CLASS EnvironmentPreparer : public js::ScriptEnvironmentPreparer {
@@ -329,6 +428,8 @@ ShellContext::ShellContext(JSContext* cx)
     lastWarning(cx, NullValue()),
 #ifdef SPIDERMONKEY_PROMISE
     promiseRejectionTrackerCallback(cx, NullValue()),
+    asyncTasks(cx),
+    drainingJobQueue(false),
 #endif // SPIDERMONKEY_PROMISE
     exitCode(0),
     quitting(false),
@@ -643,6 +744,28 @@ ShellEnqueuePromiseJobCallback(JSContext* cx, JS::HandleObject job, JS::HandleOb
     MOZ_ASSERT(job);
     return sc->jobQueue.append(job);
 }
+
+static bool
+ShellStartAsyncTaskCallback(JSContext* cx, JS::AsyncTask* task)
+{
+    ShellContext* sc = GetShellContext(cx);
+    task->user = sc;
+
+    ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
+    asyncTasks->outstanding++;
+    return true;
+}
+
+static bool
+ShellFinishAsyncTaskCallback(JS::AsyncTask* task)
+{
+    ShellContext* sc = (ShellContext*)task->user;
+
+    ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
+    MOZ_ASSERT(asyncTasks->outstanding > 0);
+    asyncTasks->outstanding--;
+    return asyncTasks->finished.append(task);
+}
 #endif // SPIDERMONKEY_PROMISE
 
 static bool
@@ -650,8 +773,33 @@ DrainJobQueue(JSContext* cx)
 {
 #ifdef SPIDERMONKEY_PROMISE
     ShellContext* sc = GetShellContext(cx);
-    if (sc->quitting)
+    if (sc->quitting || sc->drainingJobQueue)
         return true;
+
+    // Wait for any outstanding async tasks to finish so that the
+    // finishedAsyncTasks list is fixed.
+    while (true) {
+        if (!sc->asyncTasks.lock()->outstanding)
+            break;
+        AutoLockHelperThreadState lock;
+        HelperThreadState().wait(lock, GlobalHelperThreadState::CONSUMER);
+    }
+
+    // Lock the whole time while flushing the asyncTasks finished queue so that
+    // any new tasks created during finish() cannot racily join the job queue.
+    {
+        ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
+        for (JS::AsyncTask* task : asyncTasks->finished)
+            task->finish(cx);
+        asyncTasks->finished.clear();
+    }
+
+    // It doesn't make sense for job queue draining to be reentrant. At the
+    // same time we don't want to assert against it, because that'd make
+    // drainJobQueue unsafe for fuzzers. We do want fuzzers to test this, so
+    // we simply ignore nested calls of drainJobQueue.
+    sc->drainingJobQueue = true;
+
     RootedObject job(cx);
     JS::HandleValueArray args(JS::HandleValueArray::empty());
     RootedValue rval(cx);
@@ -668,6 +816,7 @@ DrainJobQueue(JSContext* cx)
         sc->jobQueue[i].set(nullptr);
     }
     sc->jobQueue.clear();
+    sc->drainingJobQueue = false;
 #endif // SPIDERMONKEY_PROMISE
     return true;
 }
@@ -698,6 +847,9 @@ ForwardingPromiseRejectionTrackerCallback(JSContext* cx, JS::HandleObject promis
     FixedInvokeArgs<2> args(cx);
     args[0].setObject(*promise);
     args[1].setInt32(static_cast<int32_t>(state));
+
+    if (!JS_WrapValue(cx, args[0]))
+        return;
 
     RootedValue rval(cx);
     if (!Call(cx, callback, UndefinedHandleValue, args, &rval))
@@ -777,7 +929,7 @@ ReadEvalPrintLoop(JSContext* cx, FILE* in, bool compileOnly)
          */
         int startline = lineno;
         typedef Vector<char, 32> CharBuffer;
-        RootedObject globalLexical(cx, &cx->global()->lexicalScope());
+        RootedObject globalLexical(cx, &cx->global()->lexicalEnvironment());
         CharBuffer buffer(cx);
         do {
             ScheduleWatchdog(cx, -1);
@@ -1508,9 +1660,9 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
         if (loadBytecode && assertEqBytecode) {
             if (saveLength != loadLength) {
                 char loadLengthStr[16];
-                snprintf_literal(loadLengthStr, "%" PRIu32, loadLength);
+                SprintfLiteral(loadLengthStr, "%" PRIu32, loadLength);
                 char saveLengthStr[16];
-                snprintf_literal(saveLengthStr,"%" PRIu32, saveLength);
+                SprintfLiteral(saveLengthStr,"%" PRIu32, saveLength);
 
                 JS_ReportErrorNumber(cx, my_GetErrorMessage, nullptr, JSSMSG_CACHE_EQ_SIZE_FAILED,
                                      loadLengthStr, saveLengthStr);
@@ -2295,21 +2447,21 @@ TryNotes(JSContext* cx, HandleScript script, Sprinter* sp)
 }
 
 static bool
-BlockNotes(JSContext* cx, HandleScript script, Sprinter* sp)
+ScopeNotes(JSContext* cx, HandleScript script, Sprinter* sp)
 {
-    if (!script->hasBlockScopes())
+    if (!script->hasScopeNotes())
         return true;
 
-    Sprint(sp, "\nBlock table:\n   index   parent    start      end\n");
+    Sprint(sp, "\nScope notes:\n   index   parent    start      end\n");
 
-    BlockScopeArray* scopes = script->blockScopes();
-    for (uint32_t i = 0; i < scopes->length; i++) {
-        const BlockScopeNote* note = &scopes->vector[i];
-        if (note->index == BlockScopeNote::NoBlockScopeIndex)
+    ScopeNoteArray* notes = script->scopeNotes();
+    for (uint32_t i = 0; i < notes->length; i++) {
+        const ScopeNote* note = &notes->vector[i];
+        if (note->index == ScopeNote::NoScopeIndex)
             Sprint(sp, "%8s ", "(none)");
         else
             Sprint(sp, "%8u ", note->index);
-        if (note->parent == BlockScopeNote::NoBlockScopeIndex)
+        if (note->parent == ScopeNote::NoScopeIndex)
             Sprint(sp, "%8s ", "(none)");
         else
             Sprint(sp, "%8u ", note->parent);
@@ -2328,6 +2480,10 @@ DisassembleScript(JSContext* cx, HandleScript script, HandleFunction fun,
             Sprint(sp, " LAMBDA");
         if (fun->needsCallObject())
             Sprint(sp, " NEEDS_CALLOBJECT");
+        if (fun->needsExtraBodyVarEnvironment())
+            Sprint(sp, " NEEDS_EXTRABODYVARENV");
+        if (fun->needsNamedLambdaEnvironment())
+            Sprint(sp, " NEEDS_NAMEDLAMBDAENV");
         if (fun->isConstructor())
             Sprint(sp, " CONSTRUCTOR");
         if (fun->isExprBody())
@@ -2344,7 +2500,7 @@ DisassembleScript(JSContext* cx, HandleScript script, HandleFunction fun,
     if (sourceNotes)
         SrcNotes(cx, script, sp);
     TryNotes(cx, script, sp);
-    BlockNotes(cx, script, sp);
+    ScopeNotes(cx, script, sp);
 
     if (recursive && script->hasObjects()) {
         ObjectArray* objects = script->objects();
@@ -2420,7 +2576,7 @@ DisassembleToSprinter(JSContext* cx, unsigned argc, Value* vp, Sprinter* sprinte
                 return false;
             SrcNotes(cx, script, sprinter);
             TryNotes(cx, script, sprinter);
-            BlockNotes(cx, script, sprinter);
+            ScopeNotes(cx, script, sprinter);
         }
     } else {
         for (unsigned i = 0; i < p.argc; i++) {
@@ -2974,6 +3130,7 @@ WorkerMain(void* arg)
     sc->jobQueue.init(cx, JobQueue(SystemAllocPolicy()));
     JS::SetEnqueuePromiseJobCallback(cx, ShellEnqueuePromiseJobCallback);
     JS::SetGetIncumbentGlobalCallback(cx, ShellGetIncumbentGlobalCallback);
+    JS::SetAsyncTaskCallbacks(cx, ShellStartAsyncTaskCallback, ShellFinishAsyncTaskCallback);
 #endif // SPIDERMONKEY_PROMISE
 
     EnvironmentPreparer environmentPreparer(cx);
@@ -3120,7 +3277,10 @@ GroupOf(JSContext* cx, unsigned argc, JS::Value* vp)
         return false;
     }
     JSObject* obj = &args[0].toObject();
-    args.rval().set(JS_NumberValue(double(uintptr_t(obj->group()) >> 3)));
+    ObjectGroup* group = obj->getGroup(cx);
+    if (!group)
+        return false;
+    args.rval().set(JS_NumberValue(double(uintptr_t(group) >> 3)));
     return true;
 }
 
@@ -3259,7 +3419,7 @@ KillWorkerThreads()
 
     while (true) {
         // We need to leave the AutoLockWorkerThreads scope before we call
-        // PR_JoinThread, to avoid deadlocks when AutoLockWorkerThreads is
+        // js::Thread::join, to avoid deadlocks when AutoLockWorkerThreads is
         // used by the worker thread.
         Thread* thread;
         {
@@ -3684,8 +3844,11 @@ Parse(JSContext* cx, unsigned argc, Value* vp)
     CompileOptions options(cx);
     options.setIntroductionType("js shell parse")
            .setFileAndLine("<string>", 1);
-    Parser<FullParseHandler> parser(cx, &cx->tempLifoAlloc(), options, chars, length,
-                                    /* foldConstants = */ true, nullptr, nullptr);
+    UsedNameTracker usedNames(cx);
+    if (!usedNames.init())
+        return false;
+    Parser<FullParseHandler> parser(cx, cx->tempLifoAlloc(), options, chars, length,
+                                    /* foldConstants = */ true, usedNames, nullptr, nullptr);
     if (!parser.checkOptions())
         return false;
 
@@ -3731,8 +3894,12 @@ SyntaxParse(JSContext* cx, unsigned argc, Value* vp)
 
     const char16_t* chars = stableChars.twoByteRange().start().get();
     size_t length = scriptContents->length();
-    Parser<frontend::SyntaxParseHandler> parser(cx, &cx->tempLifoAlloc(),
-                                                options, chars, length, false, nullptr, nullptr);
+    UsedNameTracker usedNames(cx);
+    if (!usedNames.init())
+        return false;
+    Parser<frontend::SyntaxParseHandler> parser(cx, cx->tempLifoAlloc(),
+                                                options, chars, length, false,
+                                                usedNames, nullptr, nullptr);
     if (!parser.checkOptions())
         return false;
 
@@ -3751,97 +3918,11 @@ SyntaxParse(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-enum class ScriptKind
-{
-    Script,
-    Module
-};
-
-class OffThreadState {
-    enum State {
-        IDLE,           /* ready to work; no token, no source */
-        COMPILING,      /* working; no token, have source */
-        DONE            /* compilation done: have token and source */
-    };
-
-  public:
-    OffThreadState() : monitor(), state(IDLE), token(), source(nullptr) { }
-
-    bool startIfIdle(JSContext* cx, ScriptKind kind,
-                     ScopedJSFreePtr<char16_t>& newSource)
-    {
-        AutoLockMonitor alm(monitor);
-        if (state != IDLE)
-            return false;
-
-        MOZ_ASSERT(!token);
-
-        source = newSource.forget();
-
-        scriptKind = kind;
-        state = COMPILING;
-        return true;
-    }
-
-    void abandon(JSContext* cx) {
-        AutoLockMonitor alm(monitor);
-        MOZ_ASSERT(state == COMPILING);
-        MOZ_ASSERT(!token);
-        MOZ_ASSERT(source);
-
-        js_free(source);
-        source = nullptr;
-
-        state = IDLE;
-    }
-
-    void markDone(void* newToken) {
-        AutoLockMonitor alm(monitor);
-        MOZ_ASSERT(state == COMPILING);
-        MOZ_ASSERT(!token);
-        MOZ_ASSERT(source);
-        MOZ_ASSERT(newToken);
-
-        token = newToken;
-        state = DONE;
-        alm.notify();
-    }
-
-    void* waitUntilDone(JSContext* cx, ScriptKind kind) {
-        AutoLockMonitor alm(monitor);
-        if (state == IDLE || scriptKind != kind)
-            return nullptr;
-
-        if (state == COMPILING) {
-            while (state != DONE)
-                alm.wait();
-        }
-
-        MOZ_ASSERT(source);
-        js_free(source);
-        source = nullptr;
-
-        MOZ_ASSERT(token);
-        void* holdToken = token;
-        token = nullptr;
-        state = IDLE;
-        return holdToken;
-    }
-
-  private:
-    Monitor monitor;
-    ScriptKind scriptKind;
-    State state;
-    void* token;
-    char16_t* source;
-};
-
-static OffThreadState offThreadState;
-
 static void
 OffThreadCompileScriptCallback(void* token, void* callbackData)
 {
-    offThreadState.markDone(token);
+    ShellContext* sc = static_cast<ShellContext*>(callbackData);
+    sc->offThreadState.markDone(token);
 }
 
 static bool
@@ -3917,16 +3998,17 @@ OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (!offThreadState.startIfIdle(cx, ScriptKind::Script, ownedChars)) {
+    ShellContext* sc = GetShellContext(cx);
+    if (!sc->offThreadState.startIfIdle(cx, ScriptKind::Script, ownedChars)) {
         JS_ReportError(cx, "called offThreadCompileScript without calling runOffThreadScript"
                        " to receive prior off-thread compilation");
         return false;
     }
 
     if (!JS::CompileOffThread(cx, options, chars, length,
-                              OffThreadCompileScriptCallback, nullptr))
+                              OffThreadCompileScriptCallback, sc))
     {
-        offThreadState.abandon(cx);
+        sc->offThreadState.abandon(cx);
         return false;
     }
 
@@ -3942,7 +4024,8 @@ runOffThreadScript(JSContext* cx, unsigned argc, Value* vp)
     if (OffThreadParsingMustWaitForGC(cx))
         gc::FinishGC(cx);
 
-    void* token = offThreadState.waitUntilDone(cx, ScriptKind::Script);
+    ShellContext* sc = GetShellContext(cx);
+    void* token = sc->offThreadState.waitUntilDone(cx, ScriptKind::Script);
     if (!token) {
         JS_ReportError(cx, "called runOffThreadScript when no compilation is pending");
         return false;
@@ -4002,16 +4085,17 @@ OffThreadCompileModule(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (!offThreadState.startIfIdle(cx, ScriptKind::Module, ownedChars)) {
+    ShellContext* sc = GetShellContext(cx);
+    if (!sc->offThreadState.startIfIdle(cx, ScriptKind::Module, ownedChars)) {
         JS_ReportError(cx, "called offThreadCompileModule without receiving prior off-thread "
                        "compilation");
         return false;
     }
 
     if (!JS::CompileOffThreadModule(cx, options, chars, length,
-                                    OffThreadCompileScriptCallback, nullptr))
+                                    OffThreadCompileScriptCallback, sc))
     {
-        offThreadState.abandon(cx);
+        sc->offThreadState.abandon(cx);
         return false;
     }
 
@@ -4027,7 +4111,8 @@ FinishOffThreadModule(JSContext* cx, unsigned argc, Value* vp)
     if (OffThreadParsingMustWaitForGC(cx))
         gc::FinishGC(cx);
 
-    void* token = offThreadState.waitUntilDone(cx, ScriptKind::Module);
+    ShellContext* sc = GetShellContext(cx);
+    void* token = sc->offThreadState.waitUntilDone(cx, ScriptKind::Module);
     if (!token) {
         JS_ReportError(cx, "called finishOffThreadModule when no compilation is pending");
         return false;
@@ -4962,9 +5047,8 @@ ReflectTrackedOptimizations(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-#ifdef DEBUG
 static bool
-DumpStaticScopeChain(JSContext* cx, unsigned argc, Value* vp)
+DumpScopeChain(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     RootedObject callee(cx, &args.callee());
@@ -4995,12 +5079,11 @@ DumpStaticScopeChain(JSContext* cx, unsigned argc, Value* vp)
         script = obj->as<ModuleObject>().script();
     }
 
-    js::DumpStaticScopeChain(script);
+    script->bodyScope()->dump();
 
     args.rval().setUndefined();
     return true;
 }
-#endif
 
 namespace js {
 namespace shell {
@@ -5788,11 +5871,9 @@ TestAssertRecoveredOnBailout,
 "  any. If |fun| is not a scripted function or has not been compiled by\n"
 "  Ion, null is returned."),
 
-#ifdef DEBUG
-    JS_FN_HELP("dumpStaticScopeChain", DumpStaticScopeChain, 1, 0,
-"dumpStaticScopeChain(obj)",
-"  Prints the static scope chain of an interpreted function or a module."),
-#endif
+    JS_FN_HELP("dumpScopeChain", DumpScopeChain, 1, 0,
+"dumpScopeChain(obj)",
+"  Prints the scope chain of an interpreted function or a module."),
 
     JS_FN_HELP("crash", Crash, 0, 0,
 "crash([message])",
@@ -7517,6 +7598,7 @@ main(int argc, char** argv, char** envp)
     sc->jobQueue.init(cx, JobQueue(SystemAllocPolicy()));
     JS::SetEnqueuePromiseJobCallback(cx, ShellEnqueuePromiseJobCallback);
     JS::SetGetIncumbentGlobalCallback(cx, ShellGetIncumbentGlobalCallback);
+    JS::SetAsyncTaskCallbacks(cx, ShellStartAsyncTaskCallback, ShellFinishAsyncTaskCallback);
 #endif // SPIDERMONKEY_PROMISE
 
     EnvironmentPreparer environmentPreparer(cx);

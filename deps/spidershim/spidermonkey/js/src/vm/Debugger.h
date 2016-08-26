@@ -226,7 +226,7 @@ class MOZ_RAII EvalOptions {
 /*
  * Env is the type of what ES5 calls "lexical environments" (runtime activations
  * of lexical scopes). This is currently just JSObject, and is implemented by
- * CallObject, ClonedBlockObject, DynamicWithObject, and DeclEnvObject, among
+ * CallObject, LexicalEnvironmentObject, and WithEnvironmentObject, among
  * others--but environments and objects are really two different concepts.
  */
 typedef JSObject Env;
@@ -500,6 +500,12 @@ class Debugger : private mozilla::LinkedListElement<Debugger>
                               WeakGlobalObjectSet::Enum* debugEnum);
 
     /*
+     * Report and clear the pending exception on ac.context, if any, and return
+     * JSTRAP_ERROR.
+     */
+    JSTrapStatus reportUncaughtException(mozilla::Maybe<AutoCompartment>& ac);
+
+    /*
      * Cope with an error or exception in a debugger hook.
      *
      * If callHook is true, then call the uncaughtExceptionHook, if any. If, in
@@ -513,14 +519,16 @@ class Debugger : private mozilla::LinkedListElement<Debugger>
      * do some things in the debugger compartment and some things in the
      * debuggee compartment.
      */
-    JSTrapStatus handleUncaughtException(mozilla::Maybe<AutoCompartment>& ac, bool callHook);
-    JSTrapStatus handleUncaughtException(mozilla::Maybe<AutoCompartment>& ac, MutableHandleValue vp, bool callHook,
+    JSTrapStatus handleUncaughtException(mozilla::Maybe<AutoCompartment>& ac);
+    JSTrapStatus handleUncaughtException(mozilla::Maybe<AutoCompartment>& ac,
+                                         MutableHandleValue vp,
                                          const mozilla::Maybe<HandleValue>& thisVForCheck = mozilla::Nothing(),
                                          AbstractFramePtr frame = NullFramePtr());
 
     JSTrapStatus handleUncaughtExceptionHelper(mozilla::Maybe<AutoCompartment>& ac,
-                                               MutableHandleValue* vp, bool callHook,
-                                               const mozilla::Maybe<HandleValue>& thisVForCheck, AbstractFramePtr frame);
+                                               MutableHandleValue* vp,
+                                               const mozilla::Maybe<HandleValue>& thisVForCheck,
+                                               AbstractFramePtr frame);
 
     /*
      * Handle the result of a hook that is expected to return a resumption
@@ -547,9 +555,8 @@ class Debugger : private mozilla::LinkedListElement<Debugger>
      *     anything else - Make a new TypeError the pending exception and
      *         return handleUncaughtException(ac, vp, callHook).
      */
-    JSTrapStatus parseResumptionValue(mozilla::Maybe<AutoCompartment>& ac, bool OK, const Value& rv,
-                                      AbstractFramePtr frame, jsbytecode* pc, MutableHandleValue vp,
-                                      bool callHook = true);
+    JSTrapStatus processHandlerResult(mozilla::Maybe<AutoCompartment>& ac, bool OK, const Value& rv,
+                                      AbstractFramePtr frame, jsbytecode* pc, MutableHandleValue vp);
 
     /*
      * When we run the onEnterFrame hook, the |this| slot hasn't been fully
@@ -558,13 +565,17 @@ class Debugger : private mozilla::LinkedListElement<Debugger>
      * check directly. When bug 1249193 is fixed, this overload should be
      * removed.
      */
-    JSTrapStatus parseResumptionValue(mozilla::Maybe<AutoCompartment>& ac, bool OK, const Value& rv,
+    JSTrapStatus processHandlerResult(mozilla::Maybe<AutoCompartment>& ac, bool OK, const Value& rv,
                                       const Value& thisVForCheck, AbstractFramePtr frame,
-                                      MutableHandleValue vp, bool callHook = true);
+                                      MutableHandleValue vp);
 
-    JSTrapStatus parseResumptionValueHelper(mozilla::Maybe<AutoCompartment>& ac, bool ok, const Value& rv,
+    JSTrapStatus processHandlerResultHelper(mozilla::Maybe<AutoCompartment>& ac, bool ok, const Value& rv,
                                             const mozilla::Maybe<HandleValue>& thisVForCheck, AbstractFramePtr frame,
-                                            MutableHandleValue vp, bool callHook);
+                                            MutableHandleValue vp);
+
+    bool processResumptionValue(mozilla::Maybe<AutoCompartment>& ac, AbstractFramePtr frame,
+                                const mozilla::Maybe<HandleValue>& maybeThis, HandleValue rval,
+                                JSTrapStatus& statusp, MutableHandleValue vp);
 
     GlobalObject* unwrapDebuggeeArgument(JSContext* cx, const Value& v);
 
@@ -900,7 +911,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger>
     inline bool observesNewGlobalObject() const;
     inline bool observesGlobal(GlobalObject* global) const;
     bool observesFrame(AbstractFramePtr frame) const;
-    bool observesFrame(const ScriptFrameIter& iter) const;
+    bool observesFrame(const FrameIter& iter) const;
     bool observesScript(JSScript* script) const;
 
     /*
@@ -1178,6 +1189,11 @@ class DebuggerFrame : public NativeObject
     static DebuggerFrameType getType(HandleDebuggerFrame frame);
     static DebuggerFrameImplementation getImplementation(HandleDebuggerFrame frame);
 
+    static MOZ_MUST_USE bool eval(JSContext* cx, HandleDebuggerFrame frame,
+                                  mozilla::Range<const char16_t> chars, HandleObject bindings,
+                                  const EvalOptions& options, JSTrapStatus& status,
+                                  MutableHandleValue value);
+
     bool isLive() const;
 
   private:
@@ -1203,6 +1219,9 @@ class DebuggerFrame : public NativeObject
     static MOZ_MUST_USE bool thisGetter(JSContext* cx, unsigned argc, Value* vp);
     static MOZ_MUST_USE bool typeGetter(JSContext* cx, unsigned argc, Value* vp);
     static MOZ_MUST_USE bool implementationGetter(JSContext* cx, unsigned argc, Value* vp);
+
+    static MOZ_MUST_USE bool evalMethod(JSContext* cx, unsigned argc, Value* vp);
+    static MOZ_MUST_USE bool evalWithBindingsMethod(JSContext* cx, unsigned argc, Value* vp);
 
     Debugger* owner() const;
 };
@@ -1270,7 +1289,7 @@ class DebuggerObject : public NativeObject
     static MOZ_MUST_USE bool executeInGlobal(JSContext* cx, HandleDebuggerObject object,
                                              mozilla::Range<const char16_t> chars,
                                              HandleObject bindings, const EvalOptions& options,
-                                             MutableHandleValue result);
+                                             JSTrapStatus& status, MutableHandleValue value);
     static MOZ_MUST_USE bool makeDebuggeeValue(JSContext* cx, HandleDebuggerObject object,
                                                HandleValue value, MutableHandleValue result);
     static MOZ_MUST_USE bool unsafeDereference(JSContext* cx, HandleDebuggerObject object,

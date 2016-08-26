@@ -195,7 +195,8 @@ GCRuntime::checkAllocatorState(JSContext* cx, AllocKind kind)
                   kind == AllocKind::STRING ||
                   kind == AllocKind::FAT_INLINE_STRING ||
                   kind == AllocKind::SYMBOL ||
-                  kind == AllocKind::JITCODE);
+                  kind == AllocKind::JITCODE ||
+                  kind == AllocKind::SCOPE);
     MOZ_ASSERT(!rt->isHeapBusy());
     MOZ_ASSERT(isAllocAllowed());
 #endif
@@ -309,8 +310,10 @@ GCRuntime::refillFreeListOffMainThread(ExclusiveContext* cx, AllocKind thingKind
     // whatever value we get. We need to first ensure the main thread is not in
     // a GC session.
     AutoLockHelperThreadState lock;
-    while (rt->isHeapBusy())
+    while (rt->isHeapBusy()) {
         HelperThreadState().wait(lock, GlobalHelperThreadState::PRODUCER);
+        HelperThreadState().notifyOne(GlobalHelperThreadState::PRODUCER, lock);
+    }
 
     return arenas->allocateFromArena(zone, thingKind, maybeStartBGAlloc);
 }
@@ -542,6 +545,8 @@ GCRuntime::pickChunk(const AutoLockGC& lock,
         return availableChunks(lock).head();
 
     Chunk* chunk = getOrAllocChunk(lock, maybeStartBackgroundAllocation);
+    if (!chunk)
+        return nullptr;
 
     chunk->init(rt);
     MOZ_ASSERT(chunk->info.numArenasFreeCommitted == 0);

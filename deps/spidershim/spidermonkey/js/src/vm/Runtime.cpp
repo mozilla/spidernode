@@ -9,7 +9,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/ThreadLocal.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #if defined(XP_DARWIN)
 #include <mach/mach.h>
@@ -84,19 +84,18 @@ js::DisableExtraThreads()
 const JSSecurityCallbacks js::NullSecurityCallbacks = { };
 
 PerThreadData::PerThreadData(JSRuntime* runtime)
-  : runtime_(runtime),
+  : runtime_(runtime)
 #ifdef JS_TRACE_LOGGING
-    traceLogger(nullptr),
+  , traceLogger(nullptr)
 #endif
-    autoFlushICache_(nullptr),
-    dtoaState(nullptr),
-    suppressGC(0),
+  , autoFlushICache_(nullptr)
+  , dtoaState(nullptr)
+  , suppressGC(0)
 #ifdef DEBUG
-    ionCompiling(false),
-    ionCompilingSafeForMinorGC(false),
-    gcSweeping(false),
+  , ionCompiling(false)
+  , ionCompilingSafeForMinorGC(false)
+  , gcSweeping(false)
 #endif
-    activeCompilations(0)
 {}
 
 PerThreadData::~PerThreadData()
@@ -156,6 +155,8 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     enqueuePromiseJobCallbackData(nullptr),
     promiseRejectionTrackerCallback(nullptr),
     promiseRejectionTrackerCallbackData(nullptr),
+    startAsyncTaskCallback(nullptr),
+    finishAsyncTaskCallback(nullptr),
 #ifdef DEBUG
     mainThreadHasExclusiveAccess(false),
 #endif
@@ -164,7 +165,7 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     localeCallbacks(nullptr),
     defaultLocale(nullptr),
     defaultVersion_(JSVERSION_DEFAULT),
-    ownerThread_(nullptr),
+    ownerThread_(js::ThisThread::GetId()),
     ownerThreadNative_(0),
     tempLifoAlloc(TEMP_LIFO_ALLOC_PRIMARY_CHUNK_SIZE),
     jitRuntime_(nullptr),
@@ -200,7 +201,7 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     runningOOMTest(false),
 #endif
     allowRelazificationForTesting(false),
-    defaultFreeOp_(thisFromCtor()),
+    defaultFreeOp_(nullptr),
     debuggerMutations(0),
     securityCallbacks(&NullSecurityCallbacks),
     DOMcallbacks(nullptr),
@@ -214,7 +215,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     decimalSeparator(0),
     numGrouping(0),
 #endif
-    activeCompilations_(0),
     keepAtoms_(0),
     trustedPrincipals_(nullptr),
     beingDestroyed_(false),
@@ -261,7 +261,7 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
 bool
 JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
 {
-    ownerThread_ = PR_GetCurrentThread();
+    MOZ_ASSERT(ownerThread_ == js::ThisThread::GetId());
 
     // Get a platform-native handle for the owner thread, used by
     // js::InterruptRunningJitCode to halt the runtime's main thread.
@@ -288,6 +288,10 @@ JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
         return false;
 
     js::TlsPerThreadData.set(&mainThread);
+
+    defaultFreeOp_ = js_new<js::FreeOp>(this);
+    if (!defaultFreeOp_)
+        return false;
 
     if (!gc.init(maxbytes, maxNurseryBytes))
         return false;
@@ -383,22 +387,6 @@ JSRuntime::destroyRuntime()
             CancelOffThreadIonCompile(comp, nullptr);
         CancelOffThreadParses(this);
 
-        /* Clear debugging state to remove GC roots. */
-        for (CompartmentsIter comp(this, SkipAtoms); !comp.done(); comp.next()) {
-            if (WatchpointMap* wpmap = comp->watchpointMap)
-                wpmap->clear();
-        }
-
-        /*
-         * Clear script counts map, to remove the strong reference on the
-         * JSScript key.
-         */
-        for (CompartmentsIter comp(this, SkipAtoms); !comp.done(); comp.next())
-            comp->clearScriptCounts();
-
-        /* Clear atoms to remove GC roots and heap allocations. */
-        finishAtoms();
-
         /* Remove persistent GC roots. */
         gc.finishRoots();
 
@@ -421,12 +409,6 @@ JSRuntime::destroyRuntime()
     MOZ_ASSERT(ionLazyLinkListSize_ == 0);
     MOZ_ASSERT(ionLazyLinkList_.isEmpty());
 
-    /*
-     * Clear the self-hosted global and delete self-hosted classes *after*
-     * GC, as finalizers for objects check for clasp->finalize during GC.
-     */
-    finishSelfHosting();
-
     MOZ_ASSERT(!numExclusiveThreads);
     AutoLockForExclusiveAccess lock(this);
 
@@ -442,6 +424,8 @@ JSRuntime::destroyRuntime()
 
     gc.finish();
     atomsCompartment_ = nullptr;
+
+    js_delete(defaultFreeOp_);
 
     js_free(defaultLocale);
     js_delete(jitRuntime_);
@@ -694,6 +678,12 @@ JSRuntime::triggerActivityCallback(bool active)
     activityCallback(activityCallbackArg, active);
 }
 
+FreeOp::FreeOp(JSRuntime* maybeRuntime)
+  : JSFreeOp(maybeRuntime)
+{
+    MOZ_ASSERT_IF(maybeRuntime, CurrentThreadCanAccessRuntime(maybeRuntime));
+}
+
 FreeOp::~FreeOp()
 {
     for (size_t i = 0; i < freeLaterList.length(); i++)
@@ -701,6 +691,12 @@ FreeOp::~FreeOp()
 
     if (!jitPoisonRanges.empty())
         jit::ExecutableAllocator::poisonCode(runtime(), jitPoisonRanges);
+}
+
+bool
+FreeOp::isDefaultFreeOp() const
+{
+    return runtime_ && runtime_->defaultFreeOp() == this;
 }
 
 JSObject*
@@ -846,7 +842,7 @@ JSRuntime::clearUsedByExclusiveThread(Zone* zone)
 bool
 js::CurrentThreadCanAccessRuntime(JSRuntime* rt)
 {
-    return rt->ownerThread_ == PR_GetCurrentThread();
+    return rt->ownerThread_ == js::ThisThread::GetId();
 }
 
 bool

@@ -30,8 +30,8 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
+#include "vm/EnvironmentObject-inl.h"
 #include "vm/NativeObject-inl.h"
-#include "vm/ScopeObject-inl.h"
 
 using namespace js;
 
@@ -421,9 +421,9 @@ js::GetOutermostEnclosingFunctionOfScriptedCaller(JSContext* cx)
         return nullptr;
 
     RootedFunction curr(cx, iter.callee(cx));
-    for (StaticScopeIter<NoGC> i(curr); !i.done(); i++) {
-        if (i.type() == StaticScopeIter<NoGC>::Function)
-            curr = &i.fun();
+    for (ScopeIter si(curr->nonLazyScript()); si; si++) {
+        if (si.kind() == ScopeKind::Function)
+            curr = si.scope()->as<FunctionScope>().canonicalFunction();
     }
 
     assertSameCompartment(cx, curr);
@@ -777,15 +777,15 @@ sprintf_append(JSContext* cx, char* buf, Args&&... args)
 }
 
 static char*
-FormatFrame(JSContext* cx, const ScriptFrameIter& iter, char* buf, int num,
+FormatFrame(JSContext* cx, const FrameIter& iter, char* buf, int num,
             bool showArgs, bool showLocals, bool showThisProps)
 {
     MOZ_ASSERT(!cx->isExceptionPending());
     RootedScript script(cx, iter.script());
     jsbytecode* pc = iter.pc();
 
-    RootedObject scopeChain(cx, iter.scopeChain(cx));
-    JSAutoCompartment ac(cx, scopeChain);
+    RootedObject envChain(cx, iter.environmentChain(cx));
+    JSAutoCompartment ac(cx, envChain);
 
     const char* filename = script->filename();
     unsigned lineno = PCToLineNumber(script, pc);
@@ -819,17 +819,12 @@ FormatFrame(JSContext* cx, const ScriptFrameIter& iter, char* buf, int num,
         return nullptr;
 
     if (showArgs && iter.hasArgs()) {
-        BindingIter bi(script);
+        PositionalFormalParameterIter fi(script);
         bool first = true;
         for (unsigned i = 0; i < iter.numActualArgs(); i++) {
             RootedValue arg(cx);
-            if (i < iter.numFormalArgs() && script->formalIsAliased(i)) {
-                for (AliasedFormalIter fi(script); ; fi++) {
-                    if (fi.frameIndex() == i) {
-                        arg = iter.callObj(cx).aliasedVar(fi);
-                        break;
-                    }
-                }
+            if (i < iter.numFormalArgs() && fi.closedOver()) {
+                arg = iter.callObj(cx).aliasedBinding(fi);
             } else if (iter.hasUsableAbstractFramePtr()) {
                 if (script->analyzedArgsUsage() &&
                     script->argsObjAliasesFormals() &&
@@ -855,11 +850,15 @@ FormatFrame(JSContext* cx, const ScriptFrameIter& iter, char* buf, int num,
             const char* name = nullptr;
 
             if (i < iter.numFormalArgs()) {
-                MOZ_ASSERT(i == bi.argIndex());
-                name = nameBytes.encodeLatin1(cx, bi->name());
-                if (!name)
-                    return nullptr;
-                bi++;
+                MOZ_ASSERT(fi.argumentSlot() == i);
+                if (!fi.isDestructured()) {
+                    name = nameBytes.encodeLatin1(cx, fi.name());
+                    if (!name)
+                        return nullptr;
+                } else {
+                    name = "(destructured parameter)";
+                }
+                fi++;
             }
 
             if (value) {
@@ -981,13 +980,39 @@ FormatFrame(JSContext* cx, const ScriptFrameIter& iter, char* buf, int num,
     return buf;
 }
 
+static char*
+FormatWasmFrame(JSContext* cx, const FrameIter& iter, char* buf, int num, bool showArgs)
+{
+    JSAtom* functionDisplayAtom = iter.functionDisplayAtom();
+    UniqueChars nameStr;
+    if (functionDisplayAtom)
+        nameStr = StringToNewUTF8CharsZ(cx, *functionDisplayAtom);
+
+    buf = sprintf_append(cx, buf, "%d %s()",
+                         num,
+                         nameStr ? nameStr.get() : "<wasm-function>");
+    if (!buf)
+        return nullptr;
+    const char* filename = iter.filename();
+    uint32_t lineno = iter.computeLine();
+    buf = sprintf_append(cx, buf, " [\"%s\":%d]\n",
+                         filename ? filename : "<unknown>",
+                         lineno);
+
+    MOZ_ASSERT(!cx->isExceptionPending());
+    return buf;
+}
+
 JS_FRIEND_API(char*)
 JS::FormatStackDump(JSContext* cx, char* buf, bool showArgs, bool showLocals, bool showThisProps)
 {
     int num = 0;
 
     for (AllFramesIter i(cx); !i.done(); ++i) {
-        buf = FormatFrame(cx, i, buf, num, showArgs, showLocals, showThisProps);
+        if (i.hasScript())
+            buf = FormatFrame(cx, i, buf, num, showArgs, showLocals, showThisProps);
+        else
+            buf = FormatWasmFrame(cx, i, buf, num, showArgs);
         if (!buf)
             return nullptr;
         num++;

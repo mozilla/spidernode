@@ -459,14 +459,6 @@ class GCSchedulingTunables
  *            -> Responsiveness is proportional to t[marking] + t[sweeping].
  *            -> size[retained] is proportional only to GC allocations.
  *
- *      PERIODIC_FULL_GC
- *      ----------------
- *      When we return to the event loop and it has been 20 seconds since we've
- *      done a GC, we start an incremenal, all-zones, shrinking GC.
- *
- *          Assumptions:
- *            -> Our triggers are incomplete.
- *
  *      ALLOC_TRIGGER (non-incremental)
  *      -------------------------------
  *      If we do not return to the event loop before getting all the way to our
@@ -623,8 +615,7 @@ class GCRuntime
     void maybeAllocTriggerZoneGC(Zone* zone, const AutoLockGC& lock);
     // The return value indicates if we were able to do the GC.
     bool triggerZoneGC(Zone* zone, JS::gcreason::Reason reason);
-    MOZ_MUST_USE bool maybeGC(Zone* zone);
-    void maybePeriodicFullGC();
+    void maybeGC(Zone* zone);
     void minorGC(JS::gcreason::Reason reason,
                  gcstats::Phase phase = gcstats::PHASE_MINOR_GC) JS_HAZ_GC_CALL;
     void evictNursery(JS::gcreason::Reason reason = JS::gcreason::EVICT_NURSERY) {
@@ -653,8 +644,8 @@ class GCRuntime
         TraceRuntime,
         MarkRuntime
     };
-    void markRuntime(JSTracer* trc, TraceOrMarkRuntime traceOrMark,
-                     AutoLockForExclusiveAccess& lock);
+    void traceRuntime(JSTracer* trc, AutoLockForExclusiveAccess& lock);
+    void traceRuntimeForMinorGC(JSTracer* trc, AutoLockForExclusiveAccess& lock);
 
     void notifyDidPaint();
     void shrinkBuffers();
@@ -681,6 +672,12 @@ class GCRuntime
         uint64_t uid = ++nextCellUniqueId_;
         return uid;
     }
+
+#ifdef DEBUG
+    bool shutdownCollectedEverything() const {
+        return arenasEmptyAtShutdown;
+    }
+#endif
 
   public:
     // Internal public interface
@@ -946,6 +943,9 @@ class GCRuntime
     MOZ_MUST_USE bool beginMarkPhase(JS::gcreason::Reason reason, AutoLockForExclusiveAccess& lock);
     bool shouldPreserveJITCode(JSCompartment* comp, int64_t currentTime,
                                JS::gcreason::Reason reason);
+    void traceRuntimeForMajorGC(JSTracer* trc, AutoLockForExclusiveAccess& lock);
+    void traceRuntimeCommon(JSTracer* trc, TraceOrMarkRuntime traceOrMark,
+                            AutoLockForExclusiveAccess& lock);
     void bufferGrayRoots();
     void markCompartments();
     IncrementalProgress drainMarkStack(SliceBudget& sliceBudget, gcstats::Phase phase);
@@ -971,7 +971,7 @@ class GCRuntime
     void decommitAllWithoutUnlocking(const AutoLockGC& lock);
     void startDecommit();
     void queueZonesForBackgroundSweep(ZoneList& zones);
-    void sweepBackgroundThings(ZoneList& zones, LifoAlloc& freeBlocks, ThreadType threadType);
+    void sweepBackgroundThings(ZoneList& zones, LifoAlloc& freeBlocks);
     void assertBackgroundSweepingFinished();
     bool shouldCompact();
     void beginCompactPhase();
@@ -1063,14 +1063,11 @@ class GCRuntime
 
   private:
     bool chunkAllocationSinceLastGC;
-    int64_t nextFullGCTime;
     int64_t lastGCTime;
 
     JSGCMode mode;
 
     mozilla::Atomic<size_t, mozilla::ReleaseAcquire> numActiveZoneIters;
-
-    uint64_t decommitThreshold;
 
     /* During shutdown, the GC needs to clean up every possible object. */
     bool cleanUpEverything;
@@ -1129,7 +1126,7 @@ class GCRuntime
     /* Whether the currently running GC can finish in multiple slices. */
     bool isIncremental;
 
-    /* Whether all compartments are being collected in first GC slice. */
+    /* Whether all zones are being collected in first GC slice. */
     bool isFull;
 
     /* Whether the heap will be compacted at the end of GC. */
@@ -1272,10 +1269,8 @@ class GCRuntime
     bool poked;
 
     /*
-     * These options control the zealousness of the GC. The fundamental values
-     * are nextScheduled and gcDebugCompartmentGC. At every allocation,
-     * nextScheduled is decremented. When it reaches zero, we do either a full
-     * or a compartmental GC, based on debugCompartmentGC.
+     * These options control the zealousness of the GC. At every allocation,
+     * nextScheduled is decremented. When it reaches zero we do a full GC.
      *
      * At this point, if zeal_ is one of the types that trigger periodic
      * collection, then nextScheduled is reset to the value of zealFrequency.
@@ -1350,6 +1345,8 @@ class GCRuntime
 
     size_t noGCOrAllocationCheck;
     size_t noNurseryAllocationCheck;
+
+    bool arenasEmptyAtShutdown;
 #endif
 
     /* Synchronize GC heap access between main thread and GCHelperState. */

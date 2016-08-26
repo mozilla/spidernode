@@ -110,7 +110,6 @@ class JS_PUBLIC_API(JSTracer);
 
 class JSFlatString;
 
-typedef struct PRCallOnceType   JSCallOnceType;
 typedef bool                    (*JSInitCallback)(void);
 
 template<typename T> struct JSConstScalarSpec;
@@ -195,13 +194,6 @@ class JS_PUBLIC_API(AutoGCRooter)
     inline void trace(JSTracer* trc);
     static void traceAll(JSTracer* trc);
     static void traceAllWrappers(JSTracer* trc);
-
-    /* T must be a context type */
-    template<typename T>
-    static void traceAllInContext(T* cx, JSTracer* trc) {
-        for (AutoGCRooter* gcr = cx->roots.autoGCRooters_; gcr; gcr = gcr->down)
-            gcr->trace(trc);
-    }
 
   protected:
     AutoGCRooter * const down;
