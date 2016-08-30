@@ -24,7 +24,7 @@
 #include "autojsapi.h"
 #include "jsfriendapi.h"
 #include "js/CharacterEncoding.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "conversions.h"
 #include "v8isolate.h"
 #include "v8local.h"
