@@ -91,11 +91,11 @@
 
       'copies': [
         {
-          'destination': '<(PRODUCT_DIR)/spidermonkey/Debug',
+          'destination': '<(PRODUCT_DIR)',
           'files': [ '<@(spidermonkey_binaries_debug)' ],
         },
         {
-          'destination': '<(PRODUCT_DIR)/spidermonkey/Release',
+          'destination': '<(PRODUCT_DIR)',
           'files': [ '<@(spidermonkey_binaries_release)' ],
         },
       ],
@@ -106,12 +106,13 @@
             'defines': ['NDEBUG'],
             'library_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Release' ],
             'include_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Release/dist/include', ],
-            'ldflags':      [ '<(PRODUCT_DIR)/spidermonkey/Release/icudata.o', ],
-            'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Release/icudata.o']},
+            'ldflags':      [ '<(PRODUCT_DIR)/icudata.o', ],
+            'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/icudata.o']},
             'conditions': [
               ['external_spidermonkey_release_has_nspr == 1', {
                 # Normally we'd use libraries here, but gyp doesn't allow us.
                 'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
           },
@@ -119,12 +120,13 @@
             'defines': ['DEBUG'],
             'library_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Debug' ],
             'include_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include', ],
-            'ldflags':      [ '<(PRODUCT_DIR)/spidermonkey/Debug/icudata.o', ],
-            'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Debug/icudata.o']},
+            'ldflags':      [ '<(PRODUCT_DIR)/icudata.o', ],
+            'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/icudata.o']},
             'conditions': [
               ['external_spidermonkey_debug_has_nspr == 1', {
                 # Normally we'd use libraries here, but gyp doesn't allow us.
                 'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
           },
