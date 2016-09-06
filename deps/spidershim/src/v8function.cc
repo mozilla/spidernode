@@ -175,7 +175,15 @@ class FunctionCallback {
       FunctionCallbackInfo<Value> info(v8args.get(), argc, _this, holder,
                                        args.isConstructing(),
                                        data, calleeFunction);
-      callback(info);
+      {
+        // Enter the context of the callee if one is available.
+        v8::Local<Context> context = calleeFunction->CreationContext();
+        mozilla::Maybe<Context::Scope> scope;
+        if (!context.IsEmpty()) {
+          scope.emplace(context);
+        }
+        callback(info);
+      }
 
       if (auto rval = info.GetReturnValue().Get()) {
         JS::RootedValue retVal(cx, *GetValue(rval));

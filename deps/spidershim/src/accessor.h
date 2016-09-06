@@ -145,6 +145,10 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
   HandleScope handleScope(isolate); // Make sure there is _a_ handlescope on the stack!
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject callee(cx, &args.callee());
+  JS::Value calleeVal;
+  calleeVal.setObject(args.callee());
+  v8::Local<Object> calleeObject =
+    internal::Local<Object>::New(isolate, calleeVal);
 
   // TODO: Verify that computeThis() here is the right thing to do!
   v8::Local<Object> thisObject =
@@ -180,8 +184,16 @@ bool NativeAccessorCallback(JSContext* cx, unsigned argc, JS::Value* vp) {
       CallbackTraits<CallbackType, N>::PropertyCallbackInfo PropertyCallbackInfo;
     PropertyCallbackInfo info(data, thisObject, holder);
 
-    CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
-                                            info, args);
+    {
+      // Enter the context of the callee if one is available.
+      v8::Local<Context> context = calleeObject->CreationContext();
+      mozilla::Maybe<Context::Scope> scope;
+      if (!context.IsEmpty()) {
+        scope.emplace(context);
+      }
+      CallbackTraits<CallbackType, N>::doCall(isolate, callback, name,
+                                              info, args);
+    }
 
     if (auto rval = info.GetReturnValue().Get()) {
       args.rval().set(*GetValue(rval));
