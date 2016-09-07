@@ -1,6 +1,5 @@
 {
   'variables': {
-    'external_spidermonkey_debug': '<(external_spidermonkey_release)',
     'spidermonkey_binaries_debug': [
       '<(external_spidermonkey_debug)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
       '<(external_spidermonkey_debug)/config/external/icu/data/icudata.o',
