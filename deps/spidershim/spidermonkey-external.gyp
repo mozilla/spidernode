@@ -72,7 +72,7 @@
             '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include',
           ],
           'action': [
-            'ln', '-s', '<(external_spidermonkey_debug)/dist/include',
+            'ln', '-fs', '<(external_spidermonkey_debug)/dist/include',
             '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include'
           ],
         },
@@ -83,7 +83,7 @@
             '<(PRODUCT_DIR)/spidermonkey/Release/dist/include',
           ],
           'action': [
-            'ln', '-s', '<(external_spidermonkey_release)/dist/include',
+            'ln', '-fs', '<(external_spidermonkey_release)/dist/include',
             '<(PRODUCT_DIR)/spidermonkey/Release/dist/include'
           ],
         },
