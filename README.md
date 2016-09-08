@@ -44,7 +44,7 @@ $ LD_LIBRARY_PATH=out/Release/spidermonkey/Release ./node -e 'console.log("hello
 The SpiderMonkey library path for a Release build of Node (`out/Release/node`, a.k.a. `./node`) is `out/Release/spidermonkey/Release`, as shown above. The path for a Debug build (`out/Debug/node`, a.k.a. `./node_g`) is `out/Debug/spidermonkey/Debug`, i.e.:
 
 ```bash
-$ LD_LIBRARY_PATH=out/Debug/spidermonkey/Debug ./node -e 'console.log("hello from " + process.jsEngine)'
+$ LD_LIBRARY_PATH=out/Debug/spidermonkey/Debug ./node_g -e 'console.log("hello from " + process.jsEngine)'
 ```
 
 To run the API tests, do:
