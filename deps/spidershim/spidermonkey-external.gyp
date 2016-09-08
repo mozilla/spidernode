@@ -64,31 +64,6 @@
       'target_name': 'spidermonkey',
       'type': 'none',
 
-      'actions': [
-        {
-          'action_name': 'symlink_spidermonkey_debug',
-          'inputs': [ '<(external_spidermonkey_debug)' ],
-          'outputs': [
-            '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include',
-          ],
-          'action': [
-            'ln', '-s', '<(external_spidermonkey_debug)/dist/include',
-            '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include'
-          ],
-        },
-        {
-          'action_name': 'symlink_spidermonkey_release',
-          'inputs': [ '<(external_spidermonkey_release)' ],
-          'outputs': [
-            '<(PRODUCT_DIR)/spidermonkey/Release/dist/include',
-          ],
-          'action': [
-            'ln', '-s', '<(external_spidermonkey_release)/dist/include',
-            '<(PRODUCT_DIR)/spidermonkey/Release/dist/include'
-          ],
-        },
-      ],
-
       'copies': [
         {
           'destination': '<(PRODUCT_DIR)/spidermonkey/Debug',
@@ -105,7 +80,7 @@
           'Release': {
             'defines': ['NDEBUG'],
             'library_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Release' ],
-            'include_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Release/dist/include', ],
+            'include_dirs': [ '<(external_spidermonkey_release)/dist/include', ],
             'ldflags':      [ '<(PRODUCT_DIR)/spidermonkey/Release/icudata.o', ],
             'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Release/icudata.o']},
             'conditions': [
@@ -118,7 +93,7 @@
           'Debug': {
             'defines': ['DEBUG'],
             'library_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Debug' ],
-            'include_dirs': [ '<(PRODUCT_DIR)/spidermonkey/Debug/dist/include', ],
+            'include_dirs': [ '<(external_spidermonkey_debug)/dist/include', ],
             'ldflags':      [ '<(PRODUCT_DIR)/spidermonkey/Debug/icudata.o', ],
             'xcode_settings': {'OTHER_LDFLAGS': ['<(PRODUCT_DIR)/spidermonkey/Debug/icudata.o']},
             'conditions': [
