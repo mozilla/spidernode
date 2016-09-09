@@ -36,30 +36,18 @@
                 'ldflags+': [
                   '<(external_spidermonkey_release)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
                 ],
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_release)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "linux" and external_spidermonkey_release_has_nspr == 1', {
                 'ldflags+': [
                   '<(external_spidermonkey_release)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ],
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_release)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "mac"', {
-                'ldflags': [
-                  '<(external_spidermonkey_release)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-                ],
                 'xcode_settings': { 'OTHER_LDFLAGS': [
                   '<(external_spidermonkey_release)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
                 ]},
               }],
               ['OS == "mac" and external_spidermonkey_release_has_nspr == 1', {
-                'ldflags': [
-                  '<(external_spidermonkey_release)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ],
                 'xcode_settings': { 'OTHER_LDFLAGS': [
                   '<(external_spidermonkey_release)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ]},
@@ -92,30 +80,18 @@
                 'ldflags+': [
                   '<(external_spidermonkey_debug)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
                 ],
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_debug)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "linux" and external_spidermonkey_debug_has_nspr == 1', {
                 'ldflags+': [
                   '<(external_spidermonkey_debug)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ],
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_debug)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "mac"', {
-                'ldflags': [
-                  '<(external_spidermonkey_debug)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-                ],
                 'xcode_settings': { 'OTHER_LDFLAGS': [
                   '<(external_spidermonkey_debug)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
                 ]},
               }],
               ['OS == "mac" and external_spidermonkey_debug_has_nspr == 1', {
-                'ldflags': [
-                  '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ],
                 'xcode_settings': { 'OTHER_LDFLAGS': [
                   '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ]},
@@ -133,7 +109,6 @@
           ['OS == "linux"', {
             'libraries': [
               '-ldl',
-              '-lmozglue',
               '-lrt',
             ],
           }],
