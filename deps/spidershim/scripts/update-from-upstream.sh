@@ -16,6 +16,7 @@ fi
 
 SM_DIR="$1"
 
+rsync -av --delete "$SM_DIR"/.cargo spidermonkey/
 rsync -av --delete "$SM_DIR"/nsprpub spidermonkey/
 rsync -av --delete "$SM_DIR"/mfbt spidermonkey/
 rsync -av --delete "$SM_DIR"/memory spidermonkey/
