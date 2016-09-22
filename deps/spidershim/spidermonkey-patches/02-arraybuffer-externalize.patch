@@ -62,10 +62,10 @@ index bc0fa11e..3d12069 100644
 +
 +END_TEST(testArrayBuffer_externalize)
 diff --git a/js/src/jsapi.h b/js/src/jsapi.h
-index 9f4858e..c049199 100644
+index 6e9fa95..be50bf4 100644
 --- a/js/src/jsapi.h
 +++ b/js/src/jsapi.h
-@@ -3417,6 +3417,14 @@ extern JS_PUBLIC_API(void*)
+@@ -3423,6 +3423,14 @@ extern JS_PUBLIC_API(void*)
  JS_StealArrayBufferContents(JSContext* cx, JS::HandleObject obj);
  
  /**
@@ -81,10 +81,10 @@ index 9f4858e..c049199 100644
   * must be legal to free the contents pointer by unmapping it. On success,
   * ownership is transferred to the new mapped array buffer.
 diff --git a/js/src/vm/ArrayBufferObject.cpp b/js/src/vm/ArrayBufferObject.cpp
-index 7f99c18..9784e8e 100644
+index 3fc0a0d..d8a9844 100644
 --- a/js/src/vm/ArrayBufferObject.cpp
 +++ b/js/src/vm/ArrayBufferObject.cpp
-@@ -309,21 +309,21 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
+@@ -316,21 +316,21 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
      }
  
      if (newContents.data() != buffer->dataPointer())
@@ -109,7 +109,7 @@ index 7f99c18..9784e8e 100644
  }
  
  // This is called *only* from changeContents(), below.
-@@ -354,13 +354,14 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
+@@ -361,14 +361,15 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
  // BufferContents is specific to ArrayBuffer, hence it will not represent shared memory.
  
  void
@@ -117,6 +117,7 @@ index 7f99c18..9784e8e 100644
 +ArrayBufferObject::changeContents(JSContext* cx, BufferContents newContents,
 +                                  OwnsState ownsState)
  {
+     MOZ_RELEASE_ASSERT(!isWasm());
      MOZ_ASSERT(!forInlineTypedObject());
  
      // Change buffer contents.
@@ -126,16 +127,16 @@ index 7f99c18..9784e8e 100644
  
      // Update all views.
      auto& innerViews = cx->compartment()->innerViews;
-@@ -503,7 +504,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
+@@ -741,7 +742,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
+ 
          // Swap the new elements into the ArrayBufferObject. Mark the
          // ArrayBufferObject so we don't do this again.
-         BufferContents newContents = BufferContents::create<WASM_MAPPED>(data);
--        buffer->changeContents(cx, newContents);
-+        buffer->changeContents(cx, newContents, OwnsData);
+-        buffer->changeContents(cx, BufferContents::create<WASM>(data));
++        buffer->changeContents(cx, BufferContents::create<WASM>(data), OwnsData);
+         buffer->setIsPreparedForAsmJS();
          MOZ_ASSERT(data == buffer->dataPointer());
-         return true;
- #else
-@@ -521,7 +522,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
+         cx->zone()->updateMallocCounter(wasmBuf->mappedSize());
+@@ -760,7 +761,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
          if (!contents)
              return false;
          memcpy(contents.data(), buffer->dataPointer(), buffer->byteLength());
@@ -143,8 +144,8 @@ index 7f99c18..9784e8e 100644
 +        buffer->changeContents(cx, contents, OwnsData);
      }
  
-     buffer->setIsWasmMalloced();
-@@ -726,6 +727,30 @@ ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp
+     buffer->setIsPreparedForAsmJS();
+@@ -1097,6 +1098,30 @@ ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp
  }
  
  /* static */ ArrayBufferObject::BufferContents
@@ -175,12 +176,16 @@ index 7f99c18..9784e8e 100644
  ArrayBufferObject::stealContents(JSContext* cx, Handle<ArrayBufferObject*> buffer,
                                   bool hasStealableContents)
  {
-@@ -1278,6 +1303,33 @@ js::UnwrapSharedArrayBuffer(JSObject* obj)
+@@ -1651,6 +1676,42 @@ js::UnwrapSharedArrayBuffer(JSObject* obj)
  }
  
  JS_PUBLIC_API(void*)
 +JS_ExternalizeArrayBufferContents(JSContext* cx, HandleObject objArg)
 +{
++    AssertHeapIsIdle(cx);
++    CHECK_REQUEST(cx);
++    assertSameCompartment(cx, objArg);
++
 +    JSObject* obj = CheckedUnwrap(objArg);
 +    if (!obj)
 +        return nullptr;
@@ -196,11 +201,16 @@ index 7f99c18..9784e8e 100644
 +        return nullptr;
 +    }
 +
++    if (buffer->isWasm() || buffer->isPreparedForAsmJS()) {
++        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_NO_TRANSFER);
++        return nullptr;
++    }
++
 +    // The caller assumes that a plain malloc'd buffer is returned.
 +    // hasStealableContents is true for mapped buffers, so we must additionally
 +    // require that the buffer is plain. In the future, we could consider
 +    // returning something that handles releasing the memory.
-+    bool hasStealableContents = buffer->hasStealableContents() && buffer->hasMallocedContents();
++    bool hasStealableContents = buffer->hasStealableContents() && buffer->isPlain();
 +
 +    return ArrayBufferObject::externalizeContents(cx, buffer, hasStealableContents).data();
 +}
@@ -210,10 +220,10 @@ index 7f99c18..9784e8e 100644
  {
      AssertHeapIsIdle(cx);
 diff --git a/js/src/vm/ArrayBufferObject.h b/js/src/vm/ArrayBufferObject.h
-index 627a90e..9240c39 100644
+index de4a8f2..1469c250 100644
 --- a/js/src/vm/ArrayBufferObject.h
 +++ b/js/src/vm/ArrayBufferObject.h
-@@ -243,6 +243,9 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
+@@ -276,6 +276,9 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
      static void trace(JSTracer* trc, JSObject* obj);
      static void objectMoved(JSObject* obj, const JSObject* old);
  
@@ -223,7 +233,7 @@ index 627a90e..9240c39 100644
      static BufferContents stealContents(JSContext* cx,
                                          Handle<ArrayBufferObject*> buffer,
                                          bool hasStealableContents);
-@@ -270,8 +273,8 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
+@@ -297,8 +300,8 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
  
      bool addView(JSContext* cx, JSObject* view);
  
