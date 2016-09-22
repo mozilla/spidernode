@@ -146,7 +146,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
   JS::SetEnqueuePromiseJobCallback(pimpl_->cx, Isolate::Impl::EnqueuePromiseJobCallback);
   JS::SetGetIncumbentGlobalCallback(pimpl_->cx, GetIncumbentGlobalCallback);
-  JS_SetInterruptCallback(pimpl_->cx, Isolate::Impl::OnInterrupt);
+  JS_AddInterruptCallback(pimpl_->cx, Isolate::Impl::OnInterrupt);
   JS_SetGCCallback(pimpl_->cx, Isolate::Impl::OnGC, NULL);
   if (!JS::InitSelfHostedCode(pimpl_->cx)) {
     MOZ_CRASH("InitSelfHostedCode failed");
@@ -159,7 +159,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 Isolate::~Isolate() {
   assert(pimpl_->cx);
   assert(!sIsolateStack.get());
-  JS_SetInterruptCallback(pimpl_->cx, NULL);
+  JS_DisableInterruptCallback(pimpl_->cx);
   JS_DestroyContext(pimpl_->cx);
   delete pimpl_;
 }
