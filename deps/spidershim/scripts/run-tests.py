@@ -95,7 +95,7 @@ def run_test(cmd, env):
         return (True, True)
     else:
         print >> sys.stderr, 'Skipping %s since it does not exist' % (" ".join(cmd))
-    return (False, False)
+    return (False, True)
 
 if __name__ == '__main__':
     sys.exit(main())
