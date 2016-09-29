@@ -799,8 +799,11 @@ Local<Context> Object::CreationContext() {
   if (!global) {
     return Local<Context>();
   }
-  auto context =
-    static_cast<Context*>(GetInstanceSlot(global, uint32_t(InstanceSlots::ContextSlot)).toPrivate());
+  auto slot = GetInstanceSlot(global, uint32_t(InstanceSlots::ContextSlot));
+  if (slot.isUndefined()) {
+    return Local<Context>();
+  }
+  auto context = static_cast<Context*>(slot.toPrivate());
   return Local<Context>::New(isolate, context);
 }
 
