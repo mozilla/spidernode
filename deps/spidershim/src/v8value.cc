@@ -304,7 +304,8 @@ Maybe<bool> Value::Equals(Local<Context> context, Handle<Value> that) const {
   JS::RootedValue thisVal(cx, *GetValue(this));
   JS::RootedValue thatVal(cx, *GetValue(that));
   bool equal = false;
-  if (!JS_WrapValue(cx, &thatVal) ||
+  if (!JS_WrapValue(cx, &thisVal) ||
+      !JS_WrapValue(cx, &thatVal) ||
       !JS_LooselyEqual(cx, thisVal, thatVal, &equal)) {
     return Nothing<bool>();
   }
