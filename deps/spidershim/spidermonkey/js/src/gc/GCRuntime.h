@@ -29,6 +29,7 @@ class VerifyPreTracer;
 namespace gc {
 
 typedef Vector<JS::Zone*, 4, SystemAllocPolicy> ZoneVector;
+using BlackGrayEdgeVector = Vector<TenuredCell*, 0, SystemAllocPolicy>;
 
 class AutoMaybeStartBackgroundAllocation;
 class MarkingValidator;
@@ -778,6 +779,8 @@ class GCRuntime
     JS::GCSliceCallback setSliceCallback(JS::GCSliceCallback callback);
     JS::GCNurseryCollectionCallback setNurseryCollectionCallback(
         JS::GCNurseryCollectionCallback callback);
+    JS::DoCycleCollectionCallback setDoCycleCollectionCallback(JS::DoCycleCollectionCallback callback);
+    void callDoCycleCollectionCallback(JSContext* cx);
 
     void setFullCompartmentChecks(bool enable);
 
@@ -790,7 +793,11 @@ class GCRuntime
     }
 
     JS::Zone* getCurrentZoneGroup() { return currentZoneGroup; }
-    void setFoundBlackGrayEdges() { foundBlackGrayEdges = true; }
+    void setFoundBlackGrayEdges(TenuredCell& target) {
+        AutoEnterOOMUnsafeRegion oomUnsafe;
+        if (!foundBlackGrayEdges.append(&target))
+            oomUnsafe.crash("OOM|small: failed to insert into foundBlackGrayEdges");
+    }
 
     uint64_t gcNumber() const { return number; }
 
@@ -944,9 +951,11 @@ class GCRuntime
     bool shouldPreserveJITCode(JSCompartment* comp, int64_t currentTime,
                                JS::gcreason::Reason reason);
     void traceRuntimeForMajorGC(JSTracer* trc, AutoLockForExclusiveAccess& lock);
+    void traceRuntimeAtoms(JSTracer* trc, AutoLockForExclusiveAccess& lock);
     void traceRuntimeCommon(JSTracer* trc, TraceOrMarkRuntime traceOrMark,
                             AutoLockForExclusiveAccess& lock);
     void bufferGrayRoots();
+    void maybeDoCycleCollection();
     void markCompartments();
     IncrementalProgress drainMarkStack(SliceBudget& sliceBudget, gcstats::Phase phase);
     template <class CompartmentIterT> void markWeakReferences(gcstats::Phase phase);
@@ -1164,7 +1173,7 @@ class GCRuntime
     bool releaseObservedTypes;
 
     /* Whether any black->gray edges were found during marking. */
-    bool foundBlackGrayEdges;
+    BlackGrayEdgeVector foundBlackGrayEdges;
 
     /* Singly linekd list of zones to be swept in the background. */
     ZoneList backgroundSweepZones;
@@ -1305,6 +1314,7 @@ class GCRuntime
     bool fullCompartmentChecks;
 
     Callback<JSGCCallback> gcCallback;
+    Callback<JS::DoCycleCollectionCallback> gcDoCycleCollectionCallback;
     Callback<JSObjectsTenuredCallback> tenuredCallback;
     CallbackVector<JSFinalizeCallback> finalizeCallbacks;
     CallbackVector<JSWeakPointerZoneGroupCallback> updateWeakPointerZoneGroupCallbacks;

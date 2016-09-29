@@ -9,6 +9,7 @@
 #endif
 
 #include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/Sprintf.h"
 
 #include "jscntxt.h"
 #include "jsgc.h"
@@ -306,7 +307,7 @@ AssertMarkedOrAllocated(const EdgeValue& edge)
         return;
 
     char msgbuf[1024];
-    snprintf(msgbuf, sizeof(msgbuf), "[barrier verifier] Unmarked edge: %s", edge.label);
+    SprintfLiteral(msgbuf, "[barrier verifier] Unmarked edge: %s", edge.label);
     MOZ_ReportAssertionFailure(msgbuf, __FILE__, __LINE__);
     MOZ_CRASH();
 }
@@ -472,6 +473,12 @@ CheckHeapTracer::init()
     return visited.init();
 }
 
+inline static bool
+IsValidGCThingPointer(Cell* cell)
+{
+    return (uintptr_t(cell) & CellMask) == 0;
+}
+
 void
 CheckHeapTracer::onChild(const JS::GCCellPtr& thing)
 {
@@ -484,9 +491,10 @@ CheckHeapTracer::onChild(const JS::GCCellPtr& thing)
         return;
     }
 
-    if (!IsGCThingValidAfterMovingGC(cell)) {
+    if (!IsValidGCThingPointer(cell) || !IsGCThingValidAfterMovingGC(cell))
+    {
         failures++;
-        fprintf(stderr, "Stale pointer %p\n", cell);
+        fprintf(stderr, "Bad pointer %p\n", cell);
         const char* name = contextName();
         for (int index = parentIndex; index != -1; index = stack[index].parentIndex) {
             const WorkItem& parent = stack[index];
@@ -509,7 +517,8 @@ CheckHeapTracer::check(AutoLockForExclusiveAccess& lock)
 {
     // The analysis thinks that traceRuntime might GC by calling a GC callback.
     JS::AutoSuppressGCAnalysis nogc;
-    rt->gc.traceRuntime(this, lock);
+    if (!rt->isBeingDestroyed())
+        rt->gc.traceRuntime(this, lock);
 
     while (!stack.empty()) {
         WorkItem item = stack.back();
@@ -535,7 +544,7 @@ CheckHeapTracer::check(AutoLockForExclusiveAccess& lock)
 }
 
 void
-js::gc::CheckHeapAfterMovingGC(JSRuntime* rt)
+js::gc::CheckHeapAfterGC(JSRuntime* rt)
 {
     AutoTraceSession session(rt, JS::HeapState::Tracing);
     CheckHeapTracer tracer(rt);

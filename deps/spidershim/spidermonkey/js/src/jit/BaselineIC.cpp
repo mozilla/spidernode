@@ -2822,17 +2822,21 @@ ICSetElem_DenseOrUnboxedArray::Compiler::generateStubCode(MacroAssembler& masm)
         masm.branchTestMagic(Assembler::Equal, element, &failure);
 
         // Perform a single test to see if we either need to convert double
-        // elements or clone the copy on write elements in the object.
+        // elements, clone the copy on write elements in the object or fail
+        // due to a frozen element.
         Label noSpecialHandling;
         Address elementsFlags(scratchReg, ObjectElements::offsetOfFlags());
         masm.branchTest32(Assembler::Zero, elementsFlags,
                           Imm32(ObjectElements::CONVERT_DOUBLE_ELEMENTS |
-                                ObjectElements::COPY_ON_WRITE),
+                                ObjectElements::COPY_ON_WRITE |
+                                ObjectElements::FROZEN),
                           &noSpecialHandling);
 
-        // Fail if we need to clone copy on write elements.
+        // Fail if we need to clone copy on write elements or to throw due
+        // to a frozen element.
         masm.branchTest32(Assembler::NonZero, elementsFlags,
-                          Imm32(ObjectElements::COPY_ON_WRITE),
+                          Imm32(ObjectElements::COPY_ON_WRITE |
+                                ObjectElements::FROZEN),
                           &failure);
 
         // Failure is not possible now.  Free up registers.
@@ -3032,7 +3036,8 @@ ICSetElemDenseOrUnboxedArrayAddCompiler::generateStubCode(MacroAssembler& masm)
         // Check for copy on write elements.
         Address elementsFlags(scratchReg, ObjectElements::offsetOfFlags());
         masm.branchTest32(Assembler::NonZero, elementsFlags,
-                          Imm32(ObjectElements::COPY_ON_WRITE),
+                          Imm32(ObjectElements::COPY_ON_WRITE |
+                                ObjectElements::FROZEN),
                           &failure);
 
         // Failure is not possible now.  Free up registers.
@@ -5477,6 +5482,13 @@ GetTemplateObjectForSimd(JSContext* cx, JSFunction* target, MutableHandleObject 
     return true;
 }
 
+static void
+EnsureArrayGroupAnalyzed(JSContext* cx, JSObject* obj)
+{
+    if (PreliminaryObjectArrayWithTemplate* objects = obj->group()->maybePreliminaryObjects())
+        objects->maybeAnalyze(cx, obj->group(), /* forceAnalyze = */ true);
+}
+
 static bool
 GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs& args,
                            MutableHandleObject res, bool* skipAttach)
@@ -5505,11 +5517,12 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
                 return true;
             }
 
-            // With this and other array templates, set forceAnalyze so that we
-            // don't end up with a template whose structure might change later.
+            // With this and other array templates, analyze the group so that
+            // we don't end up with a template whose structure might change later.
             res.set(NewFullyAllocatedArrayForCallingAllocationSite(cx, count, TenuredObject));
             if (!res)
                 return false;
+            EnsureArrayGroupAnalyzed(cx, res);
             return true;
         }
     }
@@ -5534,7 +5547,10 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
                 }
                 res.set(NewFullyAllocatedArrayTryReuseGroup(cx, &args.thisv().toObject(), 0,
                                                             TenuredObject));
-                return !!res;
+                if (!res)
+                    return false;
+                EnsureArrayGroupAnalyzed(cx, res);
+                return true;
             }
         }
     }
@@ -5553,6 +5569,7 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
         res.set(NewFullyAllocatedArrayForCallingAllocationSite(cx, 0, TenuredObject));
         if (!res)
             return false;
+        EnsureArrayGroupAnalyzed(cx, res);
         return true;
     }
 
@@ -5863,10 +5880,10 @@ static bool
 CopyArray(JSContext* cx, HandleObject obj, MutableHandleValue result)
 {
     uint32_t length = GetAnyBoxedOrUnboxedArrayLength(obj);
-    JSObject* nobj = NewFullyAllocatedArrayTryReuseGroup(cx, obj, length, TenuredObject,
-                                                         /* forceAnalyze = */ true);
+    JSObject* nobj = NewFullyAllocatedArrayTryReuseGroup(cx, obj, length, TenuredObject);
     if (!nobj)
         return false;
+    EnsureArrayGroupAnalyzed(cx, nobj);
     CopyAnyBoxedOrUnboxedDenseElements(cx, nobj, obj, 0, 0, length);
 
     result.setObject(*nobj);
@@ -7585,7 +7602,11 @@ DoIteratorNewFallback(JSContext* cx, BaselineFrame* frame, ICIteratorNew_Fallbac
 
     uint8_t flags = GET_UINT8(pc);
     res.set(value);
-    return ValueToIterator(cx, flags, res);
+    RootedObject iterobj(cx, ValueToIterator(cx, flags, res));
+    if (!iterobj)
+        return false;
+    res.setObject(*iterobj);
+    return true;
 }
 
 typedef bool (*DoIteratorNewFallbackFn)(JSContext*, BaselineFrame*, ICIteratorNew_Fallback*,

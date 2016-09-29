@@ -17,6 +17,7 @@
 #include "asmjs/WasmCompartment.h"
 #include "builtin/RegExp.h"
 #include "gc/Barrier.h"
+#include "gc/NurseryAwareHashMap.h"
 #include "gc/Zone.h"
 #include "vm/GlobalObject.h"
 #include "vm/PIC.h"
@@ -68,7 +69,7 @@ class DtoaCache {
 #endif
 };
 
-struct CrossCompartmentKey
+class CrossCompartmentKey
 {
   public:
     enum DebuggerObjectKind : uint8_t { DebuggerSource, DebuggerEnvironment, DebuggerObject,
@@ -169,6 +170,17 @@ struct CrossCompartmentKey
             return l.wrapped == k.wrapped;
         }
     };
+
+    bool isTenured() const {
+        struct IsTenuredFunctor {
+            using ReturnType = bool;
+            ReturnType operator()(JSObject** tp) { return !IsInsideNursery(*tp); }
+            ReturnType operator()(JSScript** tp) { return true; }
+            ReturnType operator()(JSString** tp) { return true; }
+        };
+        return const_cast<CrossCompartmentKey*>(this)->applyToWrapped(IsTenuredFunctor());
+    }
+
     void trace(JSTracer* trc);
     bool needsSweep();
 
@@ -177,8 +189,9 @@ struct CrossCompartmentKey
     WrappedType wrapped;
 };
 
-using WrapperMap = GCRekeyableHashMap<CrossCompartmentKey, ReadBarrieredValue,
-                                      CrossCompartmentKey::Hasher, SystemAllocPolicy>;
+
+using WrapperMap = NurseryAwareHashMap<CrossCompartmentKey, JS::Value,
+                                       CrossCompartmentKey::Hasher, SystemAllocPolicy>;
 
 // We must ensure that all newly allocated JSObjects get their metadata
 // set. However, metadata builders may require the new object be in a sane
@@ -338,6 +351,7 @@ struct JSCompartment
     bool                         isSelfHosting;
     bool                         marked;
     bool                         warnedAboutExprClosure;
+    bool                         warnedAboutForEach;
 
 #ifdef DEBUG
     bool                         firedOnNewGlobalObject;
@@ -557,6 +571,9 @@ struct JSCompartment
 
     void updateDebuggerObservesFlag(unsigned flag);
 
+    bool getNonWrapperObjectForCurrentCompartment(JSContext* cx, js::MutableHandleObject obj);
+    bool getOrCreateWrapper(JSContext* cx, js::HandleObject existing, js::MutableHandleObject obj);
+
   public:
     JSCompartment(JS::Zone* zone, const JS::CompartmentOptions& options);
     ~JSCompartment();
@@ -566,10 +583,10 @@ struct JSCompartment
     MOZ_MUST_USE inline bool wrap(JSContext* cx, JS::MutableHandleValue vp);
 
     MOZ_MUST_USE bool wrap(JSContext* cx, js::MutableHandleString strp);
-    MOZ_MUST_USE bool wrap(JSContext* cx, JS::MutableHandleObject obj,
-                           JS::HandleObject existingArg = nullptr);
+    MOZ_MUST_USE bool wrap(JSContext* cx, JS::MutableHandleObject obj);
     MOZ_MUST_USE bool wrap(JSContext* cx, JS::MutableHandle<js::PropertyDescriptor> desc);
     MOZ_MUST_USE bool wrap(JSContext* cx, JS::MutableHandle<JS::GCVector<JS::Value>> vec);
+    MOZ_MUST_USE bool rewrap(JSContext* cx, JS::MutableHandleObject obj, JS::HandleObject existing);
 
     MOZ_MUST_USE bool putWrapper(JSContext* cx, const js::CrossCompartmentKey& wrapped,
                                  const js::Value& wrapper);
@@ -616,7 +633,7 @@ struct JSCompartment
     /* Whether to preserve JIT code on non-shrinking GCs. */
     bool preserveJitCode() { return creationOptions_.preserveJitCode(); }
 
-    void sweepAfterMinorGC();
+    void sweepAfterMinorGC(JSTracer* trc);
 
     void sweepCrossCompartmentWrappers();
     void sweepSavedStacks();
@@ -800,6 +817,9 @@ struct JSCompartment
      * suppression.
      */
     js::NativeIterator* enumerators;
+
+    /* Native iterator most recently started. */
+    js::PropertyIteratorObject* lastCachedNativeIterator;
 
   private:
     /* Used by memory reporters and invalid otherwise. */
@@ -1061,5 +1081,12 @@ class MOZ_RAII AutoSuppressAllocationMetadataBuilder {
 };
 
 } /* namespace js */
+
+namespace JS {
+template <>
+struct GCPolicy<js::CrossCompartmentKey> : public StructGCPolicy<js::CrossCompartmentKey> {
+    static bool isTenured(const js::CrossCompartmentKey& key) { return key.isTenured(); }
+};
+} // namespace JS
 
 #endif /* jscompartment_h */
