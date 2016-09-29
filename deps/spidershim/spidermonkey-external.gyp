@@ -1,9 +1,8 @@
 {
   'variables': {
-    'external_spidermonkey_debug%': '<(external_spidermonkey_release)',
     'spidermonkey_binaries_debug': [
-      '<(external_spidermonkey_debug%)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
-      '<(external_spidermonkey_debug%)/config/external/icu/data/icudata.o',
+      '<(external_spidermonkey_debug)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
+      '<(external_spidermonkey_debug)/config/external/icu/data/icudata.o',
     ],
     'spidermonkey_binaries_release': [
       '<(external_spidermonkey_release)/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
@@ -12,7 +11,7 @@
     'conditions': [
       ['external_spidermonkey_debug_has_nss == 1', {
         'spidermonkey_binaries_debug': [
-          '<(external_spidermonkey_debug%)/dist/lib/<(SHARED_LIB_PREFIX)nss3<(SHARED_LIB_SUFFIX)',
+          '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nss3<(SHARED_LIB_SUFFIX)',
         ],
       }],
       ['external_spidermonkey_release_has_nss == 1', {
@@ -22,7 +21,7 @@
       }],
       ['OS == "linux"', {
         'spidermonkey_binaries_debug+': [
-          '<(external_spidermonkey_debug%)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
+          '<(external_spidermonkey_debug)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
         ],
         'spidermonkey_binaries_release+': [
           '<(external_spidermonkey_release)/mozglue/build/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
@@ -30,7 +29,7 @@
       }],
       ['OS == "linux" and external_spidermonkey_debug_has_nspr == 1', {
         'spidermonkey_binaries_debug+': [
-          '<(external_spidermonkey_debug%)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
+          '<(external_spidermonkey_debug)/config/external/nspr/pr/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
         ],
       }],
       ['OS == "linux" and external_spidermonkey_release_has_nspr == 1', {
@@ -40,7 +39,7 @@
       }],
       ['OS == "mac"', {
         'spidermonkey_binaries_debug': [
-          '<(external_spidermonkey_debug%)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
+          '<(external_spidermonkey_debug)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
         ],
         'spidermonkey_binaries_release': [
           '<(external_spidermonkey_release)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
@@ -48,7 +47,7 @@
       }],
       ['OS == "mac" and external_spidermonkey_debug_has_nspr == 1', {
         'spidermonkey_binaries_debug': [
-          '<(external_spidermonkey_debug%)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
+          '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
         ],
       }],
       ['OS == "mac" and external_spidermonkey_release_has_nspr == 1', {
@@ -112,6 +111,7 @@
               ['external_spidermonkey_release_has_nspr == 1', {
                 # Normally we'd use libraries here, but gyp doesn't allow us.
                 'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
           },
@@ -125,6 +125,7 @@
               ['external_spidermonkey_debug_has_nspr == 1', {
                 # Normally we'd use libraries here, but gyp doesn't allow us.
                 'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
           },

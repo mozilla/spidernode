@@ -967,6 +967,8 @@ def configure_spidermonkey(o):
       raise Exception('--with-external-spidermonkey-debug passed without specifying --with-external-spidermonkey-release')
   if sm_debug != "":
     o['variables']['external_spidermonkey_debug'] = options.external_spidermonkey_debug
+  else:
+    o['variables']['external_spidermonkey_debug'] = options.external_spidermonkey_release
   o['variables']['external_spidermonkey_release'] = options.external_spidermonkey_release
 
 
