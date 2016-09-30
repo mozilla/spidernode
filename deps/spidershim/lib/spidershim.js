@@ -20,8 +20,10 @@
 
 (() => {
   Error.captureStackTrace = function Error_captureStackTrace(err, func) {
-    // SpiderMonkey already exposes a 'stack' property, so we don't need to do
-    // anything for that.
+    // The object passed in may not have a stack captured on it.
+    if (!("stack" in err)) {
+      err.stack = new Error().stack;
+    }
 
     if (func && func.name) {
       // Filter out all frames up to and including func.
