@@ -446,17 +446,17 @@ parser.add_option('--with-external-spidermonkey-release',
     default='',
     help='enable linking against an out of tree SpiderMonkey release build')
 
-parser.add_option('--with-system-nspr',
+parser.add_option('--external-spidermonkey-has-nspr',
     action='store',
-    dest='system_nspr',
+    dest='external_spidermonkey_has_nspr',
     default='',
-    help='use system NSPR when linking against an out-of-tree SpiderMonkey')
+    help='the out-of-tree SpiderMonkey builds have a copy of NSPR')
 
-parser.add_option('--with-system-nss',
+parser.add_option('--external-spidermonkey-has-nss',
     action='store',
-    dest='system_nss',
+    dest='external_spidermonkey_has_nss',
     default='',
-    help='use system NSS when linking against an out-of-tree SpiderMonkey')
+    help='the out-of-tree SpiderMonkey builds have a copy of NSS')
 
 parser.add_option('--engine',
     action='store',
@@ -952,10 +952,10 @@ def configure_spidermonkey(o):
   else:
     o['variables']['external_spidermonkey_debug'] = options.external_spidermonkey_release
   o['variables']['external_spidermonkey_release'] = options.external_spidermonkey_release
-  o['variables']['external_spidermonkey_debug_has_nss'] = 1 if not options.system_nss else 0
-  o['variables']['external_spidermonkey_debug_has_nspr'] = 1 if not options.system_nspr else 0
-  o['variables']['external_spidermonkey_release_has_nss'] = 1 if not options.system_nss else 0
-  o['variables']['external_spidermonkey_release_has_nspr'] = 1 if not options.system_nspr else 0
+  o['variables']['external_spidermonkey_debug_has_nss'] = 1 if options.external_spidermonkey_has_nss else 0
+  o['variables']['external_spidermonkey_debug_has_nspr'] = 1 if options.external_spidermonkey_has_nspr else 0
+  o['variables']['external_spidermonkey_release_has_nss'] = 1 if options.external_spidermonkey_has_nss else 0
+  o['variables']['external_spidermonkey_release_has_nspr'] = 1 if options.external_spidermonkey_has_nspr else 0
 
 
 def configure_openssl(o):
