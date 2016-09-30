@@ -55,9 +55,6 @@
           'include',
         ],
         'library_dirs': [ '<(PRODUCT_DIR)' ],
-	'libraries': [
-	  '-lspidershim',
-	],
       },
 
       'sources': [
