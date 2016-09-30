@@ -26,9 +26,9 @@
     if (func && func.name) {
       // Filter out all frames up to and including func.
       let frames = err.stack.split("\n");
-      for (let i = 0; i < frames.length; ++i) {
+      for (let i = 1; i < frames.length; ++i) {
         if (frames[i].includes(func.name)) {
-          frames.splice(0, i + 2);
+          frames.splice(1, i + 2);
           err.stack = frames.join("\n");
           return;
         }
