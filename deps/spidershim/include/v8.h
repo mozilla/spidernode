@@ -1875,6 +1875,7 @@ class PropertyCallbackInfo {
     return ReturnValue<T>(
         &(const_cast<PropertyCallbackInfo<T>*>(this)->_returnValue));
   }
+  bool ShouldThrowOnError() const { return true; }
 
   PropertyCallbackInfo(Local<Value> data, Local<Object> thisObject,
                        Local<Object> holder)
