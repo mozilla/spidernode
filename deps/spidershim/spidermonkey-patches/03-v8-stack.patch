@@ -1,0 +1,499 @@
+commit 96c79b2072fb6bfed85009cbde3cd4b51bf63d3c (HEAD -> work)
+Author: Ehsan Akhgari <ehsan@mozilla.com>
+Date:   Fri Sep 30 15:26:12 2016 -0400
+
+    Bug 1306121 - Add support for emulating V8 stack frame formatting to SpiderMonkey; r=fitzgen
+
+diff --git a/js/src/builtin/Error.js b/js/src/builtin/Error.js
+index 8dacf8b..b0fd727 100644
+--- a/js/src/builtin/Error.js
++++ b/js/src/builtin/Error.js
+@@ -24,8 +24,13 @@ function ErrorToString()
+ 
+   /* Step 10. */
+   if (msg === "")
+     return name;
+ 
+   /* Step 11. */
+   return name + ": " + msg;
+ }
++
++function ErrorToStringWithTrailingNewline()
++{
++  return FUN_APPLY(ErrorToString, this, []) + "\n";
++}
+diff --git a/js/src/jsapi-tests/testSavedStacks.cpp b/js/src/jsapi-tests/testSavedStacks.cpp
+index b59824f..c329f27 100644
+--- a/js/src/jsapi-tests/testSavedStacks.cpp
++++ b/js/src/jsapi-tests/testSavedStacks.cpp
+@@ -103,20 +103,118 @@ BEGIN_TEST(testSavedStacks_RangeBasedForLoops)
+     JS::Rooted<js::SavedFrame*> rf(cx, savedFrame);
+     for (JS::Handle<js::SavedFrame*> frame : js::SavedFrame::RootedRange(cx, rf)) {
+         JS_GC(cx);
+         CHECK(frame == rf);
+         rf = rf->getParent();
+     }
+     CHECK(rf == nullptr);
+ 
++    // Stack string
++    const char* SpiderMonkeyStack = "three@filename.js:4:14\n"
++                                    "two@filename.js:3:22\n"
++                                    "one@filename.js:2:20\n"
++                                    "@filename.js:1:11\n";
++    const char* V8Stack = "    at three (filename.js:4:14)\n"
++                          "    at two (filename.js:3:22)\n"
++                          "    at one (filename.js:2:20)\n"
++                          "    at filename.js:1:11";
++    struct {
++        js::StackFormat format;
++        const char* expected;
++    } expectations[] = {
++        {js::StackFormat::Default, SpiderMonkeyStack},
++        {js::StackFormat::SpiderMonkey, SpiderMonkeyStack},
++        {js::StackFormat::V8, V8Stack}
++    };
++    auto CheckStacks = [&]() {
++        for (auto& expectation : expectations) {
++            JS::RootedString str(cx);
++            CHECK(JS::BuildStackString(cx, savedFrame, &str, 0, expectation.format));
++            JSLinearString* lin = str->ensureLinear(cx);
++            CHECK(lin);
++            CHECK(js::StringEqualsAscii(lin, expectation.expected));
++        }
++        return true;
++    };
++
++    CHECK(CheckStacks());
++
++    js::SetStackFormat(cx, js::StackFormat::V8);
++    expectations[0].expected = V8Stack;
++
++    CHECK(CheckStacks());
++
+     return true;
+ }
+ END_TEST(testSavedStacks_RangeBasedForLoops)
+ 
++BEGIN_TEST(testSavedStacks_ErrorStackSpiderMonkey)
++{
++    JS::RootedValue val(cx);
++    CHECK(evaluate("(function one() {                      \n"  // 1
++                   "  return (function two() {             \n"  // 2
++                   "    return (function three() {         \n"  // 3
++                   "      return new Error('foo');         \n"  // 4
++                   "    }());                              \n"  // 5
++                   "  }());                                \n"  // 6
++                   "}()).stack                             \n", // 7
++                   "filename.js",
++                   1,
++                   &val));
++
++    CHECK(val.isString());
++    JS::RootedString stack(cx, val.toString());
++
++    // Stack string
++    const char* SpiderMonkeyStack = "three@filename.js:4:14\n"
++                                    "two@filename.js:3:22\n"
++                                    "one@filename.js:2:20\n"
++                                    "@filename.js:1:11\n";
++    JSLinearString* lin = stack->ensureLinear(cx);
++    CHECK(lin);
++    CHECK(js::StringEqualsAscii(lin, SpiderMonkeyStack));
++
++    return true;
++}
++END_TEST(testSavedStacks_ErrorStackSpiderMonkey)
++
++BEGIN_TEST(testSavedStacks_ErrorStackV8)
++{
++    js::SetStackFormat(cx, js::StackFormat::V8);
++
++    JS::RootedValue val(cx);
++    CHECK(evaluate("(function one() {                      \n"  // 1
++                   "  return (function two() {             \n"  // 2
++                   "    return (function three() {         \n"  // 3
++                   "      return new Error('foo');         \n"  // 4
++                   "    }());                              \n"  // 5
++                   "  }());                                \n"  // 6
++                   "}()).stack                             \n", // 7
++                   "filename.js",
++                   1,
++                   &val));
++
++    CHECK(val.isString());
++    JS::RootedString stack(cx, val.toString());
++
++    // Stack string
++    const char* V8Stack = "Error: foo\n"
++                          "    at three (filename.js:4:14)\n"
++                          "    at two (filename.js:3:22)\n"
++                          "    at one (filename.js:2:20)\n"
++                          "    at filename.js:1:11";
++    JSLinearString* lin = stack->ensureLinear(cx);
++    CHECK(lin);
++    CHECK(js::StringEqualsAscii(lin, V8Stack));
++
++    return true;
++}
++END_TEST(testSavedStacks_ErrorStackV8)
++
+ BEGIN_TEST(testSavedStacks_selfHostedFrames)
+ {
+     CHECK(js::DefineTestingFunctions(cx, global, false, false));
+ 
+     JS::RootedValue val(cx);
+     //             0         1         2         3
+     //             0123456789012345678901234567890123456789
+     CHECK(evaluate("(function one() {                      \n"  // 1
+diff --git a/js/src/jsapi.cpp b/js/src/jsapi.cpp
+index 7caff5a..0f55293 100644
+--- a/js/src/jsapi.cpp
++++ b/js/src/jsapi.cpp
+@@ -6648,8 +6648,20 @@ JS::GetObjectZone(JSObject* obj)
+ }
+ 
+ JS_PUBLIC_API(JS::TraceKind)
+ JS::GCThingTraceKind(void* thing)
+ {
+     MOZ_ASSERT(thing);
+     return static_cast<js::gc::Cell*>(thing)->getTraceKind();
+ }
++
++JS_PUBLIC_API(void)
++js::SetStackFormat(JSContext* cx, js::StackFormat format)
++{
++    cx->setStackFormat(format);
++}
++
++JS_PUBLIC_API(js::StackFormat)
++js::GetStackFormat(JSContext* cx)
++{
++    return cx->stackFormat();
++}
+diff --git a/js/src/jsapi.h b/js/src/jsapi.h
+index 75fe7f5..7ff920f 100644
+--- a/js/src/jsapi.h
++++ b/js/src/jsapi.h
+@@ -5828,16 +5828,35 @@ extern JS_PUBLIC_API(void*)
+ JS_EncodeInterpretedFunction(JSContext* cx, JS::HandleObject funobj, uint32_t* lengthp);
+ 
+ extern JS_PUBLIC_API(JSScript*)
+ JS_DecodeScript(JSContext* cx, const void* data, uint32_t length);
+ 
+ extern JS_PUBLIC_API(JSObject*)
+ JS_DecodeInterpretedFunction(JSContext* cx, const void* data, uint32_t length);
+ 
++namespace js {
++
++enum class StackFormat { SpiderMonkey, V8, Default };
++
++/*
++ * Sets the format used for stringifying Error stacks.
++ *
++ * The default format is StackFormat::SpiderMonkey.  Use StackFormat::V8
++ * in order to emulate V8's stack formatting.  StackFormat::Default can't be
++ * used here.
++ */
++extern JS_PUBLIC_API(void)
++SetStackFormat(JSContext* cx, StackFormat format);
++
++extern JS_PUBLIC_API(StackFormat)
++GetStackFormat(JSContext* cx);
++
++}
++
+ namespace JS {
+ 
+ /*
+  * This callback represents a request by the JS engine to open for reading the
+  * existing cache entry for the given global and char range that may contain a
+  * module. If a cache entry exists, the callback shall return 'true' and return
+  * the size, base address and an opaque file handle as outparams. If the
+  * callback returns 'true', the JS engine guarantees a call to
+@@ -6239,17 +6258,18 @@ GetSavedFrameParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject
+  * The same notes above about SavedFrame accessors applies here as well: cx
+  * doesn't need to be in stack's compartment, and stack can be null, a
+  * SavedFrame object, or a wrapper (CCW or Xray) around a SavedFrame object.
+  *
+  * Optional indent parameter specifies the number of white spaces to indent
+  * each line.
+  */
+ extern JS_PUBLIC_API(bool)
+-BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp, size_t indent = 0);
++BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp,
++                 size_t indent = 0, js::StackFormat stackFormat = js::StackFormat::Default);
+ 
+ /**
+  * Return true iff the given object is either a SavedFrame object or wrapper
+  * around a SavedFrame object, and it is not the SavedFrame.prototype object.
+  */
+ extern JS_PUBLIC_API(bool)
+ IsSavedFrame(JSObject* obj);
+ 
+diff --git a/js/src/vm/CommonPropertyNames.h b/js/src/vm/CommonPropertyNames.h
+index 47f8801..de5ad1b 100644
+--- a/js/src/vm/CommonPropertyNames.h
++++ b/js/src/vm/CommonPropertyNames.h
+@@ -90,16 +90,17 @@
+     macro(emptyRegExp, emptyRegExp, "(?:)") \
+     macro(encodeURI, encodeURI, "encodeURI") \
+     macro(encodeURIComponent, encodeURIComponent, "encodeURIComponent") \
+     macro(endTimestamp, endTimestamp, "endTimestamp") \
+     macro(entries, entries, "entries") \
+     macro(enumerable, enumerable, "enumerable") \
+     macro(enumerate, enumerate, "enumerate") \
+     macro(era, era, "era") \
++    macro(ErrorToStringWithTrailingNewline, ErrorToStringWithTrailingNewline, "ErrorToStringWithTrailingNewline") \
+     macro(escape, escape, "escape") \
+     macro(eval, eval, "eval") \
+     macro(exec, exec, "exec") \
+     macro(false, false_, "false") \
+     macro(fieldOffsets, fieldOffsets, "fieldOffsets") \
+     macro(fieldTypes, fieldTypes, "fieldTypes") \
+     macro(fileName, fileName, "fileName") \
+     macro(fill, fill, "fill") \
+diff --git a/js/src/vm/ErrorObject.cpp b/js/src/vm/ErrorObject.cpp
+index cdf07f3..219995c 100644
+--- a/js/src/vm/ErrorObject.cpp
++++ b/js/src/vm/ErrorObject.cpp
+@@ -211,16 +211,36 @@ js::ErrorObject::getStack(JSContext* cx, unsigned argc, Value* vp)
+     Rooted<ErrorObject*> error(cx);
+     if (!checkAndUnwrapThis(cx, args, "(get stack)", &error))
+         return false;
+ 
+     RootedObject savedFrameObj(cx, error->stack());
+     RootedString stackString(cx);
+     if (!BuildStackString(cx, savedFrameObj, &stackString))
+         return false;
++
++    if (cx->stackFormat() == js::StackFormat::V8) {
++        // When emulating V8 stack frames, we also need to prepend the
++        // stringified Error to the stack string.
++        HandlePropertyName name = cx->names().ErrorToStringWithTrailingNewline;
++        RootedValue val(cx);
++        if (!GlobalObject::getSelfHostedFunction(cx, cx->global(), name, name, 0, &val))
++            return false;
++
++        RootedValue rval(cx);
++        if (!js::Call(cx, val, args.thisv(), &rval))
++            return false;
++
++        if (!rval.isString())
++            return false;
++
++        RootedString stringified(cx, rval.toString());
++        stackString = ConcatStrings<CanGC>(cx, stringified, stackString);
++    }
++
+     args.rval().setString(stackString);
+     return true;
+ }
+ 
+ static MOZ_ALWAYS_INLINE bool
+ IsObject(HandleValue v)
+ {
+     return v.isObject();
+diff --git a/js/src/vm/Runtime.cpp b/js/src/vm/Runtime.cpp
+index 6c45056..b7021c2 100644
+--- a/js/src/vm/Runtime.cpp
++++ b/js/src/vm/Runtime.cpp
+@@ -239,17 +239,19 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
+ #ifdef DEBUG
+     enteredPolicy(nullptr),
+ #endif
+     largeAllocationFailureCallback(nullptr),
+     oomCallback(nullptr),
+     debuggerMallocSizeOf(ReturnZeroSize),
+     lastAnimationTime(0),
+     performanceMonitoring(thisFromCtor()),
+-    ionLazyLinkListSize_(0)
++    ionLazyLinkListSize_(0),
++    stackFormat_(parentRuntime ? js::StackFormat::Default
++                               : js::StackFormat::SpiderMonkey)
+ {
+     setGCStoreBufferPtr(&gc.storeBuffer);
+ 
+     liveRuntimesCount++;
+ 
+     /* Initialize infallibly first, so we can goto bad and JS_DestroyRuntime. */
+     JS_INIT_CLIST(&onNewGlobalObjectWatchers);
+ 
+diff --git a/js/src/vm/Runtime.h b/js/src/vm/Runtime.h
+index 734adeb..5defcf6 100644
+--- a/js/src/vm/Runtime.h
++++ b/js/src/vm/Runtime.h
+@@ -1260,16 +1260,37 @@ struct JSRuntime : public JS::shadow::Runtime,
+     IonBuilderList& ionLazyLinkList();
+ 
+     size_t ionLazyLinkListSize() {
+         return ionLazyLinkListSize_;
+     }
+ 
+     void ionLazyLinkListRemove(js::jit::IonBuilder* builder);
+     void ionLazyLinkListAdd(js::jit::IonBuilder* builder);
++
++  private:
++    /* The stack format for the current runtime.  Only valid on non-child
++     * runtimes. */
++    js::StackFormat stackFormat_;
++
++  public:
++    js::StackFormat stackFormat() const {
++        const JSRuntime* rt = this;
++        while (rt->parentRuntime) {
++            MOZ_ASSERT(rt->stackFormat_ == js::StackFormat::Default);
++            rt = rt->parentRuntime;
++        }
++        MOZ_ASSERT(rt->stackFormat_ != js::StackFormat::Default);
++        return rt->stackFormat_;
++    }
++    void setStackFormat(js::StackFormat format) {
++        MOZ_ASSERT(!parentRuntime);
++        MOZ_ASSERT(format != js::StackFormat::Default);
++        stackFormat_ = format;
++    }
+ };
+ 
+ namespace js {
+ 
+ static inline JSContext*
+ GetJSContextFromMainThread()
+ {
+     return js::TlsPerThreadData.get()->contextFromMainThread();
+diff --git a/js/src/vm/SavedStacks.cpp b/js/src/vm/SavedStacks.cpp
+index 3cef981..f15f05a 100644
+--- a/js/src/vm/SavedStacks.cpp
++++ b/js/src/vm/SavedStacks.cpp
+@@ -886,25 +886,74 @@ GetSavedFrameParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject
+     // inaccessible part of the chain.
+     if (subsumedParent && !(subsumedParent->getAsyncCause() || skippedAsync))
+         parentp.set(parent);
+     else
+         parentp.set(nullptr);
+     return SavedFrameResult::Ok;
+ }
+ 
++static bool
++FormatSpiderMonkeyStackFrame(JSContext* cx, js::StringBuffer& sb,
++                             HandleSavedFrame frame, size_t indent,
++                             bool skippedAsync)
++{
++    RootedString asyncCause(cx, frame->getAsyncCause());
++    if (!asyncCause && skippedAsync)
++        asyncCause.set(cx->names().Async);
++
++    js::RootedAtom name(cx, frame->getFunctionDisplayName());
++    return (!indent || sb.appendN(' ', indent))
++        && (!asyncCause || (sb.append(asyncCause) && sb.append('*')))
++        && (!name || sb.append(name))
++        && sb.append('@')
++        && sb.append(frame->getSource())
++        && sb.append(':')
++        && NumberValueToStringBuffer(cx, NumberValue(frame->getLine()), sb)
++        && sb.append(':')
++        && NumberValueToStringBuffer(cx, NumberValue(frame->getColumn()), sb)
++        && sb.append('\n');
++}
++
++static bool
++FormatV8StackFrame(JSContext* cx, js::StringBuffer& sb,
++                   HandleSavedFrame frame, size_t indent, bool lastFrame)
++{
++    js::RootedAtom name(cx, frame->getFunctionDisplayName());
++    return sb.appendN(' ', indent + 4)
++        && sb.append('a')
++        && sb.append('t')
++        && sb.append(' ')
++        && (!name || (sb.append(name) &&
++                      sb.append(' ') &&
++                      sb.append('(')))
++        && sb.append(frame->getSource())
++        && sb.append(':')
++        && NumberValueToStringBuffer(cx, NumberValue(frame->getLine()), sb)
++        && sb.append(':')
++        && NumberValueToStringBuffer(cx, NumberValue(frame->getColumn()), sb)
++        && (!name || sb.append(')'))
++        && (lastFrame || sb.append('\n'));
++}
++
+ JS_PUBLIC_API(bool)
+-BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp, size_t indent)
++BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp,
++                 size_t indent, js::StackFormat format)
+ {
+     AssertHeapIsIdle(cx);
+     CHECK_REQUEST(cx);
+     MOZ_RELEASE_ASSERT(cx->compartment());
+ 
+     js::StringBuffer sb(cx);
+ 
++    if (format == js::StackFormat::Default) {
++        format = cx->stackFormat();
++    }
++    MOZ_ASSERT(format != js::StackFormat::Default);
++
+     // Enter a new block to constrain the scope of possibly entering the stack's
+     // compartment. This ensures that when we finish the StringBuffer, we are
+     // back in the cx's original compartment, and fulfill our contract with
+     // callers to place the output string in the cx's current compartment.
+     {
+         AutoMaybeEnterFrameCompartment ac(cx, stack);
+         bool skippedAsync;
+         js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, stack, SavedFrameSelfHosted::Exclude,
+@@ -914,37 +963,37 @@ BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp,
+             return true;
+         }
+ 
+         js::RootedSavedFrame parent(cx);
+         do {
+             MOZ_ASSERT(SavedFrameSubsumedByCaller(cx, frame));
+             MOZ_ASSERT(!frame->isSelfHosted(cx));
+ 
+-            RootedString asyncCause(cx, frame->getAsyncCause());
+-            if (!asyncCause && skippedAsync)
+-                asyncCause.set(cx->names().Async);
+-
+-            js::RootedAtom name(cx, frame->getFunctionDisplayName());
+-            if ((indent && !sb.appendN(' ', indent))
+-                || (asyncCause && (!sb.append(asyncCause) || !sb.append('*')))
+-                || (name && !sb.append(name))
+-                || !sb.append('@')
+-                || !sb.append(frame->getSource())
+-                || !sb.append(':')
+-                || !NumberValueToStringBuffer(cx, NumberValue(frame->getLine()), sb)
+-                || !sb.append(':')
+-                || !NumberValueToStringBuffer(cx, NumberValue(frame->getColumn()), sb)
+-                || !sb.append('\n'))
+-            {
+-                return false;
++            parent = frame->getParent();
++            js::RootedSavedFrame nextFrame(cx, js::GetFirstSubsumedFrame(cx, parent,
++                                                                         SavedFrameSelfHosted::Exclude, skippedAsync));
++
++            switch (format) {
++                case js::StackFormat::SpiderMonkey:
++                    if (!FormatSpiderMonkeyStackFrame(cx, sb, frame, indent, skippedAsync)) {
++                        return false;
++                    }
++                    break;
++                case js::StackFormat::V8:
++                    if (!FormatV8StackFrame(cx, sb, frame, indent, !nextFrame)) {
++                        return false;
++                    }
++                    break;
++                case js::StackFormat::Default:
++                    MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("Unexpected value");
++                    break;
+             }
+ 
+-            parent = frame->getParent();
+-            frame = js::GetFirstSubsumedFrame(cx, parent, SavedFrameSelfHosted::Exclude, skippedAsync);
++            frame = nextFrame;
+         } while (frame);
+     }
+ 
+     JSString* str = sb.finishString();
+     if (!str)
+         return false;
+     assertSameCompartment(cx, str);
+     stringp.set(str);

@@ -98,7 +98,7 @@ TEST(SpiderShim, StackTrace) {
   EXPECT_TRUE(try_catch.HasCaught());
   String::Utf8Value stack(
       try_catch.StackTrace(context).ToLocalChecked());
-  EXPECT_STREQ("foo@stack-trace-test:1:18\n@stack-trace-test:1:41\n", *stack);
+  EXPECT_STREQ("    at foo (stack-trace-test:1:18)\n    at stack-trace-test:1:41", *stack);
 }
 
 TEST(SpiderShim, InvalidSyntax) {

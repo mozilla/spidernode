@@ -347,10 +347,10 @@ TEST(SpiderShim, TryCatchStackTrace) {
       "}\n"
       "\n"
       "Foo();\n");
-  const char* expectedStack = "Baz@test.js:10:9\n"
-                              "Bar@test.js:6:10\n"
-                              "Foo@test.js:2:10\n"
-                              "@test.js:13:1\n";
+  const char* expectedStack = "    at Baz (test.js:10:9)\n"
+                              "    at Bar (test.js:6:10)\n"
+                              "    at Foo (test.js:2:10)\n"
+                              "    at test.js:13:1";
 
   const char* resource_name;
   Local<Script> script;
@@ -397,7 +397,7 @@ TEST(SpiderShim, TryCatchFunctionCall) {
     String::Utf8Value str_value(try_catch.Exception());
     EXPECT_STREQ("Error: quirk", *str_value);
     String::Utf8Value stackTrace(try_catch.StackTrace());
-    EXPECT_STREQ("Foo@:3:11\n", *stackTrace);
+    EXPECT_STREQ("    at Foo (:3:11)", *stackTrace);
   }
 
   {
