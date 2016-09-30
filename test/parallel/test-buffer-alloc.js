@@ -25,6 +25,7 @@ assert.strictEqual(512, c.length);
 const d = Buffer.from([]);
 assert.strictEqual(0, d.length);
 
+// Test creating a Buffer from a Uint32Array
 {
   const ui32 = new Uint32Array(4).fill(42);
   const e = Buffer.from(ui32);
