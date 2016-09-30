@@ -26,7 +26,7 @@ for (let i = 0; i < 50; i++) {
     Buffer(20),
     new SlowBuffer(20)
   ];
-  for (var buf of bufs) {
+  for (const buf of bufs) {
     assert(isZeroFilled(buf));
   }
 }
