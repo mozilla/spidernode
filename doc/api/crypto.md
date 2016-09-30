@@ -1,6 +1,6 @@
 # Crypto
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 The `crypto` module provides cryptographic functionality that includes a set of
 wrappers for OpenSSL's hash, HMAC, cipher, decipher, sign and verify functions.
@@ -472,9 +472,9 @@ Generates private and public EC Diffie-Hellman key values, and returns
 the public key in the specified `format` and `encoding`. This key should be
 transferred to the other party.
 
-The `format` arguments specifies point encoding and can be `'compressed'`,
-`'uncompressed'`, or `'hybrid'`. If `format` is not specified, the point will
-be returned in `'uncompressed'` format.
+The `format` argument specifies point encoding and can be `'compressed'` or
+`'uncompressed'`. If `format` is not specified, the point will be returned in
+`'uncompressed'` format.
 
 The `encoding` argument can be `'latin1'`, `'hex'`, or `'base64'`. If
 `encoding` is provided a string is returned; otherwise a [`Buffer`][]
@@ -491,9 +491,9 @@ a string is returned; otherwise a [`Buffer`][] is returned.
 Returns the EC Diffie-Hellman public key in the specified `encoding` and
 `format`.
 
-The `format` argument specifies point encoding and can be `'compressed'`,
-`'uncompressed'`, or `'hybrid'`. If `format` is not specified the point will be
-returned in `'uncompressed'` format.
+The `format` argument specifies point encoding and can be `'compressed'` or
+`'uncompressed'`. If `format` is not specified the point will be returned in
+`'uncompressed'` format.
 
 The `encoding` argument can be `'latin1'`, `'hex'`, or `'base64'`. If
 `encoding` is specified, a string is returned; otherwise a [`Buffer`][] is
@@ -510,7 +510,7 @@ public point (key) is also generated and set in the ECDH object.
 
 ### ecdh.setPublicKey(public_key[, encoding])
 
-    Stability: 0 - Deprecated
+> Stability: 0 - Deprecated
 
 Sets the EC Diffie-Hellman public key. Key encoding can be `'latin1'`,
 `'hex'` or `'base64'`. If `encoding` is provided `public_key` is expected to
@@ -913,12 +913,12 @@ recent OpenSSL releases, `openssl list-cipher-algorithms` will display the
 available cipher algorithms.
 
 The `key` is the raw key used by the `algorithm` and `iv` is an
-[initialization vector][]. Both arguments must be `'latin1'` encoded strings or
+[initialization vector][]. Both arguments must be `'utf8'` encoded strings or
 [buffers][`Buffer`].
 
 ### crypto.createCredentials(details)
 
-    Stability: 0 - Deprecated: Use [`tls.createSecureContext()`][] instead.
+> Stability: 0 - Deprecated: Use [`tls.createSecureContext()`][] instead.
 
 The `crypto.createCredentials()` method is a deprecated alias for creating
 and returning a `tls.SecureContext` object. The `crypto.createCredentials()`
@@ -968,7 +968,7 @@ recent OpenSSL releases, `openssl list-cipher-algorithms` will display the
 available cipher algorithms.
 
 The `key` is the raw key used by the `algorithm` and `iv` is an
-[initialization vector][]. Both arguments must be `'latin1'` encoded strings or
+[initialization vector][]. Both arguments must be `'utf8'` encoded strings or
 [buffers][`Buffer`].
 
 ### crypto.createDiffieHellman(prime[, prime_encoding][, generator][, generator_encoding])

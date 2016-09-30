@@ -36,7 +36,6 @@ namespace node {
 namespace debugger {
 
 using v8::Context;
-using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
@@ -70,7 +69,7 @@ Agent::~Agent() {
 }
 
 
-bool Agent::Start(const std::string& host, int port, bool wait) {
+bool Agent::Start(const char* host, int port, bool wait) {
   int err;
 
   if (state_ == kRunning)

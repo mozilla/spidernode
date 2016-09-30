@@ -91,9 +91,9 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
     global_template = ObjectTemplate::New(isolate);
   }
 
-  Local<Object> prototype =
-    global_template->GetConstructor()
-                   ->GetProtoInstance(isolate->GetCurrentContext());
+  Local<FunctionTemplate> global_constructor = global_template->GetConstructor();
+  global_constructor->SetPrototypeTemplate(global_template);
+  Local<Object> prototype = global_constructor->GetProtoInstance(isolate->GetCurrentContext());
   if (prototype.IsEmpty()) {
     return false;
   }
@@ -156,21 +156,17 @@ void Context::Enter() {
   assert(pimpl_->global);
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
   JS_BeginRequest(cx);
-  
-  // Ignore the old compartment because it should be the compartment for
-  // isolate->currentContexts.top()
-  JS_EnterCompartment(cx, pimpl_->global);
+  pimpl_->oldCompartment = JS_EnterCompartment(cx, pimpl_->global);
   GetIsolate()->PushCurrentContext(this);
 }
 
 void Context::Exit() {
   assert(pimpl_);
-  Context* ctx = GetIsolate()->PopCurrentContext();
-  JSCompartment* compartment =
-    ctx ? js::GetObjectCompartment(ctx->pimpl_->global) : nullptr;
   JSContext* cx = JSContextFromIsolate(Isolate::GetCurrent());
-  JS_LeaveCompartment(cx, compartment);
+  // pimpl_->oldCompartment can be nullptr.
+  JS_LeaveCompartment(cx, pimpl_->oldCompartment);
   JS_EndRequest(cx);
+  GetIsolate()->PopCurrentContext();
 }
 
 void Context::SetEmbedderData(int idx, Local<Value> data) {

@@ -55,14 +55,14 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var MODE_ALWAYS = "always",
+        const MODE_ALWAYS = "always",
             MODE_NEVER = "never";
 
-        var mode = context.options[0] || MODE_ALWAYS;
+        const mode = context.options[0] || MODE_ALWAYS;
 
-        var options = {
+        const options = {
         };
 
         if (typeof mode === "string") { // simple options configuration with just a string
@@ -113,8 +113,8 @@ module.exports = {
         // Helpers
         //--------------------------------------------------------------------------
 
-        var functionStack = [];
-        var blockStack = [];
+        const functionStack = [];
+        const blockStack = [];
 
         /**
          * Increments the blockStack counter.
@@ -166,7 +166,7 @@ module.exports = {
          * @private
          */
         function recordTypes(statementType, declarations, currentScope) {
-            for (var i = 0; i < declarations.length; i++) {
+            for (let i = 0; i < declarations.length; i++) {
                 if (declarations[i].init === null) {
                     if (options[statementType] && options[statementType].uninitialized === MODE_ALWAYS) {
                         currentScope.uninitialized = true;
@@ -185,7 +185,7 @@ module.exports = {
          * @returns {Object} The scope associated with statementType
          */
         function getCurrentScope(statementType) {
-            var currentScope;
+            let currentScope;
 
             if (statementType === "var") {
                 currentScope = functionStack[functionStack.length - 1];
@@ -204,9 +204,9 @@ module.exports = {
          * @private
          */
         function countDeclarations(declarations) {
-            var counts = { uninitialized: 0, initialized: 0 };
+            const counts = { uninitialized: 0, initialized: 0 };
 
-            for (var i = 0; i < declarations.length; i++) {
+            for (let i = 0; i < declarations.length; i++) {
                 if (declarations[i].init === null) {
                     counts.uninitialized++;
                 } else {
@@ -225,9 +225,9 @@ module.exports = {
          */
         function hasOnlyOneStatement(statementType, declarations) {
 
-            var declarationCounts = countDeclarations(declarations);
-            var currentOptions = options[statementType] || {};
-            var currentScope = getCurrentScope(statementType);
+            const declarationCounts = countDeclarations(declarations);
+            const currentOptions = options[statementType] || {};
+            const currentScope = getCurrentScope(statementType);
 
             if (currentOptions.uninitialized === MODE_ALWAYS && currentOptions.initialized === MODE_ALWAYS) {
                 if (currentScope.uninitialized || currentScope.initialized) {
@@ -265,17 +265,16 @@ module.exports = {
             ForOfStatement: startBlock,
             SwitchStatement: startBlock,
 
-            VariableDeclaration: function(node) {
-                var parent = node.parent,
-                    type, declarations, declarationCounts;
+            VariableDeclaration(node) {
+                const parent = node.parent;
+                const type = node.kind;
 
-                type = node.kind;
                 if (!options[type]) {
                     return;
                 }
 
-                declarations = node.declarations;
-                declarationCounts = countDeclarations(declarations);
+                const declarations = node.declarations;
+                const declarationCounts = countDeclarations(declarations);
 
                 // always
                 if (!hasOnlyOneStatement(type, declarations)) {
@@ -296,7 +295,7 @@ module.exports = {
 
                 // never
                 if (parent.type !== "ForStatement" || parent.init !== node) {
-                    var totalDeclarations = declarationCounts.uninitialized + declarationCounts.initialized;
+                    const totalDeclarations = declarationCounts.uninitialized + declarationCounts.initialized;
 
                     if (totalDeclarations > 1) {
 

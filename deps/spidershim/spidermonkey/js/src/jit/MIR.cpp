@@ -6,6 +6,7 @@
 
 #include "jit/MIR.h"
 
+#include "mozilla/CheckedInt.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/MathAlgorithms.h"
@@ -34,6 +35,7 @@ using namespace js::jit;
 
 using JS::ToInt32;
 
+using mozilla::CheckedInt;
 using mozilla::NumbersAreIdentical;
 using mozilla::IsFloat32Representable;
 using mozilla::IsNaN;
@@ -153,13 +155,13 @@ EvaluateConstantOperands(TempAllocator& alloc, MBinaryInstruction* ins, bool* pt
         MOZ_CRASH("NYI");
     }
 
-    // For a float32 or double value, use NewRawDouble so that we preserve NaN
+    // For a float32 or double value, use the Raw* New so that we preserve NaN
     // bits. This isn't strictly required for either ES or wasm, but it does
     // avoid making constant-folding observable.
     if (ins->type() == MIRType::Double)
-        return MConstant::NewRawDouble(alloc, ret);
+        return MConstant::New(alloc, wasm::RawF64(ret));
     if (ins->type() == MIRType::Float32)
-        return MConstant::NewRawFloat32(alloc, float(ret));
+        return MConstant::New(alloc, wasm::RawF32(float(ret)));
 
     Value retVal;
     retVal.setNumber(JS::CanonicalizeNaN(ret));
@@ -758,15 +760,19 @@ MConstant::NewFloat32(TempAllocator& alloc, double d)
 }
 
 MConstant*
-MConstant::NewRawFloat32(TempAllocator& alloc, float f)
+MConstant::New(TempAllocator& alloc, wasm::RawF32 f)
 {
-    return new(alloc) MConstant(f);
+    auto* c = new(alloc) MConstant(Int32Value(f.bits()), nullptr);
+    c->setResultType(MIRType::Float32);
+    return c;
 }
 
 MConstant*
-MConstant::NewRawDouble(TempAllocator& alloc, double d)
+MConstant::New(TempAllocator& alloc, wasm::RawF64 d)
 {
-    return new(alloc) MConstant(d);
+    auto* c = new(alloc) MConstant(int64_t(d.bits()));
+    c->setResultType(MIRType::Double);
+    return c;
 }
 
 MConstant*
@@ -1861,11 +1867,10 @@ MAtomicIsLockFree::foldsTo(TempAllocator& alloc)
     return MConstant::New(alloc, BooleanValue(AtomicOperations::isLockfree(i)));
 }
 
-MParameter*
-MParameter::New(TempAllocator& alloc, int32_t index, TemporaryTypeSet* types)
-{
-    return new(alloc) MParameter(index, types);
-}
+// Define |THIS_SLOT| as part of this translation unit, as it is used to
+// specialized the parameterized |New| function calls introduced by
+// TRIVIAL_NEW_WRAPPERS.
+const int32_t MParameter::THIS_SLOT;
 
 void
 MParameter::printOpcode(GenericPrinter& out) const
@@ -2917,6 +2922,7 @@ NeedNegativeZeroCheck(MDefinition* def)
           }
           case MDefinition::Op_StoreElement:
           case MDefinition::Op_StoreElementHole:
+          case MDefinition::Op_FallibleStoreElement:
           case MDefinition::Op_LoadElement:
           case MDefinition::Op_LoadElementHole:
           case MDefinition::Op_LoadUnboxedScalar:
@@ -3184,10 +3190,10 @@ MMinMax::foldsTo(TempAllocator& alloc)
             if (mozilla::NumberEqualsInt32(result, &cast))
                 return MConstant::New(alloc, Int32Value(cast));
         } else if (type() == MIRType::Float32) {
-            return MConstant::NewFloat32(alloc, result);
+            return MConstant::New(alloc, wasm::RawF32(float(result)));
         } else {
             MOZ_ASSERT(type() == MIRType::Double);
-            return MConstant::NewRawDouble(alloc, result);
+            return MConstant::New(alloc, wasm::RawF64(result));
         }
     }
 
@@ -4171,7 +4177,7 @@ MToDouble::foldsTo(TempAllocator& alloc)
 
     if (input->isConstant() && input->toConstant()->isTypeRepresentableAsDouble()) {
         double out = input->toConstant()->numberToDouble();
-        return MConstant::NewRawDouble(alloc, out);
+        return MConstant::New(alloc, wasm::RawF64(out));
     }
 
     return this;
@@ -4195,8 +4201,10 @@ MToFloat32::foldsTo(TempAllocator& alloc)
         return input->toToDouble()->input();
     }
 
-    if (input->isConstant() && input->toConstant()->isTypeRepresentableAsDouble())
-        return MConstant::NewRawFloat32(alloc, float(input->toConstant()->numberToDouble()));
+    if (input->isConstant() && input->toConstant()->isTypeRepresentableAsDouble()) {
+        float out = float(input->toConstant()->numberToDouble());
+        return MConstant::New(alloc, wasm::RawF32(out));
+    }
 
     return this;
 }
@@ -4943,6 +4951,24 @@ MLoadFixedSlotAndUnbox::foldsTo(TempAllocator& alloc)
     return this;
 }
 
+MDefinition*
+MWasmAddOffset::foldsTo(TempAllocator& alloc)
+{
+    MDefinition* baseArg = base();
+    if (!baseArg->isConstant())
+        return this;
+
+    MOZ_ASSERT(baseArg->type() == MIRType::Int32);
+    CheckedInt<uint32_t> ptr = baseArg->toConstant()->toInt32();
+
+    ptr += offset();
+
+    if (!ptr.isValid())
+        return this;
+
+    return MConstant::New(alloc, Int32Value(ptr.value()));
+}
+
 MDefinition::AliasType
 MAsmJSLoadHeap::mightAlias(const MDefinition* def) const
 {
@@ -5417,6 +5443,27 @@ MWasmCall::New(TempAllocator& alloc, const wasm::CallSiteDesc& desc, const wasm:
     return call;
 }
 
+MWasmCall*
+MWasmCall::NewBuiltinInstanceMethodCall(TempAllocator& alloc,
+                                        const wasm::CallSiteDesc& desc,
+                                        const wasm::SymbolicAddress builtin,
+                                        const ABIArg& instanceArg,
+                                        const Args& args,
+                                        MIRType resultType,
+                                        uint32_t spIncrement,
+                                        uint32_t tlsStackOffset)
+{
+    auto callee = wasm::CalleeDesc::builtinInstanceMethod(builtin);
+    MWasmCall* call = MWasmCall::New(alloc, desc, callee, args, resultType, spIncrement,
+                                     tlsStackOffset, nullptr);
+    if (!call)
+        return nullptr;
+
+    MOZ_ASSERT(instanceArg != ABIArg());
+    call->instanceArg_ = instanceArg;
+    return call;
+}
+
 void
 MSqrt::trySpecializeFloat32(TempAllocator& alloc) {
     if (!input()->canProduceFloat32() || !CheckUsesAreFloat32Consumers(this)) {
@@ -5689,6 +5736,13 @@ jit::ElementAccessMightBeCopyOnWrite(CompilerConstraintList* constraints, MDefin
 {
     TemporaryTypeSet* types = obj->resultTypeSet();
     return !types || types->hasObjectFlags(constraints, OBJECT_FLAG_COPY_ON_WRITE);
+}
+
+bool
+jit::ElementAccessMightBeFrozen(CompilerConstraintList* constraints, MDefinition* obj)
+{
+    TemporaryTypeSet* types = obj->resultTypeSet();
+    return !types || types->hasObjectFlags(constraints, OBJECT_FLAG_FROZEN);
 }
 
 bool

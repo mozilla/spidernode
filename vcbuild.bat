@@ -38,6 +38,7 @@ set build_release=
 set enable_vtune_arg=
 set configure_flags=
 set build_addons=
+set dll=
 set engine=v8
 
 :next-arg
@@ -81,6 +82,7 @@ if /i "%1"=="without-intl"     set i18n_arg=%1&goto arg-ok
 if /i "%1"=="download-all"  set download_arg="--download=all"&goto arg-ok
 if /i "%1"=="ignore-flaky"  set test_args=%test_args% --flaky-tests=dontcare&goto arg-ok
 if /i "%1"=="enable-vtune"  set enable_vtune_arg=1&goto arg-ok
+if /i "%1"=="dll"           set dll=1&goto arg-ok
 if /i "%1"=="v8"            set engine=v8&goto arg-ok
 if /i "%1"=="chakracore"    set engine=chakracore&set chakra_jslint=deps\chakrashim\lib&goto arg-ok
 if /i "%1"=="spidermonkey"  set engine=spidermonkey&goto arg-ok
@@ -113,6 +115,7 @@ if defined noperfctr set configure_flags=%configure_flags% --without-perfctr& se
 if defined release_urlbase set release_urlbase_arg=--release-urlbase=%release_urlbase%
 if defined download_arg set configure_flags=%configure_flags% %download_arg%
 if defined enable_vtune_arg set configure_flags=%configure_flags% --enable-vtune-profiling
+if defined dll set configure_flags=%configure_flags% --shared
 
 if "%i18n_arg%"=="full-icu" set configure_flags=%configure_flags% --with-intl=full-icu
 if "%i18n_arg%"=="small-icu" set configure_flags=%configure_flags% --with-intl=small-icu
@@ -129,6 +132,8 @@ if "%target%"=="Clean" rmdir /S /Q %~dp0deps\icu
 :no-depsicu
 
 call :getnodeversion || exit /b 1
+
+if "%target%"=="Clean" rmdir /Q /S "%~dp0%config%\node-v%FULLVERSION%-win-%target_arch%" > nul 2> nul
 
 @rem Set environment for msbuild
 
@@ -247,6 +252,16 @@ copy /Y ..\deps\npm\bin\npm node-v%FULLVERSION%-win-%target_arch%\ > nul
 if errorlevel 1 echo Cannot copy npm && goto package_error
 copy /Y ..\deps\npm\bin\npm.cmd node-v%FULLVERSION%-win-%target_arch%\ > nul
 if errorlevel 1 echo Cannot copy npm.cmd && goto package_error
+copy /Y ..\tools\msvs\nodevars.bat node-v%FULLVERSION%-win-%target_arch%\ > nul
+if errorlevel 1 echo Cannot copy nodevars.bat && goto package_error
+if not defined noetw (
+    copy /Y ..\src\res\node_etw_provider.man node-v%FULLVERSION%-win-%target_arch%\ > nul
+    if errorlevel 1 echo Cannot copy node_etw_provider.man && goto package_error
+)
+if not defined noperfctr (
+    copy /Y ..\src\res\node_perfctr_provider.man node-v%FULLVERSION%-win-%target_arch%\ > nul
+    if errorlevel 1 echo Cannot copy node_perfctr_provider.man && goto package_error
+)
 
 echo Creating node-v%FULLVERSION%-win-%target_arch%.7z
 del node-v%FULLVERSION%-win-%target_arch%.7z > nul 2> nul
@@ -355,14 +370,14 @@ goto jslint
 :jslint
 if defined jslint_ci goto jslint-ci
 if not defined jslint goto exit
-if not exist tools\eslint\bin\eslint.js goto no-lint
+if not exist tools\eslint\lib\eslint.js goto no-lint
 echo running jslint
-%config%\node tools\jslint.js -J benchmark lib src test %chakra_jslint% tools
+%config%\node tools\eslint\bin\eslint.js --cache --rulesdir=tools\eslint-rules benchmark lib test %chakra_jslint% tools
 goto exit
 
 :jslint-ci
 echo running jslint-ci
-%config%\node tools\jslint.js -J -f tap -o test-eslint.tap benchmark lib src test %chakra_jslint% tools
+%config%\node tools\jslint.js -J -f tap -o test-eslint.tap benchmark lib test %chakra_jslint% tools
 goto exit
 
 :no-lint

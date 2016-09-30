@@ -55,9 +55,6 @@
           'include',
         ],
         'library_dirs': [ '<(PRODUCT_DIR)' ],
-	'libraries': [
-	  '-lspidershim',
-	],
       },
 
       'sources': [
@@ -69,6 +66,7 @@
         'src/v8booleanobject.cc',
         'src/v8context.cc',
         'src/v8date.cc',
+        'src/v8debug.cc',
         'src/v8exception.cc',
         'src/v8external.cc',
         'src/v8function.cc',

@@ -49,12 +49,12 @@ module.exports = {
         }
     },
 
-    create: function(context) {
-        var options = context.options;
-        var always = options[0] === "always";
-        var asNeeded = !options[0] || options[0] === "as-needed";
-        var never = options[0] === "never";
-        var requireReturnForObjectLiteral = options[1] && options[1].requireReturnForObjectLiteral;
+    create(context) {
+        const options = context.options;
+        const always = options[0] === "always";
+        const asNeeded = !options[0] || options[0] === "as-needed";
+        const never = options[0] === "never";
+        const requireReturnForObjectLiteral = options[1] && options[1].requireReturnForObjectLiteral;
 
         /**
          * Determines whether a arrow function body needs braces
@@ -62,17 +62,17 @@ module.exports = {
          * @returns {void}
          */
         function validate(node) {
-            var arrowBody = node.body;
+            const arrowBody = node.body;
 
             if (arrowBody.type === "BlockStatement") {
                 if (never) {
                     context.report({
-                        node: node,
+                        node,
                         loc: arrowBody.loc.start,
                         message: "Unexpected block statement surrounding arrow body."
                     });
                 } else {
-                    var blockBody = arrowBody.body;
+                    const blockBody = arrowBody.body;
 
                     if (blockBody.length !== 1) {
                         return;
@@ -85,7 +85,7 @@ module.exports = {
 
                     if (asNeeded && blockBody[0].type === "ReturnStatement") {
                         context.report({
-                            node: node,
+                            node,
                             loc: arrowBody.loc.start,
                             message: "Unexpected block statement surrounding arrow body."
                         });
@@ -94,7 +94,7 @@ module.exports = {
             } else {
                 if (always || (asNeeded && requireReturnForObjectLiteral && arrowBody.type === "ObjectExpression")) {
                     context.report({
-                        node: node,
+                        node,
                         loc: arrowBody.loc.start,
                         message: "Expected block statement surrounding arrow body."
                     });

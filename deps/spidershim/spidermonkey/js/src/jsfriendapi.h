@@ -74,9 +74,6 @@ JS_ObjectCountDynamicSlots(JS::HandleObject obj);
 extern JS_FRIEND_API(size_t)
 JS_SetProtoCalled(JSContext* cx);
 
-extern JS_FRIEND_API(bool)
-JS_ImmutablePrototypesEnabled();
-
 extern JS_FRIEND_API(size_t)
 JS_GetCustomIteratorCount(JSContext* cx);
 
@@ -136,6 +133,7 @@ enum {
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT,
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS,
     JS_TELEMETRY_ADDON_EXCEPTIONS,
+    JS_TELEMETRY_AOT_USAGE,
     JS_TELEMETRY_END
 };
 
@@ -1457,8 +1455,8 @@ struct MOZ_STACK_CLASS JS_FRIEND_API(ErrorReport)
     //
     // Returns false if we fail to actually populate the ErrorReport
     // for some reason (probably out of memory).
-    bool populateUncaughtExceptionReport(JSContext* cx, ...);
-    bool populateUncaughtExceptionReportVA(JSContext* cx, va_list ap);
+    bool populateUncaughtExceptionReportUTF8(JSContext* cx, ...);
+    bool populateUncaughtExceptionReportUTF8VA(JSContext* cx, va_list ap);
 
     // Reports exceptions from add-on scopes to telementry.
     void ReportAddonExceptionToTelementry(JSContext* cx);

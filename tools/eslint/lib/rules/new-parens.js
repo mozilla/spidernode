@@ -20,19 +20,19 @@ module.exports = {
         schema: []
     },
 
-    create: function(context) {
-        var sourceCode = context.getSourceCode();
+    create(context) {
+        const sourceCode = context.getSourceCode();
 
         return {
 
-            NewExpression: function(node) {
-                var tokens = sourceCode.getTokens(node);
-                var prenticesTokens = tokens.filter(function(token) {
+            NewExpression(node) {
+                const tokens = sourceCode.getTokens(node);
+                const prenticesTokens = tokens.filter(function(token) {
                     return token.value === "(" || token.value === ")";
                 });
 
                 if (prenticesTokens.length < 2) {
-                    context.report(node, "Missing '()' invoking a constructor");
+                    context.report(node, "Missing '()' invoking a constructor.");
                 }
             }
         };

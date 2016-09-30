@@ -54,7 +54,7 @@ class ExternString: public ResourceType {
       return scope.Escape(String::Empty(isolate));
 
     TypeName* new_data =
-        static_cast<TypeName*>(malloc(length * sizeof(*new_data)));
+        static_cast<TypeName*>(node::Malloc(length * sizeof(*new_data)));
     if (new_data == nullptr) {
       return Local<String>();
     }
@@ -147,16 +147,27 @@ const int8_t unbase64_table[256] =
   };
 
 
-template <typename TypeName>
-unsigned hex2bin(TypeName c) {
-  if (c >= '0' && c <= '9')
-    return c - '0';
-  if (c >= 'A' && c <= 'F')
-    return 10 + (c - 'A');
-  if (c >= 'a' && c <= 'f')
-    return 10 + (c - 'a');
-  return static_cast<unsigned>(-1);
-}
+static const int8_t unhex_table[256] =
+  { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, -1, -1, -1, -1, -1, -1,
+    -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+  };
+
+#define unhex(x)                                                              \
+  static_cast<unsigned>(unhex_table[static_cast<uint8_t>(x)])
 
 
 template <typename TypeName>
@@ -166,11 +177,11 @@ size_t hex_decode(char* buf,
                   const size_t srcLen) {
   size_t i;
   for (i = 0; i < len && i * 2 + 1 < srcLen; ++i) {
-    unsigned a = hex2bin(src[i * 2 + 0]);
-    unsigned b = hex2bin(src[i * 2 + 1]);
+    unsigned a = unhex(src[i * 2 + 0]);
+    unsigned b = unhex(src[i * 2 + 1]);
     if (!~a || !~b)
       return i;
-    buf[i] = a * 16 + b;
+    buf[i] = (a << 4) | b;
   }
 
   return i;
@@ -617,7 +628,7 @@ Local<Value> StringBytes::Encode(Isolate* isolate,
 
     case ASCII:
       if (contains_non_ascii(buf, buflen)) {
-        char* out = static_cast<char*>(malloc(buflen));
+        char* out = static_cast<char*>(node::Malloc(buflen));
         if (out == nullptr) {
           return Local<String>();
         }
@@ -652,7 +663,7 @@ Local<Value> StringBytes::Encode(Isolate* isolate,
 
     case BASE64: {
       size_t dlen = base64_encoded_size(buflen);
-      char* dst = static_cast<char*>(malloc(dlen));
+      char* dst = static_cast<char*>(node::Malloc(dlen));
       if (dst == nullptr) {
         return Local<String>();
       }
@@ -671,7 +682,7 @@ Local<Value> StringBytes::Encode(Isolate* isolate,
 
     case HEX: {
       size_t dlen = buflen * 2;
-      char* dst = static_cast<char*>(malloc(dlen));
+      char* dst = static_cast<char*>(node::Malloc(dlen));
       if (dst == nullptr) {
         return Local<String>();
       }

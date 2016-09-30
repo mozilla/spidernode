@@ -1,6 +1,6 @@
 # Readline
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 The `readline` module provides an interface for reading data from a [Readable][]
 stream (such as [`process.stdin`]) one line at a time. It can be accessed using:
@@ -314,6 +314,9 @@ rl.write('Delete this!');
 // Simulate Ctrl+u to delete the line written previously
 rl.write(null, {ctrl: true, name: 'u'});
 ```
+
+*Note*: The `rl.write()` method will write the data to the `readline`
+Interface's `input` *as if it were provided by the user*.
 
 ## readline.clearLine(stream, dir)
 <!-- YAML

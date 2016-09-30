@@ -9,16 +9,15 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var Map = require("es6-map");
-var lodash = require("lodash");
+const lodash = require("lodash");
 
 //------------------------------------------------------------------------------
 // Helpers
 //------------------------------------------------------------------------------
 
-var PATTERN_TYPE = /^(?:.+?Pattern|RestElement|Property)$/;
-var DECLARATION_HOST_TYPE = /^(?:Program|BlockStatement|SwitchCase)$/;
-var DESTRUCTURING_HOST_TYPE = /^(?:VariableDeclarator|AssignmentExpression)$/;
+const PATTERN_TYPE = /^(?:.+?Pattern|RestElement|Property)$/;
+const DECLARATION_HOST_TYPE = /^(?:Program|BlockStatement|SwitchCase)$/;
+const DESTRUCTURING_HOST_TYPE = /^(?:VariableDeclarator|AssignmentExpression)$/;
 
 /**
  * Adds multiple items to the tail of an array.
@@ -27,7 +26,7 @@ var DESTRUCTURING_HOST_TYPE = /^(?:VariableDeclarator|AssignmentExpression)$/;
  * @param {any[]} values - Items to be added.
  * @returns {void}
  */
-var pushAll = Function.apply.bind(Array.prototype.push);
+const pushAll = Function.apply.bind(Array.prototype.push);
 
 /**
  * Checks whether a given node is located at `ForStatement.init` or not.
@@ -46,7 +45,7 @@ function isInitOfForStatement(node) {
  * @returns {boolean} `true` if the node can become a VariableDeclaration.
  */
 function canBecomeVariableDeclaration(identifier) {
-    var node = identifier.parent;
+    let node = identifier.parent;
 
     while (PATTERN_TYPE.test(node.type)) {
         node = node.parent;
@@ -71,9 +70,14 @@ function canBecomeVariableDeclaration(identifier) {
  *
  * If the variable should not change to const, this function returns null.
  * - If the variable is reassigned.
- * - If the variable is never initialized and assigned.
+ * - If the variable is never initialized nor assigned.
  * - If the variable is initialized in a different scope from the declaration.
  * - If the unique assignment of the variable cannot change to a declaration.
+ *   e.g. `if (a) b = 1` / `return (b = 1)`
+ * - If the variable is declared in the global scope and `eslintUsed` is `true`.
+ *   `/*exported foo` directive comment makes such variables. This rule does not
+ *   warn such variables because this rule cannot distinguish whether the
+ *   exported variables are reassigned or not.
  *
  * @param {escope.Variable} variable - A variable to get.
  * @param {boolean} ignoreReadBeforeAssign -
@@ -83,20 +87,20 @@ function canBecomeVariableDeclaration(identifier) {
  *      Otherwise, null.
  */
 function getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign) {
-    if (variable.eslintUsed) {
+    if (variable.eslintUsed && variable.scope.type === "global") {
         return null;
     }
 
     // Finds the unique WriteReference.
-    var writer = null;
-    var isReadBeforeInit = false;
-    var references = variable.references;
+    let writer = null;
+    let isReadBeforeInit = false;
+    const references = variable.references;
 
-    for (var i = 0; i < references.length; ++i) {
-        var reference = references[i];
+    for (let i = 0; i < references.length; ++i) {
+        const reference = references[i];
 
         if (reference.isWrite()) {
-            var isReassigned = (
+            const isReassigned = (
                 writer !== null &&
                 writer.identifier !== reference.identifier
             );
@@ -116,7 +120,7 @@ function getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign) {
 
     // If the assignment is from a different scope, ignore it.
     // If the assignment cannot change to a declaration, ignore it.
-    var shouldBeConst = (
+    const shouldBeConst = (
         writer !== null &&
         writer.from === variable.scope &&
         canBecomeVariableDeclaration(writer.identifier)
@@ -145,7 +149,7 @@ function getDestructuringHost(reference) {
     if (!reference.isWrite()) {
         return null;
     }
-    var node = reference.identifier.parent;
+    let node = reference.identifier.parent;
 
     while (PATTERN_TYPE.test(node.type)) {
         node = node.parent;
@@ -169,17 +173,17 @@ function getDestructuringHost(reference) {
  * @returns {Map<ASTNode, ASTNode[]>} Grouped identifier nodes.
  */
 function groupByDestructuring(variables, ignoreReadBeforeAssign) {
-    var identifierMap = new Map();
+    const identifierMap = new Map();
 
-    for (var i = 0; i < variables.length; ++i) {
-        var variable = variables[i];
-        var references = variable.references;
-        var identifier = getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign);
-        var prevId = null;
+    for (let i = 0; i < variables.length; ++i) {
+        const variable = variables[i];
+        const references = variable.references;
+        const identifier = getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign);
+        let prevId = null;
 
-        for (var j = 0; j < references.length; ++j) {
-            var reference = references[j];
-            var id = reference.identifier;
+        for (let j = 0; j < references.length; ++j) {
+            const reference = references[j];
+            const id = reference.identifier;
 
             // Avoid counting a reference twice or more for default values of
             // destructuring.
@@ -189,7 +193,7 @@ function groupByDestructuring(variables, ignoreReadBeforeAssign) {
             prevId = id;
 
             // Add the identifier node into the destructuring group.
-            var group = getDestructuringHost(reference);
+            const group = getDestructuringHost(reference);
 
             if (group) {
                 if (identifierMap.has(group)) {
@@ -209,7 +213,7 @@ function groupByDestructuring(variables, ignoreReadBeforeAssign) {
  *
  * @param {ASTNode} node – The node to search from.
  * @param {string} type – The type field of the parent node.
- * @param {function} shouldStop – a predicate that returns true if the traversal should stop, and false otherwise.
+ * @param {Function} shouldStop – a predicate that returns true if the traversal should stop, and false otherwise.
  * @returns {ASTNode} The closest ancestor with the specified type; null if no such ancestor exists.
  */
 function findUp(node, type, shouldStop) {
@@ -248,11 +252,11 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
-        var options = context.options[0] || {};
-        var checkingMixedDestructuring = options.destructuring !== "all";
-        var ignoreReadBeforeAssign = options.ignoreReadBeforeAssign === true;
-        var variables = null;
+    create(context) {
+        const options = context.options[0] || {};
+        const checkingMixedDestructuring = options.destructuring !== "all";
+        const ignoreReadBeforeAssign = options.ignoreReadBeforeAssign === true;
+        let variables = null;
 
         /**
          * Reports a given Identifier node.
@@ -261,8 +265,8 @@ module.exports = {
          * @returns {void}
          */
         function report(node) {
-            var reportArgs = {
-                    node: node,
+            const reportArgs = {
+                    node,
                     message: "'{{name}}' is never reassigned. Use 'const' instead.",
                     data: node
                 },
@@ -318,7 +322,7 @@ module.exports = {
          * @returns {void}
          */
         function checkVariable(variable) {
-            var node = getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign);
+            const node = getIdentifierIfShouldBeConst(variable, ignoreReadBeforeAssign);
 
             if (node) {
                 report(node);
@@ -346,11 +350,11 @@ module.exports = {
         }
 
         return {
-            Program: function() {
+            Program() {
                 variables = [];
             },
 
-            "Program:exit": function() {
+            "Program:exit"() {
                 if (checkingMixedDestructuring) {
                     variables.forEach(checkVariable);
                 } else {
@@ -361,7 +365,7 @@ module.exports = {
                 variables = null;
             },
 
-            VariableDeclaration: function(node) {
+            VariableDeclaration(node) {
                 if (node.kind === "let" && !isInitOfForStatement(node)) {
                     pushAll(variables, context.getDeclaredVariables(node));
                 }

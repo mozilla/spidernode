@@ -1,6 +1,6 @@
 # HTTP
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 To use the HTTP server and client one must `require('http')`.
 
@@ -496,6 +496,8 @@ Once a socket is assigned to this request and is connected
 * `timeout` {Number} Milliseconds before a request is considered to be timed out.
 * `callback` {Function} Optional function to be called when a timeout occurs. Same as binding to the `timeout` event.
 
+Returns `request`.
+
 ### request.write(chunk[, encoding][, callback])
 <!-- YAML
 added: v0.1.29
@@ -681,6 +683,9 @@ This function is asynchronous. `callback` will be added as a listener for the
 
 Returns `server`.
 
+*Note*: The `server.listen()` method may be called multiple times. Each
+subsequent call will *re-open* the server using the provided options.
+
 ### server.listen(path[, callback])
 <!-- YAML
 added: v0.1.90
@@ -691,15 +696,20 @@ Start a UNIX socket server listening for connections on the given `path`.
 This function is asynchronous. `callback` will be added as a listener for the
 [`'listening'`][] event.  See also [`net.Server.listen(path)`][].
 
-### server.listen(port[, hostname][, backlog][, callback])
+*Note*: The `server.listen()` method may be called multiple times. Each
+subsequent call will *re-open* the server using the provided options.
+
+### server.listen([port][, hostname][, backlog][, callback])
 <!-- YAML
 added: v0.1.90
 -->
 
 Begin accepting connections on the specified `port` and `hostname`. If the
 `hostname` is omitted, the server will accept connections on any IPv6 address
-(`::`) when IPv6 is available, or any IPv4 address (`0.0.0.0`) otherwise. Use a
-port value of `0` to have the operating system assign an available port.
+(`::`) when IPv6 is available, or any IPv4 address (`0.0.0.0`) otherwise.
+Omit the port argument, or use a port value of `0`, to have the operating system
+assign a random port, which can be retrieved by using `server.address().port`
+after the `'listening'` event has been emitted.
 
 To listen to a unix socket, supply a filename instead of port and hostname.
 
@@ -710,6 +720,9 @@ parameter is 511 (not 512).
 
 This function is asynchronous. `callback` will be added as a listener for the
 [`'listening'`][] event.  See also [`net.Server.listen(port)`][].
+
+*Note*: The `server.listen()` method may be called multiple times. Each
+subsequent call will *re-open* the server using the provided options.
 
 ### server.listening
 <!-- YAML
@@ -1324,17 +1337,6 @@ added: v0.1.22
 A collection of all the standard HTTP response status codes, and the
 short description of each.  For example, `http.STATUS_CODES[404] === 'Not
 Found'`.
-
-## http.createClient([port][, host])
-<!-- YAML
-added: v0.1.13
-deprecated: v0.3.6
--->
-
-    Stability: 0 - Deprecated: Use [`http.request()`][] instead.
-
-Constructs a new HTTP client. `port` and `host` refer to the server to be
-connected to.
 
 ## http.createServer([requestListener])
 <!-- YAML

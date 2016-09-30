@@ -8,7 +8,7 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var lodash = require("lodash"),
+const lodash = require("lodash"),
     astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
@@ -21,7 +21,7 @@ var lodash = require("lodash"),
  * @returns {Array} An array of line numbers.
  */
 function getEmptyLineNums(lines) {
-    var emptyLines = lines.map(function(line, i) {
+    const emptyLines = lines.map(function(line, i) {
         return {
             code: line.trim(),
             num: i + 1
@@ -41,11 +41,11 @@ function getEmptyLineNums(lines) {
  * @returns {Array} An array of line numbers.
  */
 function getCommentLineNums(comments) {
-    var lines = [];
+    const lines = [];
 
     comments.forEach(function(token) {
-        var start = token.loc.start.line;
-        var end = token.loc.end.line;
+        const start = token.loc.start.line;
+        const end = token.loc.end.line;
 
         lines.push(start, end);
     });
@@ -106,9 +106,9 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var options = context.options[0] ? lodash.assign({}, context.options[0]) : {};
+        const options = context.options[0] ? Object.assign({}, context.options[0]) : {};
 
         options.beforeLineComment = options.beforeLineComment || false;
         options.afterLineComment = options.afterLineComment || false;
@@ -117,9 +117,9 @@ module.exports = {
         options.allowBlockStart = options.allowBlockStart || false;
         options.allowBlockEnd = options.allowBlockEnd || false;
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
 
-        var lines = sourceCode.lines,
+        const lines = sourceCode.lines,
             numLines = lines.length + 1,
             comments = sourceCode.getAllComments(),
             commentLines = getCommentLineNums(comments),
@@ -141,7 +141,7 @@ module.exports = {
          * @returns {boolean} True if the comment is not alone.
          */
         function codeAroundComment(node) {
-            var token;
+            let token;
 
             token = node;
             do {
@@ -184,8 +184,8 @@ module.exports = {
          * @returns {boolean} True if the comment is at parent start.
          */
         function isCommentAtParentStart(node, nodeType) {
-            var ancestors = context.getAncestors();
-            var parent;
+            const ancestors = context.getAncestors();
+            let parent;
 
             if (ancestors.length) {
                 parent = ancestors.pop();
@@ -202,8 +202,8 @@ module.exports = {
          * @returns {boolean} True if the comment is at parent end.
          */
         function isCommentAtParentEnd(node, nodeType) {
-            var ancestors = context.getAncestors();
-            var parent;
+            const ancestors = context.getAncestors();
+            let parent;
 
             if (ancestors.length) {
                 parent = ancestors.pop();
@@ -271,27 +271,27 @@ module.exports = {
          * Checks if a comment node has lines around it (ignores inline comments)
          * @param {ASTNode} node The Comment node.
          * @param {Object} opts Options to determine the newline.
-         * @param {Boolean} opts.after Should have a newline after this line.
-         * @param {Boolean} opts.before Should have a newline before this line.
+         * @param {boolean} opts.after Should have a newline after this line.
+         * @param {boolean} opts.before Should have a newline before this line.
          * @returns {void}
          */
         function checkForEmptyLine(node, opts) {
-            var after = opts.after,
+            let after = opts.after,
                 before = opts.before;
 
-            var prevLineNum = node.loc.start.line - 1,
+            const prevLineNum = node.loc.start.line - 1,
                 nextLineNum = node.loc.end.line + 1,
                 commentIsNotAlone = codeAroundComment(node);
 
-            var blockStartAllowed = options.allowBlockStart && isCommentAtBlockStart(node),
+            const blockStartAllowed = options.allowBlockStart && isCommentAtBlockStart(node),
                 blockEndAllowed = options.allowBlockEnd && isCommentAtBlockEnd(node),
                 objectStartAllowed = options.allowObjectStart && isCommentAtObjectStart(node),
                 objectEndAllowed = options.allowObjectEnd && isCommentAtObjectEnd(node),
                 arrayStartAllowed = options.allowArrayStart && isCommentAtArrayStart(node),
                 arrayEndAllowed = options.allowArrayEnd && isCommentAtArrayEnd(node);
 
-            var exceptionStartAllowed = blockStartAllowed || objectStartAllowed || arrayStartAllowed;
-            var exceptionEndAllowed = blockEndAllowed || objectEndAllowed || arrayEndAllowed;
+            const exceptionStartAllowed = blockStartAllowed || objectStartAllowed || arrayStartAllowed;
+            const exceptionEndAllowed = blockEndAllowed || objectEndAllowed || arrayEndAllowed;
 
             // ignore top of the file and bottom of the file
             if (prevLineNum < 1) {
@@ -306,19 +306,19 @@ module.exports = {
                 return;
             }
 
-            var previousTokenOrComment = sourceCode.getTokenOrCommentBefore(node);
-            var nextTokenOrComment = sourceCode.getTokenOrCommentAfter(node);
+            const previousTokenOrComment = sourceCode.getTokenOrCommentBefore(node);
+            const nextTokenOrComment = sourceCode.getTokenOrCommentAfter(node);
 
             // check for newline before
             if (!exceptionStartAllowed && before && !lodash.includes(commentAndEmptyLines, prevLineNum) &&
                     !(isCommentNodeType(previousTokenOrComment) && astUtils.isTokenOnSameLine(previousTokenOrComment, node))) {
-                var lineStart = node.range[0] - node.loc.start.column;
-                var range = [lineStart, lineStart];
+                const lineStart = node.range[0] - node.loc.start.column;
+                const range = [lineStart, lineStart];
 
                 context.report({
-                    node: node,
+                    node,
                     message: "Expected line before comment.",
-                    fix: function(fixer) {
+                    fix(fixer) {
                         return fixer.insertTextBeforeRange(range, "\n");
                     }
                 });
@@ -328,9 +328,9 @@ module.exports = {
             if (!exceptionEndAllowed && after && !lodash.includes(commentAndEmptyLines, nextLineNum) &&
                     !(isCommentNodeType(nextTokenOrComment) && astUtils.isTokenOnSameLine(node, nextTokenOrComment))) {
                 context.report({
-                    node: node,
+                    node,
                     message: "Expected line after comment.",
-                    fix: function(fixer) {
+                    fix(fixer) {
                         return fixer.insertTextAfter(node, "\n");
                     }
                 });
@@ -344,7 +344,7 @@ module.exports = {
 
         return {
 
-            LineComment: function(node) {
+            LineComment(node) {
                 if (options.beforeLineComment || options.afterLineComment) {
                     checkForEmptyLine(node, {
                         after: options.afterLineComment,
@@ -353,7 +353,7 @@ module.exports = {
                 }
             },
 
-            BlockComment: function(node) {
+            BlockComment(node) {
                 if (options.beforeBlockComment || options.afterBlockComment) {
                     checkForEmptyLine(node, {
                         after: options.afterBlockComment,

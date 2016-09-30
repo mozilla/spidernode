@@ -1,6 +1,6 @@
 # TLS (SSL)
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 The `tls` module provides an implementation of the Transport Layer Security
 (TLS) and Secure Socket Layer (SSL) protocols that is built on top of OpenSSL.
@@ -96,7 +96,7 @@ OpenSSL command-line interface to generate such parameters:
 openssl dhparam -outform PEM -out dhparam.pem 2048
 ```
 
-If using Perfect Foward Secrecy using `ECDHE`, Diffie-Hellman parameters are
+If using Perfect Forward Secrecy using `ECDHE`, Diffie-Hellman parameters are
 not required and a default ECDHE curve will be used. The `ecdheCurve` property
 can be used when creating a TLS Server to specify the name of an
 alternative curve to use.
@@ -724,7 +724,7 @@ added: v0.11.3
     specified, `host` and `port` are ignored.
   * `pfx` {string|Buffer} A string or `Buffer` containing the private key,
     certificate, and CA certs of the client in PFX or PKCS12 format.
-  * `key` {string|stringp[]|Buffer|Buffer[]} A string, `Buffer`, array of
+  * `key` {string|string[]|Buffer|Buffer[]} A string, `Buffer`, array of
     strings, or array of `Buffer`s containing the private key of the client in
     PEM format.
   * `passphrase` {string} A string containing the passphrase for the private key
@@ -798,7 +798,7 @@ added: v0.11.3
     specified, `host` and `port` are ignored.
   * `pfx` {string|Buffer} A string or `Buffer` containing the private key,
     certificate, and CA certs of the client in PFX or PKCS12 format.
-  * `key` {string|stringp[]|Buffer|Buffer[]} A string, `Buffer`, array of
+  * `key` {string|string[]|Buffer|Buffer[]} A string, `Buffer`, array of
     strings, or array of `Buffer`s containing the private key of the client in
     PEM format.
   * `passphrase` {string} A string containing the passphrase for the private key
@@ -1153,7 +1153,7 @@ added: v0.3.4
 deprecated: v0.11.3
 -->
 
-    Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
+> Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
 
 The `tls.CryptoStream` class represents a stream of encrypted data. This class
 has been deprecated and should no longer be used.
@@ -1174,7 +1174,7 @@ added: v0.3.2
 deprecated: v0.11.3
 -->
 
-    Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
+> Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
 
 Returned by [`tls.createSecurePair()`][].
 
@@ -1197,7 +1197,7 @@ added: v0.3.2
 deprecated: v0.11.3
 -->
 
-    Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
+> Stability: 0 - Deprecated: Use [`tls.TLSSocket`][] instead.
 
 * `context` {Object} A secure context object as returned by
   `tls.createSecureContext()`

@@ -126,9 +126,6 @@ These folks keep the project moving and are resources for help.
 * Henry Zhu ([@hzoo](https://github.com/hzoo))
 * Marat Dulin ([@mdevils](https://github.com/mdevils))
 * Alexej Yaroshevich ([@zxqfox](https://github.com/zxqfox))
-
-### Issues Team
-
 * Kevin Partington ([@platinumazure](https://github.com/platinumazure))
 * Vitor Balocco ([@vitorbal](https://github.com/vitorbal))
 
@@ -158,16 +155,19 @@ ESLint follows [semantic versioning](http://semver.org). However, due to the nat
 * Minor release (might break your lint build)
     * A bug fix in a rule that results in ESLint reporting more errors.
     * A new rule is created.
-    * A new option to an existing rule is created.
+    * A new option to an existing rule that does not result in ESLint reporting more errors by default.
     * An existing rule is deprecated.
     * A new CLI capability is created.
     * New capabilities to the public API are added (new classes, new methods, new arguments to existing methods, etc.).
     * A new formatter is created.
 * Major release (likely to break your lint build)
     * `eslint:recommended` is updated.
+    * A new option to an existing rule that results in ESLint reporting more errors by default.
     * An existing rule is removed.
     * An existing formatter is removed.
     * Part of the public API is removed or changed in an incompatible way.
+
+According to our policy, any minor update may report more errors than the previous release (ex: from a bug fix). As such, we recommend using the tilde (`~`) in `package.json` e.g. `"eslint": "~3.1.0"` to guarantee the results of your builds.
 
 ## Frequently Asked Questions
 
@@ -187,7 +187,10 @@ Yes. Since we are solving the same problems, ESLint and JSCS teams have decided 
 
 ### So, should I stop using JSCS and start using ESLint?
 
-Not yet. We are still working to smooth the transition. You can see our progress [here](https://github.com/eslint/eslint/milestones/JSCS%20Compatibility). We’ll announce when all of the changes necessary to support JSCS users in ESLint are complete and will start encouraging JSCS users to switch to ESLint at that time. Meanwhile, we recommend you to upgrade to JSCS 3.0 and provide feedback to the team.
+Maybe, depending on how much you need it. [JSCS has reached end of life](http://eslint.org/blog/2016/07/jscs-end-of-life), but if it is working for you then there is no reason to move yet. We are still working to smooth the transition. You can see our progress [here](https://github.com/eslint/eslint/milestones/JSCS%20Compatibility). We’ll announce when all of the changes necessary to support JSCS users in ESLint are complete and will start encouraging JSCS users to switch to ESLint at that time.
+
+If you are having issues with JSCS, you can try to move to ESLint. We are focusing our time and energy on JSCS compatibility issues.
+
 
 ### Is ESLint just linting or does it also check style?
 

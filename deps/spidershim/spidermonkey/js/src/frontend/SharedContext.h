@@ -160,10 +160,6 @@ class FunctionContextFlags
     // This class's data is all private and so only visible to these friends.
     friend class FunctionBox;
 
-    // The function or a function that encloses it may define new local names
-    // at runtime through means other than calling eval.
-    bool mightAliasLocals:1;
-
     // This function does something that can extend the set of bindings in its
     // call objects --- it does a direct eval in non-strict code, or includes a
     // function statement (as opposed to a function definition).
@@ -219,8 +215,7 @@ class FunctionContextFlags
 
   public:
     FunctionContextFlags()
-     :  mightAliasLocals(false),
-        hasExtensibleScope(false),
+     :  hasExtensibleScope(false),
         argumentsHasLocalBinding(false),
         definitelyNeedsArgsObj(false),
         needsHomeObject(false),
@@ -380,22 +375,12 @@ class MOZ_STACK_CLASS GlobalSharedContext : public SharedContext
     ScopeKind scopeKind_;
 
   public:
-    // We omit DEFFVAR in the prologue for global functions since we emit
-    // DEFFUN for them. In order to distinguish function vars, functions are
-    // ordered before vars. See Parser::newGlobalScopeData and
-    // EmitterScope::enterGlobal.
-    //
-    // This is only used in BytecodeEmitter, and is thus not kept in
-    // GlobalScope::Data.
-    uint32_t functionBindingEnd;
-
     Rooted<GlobalScope::Data*> bindings;
 
     GlobalSharedContext(ExclusiveContext* cx, ScopeKind scopeKind, Directives directives,
                         bool extraWarnings)
       : SharedContext(cx, Kind::Global, directives, extraWarnings),
         scopeKind_(scopeKind),
-        functionBindingEnd(0),
         bindings(cx)
     {
         MOZ_ASSERT(scopeKind == ScopeKind::Global || scopeKind == ScopeKind::NonSyntactic);
@@ -423,15 +408,6 @@ class MOZ_STACK_CLASS EvalSharedContext : public SharedContext
     RootedScope enclosingScope_;
 
   public:
-    // We omit DEFFVAR in the prologue for body-level functions since we emit
-    // DEFFUN for them. In order to distinguish function vars, functions are
-    // ordered before vars. See Parser::newEvalScopeData and
-    // EmitterScope::enterEval.
-    //
-    // This is only used in BytecodeEmitter, and is thus not kept in
-    // EvalScope::Data.
-    uint32_t functionBindingEnd;
-
     Rooted<EvalScope::Data*> bindings;
 
     EvalSharedContext(ExclusiveContext* cx, JSObject* enclosingEnv, Scope* enclosingScope,
@@ -565,7 +541,6 @@ class FunctionBox : public ObjectBox, public SharedContext
         generatorKindBits_ = GeneratorKindAsBits(kind);
     }
 
-    bool mightAliasLocals()          const { return funCxFlags.mightAliasLocals; }
     bool hasExtensibleScope()        const { return funCxFlags.hasExtensibleScope; }
     bool hasThisBinding()            const { return funCxFlags.hasThisBinding; }
     bool argumentsHasLocalBinding()  const { return funCxFlags.argumentsHasLocalBinding; }
@@ -574,7 +549,6 @@ class FunctionBox : public ObjectBox, public SharedContext
     bool isDerivedClassConstructor() const { return funCxFlags.isDerivedClassConstructor; }
     bool hasInnerFunctions()         const { return funCxFlags.hasInnerFunctions; }
 
-    void setMightAliasLocals()             { funCxFlags.mightAliasLocals         = true; }
     void setHasExtensibleScope()           { funCxFlags.hasExtensibleScope       = true; }
     void setHasThisBinding()               { funCxFlags.hasThisBinding           = true; }
     void setArgumentsHasLocalBinding()     { funCxFlags.argumentsHasLocalBinding = true; }
@@ -601,8 +575,7 @@ class FunctionBox : public ObjectBox, public SharedContext
 
     void setStart(const TokenStream& tokenStream) {
         bufStart = tokenStream.currentToken().pos.begin;
-        startLine = tokenStream.getLineno();
-        startColumn = tokenStream.getColumn();
+        tokenStream.srcCoords.lineNumAndColumnIndex(bufStart, &startLine, &startColumn);
     }
 
     void trace(JSTracer* trc) override;

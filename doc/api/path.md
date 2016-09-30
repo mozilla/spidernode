@@ -1,6 +1,6 @@
 # Path
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 The `path` module provides utilities for working with file and directory paths.
 It can be accessed using:
@@ -135,7 +135,7 @@ added: v0.1.25
 * `path` {String}
 
 The `path.extname()` method returns the extension of the `path`, from the last
-occurance of the `.` (period) character to end of string in the last portion of
+occurrence of the `.` (period) character to end of string in the last portion of
 the `path`.  If there is no `.` in the last portion of the `path`, or if the
 first character of the basename of `path` (see `path.basename()`) is `.`, then
 an empty string is returned.
@@ -261,10 +261,13 @@ path.isAbsolute('.')        // false
 On Windows:
 
 ```js
-path.isAbsolute('//server')  // true
-path.isAbsolute('C:/foo/..') // true
-path.isAbsolute('bar\\baz')  // false
-path.isAbsolute('.')         // false
+path.isAbsolute('//server')    // true
+path.isAbsolute('\\\\server')  // true
+path.isAbsolute('C:/foo/..')   // true
+path.isAbsolute('C:\\foo\\..') // true
+path.isAbsolute('bar\\baz')    // false
+path.isAbsolute('bar/baz')     // false
+path.isAbsolute('.')           // false
 ```
 
 A [`TypeError`][] is thrown if `path` is not a string.
@@ -367,7 +370,7 @@ path.parse('/home/user/dir/file.txt')
 │ root │              │ name │ ext │
 "  /    home/user/dir / file  .txt "
 └──────┴──────────────┴──────┴─────┘
-(all spaces in the "" line should be ignored -- they're purely for formatting)
+(all spaces in the "" line should be ignored -- they are purely for formatting)
 ```
 
 On Windows:
@@ -391,7 +394,7 @@ path.parse('C:\\path\\dir\\file.txt')
 │ root │              │ name │ ext │
 " C:\      path\dir   \ file  .txt "
 └──────┴──────────────┴──────┴─────┘
-(all spaces in the "" line should be ignored -- they're purely for formatting)
+(all spaces in the "" line should be ignored -- they are purely for formatting)
 ```
 
 A [`TypeError`][] is thrown if `path` is not a string.
@@ -508,6 +511,10 @@ added: v0.11.15
 
 The `path.win32` property provides access to Windows-specific implementations
 of the `path` methods.
+
+*Note*: On Windows, both the forward slash (`/`) and backward slash (`\`)
+characters are accepted as path delimiters; however, only the backward slash
+(`\`) will be used in return values.
 
 [`path.posix`]: #path_path_posix
 [`path.win32`]: #path_path_win32

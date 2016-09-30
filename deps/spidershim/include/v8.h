@@ -1875,6 +1875,7 @@ class PropertyCallbackInfo {
     return ReturnValue<T>(
         &(const_cast<PropertyCallbackInfo<T>*>(this)->_returnValue));
   }
+  bool ShouldThrowOnError() const { return true; }
 
   PropertyCallbackInfo(Local<Value> data, Local<Object> thisObject,
                        Local<Object> holder)
@@ -2694,7 +2695,7 @@ class V8_EXPORT Isolate {
 
   void AddContext(Context* context);
   void PushCurrentContext(Context* context);
-  Context* PopCurrentContext();
+  void PopCurrentContext();
   void AddStackFrame(StackFrame* frame);
   void AddStackTrace(StackTrace* trace);
   void AddUnboundScript(UnboundScript* script);
