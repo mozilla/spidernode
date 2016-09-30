@@ -5,7 +5,7 @@
 
 "use strict";
 
-var astUtils = require("../ast-utils");
+const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
 // Rule Definition
@@ -26,14 +26,14 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var config = context.options[0];
+        const config = context.options[0];
 
         // default to onObject if no preference is passed
-        var onObject = config === "object" || !config;
+        const onObject = config === "object" || !config;
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
 
         /**
          * Reports if the dot between object and property is on the correct loccation.
@@ -43,7 +43,7 @@ module.exports = {
          * @returns {void}
          */
         function checkDotLocation(obj, prop, node) {
-            var dot = sourceCode.getTokenBefore(prop);
+            const dot = sourceCode.getTokenBefore(prop);
 
             if (dot.type === "Punctuator" && dot.value === ".") {
                 if (onObject) {

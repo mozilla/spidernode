@@ -9,14 +9,14 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var astUtils = require("../ast-utils");
+const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
 // Helpers
 //------------------------------------------------------------------------------
 
 // Schema objects.
-var OPTION_VALUE = {
+const OPTION_VALUE = {
     oneOf: [
         {
             enum: ["always", "never"]
@@ -41,12 +41,12 @@ var OPTION_VALUE = {
 /**
  * Normalizes a given option value.
  *
- * @param {string|object|undefined} value - An option value to parse.
+ * @param {string|Object|undefined} value - An option value to parse.
  * @returns {{multiline: boolean, minProperties: number}} Normalized option object.
  */
 function normalizeOptionValue(value) {
-    var multiline = false;
-    var minProperties = Number.POSITIVE_INFINITY;
+    let multiline = false;
+    let minProperties = Number.POSITIVE_INFINITY;
 
     if (value) {
         if (value === "always") {
@@ -61,13 +61,13 @@ function normalizeOptionValue(value) {
         multiline = true;
     }
 
-    return {multiline: multiline, minProperties: minProperties};
+    return {multiline, minProperties};
 }
 
 /**
  * Normalizes a given option value.
  *
- * @param {string|object|undefined} options - An option value to parse.
+ * @param {string|Object|undefined} options - An option value to parse.
  * @returns {{ObjectExpression: {multiline: boolean, minProperties: number}, ObjectPattern: {multiline: boolean, minProperties: number}}} Normalized option object.
  */
 function normalizeOptions(options) {
@@ -78,7 +78,7 @@ function normalizeOptions(options) {
         };
     }
 
-    var value = normalizeOptionValue(options);
+    const value = normalizeOptionValue(options);
 
     return {ObjectExpression: value, ObjectPattern: value};
 }
@@ -113,9 +113,9 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
-        var sourceCode = context.getSourceCode();
-        var normalizedOptions = normalizeOptions(context.options[0]);
+    create(context) {
+        const sourceCode = context.getSourceCode();
+        const normalizedOptions = normalizeOptions(context.options[0]);
 
         /**
          * Reports a given node if it violated this rule.
@@ -125,12 +125,12 @@ module.exports = {
          * @returns {void}
          */
         function check(node) {
-            var options = normalizedOptions[node.type];
-            var openBrace = sourceCode.getFirstToken(node);
-            var closeBrace = sourceCode.getLastToken(node);
-            var first = sourceCode.getTokenOrCommentAfter(openBrace);
-            var last = sourceCode.getTokenOrCommentBefore(closeBrace);
-            var needsLinebreaks = (
+            const options = normalizedOptions[node.type];
+            const openBrace = sourceCode.getFirstToken(node);
+            const closeBrace = sourceCode.getLastToken(node);
+            let first = sourceCode.getTokenOrCommentAfter(openBrace);
+            let last = sourceCode.getTokenOrCommentBefore(closeBrace);
+            const needsLinebreaks = (
                 node.properties.length >= options.minProperties ||
                 (
                     options.multiline &&
@@ -153,20 +153,20 @@ module.exports = {
             if (needsLinebreaks) {
                 if (astUtils.isTokenOnSameLine(openBrace, first)) {
                     context.report({
-                        message: "Expected a line break after this open brace.",
-                        node: node,
+                        message: "Expected a line break after this opening brace.",
+                        node,
                         loc: openBrace.loc.start,
-                        fix: function(fixer) {
+                        fix(fixer) {
                             return fixer.insertTextAfter(openBrace, "\n");
                         }
                     });
                 }
                 if (astUtils.isTokenOnSameLine(last, closeBrace)) {
                     context.report({
-                        message: "Expected a line break before this close brace.",
-                        node: node,
+                        message: "Expected a line break before this closing brace.",
+                        node,
                         loc: closeBrace.loc.start,
-                        fix: function(fixer) {
+                        fix(fixer) {
                             return fixer.insertTextBefore(closeBrace, "\n");
                         }
                     });
@@ -174,10 +174,10 @@ module.exports = {
             } else {
                 if (!astUtils.isTokenOnSameLine(openBrace, first)) {
                     context.report({
-                        message: "Unexpected a line break after this open brace.",
-                        node: node,
+                        message: "Unexpected line break after this opening brace.",
+                        node,
                         loc: openBrace.loc.start,
-                        fix: function(fixer) {
+                        fix(fixer) {
                             return fixer.removeRange([
                                 openBrace.range[1],
                                 first.range[0]
@@ -187,10 +187,10 @@ module.exports = {
                 }
                 if (!astUtils.isTokenOnSameLine(last, closeBrace)) {
                     context.report({
-                        message: "Unexpected a line break before this close brace.",
-                        node: node,
+                        message: "Unexpected line break before this closing brace.",
+                        node,
                         loc: closeBrace.loc.start,
-                        fix: function(fixer) {
+                        fix(fixer) {
                             return fixer.removeRange([
                                 last.range[1],
                                 closeBrace.range[0]

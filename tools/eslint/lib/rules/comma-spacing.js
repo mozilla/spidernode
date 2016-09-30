@@ -4,7 +4,7 @@
  */
 "use strict";
 
-var astUtils = require("../ast-utils");
+const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
 // Rule Definition
@@ -36,12 +36,12 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var sourceCode = context.getSourceCode();
-        var tokensAndComments = sourceCode.tokensAndComments;
+        const sourceCode = context.getSourceCode();
+        const tokensAndComments = sourceCode.tokensAndComments;
 
-        var options = {
+        const options = {
             before: context.options[0] ? !!context.options[0].before : false,
             after: context.options[0] ? !!context.options[0].after : true
         };
@@ -51,7 +51,7 @@ module.exports = {
         //--------------------------------------------------------------------------
 
         // list of comma tokens to ignore for the check of leading whitespace
-        var commaTokensToIgnore = [];
+        const commaTokensToIgnore = [];
 
         /**
          * Determines if a given token is a comma operator.
@@ -73,8 +73,8 @@ module.exports = {
          */
         function report(node, dir, otherNode) {
             context.report({
-                node: node,
-                fix: function(fixer) {
+                node,
+                fix(fixer) {
                     if (options[dir]) {
                         if (dir === "before") {
                             return fixer.insertTextBefore(node, " ");
@@ -82,8 +82,8 @@ module.exports = {
                             return fixer.insertTextAfter(node, " ");
                         }
                     } else {
-                        var start, end;
-                        var newText = "";
+                        let start, end;
+                        const newText = "";
 
                         if (dir === "before") {
                             start = otherNode.range[1];
@@ -136,10 +136,10 @@ module.exports = {
          * @returns {void}
          */
         function addNullElementsToIgnoreList(node) {
-            var previousToken = sourceCode.getFirstToken(node);
+            let previousToken = sourceCode.getFirstToken(node);
 
             node.elements.forEach(function(element) {
-                var token;
+                let token;
 
                 if (element === null) {
                     token = sourceCode.getTokenAfter(previousToken);
@@ -160,11 +160,7 @@ module.exports = {
         //--------------------------------------------------------------------------
 
         return {
-            "Program:exit": function() {
-
-                var previousToken,
-                    nextToken;
-
+            "Program:exit"() {
                 tokensAndComments.forEach(function(token, i) {
 
                     if (!isComma(token)) {
@@ -175,8 +171,8 @@ module.exports = {
                         return;
                     }
 
-                    previousToken = tokensAndComments[i - 1];
-                    nextToken = tokensAndComments[i + 1];
+                    const previousToken = tokensAndComments[i - 1];
+                    const nextToken = tokensAndComments[i + 1];
 
                     validateCommaItemSpacing({
                         comma: token,

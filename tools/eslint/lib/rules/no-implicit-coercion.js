@@ -9,13 +9,13 @@
 // Helpers
 //------------------------------------------------------------------------------
 
-var INDEX_OF_PATTERN = /^(?:i|lastI)ndexOf$/;
-var ALLOWABLE_OPERATORS = ["~", "!!", "+", "*"];
+const INDEX_OF_PATTERN = /^(?:i|lastI)ndexOf$/;
+const ALLOWABLE_OPERATORS = ["~", "!!", "+", "*"];
 
 /**
  * Parses and normalizes an option object.
- * @param {object} options - An option object to parse.
- * @returns {object} The parsed and normalized option object.
+ * @param {Object} options - An option object to parse.
+ * @returns {Object} The parsed and normalized option object.
  */
 function parseOptions(options) {
     options = options || {};
@@ -91,7 +91,7 @@ function isNumeric(node) {
  * @returns {ASTNode|null} The first non-numeric item in the BinaryExpression tree or null
  */
 function getNonNumericOperand(node) {
-    var left = node.left,
+    const left = node.left,
         right = node.right;
 
     if (right.type !== "BinaryExpression" && !isNumeric(right)) {
@@ -175,14 +175,13 @@ module.exports = {
         }]
     },
 
-    create: function(context) {
-        var options = parseOptions(context.options[0]),
-            operatorAllowed = false;
-
-        var sourceCode = context.getSourceCode();
+    create(context) {
+        const options = parseOptions(context.options[0]);
+        const sourceCode = context.getSourceCode();
 
         return {
-            UnaryExpression: function(node) {
+            UnaryExpression(node) {
+                let operatorAllowed;
 
                 // !!foo
                 operatorAllowed = options.allow.indexOf("!!") >= 0;
@@ -216,11 +215,12 @@ module.exports = {
             },
 
             // Use `:exit` to prevent double reporting
-            "BinaryExpression:exit": function(node) {
+            "BinaryExpression:exit"(node) {
+                let operatorAllowed;
 
                 // 1 * foo
                 operatorAllowed = options.allow.indexOf("*") >= 0;
-                var nonNumericOperand = !operatorAllowed && options.number && isMultiplyByOne(node) && getNonNumericOperand(node);
+                const nonNumericOperand = !operatorAllowed && options.number && isMultiplyByOne(node) && getNonNumericOperand(node);
 
                 if (nonNumericOperand) {
                     context.report(
@@ -241,11 +241,12 @@ module.exports = {
                 }
             },
 
-            AssignmentExpression: function(node) {
+            AssignmentExpression(node) {
 
                 // foo += ""
-                operatorAllowed = options.allow.indexOf("+") >= 0;
-                if (options.string && isAppendEmptyString(node)) {
+                const operatorAllowed = options.allow.indexOf("+") >= 0;
+
+                if (!operatorAllowed && options.string && isAppendEmptyString(node)) {
                     context.report(
                         node,
                         "use `{{code}} = String({{code}})` instead.", {

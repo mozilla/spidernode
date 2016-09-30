@@ -1,6 +1,6 @@
 # Child Process
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 The `child_process` module provides the ability to spawn child processes in
 a manner that is similar, but not identical, to popen(3). This capability
@@ -82,7 +82,8 @@ be launched using [`child_process.execFile()`][]. When running on Windows, `.bat
 and `.cmd` files can be invoked using [`child_process.spawn()`][] with the `shell`
 option set, with [`child_process.exec()`][], or by spawning `cmd.exe` and passing
 the `.bat` or `.cmd` file as an argument (which is what the `shell` option and
-[`child_process.exec()`][] do).
+[`child_process.exec()`][] do). In any case, if the script filename contains
+spaces it needs to be quoted.
 
 ```js
 // On Windows Only ...
@@ -109,6 +110,13 @@ exec('my.bat', (err, stdout, stderr) => {
     return;
   }
   console.log(stdout);
+});
+
+// Script with spaces in the filename:
+const bat = spawn('"my script.cmd"', ['a', 'b'], { shell:true });
+// or:
+exec('"my script.cmd" a b', (err, stdout, stderr) => {
+  // ...
 });
 ```
 
@@ -253,6 +261,10 @@ added: v0.5.0
     piped to the parent, otherwise they will be inherited from the parent, see
     the `'pipe'` and `'inherit'` options for [`child_process.spawn()`][]'s
     [`stdio`][] for more details (Default: `false`)
+  * `stdio` {Array} Supports the array version of [`child_process.spawn()`][]'s
+    [`stdio`][] option. When this option is provided, it overrides `silent`.
+    The array must contain exactly one item with value `'ipc'` or an error will
+    be thrown. For instance `[0, 1, 2, 'ipc']`.
   * `uid` {Number} Sets the user identity of the process. (See setuid(2).)
   * `gid` {Number} Sets the group identity of the process. (See setgid(2).)
 * Return: {ChildProcess}
@@ -293,6 +305,8 @@ added: v0.1.90
 * `options` {Object}
   * `cwd` {String} Current working directory of the child process
   * `env` {Object} Environment key-value pairs
+  * `argv0` {String} Explicitly set the value of `argv[0]` sent to the child
+    process. This will be set to `command` if not specified.
   * `stdio` {Array|String} Child's stdio configuration. (See
     [`options.stdio`][`stdio`])
   * `detached` {Boolean} Prepare child to run independently of its parent
@@ -394,6 +408,14 @@ child.on('error', (err) => {
   console.log('Failed to start child process.');
 });
 ```
+
+*Note: Certain platforms (OS X, Linux) will use the value of `argv[0]` for the
+process title while others (Windows, SunOS) will use `command`.*
+
+*Note: Node.js currently overwrites `argv[0]` with `process.execPath` on
+startup, so `process.argv[0]` in a Node.js child process will not match the
+`argv0` parameter passed to `spawn` from the parent, retrieve it with the
+`process.argv0` property instead.*
 
 #### options.detached
 <!-- YAML
@@ -830,7 +852,7 @@ const spawn = require('child_process').spawn;
 
 let child = spawn('sh', ['-c',
   `node -e "setInterval(() => {
-      console.log(process.pid + 'is alive')
+      console.log(process.pid, 'is alive')
     }, 500);"`
   ], {
     stdio: ['inherit', 'inherit', 'inherit']

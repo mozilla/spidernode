@@ -9,7 +9,7 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var fs = require("fs"),
+const fs = require("fs"),
     path = require("path"),
     shell = require("shelljs"),
     log = require("../logging");
@@ -26,12 +26,12 @@ var fs = require("fs"),
  * @returns {string}                          Absolute path to closest package.json file
  */
 function findPackageJson(startDir) {
-    var dir = path.resolve(startDir || process.cwd());
+    let dir = path.resolve(startDir || process.cwd());
 
     do {
-        var pkgfile = path.join(dir, "package.json");
+        const pkgfile = path.join(dir, "package.json");
 
-        if (!fs.existsSync(pkgfile)) {
+        if (!shell.test("-f", pkgfile)) {
             dir = path.join(dir, "..");
             continue;
         }
@@ -68,9 +68,9 @@ function installSyncSaveDev(packages) {
  *                                        and values are booleans indicating installation.
  */
 function check(packages, opt) {
-    var deps = [];
-    var pkgJson = (opt) ? findPackageJson(opt.startDir) : findPackageJson();
-    var fileJson;
+    let deps = [];
+    const pkgJson = (opt) ? findPackageJson(opt.startDir) : findPackageJson();
+    let fileJson;
 
     if (!pkgJson) {
         throw new Error("Could not find a package.json file. Run 'npm init' to create one.");
@@ -139,8 +139,8 @@ function checkPackageJson(startDir) {
 //------------------------------------------------------------------------------
 
 module.exports = {
-    installSyncSaveDev: installSyncSaveDev,
-    checkDeps: checkDeps,
-    checkDevDeps: checkDevDeps,
-    checkPackageJson: checkPackageJson
+    installSyncSaveDev,
+    checkDeps,
+    checkDevDeps,
+    checkPackageJson
 };

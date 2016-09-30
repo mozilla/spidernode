@@ -9,7 +9,7 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var optionator = require("optionator");
+const optionator = require("optionator");
 
 //------------------------------------------------------------------------------
 // Initialization and Public Interface

@@ -9,13 +9,11 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var lodash = require("lodash");
-
 //------------------------------------------------------------------------------
 // Helpers
 //------------------------------------------------------------------------------
 
-var messages = {
+const messages = {
     function: "Use the function form of 'use strict'.",
     global: "Use the global form of 'use strict'.",
     multiple: "Multiple 'use strict' directives.",
@@ -35,11 +33,10 @@ var messages = {
  * @returns {ASTNode[]} All of the Use Strict Directives.
  */
 function getUseStrictDirectives(statements) {
-    var directives = [],
-        i, statement;
+    const directives = [];
 
-    for (i = 0; i < statements.length; i++) {
-        statement = statements[i];
+    for (let i = 0; i < statements.length; i++) {
+        const statement = statements[i];
 
         if (
             statement.type === "ExpressionStatement" &&
@@ -94,13 +91,12 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var mode = context.options[0] || "safe",
-            ecmaFeatures = context.parserOptions.ecmaFeatures || {},
+        const ecmaFeatures = context.parserOptions.ecmaFeatures || {},
             scopes = [],
-            classScopes = [],
-            rule;
+            classScopes = [];
+        let mode = context.options[0] || "safe";
 
         if (ecmaFeatures.impliedStrict) {
             mode = "implied";
@@ -117,7 +113,7 @@ module.exports = {
          * @returns {void}
          */
         function reportSlice(nodes, start, end, message) {
-            var i;
+            let i;
 
             for (i = start; i < end; i++) {
                 context.report(nodes[i], message);
@@ -152,7 +148,7 @@ module.exports = {
          * @returns {void}
          */
         function enterFunctionInFunctionMode(node, useStrictDirectives) {
-            var isInClass = classScopes.length > 0,
+            const isInClass = classScopes.length > 0,
                 isParentGlobal = scopes.length === 0 && classScopes.length === 0,
                 isParentStrict = scopes.length > 0 && scopes[scopes.length - 1],
                 isStrict = useStrictDirectives.length > 0;
@@ -194,7 +190,7 @@ module.exports = {
          * @returns {void}
          */
         function enterFunction(node) {
-            var isBlock = node.body.type === "BlockStatement",
+            const isBlock = node.body.type === "BlockStatement",
                 useStrictDirectives = isBlock ?
                     getUseStrictDirectives(node.body.body) : [];
 
@@ -210,9 +206,9 @@ module.exports = {
             }
         }
 
-        rule = {
-            Program: function(node) {
-                var useStrictDirectives = getUseStrictDirectives(node.body);
+        const rule = {
+            Program(node) {
+                const useStrictDirectives = getUseStrictDirectives(node.body);
 
                 if (node.sourceType === "module") {
                     mode = "module";
@@ -233,13 +229,13 @@ module.exports = {
         };
 
         if (mode === "function") {
-            lodash.assign(rule, {
+            Object.assign(rule, {
 
                 // Inside of class bodies are always strict mode.
-                ClassBody: function() {
+                ClassBody() {
                     classScopes.push(true);
                 },
-                "ClassBody:exit": function() {
+                "ClassBody:exit"() {
                     classScopes.pop();
                 },
 

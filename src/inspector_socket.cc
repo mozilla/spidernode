@@ -18,25 +18,6 @@
 
 static const char CLOSE_FRAME[] = {'\x88', '\x00'};
 
-struct http_parsing_state_s {
-  http_parser parser;
-  http_parser_settings parser_settings;
-  handshake_cb callback;
-  bool done;
-  bool parsing_value;
-  char* ws_key;
-  char* path;
-  char* current_header;
-};
-
-struct ws_state_s {
-  uv_alloc_cb alloc_cb;
-  uv_read_cb read_cb;
-  inspector_cb close_cb;
-  bool close_sent;
-  bool received_close;
-};
-
 enum ws_decode_result {
   FRAME_OK, FRAME_INCOMPLETE, FRAME_CLOSE, FRAME_ERROR
 };
@@ -67,18 +48,17 @@ static void dump_hex(const char* buf, size_t len) {
 }
 #endif
 
+static void remove_from_beginning(std::vector<char>* buffer, size_t count) {
+  buffer->erase(buffer->begin(), buffer->begin() + count);
+}
+
 static void dispose_inspector(uv_handle_t* handle) {
-  inspector_socket_t* inspector =
-      reinterpret_cast<inspector_socket_t*>(handle->data);
+  inspector_socket_t* inspector = inspector_from_stream(handle);
   inspector_cb close =
       inspector->ws_mode ? inspector->ws_state->close_cb : nullptr;
-  free(inspector->buffer);
-  free(inspector->ws_state);
+  inspector->buffer.clear();
+  delete inspector->ws_state;
   inspector->ws_state = nullptr;
-  inspector->buffer = nullptr;
-  inspector->buffer_size = 0;
-  inspector->data_len = 0;
-  inspector->last_read_end = 0;
   if (close) {
     close(inspector, 0);
   }
@@ -92,11 +72,25 @@ static void close_connection(inspector_socket_t* inspector) {
   }
 }
 
+struct WriteRequest {
+  WriteRequest(inspector_socket_t* inspector, const char* data, size_t size)
+      : inspector(inspector)
+      , storage(data, data + size)
+      , buf(uv_buf_init(&storage[0], storage.size())) {}
+
+  static WriteRequest* from_write_req(uv_write_t* req) {
+    return node::ContainerOf(&WriteRequest::req, req);
+  }
+
+  inspector_socket_t* const inspector;
+  std::vector<char> storage;
+  uv_write_t req;
+  uv_buf_t buf;
+};
+
 // Cleanup
 static void write_request_cleanup(uv_write_t* req, int status) {
-  free((reinterpret_cast<uv_buf_t*>(req->data))->base);
-  free(req->data);
-  free(req);
+  delete WriteRequest::from_write_req(req);
 }
 
 static int write_to_client(inspector_socket_t* inspector,
@@ -109,21 +103,9 @@ static int write_to_client(inspector_socket_t* inspector,
 #endif
 
   // Freed in write_request_cleanup
-  uv_buf_t* buf = reinterpret_cast<uv_buf_t*>(malloc(sizeof(uv_buf_t)));
-  uv_write_t* req = reinterpret_cast<uv_write_t*>(malloc(sizeof(uv_write_t)));
-  CHECK_NE(buf, nullptr);
-  CHECK_NE(req, nullptr);
-  memset(req, 0, sizeof(*req));
-  buf->base = reinterpret_cast<char*>(malloc(len));
-
-  CHECK_NE(buf->base, nullptr);
-
-  memcpy(buf->base, msg, len);
-  buf->len = len;
-  req->data = buf;
-
+  WriteRequest* wr = new WriteRequest(inspector, msg, len);
   uv_stream_t* stream = reinterpret_cast<uv_stream_t*>(&inspector->client);
-  return uv_write(req, stream, buf, 1, write_cb) < 0;
+  return uv_write(&wr->req, stream, &wr->buf, 1, write_cb) < 0;
 }
 
 // Constants for hybi-10 frame format.
@@ -178,21 +160,19 @@ static std::vector<char> encode_frame_hybi17(const char* message,
   return frame;
 }
 
-static ws_decode_result decode_frame_hybi17(const char* buffer_begin,
-                                            size_t data_length,
+static ws_decode_result decode_frame_hybi17(const std::vector<char>& buffer,
                                             bool client_frame,
                                             int* bytes_consumed,
                                             std::vector<char>* output,
                                             bool* compressed) {
   *bytes_consumed = 0;
-  if (data_length < 2)
+  if (buffer.size() < 2)
     return FRAME_INCOMPLETE;
 
-  const char* p = buffer_begin;
-  const char* buffer_end = p + data_length;
+  auto it = buffer.begin();
 
-  unsigned char first_byte = *p++;
-  unsigned char second_byte = *p++;
+  unsigned char first_byte = *it++;
+  unsigned char second_byte = *it++;
 
   bool final = (first_byte & kFinalBit) != 0;
   bool reserved1 = (first_byte & kReserved1Bit) != 0;
@@ -234,12 +214,12 @@ static ws_decode_result decode_frame_hybi17(const char* buffer_begin,
     } else {
       return FRAME_ERROR;
     }
-    if (buffer_end - p < extended_payload_length_size)
+    if ((buffer.end() - it) < extended_payload_length_size)
       return FRAME_INCOMPLETE;
     payload_length64 = 0;
     for (int i = 0; i < extended_payload_length_size; ++i) {
       payload_length64 <<= 8;
-      payload_length64 |= static_cast<unsigned char>(*p++);
+      payload_length64 |= static_cast<unsigned char>(*it++);
     }
   }
 
@@ -252,16 +232,16 @@ static ws_decode_result decode_frame_hybi17(const char* buffer_begin,
   }
   size_t payload_length = static_cast<size_t>(payload_length64);
 
-  if (data_length - kMaskingKeyWidthInBytes < payload_length)
+  if (buffer.size() - kMaskingKeyWidthInBytes < payload_length)
     return FRAME_INCOMPLETE;
 
-  const char* masking_key = p;
-  const char* payload = p + kMaskingKeyWidthInBytes;
+  std::vector<char>::const_iterator masking_key = it;
+  std::vector<char>::const_iterator payload = it + kMaskingKeyWidthInBytes;
   for (size_t i = 0; i < payload_length; ++i)  // Unmask the payload.
     output->insert(output->end(),
                    payload[i] ^ masking_key[i % kMaskingKeyWidthInBytes]);
 
-  size_t pos = p + kMaskingKeyWidthInBytes + payload_length - buffer_begin;
+  size_t pos = it + kMaskingKeyWidthInBytes + payload_length - buffer.begin();
   *bytes_consumed = pos;
   return closed ? FRAME_CLOSE : FRAME_OK;
 }
@@ -278,10 +258,10 @@ static void shutdown_complete(inspector_socket_t* inspector) {
   close_connection(inspector);
 }
 
-static void on_close_frame_written(uv_write_t* write, int status) {
-  inspector_socket_t* inspector =
-      reinterpret_cast<inspector_socket_t*>(write->handle->data);
-  write_request_cleanup(write, status);
+static void on_close_frame_written(uv_write_t* req, int status) {
+  WriteRequest* wr = WriteRequest::from_write_req(req);
+  inspector_socket_t* inspector = wr->inspector;
+  delete wr;
   inspector->ws_state->close_sent = true;
   if (inspector->ws_state->received_close) {
     shutdown_complete(inspector);
@@ -299,13 +279,13 @@ static void close_frame_received(inspector_socket_t* inspector) {
   }
 }
 
-static int parse_ws_frames(inspector_socket_t* inspector, size_t len) {
+static int parse_ws_frames(inspector_socket_t* inspector) {
   int bytes_consumed = 0;
   std::vector<char> output;
   bool compressed = false;
 
   ws_decode_result r =  decode_frame_hybi17(inspector->buffer,
-                                            len, true /* client_frame */,
+                                            true /* client_frame */,
                                             &bytes_consumed, &output,
                                             &compressed);
   // Compressed frame means client is ignoring the headers and misbehaves
@@ -331,27 +311,22 @@ static int parse_ws_frames(inspector_socket_t* inspector, size_t len) {
 }
 
 static void prepare_buffer(uv_handle_t* stream, size_t len, uv_buf_t* buf) {
-  inspector_socket_t* inspector =
-      reinterpret_cast<inspector_socket_t*>(stream->data);
+  *buf = uv_buf_init(new char[len], len);
+}
 
-  if (len > (inspector->buffer_size - inspector->data_len)) {
-    int new_size = (inspector->data_len + len + BUFFER_GROWTH_CHUNK_SIZE - 1) /
-                   BUFFER_GROWTH_CHUNK_SIZE *
-                   BUFFER_GROWTH_CHUNK_SIZE;
-    inspector->buffer_size = new_size;
-    inspector->buffer = reinterpret_cast<char*>(realloc(inspector->buffer,
-                                        inspector->buffer_size));
-    ASSERT_NE(inspector->buffer, nullptr);
+static void reclaim_uv_buf(inspector_socket_t* inspector, const uv_buf_t* buf,
+                           ssize_t read) {
+  if (read > 0) {
+    std::vector<char>& buffer = inspector->buffer;
+    buffer.insert(buffer.end(), buf->base, buf->base + read);
   }
-  buf->base = inspector->buffer + inspector->data_len;
-  buf->len = len;
-  inspector->data_len += len;
+  delete[] buf->base;
 }
 
 static void websockets_data_cb(uv_stream_t* stream, ssize_t nread,
                                const uv_buf_t* buf) {
-  inspector_socket_t* inspector =
-      reinterpret_cast<inspector_socket_t*>(stream->data);
+  inspector_socket_t* inspector = inspector_from_stream(stream);
+  reclaim_uv_buf(inspector, buf, nread);
   if (nread < 0 || nread == UV_EOF) {
     inspector->connection_eof = true;
     if (!inspector->shutting_down && inspector->ws_state->read_cb) {
@@ -361,29 +336,19 @@ static void websockets_data_cb(uv_stream_t* stream, ssize_t nread,
     #if DUMP_READS
       printf("%s read %ld bytes\n", __FUNCTION__, nread);
       if (nread > 0) {
-        dump_hex(buf->base, nread);
+        dump_hex(inspector->buffer.data() + inspector->buffer.size() - nread,
+                 nread);
       }
     #endif
-    // 1. Move read bytes to continue the buffer
-    // Should be same as this is supposedly last buffer
-    ASSERT_EQ(buf->base + buf->len, inspector->buffer + inspector->data_len);
-
-    // Should be noop...
-    memmove(inspector->buffer + inspector->last_read_end, buf->base, nread);
-    inspector->last_read_end += nread;
-
     // 2. Parse.
     int processed = 0;
     do {
-      processed = parse_ws_frames(inspector, inspector->last_read_end);
+      processed = parse_ws_frames(inspector);
       // 3. Fix the buffer size & length
       if (processed > 0) {
-        memmove(inspector->buffer, inspector->buffer + processed,
-            inspector->last_read_end - processed);
-        inspector->last_read_end -= processed;
-        inspector->data_len = inspector->last_read_end;
+        remove_from_beginning(&inspector->buffer, processed);
       }
-    } while (processed > 0 && inspector->data_len > 0);
+    } while (processed > 0 && !inspector->buffer.empty());
   }
 }
 
@@ -410,95 +375,69 @@ void inspector_read_stop(inspector_socket_t* inspector) {
   inspector->ws_state->read_cb = nullptr;
 }
 
-static void generate_accept_string(const char* client_key, char* buffer) {
+static void generate_accept_string(const std::string& client_key,
+                                   char (*buffer)[ACCEPT_KEY_LENGTH]) {
   // Magic string from websockets spec.
-  const char ws_magic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-  size_t key_len = strlen(client_key);
-  size_t magic_len = sizeof(ws_magic) - 1;
-
-  char* buf = reinterpret_cast<char*>(malloc(key_len + magic_len));
-  CHECK_NE(buf, nullptr);
-  memcpy(buf, client_key, key_len);
-  memcpy(buf + key_len, ws_magic, magic_len);
-  char hash[20];
-  SHA1((unsigned char*) buf, key_len + magic_len, (unsigned char*) hash);
-  free(buf);
-  node::base64_encode(hash, 20, buffer, ACCEPT_KEY_LENGTH);
-  buffer[ACCEPT_KEY_LENGTH] = '\0';
-}
-
-static void append(char** value, const char* string, size_t length) {
-  const size_t INCREMENT = 500;  // There should never be more then 1 chunk...
-
-  int current_len = *value ? strlen(*value) : 0;
-  int new_len = current_len + length;
-  int adjusted = (new_len / INCREMENT + 1) * INCREMENT;
-  *value = reinterpret_cast<char*>(realloc(*value, adjusted));
-  memcpy(*value + current_len, string, length);
-  (*value)[new_len] = '\0';
+  static const char ws_magic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+  std::string input(client_key + ws_magic);
+  char hash[SHA_DIGEST_LENGTH];
+  SHA1(reinterpret_cast<const unsigned char*>(&input[0]), input.size(),
+       reinterpret_cast<unsigned char*>(hash));
+  node::base64_encode(hash, sizeof(hash), *buffer, sizeof(*buffer));
 }
 
 static int header_value_cb(http_parser* parser, const char* at, size_t length) {
-  char SEC_WEBSOCKET_KEY_HEADER[] = "Sec-WebSocket-Key";
-  struct http_parsing_state_s* state = (struct http_parsing_state_s*)
-      (reinterpret_cast<inspector_socket_t*>(parser->data))->http_parsing_state;
+  static const char SEC_WEBSOCKET_KEY_HEADER[] = "Sec-WebSocket-Key";
+  auto inspector = static_cast<inspector_socket_t*>(parser->data);
+  auto state = inspector->http_parsing_state;
   state->parsing_value = true;
-  if (state->current_header &&
-      node::StringEqualNoCaseN(state->current_header,
+  if (state->current_header.size() == sizeof(SEC_WEBSOCKET_KEY_HEADER) - 1 &&
+      node::StringEqualNoCaseN(state->current_header.data(),
                                SEC_WEBSOCKET_KEY_HEADER,
-                               sizeof(SEC_WEBSOCKET_KEY_HEADER))) {
-    append(&state->ws_key, at, length);
+                               sizeof(SEC_WEBSOCKET_KEY_HEADER) - 1)) {
+    state->ws_key.append(at, length);
   }
   return 0;
 }
 
 static int header_field_cb(http_parser* parser, const char* at, size_t length) {
-  struct http_parsing_state_s* state = (struct http_parsing_state_s*)
-      (reinterpret_cast<inspector_socket_t*>(parser->data))->http_parsing_state;
+  auto inspector = static_cast<inspector_socket_t*>(parser->data);
+  auto state = inspector->http_parsing_state;
   if (state->parsing_value) {
     state->parsing_value = false;
-    if (state->current_header)
-      state->current_header[0] = '\0';
+    state->current_header.clear();
   }
-  append(&state->current_header, at, length);
+  state->current_header.append(at, length);
   return 0;
 }
 
 static int path_cb(http_parser* parser, const char* at, size_t length) {
-  struct http_parsing_state_s* state = (struct http_parsing_state_s*)
-    (reinterpret_cast<inspector_socket_t*>(parser->data))->http_parsing_state;
-  append(&state->path, at, length);
+  auto inspector = static_cast<inspector_socket_t*>(parser->data);
+  auto state = inspector->http_parsing_state;
+  state->path.append(at, length);
   return 0;
 }
 
 static void handshake_complete(inspector_socket_t* inspector) {
   uv_read_stop(reinterpret_cast<uv_stream_t*>(&inspector->client));
   handshake_cb callback = inspector->http_parsing_state->callback;
-  inspector->ws_state = (struct ws_state_s*) malloc(sizeof(struct ws_state_s));
-  ASSERT_NE(nullptr, inspector->ws_state);
-  memset(inspector->ws_state, 0, sizeof(struct ws_state_s));
-  inspector->last_read_end = 0;
+  inspector->ws_state = new ws_state_s();
   inspector->ws_mode = true;
   callback(inspector, kInspectorHandshakeUpgraded,
            inspector->http_parsing_state->path);
 }
 
 static void cleanup_http_parsing_state(inspector_socket_t* inspector) {
-  struct http_parsing_state_s* state = inspector->http_parsing_state;
-  free(state->current_header);
-  free(state->path);
-  free(state->ws_key);
-  free(state);
+  delete inspector->http_parsing_state;
   inspector->http_parsing_state = nullptr;
 }
 
 static void report_handshake_failure_cb(uv_handle_t* handle) {
   dispose_inspector(handle);
-  inspector_socket_t* inspector =
-      static_cast<inspector_socket_t*>(handle->data);
+  inspector_socket_t* inspector = inspector_from_stream(handle);
   handshake_cb cb = inspector->http_parsing_state->callback;
   cleanup_http_parsing_state(inspector);
-  cb(inspector, kInspectorHandshakeFailed, nullptr);
+  cb(inspector, kInspectorHandshakeFailed, std::string());
 }
 
 static void close_and_report_handshake_failure(inspector_socket_t* inspector) {
@@ -527,8 +466,7 @@ static void init_handshake(inspector_socket_t* inspector);
 static int message_complete_cb(http_parser* parser) {
   inspector_socket_t* inspector =
       reinterpret_cast<inspector_socket_t*>(parser->data);
-  struct http_parsing_state_s* state =
-      (struct http_parsing_state_s*) inspector->http_parsing_state;
+  struct http_parsing_state_s* state = inspector->http_parsing_state;
   if (parser->method != HTTP_GET) {
     handshake_failed(inspector);
   } else if (!parser->upgrade) {
@@ -537,29 +475,21 @@ static int message_complete_cb(http_parser* parser) {
     } else {
       handshake_failed(inspector);
     }
-  } else if (!state->ws_key) {
+  } else if (state->ws_key.empty()) {
     handshake_failed(inspector);
   } else if (state->callback(inspector, kInspectorHandshakeUpgrading,
                              state->path)) {
-    char accept_string[ACCEPT_KEY_LENGTH + 1];
-    generate_accept_string(state->ws_key, accept_string);
-
+    char accept_string[ACCEPT_KEY_LENGTH];
+    generate_accept_string(state->ws_key, &accept_string);
     const char accept_ws_prefix[] = "HTTP/1.1 101 Switching Protocols\r\n"
                                     "Upgrade: websocket\r\n"
                                     "Connection: Upgrade\r\n"
                                     "Sec-WebSocket-Accept: ";
     const char accept_ws_suffix[] = "\r\n\r\n";
-    // Format has two chars (%s) that are replaced with actual key
-    char accept_response[sizeof(accept_ws_prefix) - 1 +
-                         sizeof(accept_ws_suffix) - 1 +
-                         ACCEPT_KEY_LENGTH];
-    memcpy(accept_response, accept_ws_prefix, sizeof(accept_ws_prefix) - 1);
-    memcpy(accept_response + sizeof(accept_ws_prefix) - 1,
-        accept_string, ACCEPT_KEY_LENGTH);
-    memcpy(accept_response + sizeof(accept_ws_prefix) - 1 + ACCEPT_KEY_LENGTH,
-        accept_ws_suffix, sizeof(accept_ws_suffix) - 1);
-    int len = sizeof(accept_response);
-    if (write_to_client(inspector, accept_response, len) >= 0) {
+    std::string reply(accept_ws_prefix, sizeof(accept_ws_prefix) - 1);
+    reply.append(accept_string, sizeof(accept_string));
+    reply.append(accept_ws_suffix, sizeof(accept_ws_suffix) - 1);
+    if (write_to_client(inspector, &reply[0], reply.size()) >= 0) {
       handshake_complete(inspector);
       inspector->http_parsing_state->done = true;
     } else {
@@ -581,37 +511,31 @@ static void data_received_cb(uv_stream_s* client, ssize_t nread,
     printf("[%s:%d] %s\n", __FUNCTION__, __LINE__, uv_err_name(nread));
   }
 #endif
-  inspector_socket_t* inspector =
-      reinterpret_cast<inspector_socket_t*>((client->data));
+  inspector_socket_t* inspector = inspector_from_stream(client);
+  reclaim_uv_buf(inspector, buf, nread);
   if (nread < 0 || nread == UV_EOF) {
     close_and_report_handshake_failure(inspector);
   } else {
     http_parsing_state_s* state = inspector->http_parsing_state;
     http_parser* parser = &state->parser;
-    http_parser_execute(parser, &state->parser_settings, inspector->buffer,
-                        nread);
+    http_parser_execute(parser, &state->parser_settings,
+                        inspector->buffer.data(), nread);
+    remove_from_beginning(&inspector->buffer, nread);
     if (parser->http_errno != HPE_OK) {
       handshake_failed(inspector);
     }
     if (inspector->http_parsing_state->done) {
       cleanup_http_parsing_state(inspector);
     }
-    inspector->data_len = 0;
   }
 }
 
 static void init_handshake(inspector_socket_t* inspector) {
   http_parsing_state_s* state = inspector->http_parsing_state;
   CHECK_NE(state, nullptr);
-  if (state->current_header) {
-    state->current_header[0] = '\0';
-  }
-  if (state->ws_key) {
-    state->ws_key[0] = '\0';
-  }
-  if (state->path) {
-    state->path[0] = '\0';
-  }
+  state->current_header.clear();
+  state->ws_key.clear();
+  state->path.clear();
   state->done = false;
   http_parser_init(&state->parser, HTTP_REQUEST);
   state->parser.data = inspector;
@@ -626,15 +550,8 @@ static void init_handshake(inspector_socket_t* inspector) {
 int inspector_accept(uv_stream_t* server, inspector_socket_t* inspector,
                      handshake_cb callback) {
   ASSERT_NE(callback, nullptr);
-  // The only field that users should care about.
-  void* data = inspector->data;
-  memset(inspector, 0, sizeof(*inspector));
-  inspector->data = data;
-
-  inspector->http_parsing_state = (struct http_parsing_state_s*)
-      malloc(sizeof(struct http_parsing_state_s));
-  ASSERT_NE(nullptr, inspector->http_parsing_state);
-  memset(inspector->http_parsing_state, 0, sizeof(struct http_parsing_state_s));
+  CHECK_EQ(inspector->http_parsing_state, nullptr);
+  inspector->http_parsing_state = new http_parsing_state_s();
   uv_stream_t* client = reinterpret_cast<uv_stream_t*>(&inspector->client);
   CHECK_NE(client, nullptr);
   int err = uv_tcp_init(server->loop, &inspector->client);
@@ -643,7 +560,6 @@ int inspector_accept(uv_stream_t* server, inspector_socket_t* inspector,
     err = uv_accept(server, client);
   }
   if (err == 0) {
-    client->data = inspector;
     init_handshake(inspector);
     inspector->http_parsing_state->callback = callback;
     err = uv_read_start(client, prepare_buffer,

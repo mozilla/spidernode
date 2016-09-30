@@ -9,7 +9,7 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var astUtils = require("../ast-utils");
+const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -65,8 +65,8 @@ module.exports = {
         schema: []
     },
 
-    create: function(context) {
-        var done = Object.create(null);
+    create(context) {
+        let done = Object.create(null);
 
         /**
          * Reports if a given node is string concatenation with non string literals.
@@ -79,7 +79,7 @@ module.exports = {
                 return;
             }
 
-            var topBinaryExpr = getTopConcatBinaryExpression(node.parent);
+            const topBinaryExpr = getTopConcatBinaryExpression(node.parent);
 
             // Checks whether or not this node had been checked already.
             if (done[topBinaryExpr.range[0]]) {
@@ -95,7 +95,7 @@ module.exports = {
         }
 
         return {
-            Program: function() {
+            Program() {
                 done = Object.create(null);
             },
 

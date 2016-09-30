@@ -38,9 +38,9 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var mode = (function(option) {
+        const mode = (function(option) {
             if (!option || typeof option === "string") {
                 return {
                     before: { before: true, after: false },
@@ -52,7 +52,7 @@ module.exports = {
             return option;
         }(context.options[0]));
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
 
         /**
          * Gets `*` token from a given node.
@@ -63,7 +63,7 @@ module.exports = {
          * @returns {Token} `*` token.
          */
         function getStarToken(node) {
-            var token = sourceCode.getFirstToken(node);
+            let token = sourceCode.getFirstToken(node);
 
             while (token.value !== "*") {
                 token = sourceCode.getTokenAfter(token);
@@ -83,16 +83,16 @@ module.exports = {
          */
         function checkSpacing(side, leftToken, rightToken) {
             if (!!(rightToken.range[0] - leftToken.range[1]) !== mode[side]) {
-                var after = leftToken.value === "*";
-                var spaceRequired = mode[side];
-                var node = after ? leftToken : rightToken;
-                var type = spaceRequired ? "Missing" : "Unexpected";
-                var message = type + " space " + side + " *.";
+                const after = leftToken.value === "*";
+                const spaceRequired = mode[side];
+                const node = after ? leftToken : rightToken;
+                const type = spaceRequired ? "Missing" : "Unexpected";
+                const message = type + " space " + side + " *.";
 
                 context.report({
-                    node: node,
-                    message: message,
-                    fix: function(fixer) {
+                    node,
+                    message,
+                    fix(fixer) {
                         if (spaceRequired) {
                             if (after) {
                                 return fixer.insertTextAfter(node, " ");
@@ -111,7 +111,7 @@ module.exports = {
          * @returns {void}
          */
         function checkFunction(node) {
-            var prevToken, starToken, nextToken;
+            let starToken;
 
             if (!node.generator) {
                 return;
@@ -124,12 +124,14 @@ module.exports = {
             }
 
             // Only check before when preceded by `function`|`static` keyword
-            prevToken = sourceCode.getTokenBefore(starToken);
+            const prevToken = sourceCode.getTokenBefore(starToken);
+
             if (prevToken.value === "function" || prevToken.value === "static") {
                 checkSpacing("before", prevToken, starToken);
             }
 
-            nextToken = sourceCode.getTokenAfter(starToken);
+            const nextToken = sourceCode.getTokenAfter(starToken);
+
             checkSpacing("after", starToken, nextToken);
         }
 

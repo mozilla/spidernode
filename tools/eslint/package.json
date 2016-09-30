@@ -1,45 +1,54 @@
 {
   "_args": [
     [
-      "eslint",
+      {
+        "raw": "eslint",
+        "scope": null,
+        "escapedName": "eslint",
+        "name": "eslint",
+        "rawSpec": "",
+        "spec": "latest",
+        "type": "tag"
+      },
       "/Users/trott/io.js/tools"
     ]
   ],
   "_from": "eslint@latest",
-  "_id": "eslint@3.0.1",
+  "_id": "eslint@3.4.0",
   "_inCache": true,
   "_installable": true,
   "_location": "/eslint",
-  "_nodeVersion": "4.4.2",
+  "_nodeVersion": "4.4.7",
   "_npmOperationalInternal": {
     "host": "packages-12-west.internal.npmjs.com",
-    "tmp": "tmp/eslint-3.0.1.tgz_1467741316725_0.5076132179237902"
+    "tmp": "tmp/eslint-3.4.0.tgz_1472234173647_0.17217218782752752"
   },
   "_npmUser": {
-    "email": "nicholas@nczconsulting.com",
-    "name": "nzakas"
+    "name": "eslint",
+    "email": "nicholas+eslint@nczconsulting.com"
   },
-  "_npmVersion": "2.15.0",
+  "_npmVersion": "2.15.8",
   "_phantomChildren": {},
   "_requested": {
-    "name": "eslint",
     "raw": "eslint",
-    "rawSpec": "",
     "scope": null,
+    "escapedName": "eslint",
+    "name": "eslint",
+    "rawSpec": "",
     "spec": "latest",
     "type": "tag"
   },
   "_requiredBy": [
     "#USER"
   ],
-  "_resolved": "https://registry.npmjs.org/eslint/-/eslint-3.0.1.tgz",
-  "_shasum": "ff12eafdc04ea71d173a099d4658a136e7157934",
+  "_resolved": "https://registry.npmjs.org/eslint/-/eslint-3.4.0.tgz",
+  "_shasum": "af5984007bd3f1fb1b3b6b01a0a22eda0ec7a9f4",
   "_shrinkwrap": null,
   "_spec": "eslint",
   "_where": "/Users/trott/io.js/tools",
   "author": {
-    "email": "nicholas+npm@nczconsulting.com",
-    "name": "Nicholas C. Zakas"
+    "name": "Nicholas C. Zakas",
+    "email": "nicholas+npm@nczconsulting.com"
   },
   "bin": {
     "eslint": "./bin/eslint.js"
@@ -52,15 +61,14 @@
     "concat-stream": "^1.4.6",
     "debug": "^2.1.1",
     "doctrine": "^1.2.2",
-    "es6-map": "^0.1.3",
     "escope": "^3.6.0",
     "espree": "^3.1.6",
     "estraverse": "^4.2.0",
     "esutils": "^2.0.2",
-    "file-entry-cache": "^1.1.1",
+    "file-entry-cache": "^2.0.0",
     "glob": "^7.0.3",
     "globals": "^9.2.0",
-    "ignore": "^3.1.2",
+    "ignore": "^3.1.5",
     "imurmurhash": "^0.1.4",
     "inquirer": "^0.12.0",
     "is-my-json-valid": "^2.10.0",
@@ -70,6 +78,7 @@
     "levn": "^0.3.0",
     "lodash": "^4.0.0",
     "mkdirp": "^0.5.0",
+    "natural-compare": "^1.4.0",
     "optionator": "^0.8.1",
     "path-is-inside": "^1.0.1",
     "pluralize": "^1.2.1",
@@ -84,6 +93,9 @@
   },
   "description": "An AST-based pattern checker for JavaScript.",
   "devDependencies": {
+    "babel-polyfill": "^6.9.1",
+    "babel-preset-es2015": "^6.9.0",
+    "babelify": "^7.3.0",
     "beefy": "^2.0.0",
     "brfs": "0.0.9",
     "browserify": "^12.0.1",
@@ -92,25 +104,27 @@
     "coveralls": "2.11.4",
     "dateformat": "^1.0.8",
     "ejs": "^2.3.3",
-    "eslint-release": "^0.5.0",
+    "eslint-plugin-node": "^2.0.0",
+    "eslint-release": "^0.10.0",
     "esprima": "^2.4.1",
     "esprima-fb": "^15001.1001.0-dev-harmony-fb",
     "gh-got": "^2.2.0",
     "istanbul": "^0.4.0",
     "jsdoc": "^3.3.0-beta1",
     "karma": "^0.13.22",
+    "karma-babel-preprocessor": "^6.0.1",
     "karma-mocha": "^1.0.1",
     "karma-mocha-reporter": "^2.0.3",
     "karma-phantomjs-launcher": "^1.0.0",
     "leche": "^2.1.1",
     "linefix": "^0.1.1",
     "load-perf": "^0.2.0",
-    "markdownlint": "^0.1.0",
+    "markdownlint": "^0.2.0",
     "mocha": "^2.4.5",
-    "mock-fs": "^3.9.0",
+    "mock-fs": "^3.10.0",
     "npm-license": "^0.3.2",
     "phantomjs-prebuilt": "^2.1.7",
-    "proxyquire": ">=1.0.0 <1.7.5",
+    "proxyquire": "^1.7.10",
     "semver": "^5.0.3",
     "shelljs-nodecli": "~0.1.0",
     "sinon": "^1.17.2",
@@ -119,8 +133,8 @@
   },
   "directories": {},
   "dist": {
-    "shasum": "ff12eafdc04ea71d173a099d4658a136e7157934",
-    "tarball": "https://registry.npmjs.org/eslint/-/eslint-3.0.1.tgz"
+    "shasum": "af5984007bd3f1fb1b3b6b01a0a22eda0ec7a9f4",
+    "tarball": "https://registry.npmjs.org/eslint/-/eslint-3.4.0.tgz"
   },
   "engines": {
     "node": ">=4"
@@ -133,7 +147,7 @@
     "lib",
     "messages"
   ],
-  "gitHead": "0fd4b6db5ff273a8475fe9ddc25486a10bf40f83",
+  "gitHead": "faab36e519ce8caf428da4567766e699464a2316",
   "homepage": "http://eslint.org",
   "keywords": [
     "ast",
@@ -146,12 +160,16 @@
   "main": "./lib/api.js",
   "maintainers": [
     {
-      "email": "nicholas@nczconsulting.com",
-      "name": "nzakas"
+      "name": "eslint",
+      "email": "nicholas+eslint@nczconsulting.com"
     },
     {
-      "email": "ivolodin@gmail.com",
-      "name": "ivolodin"
+      "name": "ivolodin",
+      "email": "ivolodin@gmail.com"
+    },
+    {
+      "name": "nzakas",
+      "email": "nicholas@nczconsulting.com"
     }
   ],
   "name": "eslint",
@@ -166,6 +184,7 @@
     "betarelease": "node Makefile.js prerelease -- beta",
     "browserify": "node Makefile.js browserify",
     "check-commit": "node Makefile.js checkGitCommit",
+    "ci-release": "node Makefile.js ciRelease",
     "coveralls": "cat ./coverage/lcov.info | coveralls",
     "docs": "node Makefile.js docs",
     "gensite": "node Makefile.js gensite",
@@ -175,5 +194,5 @@
     "release": "node Makefile.js release",
     "test": "node Makefile.js test"
   },
-  "version": "3.0.1"
+  "version": "3.4.0"
 }
