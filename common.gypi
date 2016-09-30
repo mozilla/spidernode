@@ -100,6 +100,11 @@
       },
       'variables': {
         'node_engine_include_dir%': 'deps/spidershim/include',
+        'conditions': [
+          ['OS=="mac"', {
+            'spidermonkey_extra_args': '--enable-macos-target=10.9',
+          }],
+        ],
       },
     }],
   ],
