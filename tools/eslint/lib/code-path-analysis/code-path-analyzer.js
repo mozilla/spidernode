@@ -9,7 +9,7 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-var assert = require("assert"),
+const assert = require("assert"),
     CodePath = require("./code-path"),
     CodePathSegment = require("./code-path-segment"),
     IdGenerator = require("./id-generator"),
@@ -38,7 +38,7 @@ function isCaseNode(node) {
  * @returns {boolean} `true` if the node is a test of a choice statement.
  */
 function isForkingByTrueOrFalse(node) {
-    var parent = node.parent;
+    const parent = node.parent;
 
     switch (parent.type) {
         case "ConditionalExpression":
@@ -83,7 +83,7 @@ function getBooleanValueIfSimpleConstant(node) {
  * @returns {boolean} `true` if the node is a reference.
  */
 function isIdentifierReference(node) {
-    var parent = node.parent;
+    const parent = node.parent;
 
     switch (parent.type) {
         case "LabeledStatement":
@@ -135,12 +135,12 @@ function isIdentifierReference(node) {
  * @returns {void}
  */
 function forwardCurrentToHead(analyzer, node) {
-    var codePath = analyzer.codePath;
-    var state = CodePath.getState(codePath);
-    var currentSegments = state.currentSegments;
-    var headSegments = state.headSegments;
-    var end = Math.max(currentSegments.length, headSegments.length);
-    var i, currentSegment, headSegment;
+    const codePath = analyzer.codePath;
+    const state = CodePath.getState(codePath);
+    const currentSegments = state.currentSegments;
+    const headSegments = state.headSegments;
+    const end = Math.max(currentSegments.length, headSegments.length);
+    let i, currentSegment, headSegment;
 
     // Fires leaving events.
     for (i = 0; i < end; ++i) {
@@ -191,11 +191,11 @@ function forwardCurrentToHead(analyzer, node) {
  * @returns {void}
  */
 function leaveFromCurrentSegment(analyzer, node) {
-    var state = CodePath.getState(analyzer.codePath);
-    var currentSegments = state.currentSegments;
+    const state = CodePath.getState(analyzer.codePath);
+    const currentSegments = state.currentSegments;
 
-    for (var i = 0; i < currentSegments.length; ++i) {
-        var currentSegment = currentSegments[i];
+    for (let i = 0; i < currentSegments.length; ++i) {
+        const currentSegment = currentSegments[i];
 
         debug.dump("onCodePathSegmentEnd " + currentSegment.id);
         if (currentSegment.reachable) {
@@ -221,9 +221,9 @@ function leaveFromCurrentSegment(analyzer, node) {
  * @returns {void}
  */
 function preprocess(analyzer, node) {
-    var codePath = analyzer.codePath;
-    var state = CodePath.getState(codePath);
-    var parent = node.parent;
+    const codePath = analyzer.codePath;
+    const state = CodePath.getState(codePath);
+    const parent = node.parent;
 
     switch (parent.type) {
         case "LogicalExpression":
@@ -328,9 +328,9 @@ function preprocess(analyzer, node) {
  * @returns {void}
  */
 function processCodePathToEnter(analyzer, node) {
-    var codePath = analyzer.codePath;
-    var state = codePath && CodePath.getState(codePath);
-    var parent = node.parent;
+    let codePath = analyzer.codePath;
+    let state = codePath && CodePath.getState(codePath);
+    const parent = node.parent;
 
     switch (node.type) {
         case "Program":
@@ -419,9 +419,9 @@ function processCodePathToEnter(analyzer, node) {
  * @returns {void}
  */
 function processCodePathToExit(analyzer, node) {
-    var codePath = analyzer.codePath;
-    var state = CodePath.getState(codePath);
-    var dontForward = false;
+    const codePath = analyzer.codePath;
+    const state = CodePath.getState(codePath);
+    let dontForward = false;
 
     switch (node.type) {
         case "IfStatement":
@@ -536,8 +536,8 @@ function postprocess(analyzer, node) {
         case "Program":
         case "FunctionDeclaration":
         case "FunctionExpression":
-        case "ArrowFunctionExpression":
-            var codePath = analyzer.codePath;
+        case "ArrowFunctionExpression": {
+            let codePath = analyzer.codePath;
 
             // Mark the current path as the final node.
             CodePath.getState(codePath).makeFinal();
@@ -555,6 +555,7 @@ function postprocess(analyzer, node) {
                 debug.dumpState(node, CodePath.getState(codePath), true);
             }
             break;
+        }
 
         default:
             break;
@@ -591,7 +592,7 @@ CodePathAnalyzer.prototype = {
      * @param {ASTNode} node - A node which is entering.
      * @returns {void}
      */
-    enterNode: function(node) {
+    enterNode(node) {
         this.currentNode = node;
 
         // Updates the code path due to node's position in its parent node.
@@ -616,7 +617,7 @@ CodePathAnalyzer.prototype = {
      * @param {ASTNode} node - A node which is leaving.
      * @returns {void}
      */
-    leaveNode: function(node) {
+    leaveNode(node) {
         this.currentNode = node;
 
         // Updates the code path.
@@ -640,7 +641,7 @@ CodePathAnalyzer.prototype = {
      * @param {CodePathSegment} toSegment - A segment of next.
      * @returns {void}
      */
-    onLooped: function(fromSegment, toSegment) {
+    onLooped(fromSegment, toSegment) {
         if (fromSegment.reachable && toSegment.reachable) {
             debug.dump("onCodePathSegmentLoop " + fromSegment.id + " -> " + toSegment.id);
             this.emitter.emit(

@@ -17,7 +17,6 @@ using v8::Array;
 using v8::Context;
 using v8::EscapableHandleScope;
 using v8::External;
-using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
@@ -27,7 +26,6 @@ using v8::Object;
 using v8::PropertyAttribute;
 using v8::PropertyCallbackInfo;
 using v8::String;
-using v8::Uint32;
 using v8::Undefined;
 using v8::Value;
 
@@ -386,7 +384,7 @@ void UDPWrap::OnSend(uv_udp_send_t* req, int status) {
 void UDPWrap::OnAlloc(uv_handle_t* handle,
                       size_t suggested_size,
                       uv_buf_t* buf) {
-  buf->base = static_cast<char*>(malloc(suggested_size));
+  buf->base = static_cast<char*>(node::Malloc(suggested_size));
   buf->len = suggested_size;
 
   if (buf->base == nullptr && suggested_size > 0) {
@@ -428,7 +426,7 @@ void UDPWrap::OnRecv(uv_udp_t* handle,
     return;
   }
 
-  char* base = static_cast<char*>(realloc(buf->base, nread));
+  char* base = static_cast<char*>(node::Realloc(buf->base, nread));
   argv[2] = Buffer::New(env, base, nread).ToLocalChecked();
   argv[3] = AddressToJS(env, addr);
   wrap->MakeCallback(env->onmessage_string(), arraysize(argv), argv);
@@ -436,9 +434,9 @@ void UDPWrap::OnRecv(uv_udp_t* handle,
 
 
 Local<Object> UDPWrap::Instantiate(Environment* env, AsyncWrap* parent) {
+  EscapableHandleScope scope(env->isolate());
   // If this assert fires then Initialize hasn't been called yet.
   CHECK_EQ(env->udp_constructor_function().IsEmpty(), false);
-  EscapableHandleScope scope(env->isolate());
   Local<Value> ptr = External::New(env->isolate(), parent);
   return scope.Escape(env->udp_constructor_function()
       ->NewInstance(env->context(), 1, &ptr).ToLocalChecked());

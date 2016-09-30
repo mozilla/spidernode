@@ -336,10 +336,10 @@ class IonBuilder
 
     void insertRecompileCheck();
 
-    void initParameters();
+    MOZ_MUST_USE bool initParameters();
     void initLocals();
     void rewriteParameter(uint32_t slotIdx, MDefinition* param, int32_t argIndex);
-    void rewriteParameters();
+    MOZ_MUST_USE bool rewriteParameters();
     MOZ_MUST_USE bool initEnvironmentChain(MDefinition* callee = nullptr);
     MOZ_MUST_USE bool initArgumentsObject();
     void pushConstant(const Value& v);
@@ -1153,6 +1153,8 @@ class IonBuilder
         *abortPc = actionableAbortPc_;
         *abortMessage = actionableAbortMessage_;
     }
+
+    void trace(JSTracer* trc);
 
   private:
     MOZ_MUST_USE bool init();

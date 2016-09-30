@@ -36,7 +36,6 @@ namespace cares_wrap {
 using v8::Array;
 using v8::Context;
 using v8::EscapableHandleScope;
-using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
@@ -143,7 +142,8 @@ static void ares_poll_close_cb(uv_handle_t* watcher) {
 
 /* Allocates and returns a new node_ares_task */
 static node_ares_task* ares_task_create(Environment* env, ares_socket_t sock) {
-  node_ares_task* task = static_cast<node_ares_task*>(malloc(sizeof(*task)));
+  node_ares_task* task =
+    static_cast<node_ares_task*>(node::Malloc(sizeof(*task)));
 
   if (task == nullptr) {
     /* Out of memory. */

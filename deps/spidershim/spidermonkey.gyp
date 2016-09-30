@@ -104,7 +104,6 @@
 	  ['OS == "linux"', {
 	    'libraries': [
 	      '-ldl',
-	      '-lzlib',
               '<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)mozglue<(STATIC_LIB_SUFFIX)',
 	      '-lrt',
 	    ],

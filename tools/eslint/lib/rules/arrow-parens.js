@@ -21,16 +21,29 @@ module.exports = {
         schema: [
             {
                 enum: ["always", "as-needed"]
+            },
+            {
+                type: "object",
+                properties: {
+                    requireForBlockBody: {
+                        type: "boolean"
+                    }
+                },
+                additionalProperties: false
             }
         ]
     },
 
-    create: function(context) {
-        var message = "Expected parentheses around arrow function argument.";
-        var asNeededMessage = "Unexpected parentheses around single function argument";
-        var asNeeded = context.options[0] === "as-needed";
+    create(context) {
+        const message = "Expected parentheses around arrow function argument.";
+        const asNeededMessage = "Unexpected parentheses around single function argument.";
+        const asNeeded = context.options[0] === "as-needed";
+        const requireForBlockBodyMessage = "Unexpected parentheses around single function argument having a body with no curly braces";
+        const requireForBlockBodyNoParensMessage = "Expected parentheses around arrow function argument having a body with curly braces.";
+        const requireForBlockBody = asNeeded && context.options[1] && context.options[1].requireForBlockBody === true;
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
+
 
         /**
          * Determines whether a arrow function argument end with `)`
@@ -38,17 +51,58 @@ module.exports = {
          * @returns {void}
          */
         function parens(node) {
-            var token = sourceCode.getFirstToken(node);
+            const token = sourceCode.getFirstToken(node);
 
-            // as-needed: x => x
+            // "as-needed", { "requireForBlockBody": true }: x => x
+            if (
+                requireForBlockBody &&
+                node.params.length === 1 &&
+                node.params[0].type === "Identifier" &&
+                node.body.type !== "BlockStatement"
+            ) {
+                if (token.type === "Punctuator" && token.value === "(") {
+                    context.report({
+                        node,
+                        message: requireForBlockBodyMessage,
+                        fix(fixer) {
+                            const paramToken = context.getTokenAfter(token);
+                            const closingParenToken = context.getTokenAfter(paramToken);
+
+                            return fixer.replaceTextRange([
+                                token.range[0],
+                                closingParenToken.range[1]
+                            ], paramToken.value);
+                        }
+                    });
+                }
+                return;
+            }
+
+            if (
+                requireForBlockBody &&
+                node.body.type === "BlockStatement"
+            ) {
+                if (token.type !== "Punctuator" || token.value !== "(") {
+                    context.report({
+                        node,
+                        message: requireForBlockBodyNoParensMessage,
+                        fix(fixer) {
+                            return fixer.replaceText(token, "(" + token.value + ")");
+                        }
+                    });
+                }
+                return;
+            }
+
+            // "as-needed": x => x
             if (asNeeded && node.params.length === 1 && node.params[0].type === "Identifier") {
                 if (token.type === "Punctuator" && token.value === "(") {
                     context.report({
-                        node: node,
+                        node,
                         message: asNeededMessage,
-                        fix: function(fixer) {
-                            var paramToken = context.getTokenAfter(token);
-                            var closingParenToken = context.getTokenAfter(paramToken);
+                        fix(fixer) {
+                            const paramToken = context.getTokenAfter(token);
+                            const closingParenToken = context.getTokenAfter(paramToken);
 
                             return fixer.replaceTextRange([
                                 token.range[0],
@@ -61,14 +115,14 @@ module.exports = {
             }
 
             if (token.type === "Identifier") {
-                var after = sourceCode.getTokenAfter(token);
+                const after = sourceCode.getTokenAfter(token);
 
                 // (x) => x
                 if (after.value !== ")") {
                     context.report({
-                        node: node,
-                        message: message,
-                        fix: function(fixer) {
+                        node,
+                        message,
+                        fix(fixer) {
                             return fixer.replaceText(token, "(" + token.value + ")");
                         }
                     });

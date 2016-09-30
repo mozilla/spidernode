@@ -9,7 +9,7 @@
 // Rule Definition
 //------------------------------------------------------------------------------
 
-var VALID_STRING_ESCAPES = [
+const VALID_STRING_ESCAPES = [
     "\\",
     "n",
     "r",
@@ -23,7 +23,7 @@ var VALID_STRING_ESCAPES = [
     "\r"
 ];
 
-var VALID_REGEX_ESCAPES = [
+const VALID_REGEX_ESCAPES = [
     "\\",
     ".",
     "-",
@@ -68,7 +68,7 @@ module.exports = {
         schema: []
     },
 
-    create: function(context) {
+    create(context) {
 
         /**
          * Checks if the escape character in given slice is unnecessary.
@@ -80,17 +80,17 @@ module.exports = {
          * @returns {void}
          */
         function validate(escapes, node, elm) {
-            var escapeNotFound = escapes.indexOf(elm[0][1]) === -1;
-            var isQuoteEscape = elm[0][1] === node.raw[0];
+            const escapeNotFound = escapes.indexOf(elm[0][1]) === -1;
+            const isQuoteEscape = elm[0][1] === node.raw[0];
 
             if (escapeNotFound && !isQuoteEscape) {
                 context.report({
-                    node: node,
+                    node,
                     loc: {
                         line: node.loc.start.line,
                         column: node.loc.start.column + elm.index
                     },
-                    message: "Unnecessary escape character: " + elm[0]
+                    message: "Unnecessary escape character: " + elm[0] + "."
                 });
             }
         }
@@ -102,8 +102,8 @@ module.exports = {
          * @returns {void}
          */
         function check(node) {
-            var nodeEscapes, match;
-            var pattern = /\\[^\d]/g;
+            let nodeEscapes, match;
+            const pattern = /\\[^\d]/g;
 
             if (typeof node.value === "string") {
 

@@ -1,8 +1,4 @@
 {
-  'variables': {
-    'external_spidermonkey_debug%': '<(external_spidermonkey_release)',
-  },
-
   'targets': [
     {
       'target_name': 'spidermonkey',
@@ -52,6 +48,10 @@
                   '<(external_spidermonkey_release)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ]},
               }],
+              ['external_spidermonkey_release_has_nspr == 1', {
+                'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
+              }],
             ],
           },
           'Debug': {
@@ -66,8 +66,8 @@
               '<(external_spidermonkey_debug)/config/external/icu/data/icudata.o',
             ]},
             'conditions': [
-              # Normally we'd use *libraries* here, but gyp doesn't allow us,
-              # so we use *ldflags* instead.
+              # Normally we'd use libraries here, but gyp doesn't allow us,
+              # so we use ldflags instead.
               ['external_spidermonkey_debug_has_nss == 1', {
                 'ldflags': [
                   '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nss3<(SHARED_LIB_SUFFIX)',
@@ -95,6 +95,11 @@
                 'xcode_settings': { 'OTHER_LDFLAGS': [
                   '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
                 ]},
+              }],
+              ['external_spidermonkey_debug_has_nspr == 1', {
+                # Normally we'd use libraries here, but gyp doesn't allow us.
+                'ldflags': [ '-lnspr4' ],
+                'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
           },

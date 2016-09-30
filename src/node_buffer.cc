@@ -50,7 +50,7 @@
   size_t length = end - start;
 
 #define BUFFER_MALLOC(length)                                               \
-  zero_fill_all_buffers ? calloc(length, 1) : malloc(length)
+  zero_fill_all_buffers ? node::Calloc(length, 1) : node::Malloc(length)
 
 #if defined(__GNUC__) || defined(__clang__)
 #define BSWAP_INTRINSIC_2(x) __builtin_bswap16(x)
@@ -95,19 +95,15 @@ using v8::ArrayBuffer;
 using v8::ArrayBufferCreationMode;
 using v8::Context;
 using v8::EscapableHandleScope;
-using v8::Function;
 using v8::FunctionCallbackInfo;
-using v8::HandleScope;
 using v8::Integer;
 using v8::Isolate;
 using v8::Local;
 using v8::Maybe;
 using v8::MaybeLocal;
-using v8::Number;
 using v8::Object;
 using v8::Persistent;
 using v8::String;
-using v8::Uint32;
 using v8::Uint32Array;
 using v8::Uint8Array;
 using v8::Value;
@@ -269,10 +265,6 @@ MaybeLocal<Object> New(Isolate* isolate,
   size_t actual = 0;
   char* data = nullptr;
 
-  // malloc(0) and realloc(ptr, 0) have implementation-defined behavior in
-  // that the standard allows them to either return a unique pointer or a
-  // nullptr for zero-sized allocation requests.  Normalize by always using
-  // a nullptr.
   if (length > 0) {
     data = static_cast<char*>(BUFFER_MALLOC(length));
 
@@ -286,7 +278,7 @@ MaybeLocal<Object> New(Isolate* isolate,
       free(data);
       data = nullptr;
     } else if (actual < length) {
-      data = static_cast<char*>(realloc(data, actual));
+      data = static_cast<char*>(node::Realloc(data, actual));
       CHECK_NE(data, nullptr);
     }
   }
@@ -345,8 +337,8 @@ MaybeLocal<Object> New(Environment* env, size_t length) {
 
 
 MaybeLocal<Object> Copy(Isolate* isolate, const char* data, size_t length) {
+  EscapableHandleScope handle_scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
-  EscapableHandleScope handle_scope(env->isolate());
   Local<Object> obj;
   if (Buffer::Copy(env, data, length).ToLocal(&obj))
     return handle_scope.Escape(obj);
@@ -365,7 +357,7 @@ MaybeLocal<Object> Copy(Environment* env, const char* data, size_t length) {
   void* new_data;
   if (length > 0) {
     CHECK_NE(data, nullptr);
-    new_data = malloc(length);
+    new_data = node::Malloc(length);
     if (new_data == nullptr)
       return Local<Object>();
     memcpy(new_data, data, length);
@@ -395,8 +387,8 @@ MaybeLocal<Object> New(Isolate* isolate,
                        size_t length,
                        FreeCallback callback,
                        void* hint) {
+  EscapableHandleScope handle_scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
-  EscapableHandleScope handle_scope(env->isolate());
   Local<Object> obj;
   if (Buffer::New(env, data, length, callback, hint).ToLocal(&obj))
     return handle_scope.Escape(obj);
@@ -434,8 +426,8 @@ MaybeLocal<Object> New(Environment* env,
 
 
 MaybeLocal<Object> New(Isolate* isolate, char* data, size_t length) {
+  EscapableHandleScope handle_scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
-  EscapableHandleScope handle_scope(env->isolate());
   Local<Object> obj;
   if (Buffer::New(env, data, length).ToLocal(&obj))
     return handle_scope.Escape(obj);
@@ -718,7 +710,7 @@ void StringWrite(const FunctionCallbackInfo<Value>& args) {
   size_t max_length;
 
   CHECK_NOT_OOB(ParseArrayIndex(args[1], 0, &offset));
-  if (offset >= ts_obj_length)
+  if (offset > ts_obj_length)
     return env->ThrowRangeError("Offset is out of bounds");
 
   CHECK_NOT_OOB(ParseArrayIndex(args[2], ts_obj_length - offset, &max_length));
@@ -1087,7 +1079,7 @@ void IndexOfString(const FunctionCallbackInfo<Value>& args) {
                           offset,
                           is_forward);
   } else if (enc == LATIN1) {
-    uint8_t* needle_data = static_cast<uint8_t*>(malloc(needle_length));
+    uint8_t* needle_data = static_cast<uint8_t*>(node::Malloc(needle_length));
     if (needle_data == nullptr) {
       return args.GetReturnValue().Set(-1);
     }

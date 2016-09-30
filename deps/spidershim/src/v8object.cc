@@ -714,10 +714,11 @@ int Object::InternalFieldCount() {
   }
   uint32_t globalClassAdjustment = 0;
   if (JS_IsGlobalObject(GetObject(thisObj))) {
-    globalClassAdjustment = JSCLASS_GLOBAL_APPLICATION_SLOTS;
+    globalClassAdjustment = JSCLASS_GLOBAL_SLOT_COUNT -
+                            JSCLASS_GLOBAL_APPLICATION_SLOTS;
   }
   return (JSCLASS_RESERVED_SLOTS(js::GetObjectClass(GetObject(thisObj))) -
-          uint32_t(InstanceSlots::NumSlots) + globalClassAdjustment) / 2;
+          uint32_t(InstanceSlots::NumSlots) - globalClassAdjustment) / 2;
 }
 
 Local<Value> Object::GetInternalField(int index) {
@@ -799,8 +800,11 @@ Local<Context> Object::CreationContext() {
   if (!global) {
     return Local<Context>();
   }
-  auto context =
-    static_cast<Context*>(GetInstanceSlot(global, uint32_t(InstanceSlots::ContextSlot)).toPrivate());
+  auto slot = GetInstanceSlot(global, uint32_t(InstanceSlots::ContextSlot));
+  if (slot.isUndefined()) {
+    return Local<Context>();
+  }
+  auto context = static_cast<Context*>(slot.toPrivate());
   return Local<Context>::New(isolate, context);
 }
 
@@ -896,5 +900,14 @@ Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<Context> c
 
 Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<String> key) {
   return GetRealNamedPropertyAttributes(Isolate::GetCurrent()->GetCurrentContext(), key);
+}
+
+Maybe<bool> Object::HasRealNamedProperty(Local<Context> context,
+                                         Local<Name> key) {
+  return Has(context, key);
+}
+
+bool Object::HasRealNamedProperty(Handle<String> key) {
+  return HasRealNamedProperty(Local<Context>(), key).FromMaybe(false);
 }
 }

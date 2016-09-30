@@ -8,7 +8,7 @@
 // Helpers
 //------------------------------------------------------------------------------
 
-var SENTINEL_TYPE = /^(?:[a-zA-Z]+?Statement|ArrowFunctionExpression|FunctionExpression|ClassExpression)$/;
+const SENTINEL_TYPE = /^(?:[a-zA-Z]+?Statement|ArrowFunctionExpression|FunctionExpression|ClassExpression)$/;
 
 /**
  * Checks whether or not a node is enclosed in parentheses.
@@ -17,8 +17,8 @@ var SENTINEL_TYPE = /^(?:[a-zA-Z]+?Statement|ArrowFunctionExpression|FunctionExp
  * @returns {boolean} Whether or not the node is enclosed in parentheses.
  */
 function isEnclosedInParens(node, sourceCode) {
-    var prevToken = sourceCode.getTokenBefore(node);
-    var nextToken = sourceCode.getTokenAfter(node);
+    const prevToken = sourceCode.getTokenBefore(node);
+    const nextToken = sourceCode.getTokenAfter(node);
 
     return prevToken && prevToken.value === "(" && nextToken && nextToken.value === ")";
 }
@@ -42,17 +42,17 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
-        var always = (context.options[0] || "except-parens") !== "except-parens";
-        var sourceCode = context.getSourceCode();
+    create(context) {
+        const always = (context.options[0] || "except-parens") !== "except-parens";
+        const sourceCode = context.getSourceCode();
 
         return {
-            AssignmentExpression: function(node) {
+            AssignmentExpression(node) {
                 if (!always && isEnclosedInParens(node, sourceCode)) {
                     return;
                 }
 
-                var parent = node.parent;
+                let parent = node.parent;
 
                 // Find ReturnStatement or ArrowFunctionExpression in ancestors.
                 while (parent && !SENTINEL_TYPE.test(parent.type)) {

@@ -146,7 +146,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 
   JS::SetEnqueuePromiseJobCallback(pimpl_->cx, Isolate::Impl::EnqueuePromiseJobCallback);
   JS::SetGetIncumbentGlobalCallback(pimpl_->cx, GetIncumbentGlobalCallback);
-  JS_SetInterruptCallback(pimpl_->cx, Isolate::Impl::OnInterrupt);
+  JS_AddInterruptCallback(pimpl_->cx, Isolate::Impl::OnInterrupt);
   JS_SetGCCallback(pimpl_->cx, Isolate::Impl::OnGC, NULL);
   if (!JS::InitSelfHostedCode(pimpl_->cx)) {
     MOZ_CRASH("InitSelfHostedCode failed");
@@ -159,7 +159,7 @@ Isolate::Isolate() : pimpl_(new Impl()) {
 Isolate::~Isolate() {
   assert(pimpl_->cx);
   assert(!sIsolateStack.get());
-  JS_SetInterruptCallback(pimpl_->cx, NULL);
+  JS_DisableInterruptCallback(pimpl_->cx);
   JS_DestroyContext(pimpl_->cx);
   delete pimpl_;
 }
@@ -247,10 +247,9 @@ void Isolate::PushCurrentContext(Context* context) {
   pimpl_->currentContexts.push(context);
 }
 
-Context* Isolate::PopCurrentContext() {
+void Isolate::PopCurrentContext() {
   assert(pimpl_);
   pimpl_->currentContexts.pop();
-  return pimpl_->currentContexts.empty() ? nullptr : pimpl_->currentContexts.top();
 }
 
 Local<Context> Isolate::GetCurrentContext() {
@@ -613,6 +612,9 @@ Local<Object> Isolate::GetHiddenGlobal() {
     if (!JS_InitStandardClasses(cx, newGlobal)) {
       return Local<Object>();
     }
+    SetInstanceSlot(newGlobal, uint32_t(InstanceSlots::ContextSlot),
+                    JS::UndefinedHandleValue);
+
     Local<Object> global =
       internal::Local<Object>::New(this, JS::ObjectValue(*newGlobal));
     pimpl_->hiddenGlobal.Reset(this, global);

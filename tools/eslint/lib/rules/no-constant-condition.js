@@ -31,8 +31,8 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
-        var options = context.options[0] || {},
+    create(context) {
+        const options = context.options[0] || {},
             checkLoops = options.checkLoops !== false;
 
         //--------------------------------------------------------------------------
@@ -51,11 +51,15 @@ module.exports = {
                 case "Literal":
                     return (operator === "||" && node.value === true) ||
                            (operator === "&&" && node.value === false);
+
+                case "UnaryExpression":
+                    return (operator === "&&" && node.operator === "void");
+
                 case "LogicalExpression":
                     return isLogicalIdentity(node.left, node.operator) ||
                              isLogicalIdentity(node.right, node.operator);
 
-                     // no default
+                // no default
             }
             return false;
         }
@@ -78,6 +82,10 @@ module.exports = {
                     return true;
 
                 case "UnaryExpression":
+                    if (node.operator === "void") {
+                        return true;
+                    }
+
                     return (node.operator === "typeof" && inBooleanPosition) ||
                         isConstant(node.argument, true);
 
@@ -85,13 +93,16 @@ module.exports = {
                     return isConstant(node.left, false) &&
                             isConstant(node.right, false) &&
                             node.operator !== "in";
-                case "LogicalExpression":
-                    var isLeftConstant = isConstant(node.left, inBooleanPosition);
-                    var isRightConstant = isConstant(node.right, inBooleanPosition);
-                    var isLeftShortCircuit = (isLeftConstant && isLogicalIdentity(node.left, node.operator));
-                    var isRightShortCircuit = (isRightConstant && isLogicalIdentity(node.right, node.operator));
+
+                case "LogicalExpression": {
+                    const isLeftConstant = isConstant(node.left, inBooleanPosition);
+                    const isRightConstant = isConstant(node.right, inBooleanPosition);
+                    const isLeftShortCircuit = (isLeftConstant && isLogicalIdentity(node.left, node.operator));
+                    const isRightShortCircuit = (isRightConstant && isLogicalIdentity(node.right, node.operator));
 
                     return (isLeftConstant && isRightConstant) || isLeftShortCircuit || isRightShortCircuit;
+                }
+
                 case "AssignmentExpression":
                     return (node.operator === "=") && isConstant(node.right, inBooleanPosition);
 

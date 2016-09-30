@@ -823,7 +823,8 @@ IonBuilder::build()
     }
 #endif
 
-    initParameters();
+    if (!initParameters())
+        return false;
     initLocals();
 
     // Initialize something for the env chain. We can bail out before the
@@ -862,7 +863,8 @@ IonBuilder::build()
 
     // Parameters have been checked to correspond to the typeset, now we unbox
     // what we can in an infallible manner.
-    rewriteParameters();
+    if (!rewriteParameters())
+        return false;
 
     // Check for redeclaration errors for global scripts.
     if (!info().funMaybeLazy() && !info().module() &&
@@ -1136,25 +1138,29 @@ IonBuilder::rewriteParameter(uint32_t slotIdx, MDefinition* param, int32_t argIn
 // Apply Type Inference information to parameters early on, unboxing them if
 // they have a definitive type. The actual guards will be emitted by the code
 // generator, explicitly, as part of the function prologue.
-void
+bool
 IonBuilder::rewriteParameters()
 {
     MOZ_ASSERT(info().environmentChainSlot() == 0);
 
     if (!info().funMaybeLazy())
-        return;
+        return true;
 
     for (uint32_t i = info().startArgSlot(); i < info().endArgSlot(); i++) {
+        if (!alloc().ensureBallast())
+            return false;
         MDefinition* param = current->getSlot(i);
         rewriteParameter(i, param, param->toParameter()->index());
     }
+
+    return true;
 }
 
-void
+bool
 IonBuilder::initParameters()
 {
     if (!info().funMaybeLazy())
-        return;
+        return true;
 
     // If we are doing OSR on a frame which initially executed in the
     // interpreter and didn't accumulate type information, try to use that OSR
@@ -1182,10 +1188,14 @@ IonBuilder::initParameters()
             types->addType(type, alloc_->lifoAlloc());
         }
 
-        param = MParameter::New(alloc(), i, types);
+        param = MParameter::New(alloc().fallible(), i, types);
+        if (!param)
+            return false;
         current->add(param);
         current->initSlot(info().argSlotUnchecked(i), param);
     }
+
+    return true;
 }
 
 void
@@ -10459,7 +10469,9 @@ IonBuilder::jsop_setelem_dense(TemporaryTypeSet::DoubleConversion conversion,
 
     // Writes which are on holes in the object do not have to bail out if they
     // cannot hit another indexed property on the object or its prototypes.
-    bool writeOutOfBounds = !ElementAccessHasExtraIndexedProperty(this, obj);
+    bool hasNoExtraIndexedProperty = !ElementAccessHasExtraIndexedProperty(this, obj);
+
+    bool mayBeFrozen = ElementAccessMightBeFrozen(constraints(), obj);
 
     // Ensure id is an integer.
     MInstruction* idInt32 = MToInt32::New(alloc(), id);
@@ -10505,10 +10517,21 @@ IonBuilder::jsop_setelem_dense(TemporaryTypeSet::DoubleConversion conversion,
     // Use MStoreElementHole if this SETELEM has written to out-of-bounds
     // indexes in the past. Otherwise, use MStoreElement so that we can hoist
     // the initialized length and bounds check.
+    // If an object may have been frozen, no previous expectation hold and we
+    // fallback to MFallibleStoreElement.
     MInstruction* store;
     MStoreElementCommon *common = nullptr;
-    if (writeHole && writeOutOfBounds) {
+    if (writeHole && hasNoExtraIndexedProperty && !mayBeFrozen) {
         MStoreElementHole* ins = MStoreElementHole::New(alloc(), obj, elements, id, newValue, unboxedType);
+        store = ins;
+        common = ins;
+
+        current->add(ins);
+        current->push(value);
+    } else if (hasNoExtraIndexedProperty && mayBeFrozen) {
+        bool strict = IsStrictSetPC(pc);
+        MFallibleStoreElement* ins = MFallibleStoreElement::New(alloc(), obj, elements, id,
+                                                                newValue, unboxedType, strict);
         store = ins;
         common = ins;
 
@@ -10518,7 +10541,7 @@ IonBuilder::jsop_setelem_dense(TemporaryTypeSet::DoubleConversion conversion,
         MInstruction* initLength = initializedLength(obj, elements, unboxedType);
 
         id = addBoundsCheck(id, initLength);
-        bool needsHoleCheck = !packed && !writeOutOfBounds;
+        bool needsHoleCheck = !packed && !hasNoExtraIndexedProperty;
 
         if (unboxedType != JSVAL_TYPE_MAGIC) {
             store = storeUnboxedValue(obj, elements, 0, id, unboxedType, newValue);
@@ -10850,7 +10873,7 @@ IonBuilder::jsop_checkobjcoercible()
 uint32_t
 IonBuilder::getDefiniteSlot(TemporaryTypeSet* types, PropertyName* name, uint32_t* pnfixed)
 {
-    if (!types || types->unknownObject()) {
+    if (!types || types->unknownObject() || !types->objectOrSentinel()) {
         trackOptimizationOutcome(TrackedOutcome::NoTypeInfo);
         return UINT32_MAX;
     }
@@ -10904,7 +10927,7 @@ IonBuilder::getDefiniteSlot(TemporaryTypeSet* types, PropertyName* name, uint32_
 uint32_t
 IonBuilder::getUnboxedOffset(TemporaryTypeSet* types, PropertyName* name, JSValueType* punboxedType)
 {
-    if (!types || types->unknownObject()) {
+    if (!types || types->unknownObject() || !types->objectOrSentinel()) {
         trackOptimizationOutcome(TrackedOutcome::NoTypeInfo);
         return UINT32_MAX;
     }
@@ -11857,7 +11880,7 @@ IonBuilder::convertUnboxedObjects(MDefinition* obj)
     // not guarantee the object will not have such a group afterwards, if the
     // object's possible groups are not precisely known.
     TemporaryTypeSet* types = obj->resultTypeSet();
-    if (!types || types->unknownObject())
+    if (!types || types->unknownObject() || !types->objectOrSentinel())
         return obj;
 
     BaselineInspector::ObjectGroupVector list(alloc());
@@ -12023,8 +12046,10 @@ IonBuilder::loadUnboxedValue(MDefinition* elements, size_t elementsOffset,
 
       case JSVAL_TYPE_OBJECT: {
         MLoadUnboxedObjectOrNull::NullBehavior nullBehavior;
-        if (types->hasType(TypeSet::NullType()) || barrier != BarrierKind::NoBarrier)
+        if (types->hasType(TypeSet::NullType()))
             nullBehavior = MLoadUnboxedObjectOrNull::HandleNull;
+        else if (barrier != BarrierKind::NoBarrier)
+            nullBehavior = MLoadUnboxedObjectOrNull::BailOnNull;
         else
             nullBehavior = MLoadUnboxedObjectOrNull::NullNotPossible;
         load = MLoadUnboxedObjectOrNull::New(alloc(), elements, index, nullBehavior,
@@ -14602,4 +14627,15 @@ IonBuilder::convertToBoolean(MDefinition* input)
     current->add(result);
 
     return result;
+}
+
+void
+IonBuilder::trace(JSTracer* trc)
+{
+    if (!compartment->runtime()->runtimeMatches(trc->runtime()))
+        return;
+
+    TraceManuallyBarrieredEdge(trc, &script_, "IonBuiler::script_");
+    if (actionableAbortScript_)
+        TraceManuallyBarrieredEdge(trc, &actionableAbortScript_, "IonBuiler::actionableAbortScript_");
 }

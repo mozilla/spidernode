@@ -1,14 +1,12 @@
-## pre-setup
+# Onboarding
 
-Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
+This document is an outline of the things we tell new Collaborators at their
+onboarding session.
 
+* Prior to the onboarding session, add the new Collaborators to
+[the Collaborators team](https://github.com/orgs/nodejs/teams/collaborators).
 
-## onboarding to nodejs
-
-### intros
-
-
-### **thank you** for doing this
+## **thank you** for doing this
 
   * going to cover four things:
     * local setup
@@ -16,8 +14,7 @@ Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
     * issues, labels, and reviewing code
     * merging code
 
-
-### setup:
+## setup
 
   * notifications setup
     * use https://github.com/notifications or set up email
@@ -34,7 +31,7 @@ Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
   * `#node-dev` on `chat.freenode.net` is the best place to interact with the CTC / other collaborators
 
 
-### a little deeper about the project
+## a little deeper about the project
 
   * collaborators are effectively part owners
     * the project has the goals of its contributors
@@ -46,7 +43,7 @@ Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
     * generally: try to be nice to people
 
 
-### managing the issue tracker
+## managing the issue tracker
 
   * you have (mostly) free rein – don't hesitate to close an issue if you are confident that it should be closed
     * this will come more naturally over time
@@ -67,31 +64,37 @@ Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
     * will also come more naturally over time
 
 
-  * reviewing:
-    * primary goal is for the codebase to improve
-    * secondary (but not far off) is for the person submitting code to succeed
-      * helps grow the community
-      * and draws new people into the project
-    * Review a bit at a time. It is **very important** to not overwhelm newer people.
-      * it is tempting to micro-optimize / make everything about relative perf,
-        don't succumb to that temptation. we change v8 a lot more often now, contortions
-        that are zippy today may be unnecessary in the future
-    * be aware: your opinion carries a lot of weight!
-    * nits are fine, but try to avoid stalling the PR
-      * note that they are nits when you comment
-      * if they really are stalling nits, fix them yourself on merge (but try to let PR authors know they can fix these)
-      * improvement doesn't have to come all at once
-    * minimum wait for comments time
-      * There is a minimum waiting time which we try to respect for non-trivial changes, so that people who may have important input in such a distributed project are able to respond.
-        * It may help to set time limits and expectations:
-          * the collaborators are very distributed so it is unlikely that they will be looking at stuff the same time as you are.
-          * before merging code: give folks at least one working day to respond: "If no one objects, tomorrow at <time> I'll merge this in."
-            * please always either specify your timezone, or use UTC time
-            * set reminders
-          * check in on the code every once in a while (set reminders!)
-      * 48 hours for non-trivial changes, and 72 hours on weekends.
-      * if a PR is abandoned, check if they'd mind if you took it over (especially if it just has nits left)
-      * you have the power to `LGTM` another collaborator or TSC / CTC members' work
+  * Reviewing:
+    * The primary goal is for the codebase to improve.
+    * Secondary (but not far off) is for the person submitting code to succeed.
+      A pull request from a new contributor is an opportunity to grow the
+      community.
+    * Review a bit at a time. Do not overwhelm new contributors.
+      * It is tempting to micro-optimize and make everything about relative
+        performance. Don't succumb to that temptation. We change V8 often.
+        Techniques that provide improved performance today may be unnecessary in
+        the future.
+    * Be aware: Your opinion carries a lot of weight!
+    * Nits (requests for small changes that are not essential) are fine, but try
+      to avoid stalling the pull request.
+      * Note that they are nits when you comment: `Nit: change foo() to bar().`
+      * If they are stalling the pull request, fix them yourself on merge.
+    * Minimum wait for comments time
+      * There is a minimum waiting time which we try to respect for non-trivial
+        changes, so that people who may have important input in such a
+        distributed project are able to respond.
+      * For non-trivial changes, leave the pull request open for at least 48
+        hours (72 hours on a weekend).
+      * If a pull request is abandoned, check if they'd mind if you took it over
+        (especially if it just has nits left).
+    * Approving a change
+      * Collaborators indicate that they have reviewed and approve of the
+        the changes in a pull request by commenting with `LGTM`, which stands
+        for "looks good to me".
+      * You have the power to `LGTM` another collaborator's (including TSC/CTC
+        members) work.
+      * You may not `LGTM` your own pull requests.
+      * You have the power to `LGTM` anyone else's pull requests.
 
 
   * what belongs in node:
@@ -103,50 +106,51 @@ Ensure everyone is added to https://github.com/orgs/nodejs/teams/collaborators
 
   * Continuous Integration (CI) Testing:
     * https://ci.nodejs.org/
-    * It is not automatically run. You need to start it manually.
+      * It is not automatically run. You need to start it manually.
     * Log in on CI is integrated with GitHub. Try to log in now!
     * You will be using `node-test-pull-request` most of the time. Go there now!
+      * Consider bookmarking it: https://ci.nodejs.org/job/node-test-pull-request/
     * To get to the form to start a job, click on `Build with Parameters`. (If you don't see it, that probably means you are not logged in!) Click it now!
     * To start CI testing from this screen, you need to fill in two elements on the form:
       * The `CERTIFY_SAFE` box should be checked. By checking it, you are indicating that you have reviewed the code you are about to test and you are confident that it does not contain any malicious code. (We don't want people hijacking our CI hosts to attack other hosts on the internet, for example!)
-      * The `PR_ID` box should be filled in with the number identifying the pull request containing the code you wish to test. For example, if the URL for the pull request is https://github.com/nodejs/node/issues/7006, then put `7006` in the `PR_ID`.
-      * The remaining elements on the form are typically unchanged.
-      * There is a checkbox for `POST_STATUS_TO_PR`. At the time of this writing, that checkbox does not do anything, but that is likely to change soon. Until that functionality is working, you will want to go back to the PR you are testing and paste `CI: <URL-of-the-CI-test-run>` into a comment on the pull request.
+      * The `PR_ID` box should be filled in with the number identifying the pull request containing the code you wish to test. For example, if the URL for the pull request is `https://github.com/nodejs/node/issues/7006`, then put `7006` in the `PR_ID`.
+      * The remaining elements on the form are typically unchanged with the exception of `POST_STATUS_TO_PR`. Check that if you want a CI status indicator to be automatically inserted into the PR.
 
 
-### process for getting code in:
+## Landing PRs: Overview
 
-  * the collaborator guide is a great resource: https://github.com/nodejs/node/blob/master/COLLABORATOR_GUIDE.md#technical-howto
-
-
-  * no one (including TSC or CTC members) pushes directly to master without review
-    * an exception is made for release commits only
+  * The [Collaborator Guide](https://github.com/nodejs/node/blob/master/COLLABORATOR_GUIDE.md#technical-howto) is a great resource.
 
 
-  * one "LGTM" is usually sufficient, except for semver-major changes
-    * the more the better
-    * semver-major (breaking) changes must be reviewed in some form by the CTC
+  * No one (including TSC or CTC members) pushes directly to master without review.
+    * An exception is made for release commits only.
 
 
-  * be sure to wait before merging non-trivial changes
-    * 48 hours for non-trivial changes, and 72 hours on weekends.
+  * One `LGTM` is sufficient, except for semver-major changes.
+    * More than one is better.
+    * Breaking changes must be LGTM'ed by at least two CTC members.
+    * If one or more Collaborators object to a change, it should not land until
+    the objection is addressed. The options for such a situation include:
+      * Engaging those with objections to determine a viable path forward;
+      * Altering the pull request to address the objections;
+      * Escalating the discussion to the CTC using the `ctc-agenda` label. This should only be done after other options have been exhausted.
 
+  * Wait before merging non-trivial changes.
+    * 48 hours during the week and 72 hours on weekends.
+    * An example of a trivial change would be correcting the misspelling of a single word in a documentation file. This sort of change still needs to receive at least one `LGTM` but it does not need to wait 48 hours before landing.
 
-  * **make sure to run the PR through CI before merging!** (Except for documentation PRs)
+  * **Run the PR through CI before merging!**
+    * An exception can be made for documentation-only PRs as long as it does not include the `addons.md` documentation file. (Example code from that document is extracted and built as part of the tests!)
 
-
-  * once code is ready to go in:
-    * [**See "Landing PRs"**](#landing-prs) below
-
-
-  * what if something goes wrong?
-    * ping a CTC member
+  * What if something goes wrong?
+    * Ping a CTC member.
     * `#node-dev` on freenode
-    * force-pushing to fix things after is allowed for ~10 minutes, be sure to notify people in IRC if you need to do this, but avoid it
-    * Info on PRs that don't like to apply found under [**"If `git am` fails"**](./onboarding-extras.md#if-git-am-fails).
+    * Force-pushing to fix things after is allowed for ~10 minutes. Avoid it if you can.
+      * Use `--force-with-lease` to minimize the chance of overwriting someone else's change.
+      * Post to `#node-dev` (IRC) if you force push.
 
 
-### Landing PRs
+## Landing PRs: Details
 
 * Please never use GitHub's green "Merge Pull Request" button.
   * If you do, please force-push removing the merge.
@@ -158,6 +162,7 @@ Update your `master` branch (or whichever branch you are landing on, almost alwa
 Landing a PR
 
 * if it all looks good, `curl -L 'url-of-pr.patch' | git am`
+  * If `git am` fails, see [the relevant section of the Onboarding Extras doc](./onboarding-extras.md#if-git-am-fails).
 * `git rebase -i upstream/master`
 * squash into logical commits if necessary
 * `./configure && make -j8 test` (`-j8` builds node in parallel with 8 threads. adjust to the number of cores (or processor-level threads) your processor has (or slightly more) for best results.)
@@ -169,12 +174,13 @@ Landing a PR
     * `Reviewed-By: human <email>`
       * Easiest to use `git log` then do a search
       * (`/Name` + `enter` (+ `n` as much as you need to) in vim)
+      * Only include collaborators who have commented `LGTM`
     * `PR-URL: <full-pr-url>`
 * `git push upstream master`
     * close the original PR with "Landed in `<commit hash>`".
 
 
-### exercise: make PRs adding yourselves to the README.
+## exercise: make PRs adding yourselves to the README
 
   * Example: https://github.com/nodejs/node/commit/7b09aade8468e1c930f36b9c81e6ac2ed5bc8732
     * to see full URL: `git log 7b09aade8468e1c930f36b9c81e6ac2ed5bc8732 -1`
@@ -184,7 +190,7 @@ Landing a PR
   * Make sure to added the `PR-URL: <full-pr-url>`!
 
 
-### final notes:
+## final notes
 
   * don't worry about making mistakes: everybody makes them, there's a lot to internalize and that takes time (and we recognize that!)
   * very few (no?) mistakes are unrecoverable

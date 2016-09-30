@@ -31,12 +31,12 @@ module.exports = {
         }]
     },
 
-    create: function(context) {
+    create(context) {
 
-        var options = context.options[0] || {},
+        const options = context.options[0] || {},
             ignoreChainWithDepth = options.ignoreChainWithDepth || 2;
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
 
         /**
          * Gets the property text of a given MemberExpression node.
@@ -46,22 +46,22 @@ module.exports = {
          * @returns {string} The property text of the node.
          */
         function getPropertyText(node) {
-            var prefix = node.computed ? "[" : ".";
-            var lines = sourceCode.getText(node.property).split(/\r\n|\r|\n/g);
-            var suffix = node.computed && lines.length === 1 ? "]" : "";
+            const prefix = node.computed ? "[" : ".";
+            const lines = sourceCode.getText(node.property).split(/\r\n|\r|\n/g);
+            const suffix = node.computed && lines.length === 1 ? "]" : "";
 
             return prefix + lines[0] + suffix;
         }
 
         return {
-            "CallExpression:exit": function(node) {
+            "CallExpression:exit"(node) {
                 if (!node.callee || node.callee.type !== "MemberExpression") {
                     return;
                 }
 
-                var callee = node.callee;
-                var parent = callee.object;
-                var depth = 1;
+                const callee = node.callee;
+                let parent = callee.object;
+                let depth = 1;
 
                 while (parent && parent.callee) {
                     depth += 1;

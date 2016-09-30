@@ -5,10 +5,14 @@
 "use strict";
 
 //------------------------------------------------------------------------------
-// Rule Definition
+// Requirements
 //------------------------------------------------------------------------------
 
-var FUNCTION_TYPE = /^(?:ArrowFunctionExpression|Function(?:Declaration|Expression))$/;
+const astUtils = require("../ast-utils");
+
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
 
 module.exports = {
     meta: {
@@ -31,14 +35,14 @@ module.exports = {
         ]
     },
 
-    create: function(context) {
-        var options = context.options[0] || {},
+    create(context) {
+        const options = context.options[0] || {},
             allowEmptyCatch = options.allowEmptyCatch || false;
 
-        var sourceCode = context.getSourceCode();
+        const sourceCode = context.getSourceCode();
 
         return {
-            BlockStatement: function(node) {
+            BlockStatement(node) {
 
                 // if the body is not empty, we can just return immediately
                 if (node.body.length !== 0) {
@@ -46,7 +50,7 @@ module.exports = {
                 }
 
                 // a function is generally allowed to be empty
-                if (FUNCTION_TYPE.test(node.parent.type)) {
+                if (astUtils.isFunction(node.parent)) {
                     return;
                 }
 
@@ -62,7 +66,7 @@ module.exports = {
                 context.report(node, "Empty block statement.");
             },
 
-            SwitchStatement: function(node) {
+            SwitchStatement(node) {
 
                 if (typeof node.cases === "undefined" || node.cases.length === 0) {
                     context.report(node, "Empty switch statement.");

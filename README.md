@@ -34,7 +34,18 @@ Where `options` is zero or more of:
 * `--engine`: The JavaScript engine to use.  The default engine is `spidermonkey`.
 * `--debug`: Also build in debug mode.  The default build configuration is release.
 * `--enable-gczeal`: Enable SpiderMonkey gc-zeal support.  This is useful for debugging GC rooting correctness issues.
-* `--with-external-spidermonkey-release` and `--with-external-spidermonkey-debug`: Enable building against an out of tree SpiderMonkey. Expects a path to a built SpiderMonkey object directory (in release and debug modes, respectively)
+* `--with-external-spidermonkey-release` and `--with-external-spidermonkey-debug`: Enable building against an out-of-tree SpiderMonkey. Expects a path to a built SpiderMonkey object directory (in release and debug modes, respectively)
+
+If you build against an out-of-tree SpiderMonkey, you must include the SpiderMonkey library path in _LD_LIBRARY_PATH_ (_DYLD_LIBRARY_PATH_ on Mac) when running Node, i.e.:
+```bash
+$ LD_LIBRARY_PATH=out/Release/spidermonkey/Release ./node -e 'console.log("hello from " + process.jsEngine)'
+```
+
+The SpiderMonkey library path for a Release build of Node (`out/Release/node`, a.k.a. `./node`) is `out/Release/spidermonkey/Release`, as shown above. The path for a Debug build (`out/Debug/node`, a.k.a. `./node_g`) is `out/Debug/spidermonkey/Debug`, i.e.:
+
+```bash
+$ LD_LIBRARY_PATH=out/Debug/spidermonkey/Debug ./node_g -e 'console.log("hello from " + process.jsEngine)'
+```
 
 To run the API tests, do:
 
