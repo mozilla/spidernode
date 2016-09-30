@@ -900,4 +900,13 @@ Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<Context> c
 Maybe<PropertyAttribute> Object::GetRealNamedPropertyAttributes(Local<String> key) {
   return GetRealNamedPropertyAttributes(Isolate::GetCurrent()->GetCurrentContext(), key);
 }
+
+Maybe<bool> Object::HasRealNamedProperty(Local<Context> context,
+                                         Local<Name> key) {
+  return Has(context, key);
+}
+
+bool Object::HasRealNamedProperty(Handle<String> key) {
+  return HasRealNamedProperty(Local<Context>(), key).FromMaybe(false);
+}
 }
