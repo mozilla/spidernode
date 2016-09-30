@@ -579,25 +579,7 @@ static void CheckAlignedPointerInInternalField(Local<Object> obj,
   EXPECT_EQ(value, obj->GetAlignedPointerFromInternalField(0));
 }
 
-
-TEST(SpiderShim, InternalFieldsAlignedPointers) {
-  // Loosely based on the V8 test-api.cc InternalFieldsAlignedPointers test.
-  V8Engine engine;
-  Isolate* isolate = engine.isolate();
-  Isolate::Scope isolate_scope(isolate);
-  HandleScope scope(isolate);
-  Local<Context> context = Context::New(isolate);
-  Context::Scope context_scope(context);
-
-  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
-  Local<ObjectTemplate> instance_templ = templ->InstanceTemplate();
-  EXPECT_EQ(0, instance_templ->InternalFieldCount());
-  instance_templ->SetInternalFieldCount(1);
-  EXPECT_EQ(1, instance_templ->InternalFieldCount());
-  Local<Object> obj = templ->GetFunction(context)
-                              .ToLocalChecked()
-                              ->NewInstance(context)
-                              .ToLocalChecked();
+void CheckInternalFieldsAlignedPointers(Isolate* isolate, Local<Object> obj) {
   EXPECT_EQ(1, obj->InternalFieldCount());
 
   CheckAlignedPointerInInternalField(obj, NULL);
@@ -615,6 +597,31 @@ TEST(SpiderShim, InternalFieldsAlignedPointers) {
   Global<Object> persistent(isolate, obj);
   EXPECT_EQ(1, Object::InternalFieldCount(persistent));
   EXPECT_EQ(huge, Object::GetAlignedPointerFromInternalField(persistent, 0));
+}
+
+TEST(SpiderShim, InternalFieldsAlignedPointers) {
+  // Loosely based on the V8 test-api.cc InternalFieldsAlignedPointers test.
+  V8Engine engine;
+  Isolate* isolate = engine.isolate();
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope scope(isolate);
+  Local<ObjectTemplate> global_templ = ObjectTemplate::New(isolate);
+  global_templ->SetInternalFieldCount(1);
+  Local<Context> context = Context::New(isolate, nullptr, global_templ);
+  Context::Scope context_scope(context);
+
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate);
+  Local<ObjectTemplate> instance_templ = templ->InstanceTemplate();
+  EXPECT_EQ(0, instance_templ->InternalFieldCount());
+  instance_templ->SetInternalFieldCount(1);
+  EXPECT_EQ(1, instance_templ->InternalFieldCount());
+  Local<Object> obj = templ->GetFunction(context)
+                              .ToLocalChecked()
+                              ->NewInstance(context)
+                              .ToLocalChecked();
+  CheckInternalFieldsAlignedPointers(isolate, obj);
+  CheckInternalFieldsAlignedPointers(isolate, context->Global());
+  CheckInternalFieldsAlignedPointers(isolate, context->Global()->GetPrototype()->ToObject());
 }
 
 static int instance_checked_getter_count = 0;

@@ -91,9 +91,9 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
     global_template = ObjectTemplate::New(isolate);
   }
 
-  Local<Object> prototype =
-    global_template->GetConstructor()
-                   ->GetProtoInstance(isolate->GetCurrentContext());
+  Local<FunctionTemplate> global_constructor = global_template->GetConstructor();
+  global_constructor->SetPrototypeTemplate(global_template);
+  Local<Object> prototype = global_constructor->GetProtoInstance(isolate->GetCurrentContext());
   if (prototype.IsEmpty()) {
     return false;
   }
