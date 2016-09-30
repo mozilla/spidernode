@@ -496,6 +496,10 @@ exports.nodeProcessAborted = function nodeProcessAborted(exitCode, signal) {
 
 exports.engineSpecificMessage = function(messageObject) {
   var jsEngine = process.jsEngine || 'v8'; //default is 'v8'
+  if (jsEngine == 'spidermonkey' && !(jsEngine in messageObject)) {
+    // Fall back to v8 messages for spidermonkey
+    jsEngine = 'v8';
+  }
   return messageObject[jsEngine];
 };
 
