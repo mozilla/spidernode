@@ -28,7 +28,7 @@ assert.strictEqual(0, d.length);
 {
   const ui32 = new Uint32Array(4).fill(42);
   const e = Buffer.from(ui32);
-  for (let [index, value] of e.entries()) {
+  for (const [index, value] of e.entries()) {
     assert.strictEqual(value, ui32[index]);
   }
 }
@@ -36,7 +36,7 @@ assert.strictEqual(0, d.length);
 {
   const ui32 = new Uint32Array(4).fill(42);
   const e = Buffer(ui32);
-  for (let [key, value] of e.entries()) {
+  for (const [key, value] of e.entries()) {
     assert.deepStrictEqual(value, ui32[key]);
   }
 }
