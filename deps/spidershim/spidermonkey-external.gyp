@@ -11,7 +11,7 @@
             'include_dirs': [ '<(external_spidermonkey_release)/dist/include', ],
             'library_dirs': [
               '<(external_spidermonkey_release)/js/src',
-              '<(external_spidermonkey_release)/dist/sdk/lib',
+              '<(external_spidermonkey_release)/mozglue/build',
             ],
             'ldflags': [
               '<(external_spidermonkey_release)/config/external/icu/data/icudata.o',
@@ -44,7 +44,7 @@
             'include_dirs': [ '<(external_spidermonkey_debug)/dist/include', ],
             'library_dirs': [
               '<(external_spidermonkey_debug)/js/src',
-              '<(external_spidermonkey_debug)/dist/sdk/lib',
+              '<(external_spidermonkey_debug)/mozglue/build',
             ],
 
             'ldflags': [
