@@ -124,7 +124,6 @@
             'conditions': [
               ['external_spidermonkey_debug_has_nspr == 1', {
                 # Normally we'd use libraries here, but gyp doesn't allow us.
-                'ldflags': [ '-lnspr4' ],
                 'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
               }],
             ],
@@ -149,6 +148,9 @@
             'libraries': [
               '-lmozglue',
             ],
+          }],
+          ['external_spidermonkey_release_has_nspr == 1 or external_spidermonkey_debug_has_nspr == 1', {
+            'libraries': [ '-lnspr4' ],
           }],
         ],
       },
