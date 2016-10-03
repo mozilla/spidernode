@@ -446,6 +446,18 @@ parser.add_option('--with-external-spidermonkey-release',
     default='',
     help='enable linking against an out of tree SpiderMonkey release build')
 
+parser.add_option('--external-spidermonkey-has-nspr',
+    action='store',
+    dest='external_spidermonkey_has_nspr',
+    default='',
+    help='the out-of-tree SpiderMonkey builds have a copy of NSPR')
+
+parser.add_option('--external-spidermonkey-has-nss',
+    action='store',
+    dest='external_spidermonkey_has_nss',
+    default='',
+    help='the out-of-tree SpiderMonkey builds have a copy of NSS')
+
 parser.add_option('--engine',
     action='store',
     dest='engine',
@@ -927,45 +939,10 @@ def configure_v8(o):
 
 
 
-def validate_spidermonkey_objdir(o, sm, suffix):
-  if sm != "":
-      if not os.path.isdir(sm):
-          raise Exception('--with-external-spidermonkey-%s specified without a valid directory path.' % suffix)
-      dist_include = "%s/dist/include" % sm
-      jsapi_h = "%s/jsapi.h" % dist_include
-      mozglue = {
-          'linux': '%s/mozglue/build/libmozglue.a' % sm,
-          'mac': '%s/dist/bin/libmozglue.dylib' % sm,
-      }.get(flavor)
-      nspr4 = {
-          'linux': '%s/dist/bin/libnspr4.so' % sm,
-          'mac': '%s/dist/lib/libnspr4.dylib' % sm,
-      }.get(flavor)
-      nss3 = {
-          'linux': '%s/dist/lib/libnss3.so' % sm,
-          'mac': '%s/dist/lib/libnss3.dylib' % sm,
-      }.get(flavor)
-      js_static = {
-          'linux': '%s/js/src/libjs_static.a' % sm,
-          'mac': '%s/js/src/libjs_static.a' % sm,
-      }.get(flavor)
-      icudata = "%s/config/external/icu/data/icudata.o" % sm
-      for f in [dist_include, jsapi_h, mozglue, js_static, icudata]:
-          if not os.path.exists(f):
-              raise Exception('Cannot find %s. Did you pass a valid SpiderMonkey objdir to --with-external-spidermonkey-%s?' % (f, suffix))
-      o['variables']['external_spidermonkey_' + suffix + '_has_nss'] = 1 if os.path.exists(nss3) else 0
-      o['variables']['external_spidermonkey_' + suffix + '_has_nspr'] = 1 if os.path.exists(nspr4) else 0
-  else:
-      o['variables']['external_spidermonkey_' + suffix + '_has_nss'] = 0
-      o['variables']['external_spidermonkey_' + suffix + '_has_nspr'] = 0
-
-
 def configure_spidermonkey(o):
   o['variables']['spidermonkey_gczeal'] = 1 if options.enable_gczeal else 0
   sm_debug = options.external_spidermonkey_debug
   sm_release = options.external_spidermonkey_release
-  validate_spidermonkey_objdir(o, sm_debug, 'debug')
-  validate_spidermonkey_objdir(o, sm_release, 'release')
   if options.debug and sm_release != "" and sm_debug == "":
       raise Exception('--debug passed without specifying --with-external-spidermonkey-debug')
   elif sm_debug != "" and sm_release == "":
@@ -975,6 +952,10 @@ def configure_spidermonkey(o):
   else:
     o['variables']['external_spidermonkey_debug'] = options.external_spidermonkey_release
   o['variables']['external_spidermonkey_release'] = options.external_spidermonkey_release
+  o['variables']['external_spidermonkey_debug_has_nss'] = 1 if options.external_spidermonkey_has_nss else 0
+  o['variables']['external_spidermonkey_debug_has_nspr'] = 1 if options.external_spidermonkey_has_nspr else 0
+  o['variables']['external_spidermonkey_release_has_nss'] = 1 if options.external_spidermonkey_has_nss else 0
+  o['variables']['external_spidermonkey_release_has_nspr'] = 1 if options.external_spidermonkey_has_nspr else 0
 
 
 def configure_openssl(o):
