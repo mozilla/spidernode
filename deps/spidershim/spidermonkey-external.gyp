@@ -33,9 +33,9 @@
                 ]},
               }],
               ['OS == "mac" and external_spidermonkey_release_has_nspr == 1', {
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_release)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ]},
+                'library_dirs': [
+                  '<(external_spidermonkey_release)/dist/lib',
+                ],
               }],
             ],
           },
@@ -67,9 +67,9 @@
                 ]},
               }],
               ['OS == "mac" and external_spidermonkey_debug_has_nspr == 1', {
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_debug)/dist/lib/<(SHARED_LIB_PREFIX)nspr4<(SHARED_LIB_SUFFIX)',
-                ]},
+                'library_dirs': [
+                  '<(external_spidermonkey_debug)/dist/lib',
+                ],
               }],
             ],
           },
@@ -96,7 +96,6 @@
           }],
           ['external_spidermonkey_release_has_nspr == 1 or external_spidermonkey_debug_has_nspr == 1', {
             'libraries': [ '-lnspr4' ],
-            'xcode_settings': {'OTHER_LDFLAGS': ['-lnspr4']},
           }],
         ],
       },
