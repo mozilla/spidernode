@@ -20,17 +20,10 @@
               '<(external_spidermonkey_release)/config/external/icu/data/icudata.o',
             ]},
             'conditions': [
-              # Normally we'd use libraries here, but gyp doesn't allow us,
-              # so we use ldflags instead.
               ['OS == "linux" and external_spidermonkey_release_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_release)/config/external/nspr/pr',
                 ],
-              }],
-              ['OS == "mac"', {
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_release)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "mac" and external_spidermonkey_release_has_nspr == 1', {
                 'library_dirs': [
@@ -54,17 +47,10 @@
               '<(external_spidermonkey_debug)/config/external/icu/data/icudata.o',
             ]},
             'conditions': [
-              # Normally we'd use libraries here, but gyp doesn't allow us,
-              # so we use ldflags instead.
               ['OS == "linux" and external_spidermonkey_debug_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_debug)/config/external/nspr/pr',
                 ],
-              }],
-              ['OS == "mac"', {
-                'xcode_settings': { 'OTHER_LDFLAGS': [
-                  '<(external_spidermonkey_debug)/dist/bin/<(SHARED_LIB_PREFIX)mozglue<(SHARED_LIB_SUFFIX)',
-                ]},
               }],
               ['OS == "mac" and external_spidermonkey_debug_has_nspr == 1', {
                 'library_dirs': [
