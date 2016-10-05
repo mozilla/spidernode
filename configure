@@ -447,15 +447,15 @@ parser.add_option('--with-external-spidermonkey-release',
     help='enable linking against an out of tree SpiderMonkey release build')
 
 parser.add_option('--external-spidermonkey-has-nspr',
-    action='store',
+    action='store_true',
     dest='external_spidermonkey_has_nspr',
-    default='',
+    default=False,
     help='the out-of-tree SpiderMonkey builds have a copy of NSPR')
 
 parser.add_option('--external-spidermonkey-has-nss',
-    action='store',
+    action='store_true',
     dest='external_spidermonkey_has_nss',
-    default='',
+    default=False,
     help='the out-of-tree SpiderMonkey builds have a copy of NSS')
 
 parser.add_option('--engine',
