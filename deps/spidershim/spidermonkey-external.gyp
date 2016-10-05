@@ -20,12 +20,12 @@
               '<(external_spidermonkey_release)/config/external/icu/data/icudata.o',
             ]},
             'conditions': [
-              ['OS == "linux" and external_spidermonkey_release_has_nspr == 1', {
+              ['OS == "linux" and external_spidermonkey_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_release)/config/external/nspr/pr',
                 ],
               }],
-              ['OS == "mac" and external_spidermonkey_release_has_nspr == 1', {
+              ['OS == "mac" and external_spidermonkey_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_release)/dist/lib',
                 ],
@@ -47,12 +47,12 @@
               '<(external_spidermonkey_debug)/config/external/icu/data/icudata.o',
             ]},
             'conditions': [
-              ['OS == "linux" and external_spidermonkey_debug_has_nspr == 1', {
+              ['OS == "linux" and external_spidermonkey_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_debug)/config/external/nspr/pr',
                 ],
               }],
-              ['OS == "mac" and external_spidermonkey_debug_has_nspr == 1', {
+              ['OS == "mac" and external_spidermonkey_has_nspr == 1', {
                 'library_dirs': [
                   '<(external_spidermonkey_debug)/dist/lib',
                 ],
@@ -80,7 +80,7 @@
               '-lmozglue',
             ],
           }],
-          ['external_spidermonkey_release_has_nspr == 1 or external_spidermonkey_debug_has_nspr == 1', {
+          ['external_spidermonkey_has_nspr == 1', {
             'libraries': [ '-lnspr4' ],
           }],
         ],
