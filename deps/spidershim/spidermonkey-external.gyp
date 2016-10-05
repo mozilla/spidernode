@@ -26,6 +26,16 @@
                 ],
               }],
               ['OS == "mac" and external_spidermonkey_has_nspr == 1', {
+                # On Mac, MOZ_FOLD_LIBS is defined by default, and NSPR is
+                # folded into NSS, so dist/lib/libnspr4.dylib is just a link
+                # to config/external/nss/libnss3.dylib, and we would be more
+                # precise to specify config/external/nss as the library dir
+                # and -lnss3 as the library.
+                #
+                # But specifying dist/lib and -lnspr4 is simpler and accounts
+                # for the possibility that someone builds external SpiderMonkey
+                # without MOZ_FOLD_LIBS.
+                #
                 'library_dirs': [
                   '<(external_spidermonkey_release)/dist/lib',
                 ],
@@ -53,6 +63,16 @@
                 ],
               }],
               ['OS == "mac" and external_spidermonkey_has_nspr == 1', {
+                # On Mac, MOZ_FOLD_LIBS is defined by default, and NSPR is
+                # folded into NSS, so dist/lib/libnspr4.dylib is just a link
+                # to config/external/nss/libnss3.dylib, and we would be more
+                # precise to specify config/external/nss as the library dir
+                # and -lnss3 as the library.
+                #
+                # But specifying dist/lib and -lnspr4 is simpler and accounts
+                # for the possibility that someone builds external SpiderMonkey
+                # without MOZ_FOLD_LIBS.
+                #
                 'library_dirs': [
                   '<(external_spidermonkey_debug)/dist/lib',
                 ],
