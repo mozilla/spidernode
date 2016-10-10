@@ -103,6 +103,9 @@ public:
   V8Engine() {
     if (!v8Initializer.get()) {
       v8Initializer.reset(new V8Initializer());
+      atexit([]() {
+          v8Initializer.reset();
+      });
     }
 
     // Create a new Isolate and make it the current one.
