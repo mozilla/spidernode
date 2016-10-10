@@ -231,7 +231,7 @@ ArrayBufferObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
          * as an integer value; if someone actually ever complains (validly), then we
          * can fix.
          */
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
         return false;
     }
 
@@ -346,7 +346,8 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
     // Watch out for NULL data pointers in views. This means that the view
     // is not fully initialized (in which case it'll be initialized later
     // with the correct pointer).
-    uint8_t* viewDataPointer = view->dataPointerUnshared();
+    JS::AutoCheckCannotGC nogc(cx);
+    uint8_t* viewDataPointer = view->dataPointerUnshared(nogc);
     if (viewDataPointer) {
         MOZ_ASSERT(newContents);
         ptrdiff_t offset = viewDataPointer - oldDataPointer;
@@ -1102,6 +1103,7 @@ ArrayBufferObject::externalizeContents(JSContext* cx, Handle<ArrayBufferObject*>
                                        bool hasStealableContents)
 {
     MOZ_ASSERT(buffer->isPlain(), "Only support doing this on plain ABOs");
+    MOZ_ASSERT(!buffer->isDetached(), "must have contents to externalize");
     MOZ_ASSERT_IF(hasStealableContents, buffer->hasStealableContents());
 
     BufferContents contents(buffer->dataPointer(), buffer->bufferKind());
@@ -1447,7 +1449,7 @@ ArrayBufferViewObject::trace(JSTracer* trc, JSObject* objArg)
                 MOZ_ASSERT(view != obj);
 
                 void* srcData = obj->getPrivate();
-                void* dstData = view->as<InlineTypedObject>().inlineTypedMem() + offset;
+                void* dstData = view->as<InlineTypedObject>().inlineTypedMemForGC() + offset;
                 obj->setPrivateUnbarriered(dstData);
 
                 // We can't use a direct forwarding pointer here, as there might
@@ -1496,7 +1498,7 @@ ArrayBufferViewObject::notifyBufferDetached(JSContext* cx, void* newData)
 }
 
 uint8_t*
-ArrayBufferViewObject::dataPointerUnshared()
+ArrayBufferViewObject::dataPointerUnshared(const JS::AutoAssertOnGC& nogc)
 {
     if (is<DataViewObject>())
         return static_cast<uint8_t*>(as<DataViewObject>().dataPointer());
@@ -1504,7 +1506,7 @@ ArrayBufferViewObject::dataPointerUnshared()
         MOZ_ASSERT(!as<TypedArrayObject>().isSharedMemory());
         return static_cast<uint8_t*>(as<TypedArrayObject>().viewDataUnshared());
     }
-    return as<TypedObject>().typedMem();
+    return as<TypedObject>().typedMem(nogc);
 }
 
 #ifdef DEBUG
@@ -1596,7 +1598,7 @@ JS_DetachArrayBuffer(JSContext* cx, HandleObject obj)
     Rooted<ArrayBufferObject*> buffer(cx, &obj->as<ArrayBufferObject>());
 
     if (buffer->isWasm() || buffer->isPreparedForAsmJS()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_NO_TRANSFER);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_NO_TRANSFER);
         return false;
     }
 
@@ -1689,18 +1691,18 @@ JS_ExternalizeArrayBufferContents(JSContext* cx, HandleObject obj)
     assertSameCompartment(cx, obj);
 
     if (!obj->is<ArrayBufferObject>()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
         return nullptr;
     }
 
-    Rooted<ArrayBufferObject*> buffer(cx, &obj->as<ArrayBufferObject>());
+    Handle<ArrayBufferObject*> buffer = obj.as<ArrayBufferObject>();
     if (!buffer->isPlain()) {
         // This operation isn't supported on mapped or wsm ArrayBufferObjects.
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
         return nullptr;
     }
     if (buffer->isDetached()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
         return nullptr;
     }
 
@@ -1725,18 +1727,18 @@ JS_StealArrayBufferContents(JSContext* cx, HandleObject objArg)
         return nullptr;
 
     if (!obj->is<ArrayBufferObject>()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
         return nullptr;
     }
 
     Rooted<ArrayBufferObject*> buffer(cx, &obj->as<ArrayBufferObject>());
     if (buffer->isDetached()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
         return nullptr;
     }
 
     if (buffer->isWasm() || buffer->isPreparedForAsmJS()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_NO_TRANSFER);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_NO_TRANSFER);
         return nullptr;
     }
 

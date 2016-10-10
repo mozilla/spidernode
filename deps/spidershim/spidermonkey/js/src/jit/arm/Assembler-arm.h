@@ -55,6 +55,11 @@ struct ScratchRegisterScope : public AutoRegisterScope
     { }
 };
 
+struct SecondScratchRegisterScope : public AutoRegisterScope
+{
+    explicit SecondScratchRegisterScope(MacroAssembler& masm);
+};
+
 static constexpr Register OsrFrameReg = r3;
 static constexpr Register ArgumentsRectifierReg = r8;
 static constexpr Register CallTempReg0 = r5;
@@ -409,7 +414,7 @@ enum VFPOp {
 };
 
 // Negate the operation, AND negate the immediate that we were passed in.
-ALUOp ALUNeg(ALUOp op, Register dest, Imm32* imm, Register* negDest);
+ALUOp ALUNeg(ALUOp op, Register dest, Register scratch, Imm32* imm, Register* negDest);
 bool can_dbl(ALUOp op);
 bool condsAreSafe(ALUOp op);
 
@@ -493,11 +498,11 @@ struct Imm8mData
 
     // Default constructor makes an invalid immediate.
     Imm8mData()
-      : data(0xff), rot(0xf), invalid(1)
+      : data(0xff), rot(0xf), buff(0), invalid(1)
     { }
 
     Imm8mData(uint32_t data_, uint32_t rot_)
-      : data(data_), rot(rot_), invalid(0)
+      : data(data_), rot(rot_), buff(0), invalid(0)
     {
         MOZ_ASSERT(data == data_);
         MOZ_ASSERT(rot == rot_);

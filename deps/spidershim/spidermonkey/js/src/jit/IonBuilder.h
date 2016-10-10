@@ -850,6 +850,7 @@ class IonBuilder
     InliningStatus inlineStrCharCodeAt(CallInfo& callInfo);
     InliningStatus inlineConstantCharCodeAt(CallInfo& callInfo);
     InliningStatus inlineStrFromCharCode(CallInfo& callInfo);
+    InliningStatus inlineStrFromCodePoint(CallInfo& callInfo);
     InliningStatus inlineStrCharAt(CallInfo& callInfo);
 
     // String intrinsics.
@@ -1114,7 +1115,13 @@ class IonBuilder
     jsbytecode* actionableAbortPc_;
     const char* actionableAbortMessage_;
 
+    MRootList* rootList_;
+
   public:
+    void setRootList(MRootList& rootList) {
+        MOZ_ASSERT(!rootList_);
+        rootList_ = &rootList;
+    }
     void clearForBackEnd();
     JSObject* checkNurseryObject(JSObject* obj);
 

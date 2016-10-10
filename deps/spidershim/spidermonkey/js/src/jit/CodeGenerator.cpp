@@ -7676,6 +7676,35 @@ CodeGenerator::visitFromCharCode(LFromCharCode* lir)
     masm.bind(ool->rejoin());
 }
 
+typedef JSString* (*StringFromCodePointFn)(JSContext*, int32_t);
+static const VMFunction StringFromCodePointInfo =
+    FunctionInfo<StringFromCodePointFn>(jit::StringFromCodePoint, "StringFromCodePoint");
+
+void
+CodeGenerator::visitFromCodePoint(LFromCodePoint* lir)
+{
+    Register codePoint = ToRegister(lir->codePoint());
+    Register output = ToRegister(lir->output());
+    LSnapshot* snapshot = lir->snapshot();
+
+    OutOfLineCode* ool = oolCallVM(StringFromCodePointInfo, lir, ArgList(codePoint),
+                                   StoreRegisterTo(output));
+
+    // Use a bailout if the input is not a valid code point, because
+    // MFromCodePoint is movable and it'd be observable when a moved
+    // fromCodePoint throws an exception before its actual call site.
+    bailoutCmp32(Assembler::Above, codePoint, Imm32(unicode::NonBMPMax), snapshot);
+
+    // OOL path if code point >= UNIT_STATIC_LIMIT.
+    masm.branch32(Assembler::AboveOrEqual, codePoint, Imm32(StaticStrings::UNIT_STATIC_LIMIT),
+                  ool->entry());
+
+    masm.movePtr(ImmPtr(&GetJitContext()->runtime->staticStrings().unitStaticTable), output);
+    masm.loadPtr(BaseIndex(output, codePoint, ScalePointer), output);
+
+    masm.bind(ool->rejoin());
+}
+
 void
 CodeGenerator::visitSinCos(LSinCos *lir)
 {
@@ -8620,7 +8649,7 @@ static const VMFunction ArrayPushDenseInfo =
 
 void
 CodeGenerator::emitArrayPush(LInstruction* lir, const MArrayPush* mir, Register obj,
-                             ConstantOrRegister value, Register elementsTemp, Register length)
+                             const ConstantOrRegister& value, Register elementsTemp, Register length)
 {
     OutOfLineCode* ool = oolCallVM(ArrayPushDenseInfo, lir, ArgList(obj, value), StoreRegisterTo(length));
 
@@ -9912,7 +9941,7 @@ CodeGenerator::visitNameIC(OutOfLineUpdateCache* ool, DataPtr<NameIC>& ic)
 
 void
 CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
-                                   ConstantOrRegister id, TypedOrValueRegister output,
+                                   const ConstantOrRegister& id, TypedOrValueRegister output,
                                    bool monitoredResult, bool allowDoubleResult,
                                    jsbytecode* profilerLeavePc)
 {
@@ -9924,7 +9953,8 @@ CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, 
 void
 CodeGenerator::addSetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
                                    Register temp, Register tempUnbox, FloatRegister tempDouble,
-                                   FloatRegister tempF32, ConstantOrRegister id, ConstantOrRegister value,
+                                   FloatRegister tempF32, const ConstantOrRegister& id,
+                                   const ConstantOrRegister& value,
                                    bool strict, bool needsTypeBarrier, bool guardHoles,
                                    jsbytecode* profilerLeavePc)
 {
@@ -11904,7 +11934,10 @@ CodeGenerator::visitRandom(LRandom* ins)
 
     masm.and64(Imm64((1ULL << MantissaBits) - 1), s1Reg);
 
-    masm.convertUInt64ToDouble(s1Reg, tempReg, output);
+    if (masm.convertUInt64ToDoubleNeedsTemp())
+        masm.convertUInt64ToDouble(s1Reg, output, tempReg);
+    else
+        masm.convertUInt64ToDouble(s1Reg, output, Register::Invalid());
 
     // output *= ScaleInv
     masm.mulDoublePtr(ImmPtr(&ScaleInv), tempReg, output);

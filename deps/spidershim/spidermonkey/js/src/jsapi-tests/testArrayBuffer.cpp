@@ -198,7 +198,10 @@ bool testWithSize(JSContext* cx, size_t n)
     GC(cx);
 
     CHECK(JS_DetachArrayBuffer(cx, buffer));
-    JS_free(nullptr, contents);
+    GC(cx);
+    CHECK(*uint8Contents == randomByte);
+    JS_free(cx, contents);
+    GC(cx);
     buffer = nullptr;
     GC(cx);
 

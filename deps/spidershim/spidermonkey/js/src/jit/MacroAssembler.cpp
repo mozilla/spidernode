@@ -576,7 +576,7 @@ StoreUnboxedFailure(MacroAssembler& masm, Label* failure)
 template <typename T>
 void
 MacroAssembler::storeUnboxedProperty(T address, JSValueType type,
-                                     ConstantOrRegister value, Label* failure)
+                                     const ConstantOrRegister& value, Label* failure)
 {
     switch (type) {
       case JSVAL_TYPE_BOOLEAN:
@@ -695,11 +695,11 @@ MacroAssembler::storeUnboxedProperty(T address, JSValueType type,
 
 template void
 MacroAssembler::storeUnboxedProperty(Address address, JSValueType type,
-                                     ConstantOrRegister value, Label* failure);
+                                     const ConstantOrRegister& value, Label* failure);
 
 template void
 MacroAssembler::storeUnboxedProperty(BaseIndex address, JSValueType type,
-                                     ConstantOrRegister value, Label* failure);
+                                     const ConstantOrRegister& value, Label* failure);
 
 void
 MacroAssembler::checkUnboxedArrayCapacity(Register obj, const RegisterOrInt32Constant& index,
@@ -955,7 +955,7 @@ void
 MacroAssembler::copySlotsFromTemplate(Register obj, const NativeObject* templateObj,
                                       uint32_t start, uint32_t end)
 {
-    uint32_t nfixed = Min(templateObj->numFixedSlots(), end);
+    uint32_t nfixed = Min(templateObj->numFixedSlotsForCompilation(), end);
     for (unsigned i = start; i < nfixed; i++)
         storeValue(templateObj->getFixedSlot(i), Address(obj, NativeObject::getFixedSlotOffset(i)));
 }
@@ -1255,14 +1255,15 @@ MacroAssembler::initGCThing(Register obj, Register temp, JSObject* templateObj,
             initGCSlots(obj, temp, ntemplate, initContents);
 
             if (ntemplate->hasPrivate() && !ntemplate->is<TypedArrayObject>()) {
-                uint32_t nfixed = ntemplate->numFixedSlots();
+                uint32_t nfixed = ntemplate->numFixedSlotsForCompilation();
                 storePtr(ImmPtr(ntemplate->getPrivate()),
                          Address(obj, NativeObject::getPrivateDataOffset(nfixed)));
             }
         }
     } else if (templateObj->is<InlineTypedObject>()) {
+        JS::AutoAssertOnGC nogc; // off-thread, so cannot GC
         size_t nbytes = templateObj->as<InlineTypedObject>().size();
-        const uint8_t* memory = templateObj->as<InlineTypedObject>().inlineTypedMem();
+        const uint8_t* memory = templateObj->as<InlineTypedObject>().inlineTypedMem(nogc);
 
         // Memcpy the contents of the template object to the new object.
         size_t offset = 0;
@@ -1879,7 +1880,8 @@ MacroAssembler::convertValueToFloatingPoint(JSContext* cx, const Value& v, Float
 }
 
 bool
-MacroAssembler::convertConstantOrRegisterToFloatingPoint(JSContext* cx, ConstantOrRegister src,
+MacroAssembler::convertConstantOrRegisterToFloatingPoint(JSContext* cx,
+                                                         const ConstantOrRegister& src,
                                                          FloatRegister output, Label* fail,
                                                          MIRType outputType)
 {
@@ -2148,7 +2150,8 @@ MacroAssembler::convertValueToInt(JSContext* cx, const Value& v, Register output
 }
 
 bool
-MacroAssembler::convertConstantOrRegisterToInt(JSContext* cx, ConstantOrRegister src,
+MacroAssembler::convertConstantOrRegisterToInt(JSContext* cx,
+                                               const ConstantOrRegister& src,
                                                FloatRegister temp, Register output,
                                                Label* fail, IntConversionBehavior behavior)
 {
@@ -2452,7 +2455,7 @@ MacroAssembler::Push(TypedOrValueRegister v)
 }
 
 void
-MacroAssembler::Push(ConstantOrRegister v)
+MacroAssembler::Push(const ConstantOrRegister& v)
 {
     if (v.constant())
         Push(v.value());

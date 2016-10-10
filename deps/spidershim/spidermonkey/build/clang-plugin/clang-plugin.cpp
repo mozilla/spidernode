@@ -42,6 +42,14 @@ typedef ASTConsumer *ASTConsumerPtr;
 #define cxxRecordDecl recordDecl
 #endif
 
+#ifndef HAS_ACCEPTS_IGNORINGPARENIMPCASTS
+#define hasIgnoringParenImpCasts(x) has(x)
+#else
+// Before clang 3.9 "has" would behave like has(ignoringParenImpCasts(x)),
+// however doing that explicitly would not compile.
+#define hasIgnoringParenImpCasts(x) has(ignoringParenImpCasts(x))
+#endif
+
 // Check if the given expression contains an assignment expression.
 // This can either take the form of a Binary Operator or a
 // Overloaded Operator Call.
@@ -163,6 +171,33 @@ private:
     virtual void run(const MatchFinder::MatchResult &Result);
   };
 
+  class SprintfLiteralChecker : public MatchFinder::MatchCallback {
+  public:
+    virtual void run(const MatchFinder::MatchResult &Result);
+  };
+
+  class OverrideBaseCallChecker : public MatchFinder::MatchCallback {
+  public:
+    virtual void run(const MatchFinder::MatchResult &Result);
+  private:
+    void evaluateExpression(const Stmt *StmtExpr,
+        std::list<const CXXMethodDecl*> &MethodList);
+    void getRequiredBaseMethod(const CXXMethodDecl* Method,
+        std::list<const CXXMethodDecl*>& MethodsList);
+    void findBaseMethodCall(const CXXMethodDecl* Method,
+        std::list<const CXXMethodDecl*>& MethodsList);
+    bool isRequiredBaseMethod(const CXXMethodDecl *Method);
+  };
+
+/*
+ *  This is a companion checker for OverrideBaseCallChecker that rejects
+ *  the usage of MOZ_REQUIRED_BASE_METHOD on non-virtual base methods.
+ */
+  class OverrideBaseCallUsageChecker : public MatchFinder::MatchCallback {
+  public:
+    virtual void run(const MatchFinder::MatchResult &Result);
+  };
+
   ScopeChecker Scope;
   ArithmeticArgChecker ArithmeticArg;
   TrivialCtorDtorChecker TrivialCtorDtor;
@@ -180,6 +215,9 @@ private:
   RefCountedCopyConstructorChecker RefCountedCopyConstructor;
   AssertAssignmentChecker AssertAttribution;
   KungFuDeathGripChecker KungFuDeathGrip;
+  SprintfLiteralChecker SprintfLiteral;
+  OverrideBaseCallChecker OverrideBaseCall;
+  OverrideBaseCallUsageChecker OverrideBaseCallUsage;
   MatchFinder AstMatcher;
 };
 
@@ -279,6 +317,35 @@ bool isIgnoredPathForImplicitConversion(const Decl *Declaration) {
       // Ignore security/sandbox/chromium but not ipc/chromium.
       ++Begin;
       return Begin != End && Begin->compare_lower(StringRef("sandbox")) == 0;
+    }
+  }
+  return false;
+}
+
+bool isIgnoredPathForSprintfLiteral(const CallExpr *Call, const SourceManager &SM) {
+  SourceLocation Loc = Call->getLocStart();
+  SmallString<1024> FileName = SM.getFilename(Loc);
+  llvm::sys::fs::make_absolute(FileName);
+  llvm::sys::path::reverse_iterator Begin = llvm::sys::path::rbegin(FileName),
+                                    End = llvm::sys::path::rend(FileName);
+  for (; Begin != End; ++Begin) {
+    if (Begin->compare_lower(StringRef("angle")) == 0 ||
+        Begin->compare_lower(StringRef("chromium")) == 0 ||
+        Begin->compare_lower(StringRef("crashreporter")) == 0 ||
+        Begin->compare_lower(StringRef("google-breakpad")) == 0 ||
+        Begin->compare_lower(StringRef("harfbuzz")) == 0 ||
+        Begin->compare_lower(StringRef("libstagefright")) == 0 ||
+        Begin->compare_lower(StringRef("mtransport")) == 0 ||
+        Begin->compare_lower(StringRef("protobuf")) == 0 ||
+        Begin->compare_lower(StringRef("skia")) == 0 ||
+        // Gtest uses snprintf as GTEST_SNPRINTF_ with sizeof
+        Begin->compare_lower(StringRef("testing")) == 0) {
+      return true;
+    }
+    if (Begin->compare_lower(StringRef("webrtc")) == 0) {
+      // Ignore trunk/webrtc, but not media/webrtc
+      ++Begin;
+      return Begin != End && Begin->compare_lower(StringRef("trunk")) == 0;
     }
   }
   return false;
@@ -861,12 +928,47 @@ AST_MATCHER(CallExpr, isAssertAssignmentTestFunc) {
       && Method->getName() == AssertName;
 }
 
+AST_MATCHER(CallExpr, isSnprintfLikeFunc) {
+  static const std::string Snprintf = "snprintf";
+  static const std::string Vsnprintf = "vsnprintf";
+  const FunctionDecl *Func = Node.getDirectCallee();
+
+  if (!Func || isa<CXXMethodDecl>(Func)) {
+    return false;
+  }
+
+  StringRef Name = getNameChecked(Func);
+  if (Name != Snprintf && Name != Vsnprintf) {
+    return false;
+  }
+
+  return !isIgnoredPathForSprintfLiteral(&Node, Finder->getASTContext().getSourceManager());
+}
+
 AST_MATCHER(CXXRecordDecl, isLambdaDecl) {
   return Node.isLambda();
 }
 
 AST_MATCHER(QualType, isRefPtr) {
   return typeIsRefPtr(Node);
+}
+
+AST_MATCHER(CXXRecordDecl, hasBaseClasses) {
+  const CXXRecordDecl *Decl = Node.getCanonicalDecl();
+
+  // Must have definition and should inherit other classes
+  return Decl && Decl->hasDefinition() && Decl->getNumBases();
+}
+
+AST_MATCHER(CXXMethodDecl, isRequiredBaseMethod) {
+  const CXXMethodDecl *Decl = Node.getCanonicalDecl();
+  return Decl
+      && MozChecker::hasCustomAnnotation(Decl, "moz_required_base_method");
+}
+
+AST_MATCHER(CXXMethodDecl, isNonVirtual) {
+  const CXXMethodDecl *Decl = Node.getCanonicalDecl();
+  return Decl && !Decl->isVirtual();
 }
 }
 }
@@ -1091,9 +1193,9 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
   AstMatcher.addMatcher(
       binaryOperator(
           allOf(binaryEqualityOperator(),
-                hasLHS(has(
+                hasLHS(hasIgnoringParenImpCasts(
                     declRefExpr(hasType(qualType((isFloat())))).bind("lhs"))),
-                hasRHS(has(
+                hasRHS(hasIgnoringParenImpCasts(
                     declRefExpr(hasType(qualType((isFloat())))).bind("rhs"))),
                 unless(anyOf(isInSystemHeader(), isInSkScalarDotH()))))
           .bind("node"),
@@ -1195,6 +1297,24 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
 
   AstMatcher.addMatcher(varDecl(hasType(isRefPtr())).bind("decl"),
                         &KungFuDeathGrip);
+
+  AstMatcher.addMatcher(
+      callExpr(isSnprintfLikeFunc(),
+        allOf(hasArgument(0, ignoringParenImpCasts(declRefExpr().bind("buffer"))),
+                             anyOf(hasArgument(1, sizeOfExpr(hasIgnoringParenImpCasts(declRefExpr().bind("size")))),
+                                   hasArgument(1, integerLiteral().bind("immediate")),
+                                   hasArgument(1, declRefExpr(to(varDecl(hasType(isConstQualified()),
+                                                                         hasInitializer(integerLiteral().bind("constant")))))))))
+        .bind("funcCall"),
+      &SprintfLiteral
+  );
+
+  AstMatcher.addMatcher(cxxRecordDecl(hasBaseClasses()).bind("class"),
+      &OverrideBaseCall);
+
+  AstMatcher.addMatcher(
+      cxxMethodDecl(isNonVirtual(), isRequiredBaseMethod()).bind("method"),
+      &OverrideBaseCallUsage);
 }
 
 // These enum variants determine whether an allocation has occured in the code.
@@ -1832,6 +1952,171 @@ void DiagnosticsMatcher::KungFuDeathGripChecker::run(
   // We cannot provide the note if we don't have an initializer
   Diag.Report(D->getLocStart(), ErrorID) << D->getType() << ErrThing;
   Diag.Report(E->getLocStart(), NoteID) << NoteThing << getNameChecked(D);
+}
+
+void DiagnosticsMatcher::SprintfLiteralChecker::run(
+    const MatchFinder::MatchResult &Result) {
+  if (!Result.Context->getLangOpts().CPlusPlus) {
+    // SprintfLiteral is not usable in C, so there is no point in issuing these
+    // warnings.
+    return;
+  }
+
+  DiagnosticsEngine &Diag = Result.Context->getDiagnostics();
+  unsigned ErrorID = Diag.getDiagnosticIDs()->getCustomDiagID(
+    DiagnosticIDs::Error, "Use %1 instead of %0 when writing into a character array.");
+  unsigned NoteID = Diag.getDiagnosticIDs()->getCustomDiagID(
+    DiagnosticIDs::Note, "This will prevent passing in the wrong size to %0 accidentally.");
+
+  const CallExpr *D = Result.Nodes.getNodeAs<CallExpr>("funcCall");
+
+  StringRef Name = D->getDirectCallee()->getName();
+  const char *Replacement;
+  if (Name == "snprintf") {
+    Replacement = "SprintfLiteral";
+  } else {
+    assert(Name == "vsnprintf");
+    Replacement = "VsprintfLiteral";
+  }
+
+  const DeclRefExpr *Buffer = Result.Nodes.getNodeAs<DeclRefExpr>("buffer");
+  const DeclRefExpr *Size = Result.Nodes.getNodeAs<DeclRefExpr>("size");
+  if (Size) {
+    // Match calls like snprintf(x, sizeof(x), ...).
+    if (Buffer->getFoundDecl() != Size->getFoundDecl()) {
+      return;
+    }
+
+    Diag.Report(D->getLocStart(), ErrorID) << Name << Replacement;
+    Diag.Report(D->getLocStart(), NoteID) << Name;
+    return;
+  }
+
+  const QualType QType = Buffer->getType();
+  const ConstantArrayType *Type = dyn_cast<ConstantArrayType>(QType.getTypePtrOrNull());
+  if (Type) {
+    // Match calls like snprintf(x, 100, ...), where x is int[100];
+    const IntegerLiteral *Literal = Result.Nodes.getNodeAs<IntegerLiteral>("immediate");
+    if (!Literal) {
+      // Match calls like: const int y = 100; snprintf(x, y, ...);
+      Literal = Result.Nodes.getNodeAs<IntegerLiteral>("constant");
+    }
+
+    if (Type->getSize().ule(Literal->getValue())) {
+      Diag.Report(D->getLocStart(), ErrorID) << Name << Replacement;
+      Diag.Report(D->getLocStart(), NoteID) << Name;
+    }
+  }
+}
+
+bool DiagnosticsMatcher::OverrideBaseCallChecker::isRequiredBaseMethod(
+    const CXXMethodDecl *Method) {
+  return MozChecker::hasCustomAnnotation(Method, "moz_required_base_method");
+}
+
+void DiagnosticsMatcher::OverrideBaseCallChecker::evaluateExpression(
+    const Stmt *StmtExpr, std::list<const CXXMethodDecl*> &MethodList) {
+  // Continue while we have methods in our list
+  if (!MethodList.size()) {
+    return;
+  }
+
+  if (auto MemberFuncCall = dyn_cast<CXXMemberCallExpr>(StmtExpr)) {
+    if (auto Method = dyn_cast<CXXMethodDecl>(
+        MemberFuncCall->getDirectCallee())) {
+      findBaseMethodCall(Method, MethodList);
+    }
+  }
+
+  for (auto S : StmtExpr->children()) {
+    if (S) {
+      evaluateExpression(S, MethodList);
+    }
+  }
+}
+
+void DiagnosticsMatcher::OverrideBaseCallChecker::getRequiredBaseMethod(
+    const CXXMethodDecl *Method,
+    std::list<const CXXMethodDecl*>& MethodsList) {
+
+  if (isRequiredBaseMethod(Method)) {
+    MethodsList.push_back(Method);
+  } else {
+    // Loop through all it's base methods.
+    for (auto BaseMethod = Method->begin_overridden_methods();
+        BaseMethod != Method->end_overridden_methods(); BaseMethod++) {
+      getRequiredBaseMethod(*BaseMethod, MethodsList);
+    }
+  }
+}
+
+void DiagnosticsMatcher::OverrideBaseCallChecker::findBaseMethodCall(
+    const CXXMethodDecl* Method,
+    std::list<const CXXMethodDecl*>& MethodsList) {
+
+  MethodsList.remove(Method);
+  // Loop also through all it's base methods;
+  for (auto BaseMethod = Method->begin_overridden_methods();
+      BaseMethod != Method->end_overridden_methods(); BaseMethod++) {
+    findBaseMethodCall(*BaseMethod, MethodsList);
+  }
+}
+
+void DiagnosticsMatcher::OverrideBaseCallChecker::run(
+    const MatchFinder::MatchResult &Result) {
+  DiagnosticsEngine &Diag = Result.Context->getDiagnostics();
+  unsigned OverrideBaseCallCheckID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Error,
+      "Method %0 must be called in all overrides, but is not called in "
+      "this override defined for class %1");
+  const CXXRecordDecl *Decl = Result.Nodes.getNodeAs<CXXRecordDecl>("class");
+
+  // Loop through the methods and look for the ones that are overridden.
+  for (auto Method : Decl->methods()) {
+    // If this method doesn't override other methods or it doesn't have a body,
+    // continue to the next declaration.
+    if (!Method->size_overridden_methods() || !Method->hasBody()) {
+      continue;
+    }
+
+    // Preferred the usage of list instead of vector in order to avoid
+    // calling erase-remove when deleting items
+    std::list<const CXXMethodDecl*> MethodsList;
+    // For each overridden method push it to a list if it meets our
+    // criteria
+    for (auto BaseMethod = Method->begin_overridden_methods();
+        BaseMethod != Method->end_overridden_methods(); BaseMethod++) {
+      getRequiredBaseMethod(*BaseMethod, MethodsList);
+    }
+
+    // If no method has been found then no annotation was used
+    // so checking is not needed
+    if (!MethodsList.size()) {
+      continue;
+    }
+
+    // Loop through the body of our method and search for calls to
+    // base methods
+    evaluateExpression(Method->getBody(), MethodsList);
+
+    // If list is not empty pop up errors
+    for (auto BaseMethod : MethodsList) {
+      Diag.Report(Method->getLocation(), OverrideBaseCallCheckID)
+          << BaseMethod->getQualifiedNameAsString()
+          << Decl->getName();
+    }
+  }
+}
+
+void DiagnosticsMatcher::OverrideBaseCallUsageChecker::run(
+    const MatchFinder::MatchResult &Result) {
+  DiagnosticsEngine &Diag = Result.Context->getDiagnostics();
+  unsigned ErrorID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Error,
+      "MOZ_REQUIRED_BASE_METHOD can be used only on virtual methods");
+  const CXXMethodDecl *Method = Result.Nodes.getNodeAs<CXXMethodDecl>("method");
+
+  Diag.Report(Method->getLocation(), ErrorID);
 }
 
 class MozCheckAction : public PluginASTAction {

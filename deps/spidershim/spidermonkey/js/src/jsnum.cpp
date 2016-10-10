@@ -702,7 +702,7 @@ num_toString_impl(JSContext* cx, const CallArgs& args)
             return false;
 
         if (d2 < 2 || d2 > 36) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_BAD_RADIX);
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_RADIX);
             return false;
         }
 
@@ -887,7 +887,7 @@ ComputePrecisionInRange(JSContext* cx, int minPrecision, int maxPrecision, doubl
 
     ToCStringBuf cbuf;
     if (char* numStr = NumberToCString(cx, &cbuf, prec, 10))
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_PRECISION_RANGE, numStr);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_PRECISION_RANGE, numStr);
     return false;
 }
 
@@ -1574,8 +1574,9 @@ js::StringToNumber(ExclusiveContext* cx, JSString* str, double* result)
 }
 
 bool
-js::ToNumberSlow(ExclusiveContext* cx, Value v, double* out)
+js::ToNumberSlow(ExclusiveContext* cx, const Value& v_, double* out)
 {
+    RootedValue v(cx, v_);
     MOZ_ASSERT(!v.isNumber());
     goto skip_int_double;
     for (;;) {
@@ -1598,8 +1599,8 @@ js::ToNumberSlow(ExclusiveContext* cx, Value v, double* out)
             }
             if (v.isSymbol()) {
                 if (cx->isJSContext()) {
-                    JS_ReportErrorNumber(cx->asJSContext(), GetErrorMessage, nullptr,
-                                         JSMSG_SYMBOL_TO_NUMBER);
+                    JS_ReportErrorNumberASCII(cx->asJSContext(), GetErrorMessage, nullptr,
+                                              JSMSG_SYMBOL_TO_NUMBER);
                 }
                 return false;
             }
@@ -1612,10 +1613,8 @@ js::ToNumberSlow(ExclusiveContext* cx, Value v, double* out)
         if (!cx->isJSContext())
             return false;
 
-        RootedValue v2(cx, v);
-        if (!ToPrimitive(cx->asJSContext(), JSTYPE_NUMBER, &v2))
+        if (!ToPrimitive(cx->asJSContext(), JSTYPE_NUMBER, &v))
             return false;
-        v = v2;
         if (v.isObject())
             break;
     }
@@ -1625,7 +1624,7 @@ js::ToNumberSlow(ExclusiveContext* cx, Value v, double* out)
 }
 
 JS_PUBLIC_API(bool)
-js::ToNumberSlow(JSContext* cx, Value v, double* out)
+js::ToNumberSlow(JSContext* cx, const Value& v, double* out)
 {
     return ToNumberSlow(static_cast<ExclusiveContext*>(cx), v, out);
 }
@@ -1856,7 +1855,7 @@ js::ToIntegerIndex(JSContext* cx, JS::HandleValue v, uint64_t* index)
 
     // Write relation so NaNs throw a RangeError.
     if (!(0 <= d && d <= (uint64_t(1) << 53))) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
         return false;
     }
 
@@ -1865,7 +1864,7 @@ js::ToIntegerIndex(JSContext* cx, JS::HandleValue v, uint64_t* index)
     // range check above.
     uint64_t i(d);
     if (d != double(i)) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
         return false;
     }
 

@@ -324,7 +324,7 @@ regexp_compile_impl(JSContext* cx, const CallArgs& args)
     if (cls == ESClass::RegExp) {
         // Step 3a.
         if (args.hasDefined(1)) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_NEWREGEXP_FLAGGED);
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NEWREGEXP_FLAGGED);
             return false;
         }
 
@@ -1179,7 +1179,7 @@ js::regexp_test_no_statics(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static void
-GetParen(JSLinearString* matched, JS::Value capture, JSSubString* out)
+GetParen(JSLinearString* matched, const JS::Value& capture, JSSubString* out)
 {
     if (capture.isUndefined()) {
         out->initEmpty(matched);

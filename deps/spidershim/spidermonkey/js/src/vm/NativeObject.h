@@ -329,7 +329,7 @@ class NewObjectCache;
 
 #ifdef DEBUG
 static inline bool
-IsObjectValueInCompartment(Value v, JSCompartment* comp);
+IsObjectValueInCompartment(const Value& v, JSCompartment* comp);
 #endif
 
 // Operations which change an object's dense elements can either succeed, fail,
@@ -632,6 +632,7 @@ class NativeObject : public ShapedObject
         uint32_t nslots = lastProperty()->slotSpan(getClass());
         return Min(nslots, numFixedSlots());
     }
+    uint32_t numFixedSlotsForCompilation() const;
 
     uint32_t slotSpan() const {
         if (inDictionaryMode())
@@ -1308,7 +1309,7 @@ NativeObject::privateWriteBarrierPre(void** oldval)
 
 #ifdef DEBUG
 static inline bool
-IsObjectValueInCompartment(Value v, JSCompartment* comp)
+IsObjectValueInCompartment(const Value& v, JSCompartment* comp)
 {
     if (!v.isObject())
         return true;

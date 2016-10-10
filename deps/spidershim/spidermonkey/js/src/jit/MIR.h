@@ -1025,6 +1025,82 @@ class MUseDefIterator
     }
 };
 
+#ifdef DEBUG
+bool
+IonCompilationCanUseNurseryPointers();
+#endif
+
+// Helper class to check that GC pointers embedded in MIR instructions are in
+// in the nursery only when the store buffer has been marked as needing to
+// cancel all ion compilations. Otherwise, off-thread Ion compilation and
+// nursery GCs can happen in parallel, so it's invalid to store pointers to
+// nursery things. There's no need to root these pointers, as GC is suppressed
+// during compilation and off-thread compilations are canceled on major GCs.
+template <typename T>
+class CompilerGCPointer
+{
+    js::gc::Cell* ptr_;
+
+  public:
+    explicit CompilerGCPointer(T ptr)
+      : ptr_(ptr)
+    {
+        MOZ_ASSERT_IF(IsInsideNursery(ptr), IonCompilationCanUseNurseryPointers());
+#ifdef DEBUG
+        PerThreadData* pt = TlsPerThreadData.get();
+        MOZ_ASSERT_IF(pt->runtimeIfOnOwnerThread(), pt->suppressGC);
+#endif
+    }
+
+    operator T() const { return static_cast<T>(ptr_); }
+    T operator->() const { return static_cast<T>(ptr_); }
+
+  private:
+    CompilerGCPointer() = delete;
+    CompilerGCPointer(const CompilerGCPointer<T>&) = delete;
+    CompilerGCPointer<T>& operator=(const CompilerGCPointer<T>&) = delete;
+};
+
+typedef CompilerGCPointer<JSObject*> CompilerObject;
+typedef CompilerGCPointer<NativeObject*> CompilerNativeObject;
+typedef CompilerGCPointer<JSFunction*> CompilerFunction;
+typedef CompilerGCPointer<JSScript*> CompilerScript;
+typedef CompilerGCPointer<PropertyName*> CompilerPropertyName;
+typedef CompilerGCPointer<Shape*> CompilerShape;
+typedef CompilerGCPointer<ObjectGroup*> CompilerObjectGroup;
+
+class MRootList : public TempObject
+{
+  public:
+    using RootVector = Vector<void*, 0, JitAllocPolicy>;
+
+  private:
+    mozilla::EnumeratedArray<JS::RootKind, JS::RootKind::Limit, mozilla::Maybe<RootVector>> roots_;
+
+    MRootList(const MRootList&) = delete;
+    void operator=(const MRootList&) = delete;
+
+  public:
+    explicit MRootList(TempAllocator& alloc);
+
+    void trace(JSTracer* trc);
+
+    template <typename T>
+    MOZ_MUST_USE bool append(T ptr) {
+        if (ptr)
+            return roots_[JS::MapTypeToRootKind<T>::kind]->append(ptr);
+        return true;
+    }
+
+    template <typename T>
+    MOZ_MUST_USE bool append(const CompilerGCPointer<T>& ptr) {
+        return append(static_cast<T>(ptr));
+    }
+    MOZ_MUST_USE bool append(const ReceiverGuard& guard) {
+        return append(guard.group) && append(guard.shape);
+    }
+};
+
 // An instruction is an SSA name that is inserted into a basic block's IR
 // stream.
 class MInstruction
@@ -1084,6 +1160,12 @@ class MInstruction
     }
     virtual MInstruction* clone(TempAllocator& alloc, const MDefinitionVector& inputs) const {
         MOZ_CRASH();
+    }
+
+    // MIR instructions containing GC pointers should override this to append
+    // these pointers to the root list.
+    virtual bool appendRoots(MRootList& roots) const {
+        return true;
     }
 
     // Instructions needing to hook into type analysis should return a
@@ -1618,6 +1700,8 @@ class MConstant : public MNullaryInstruction
     // as DoubleValue and NaNs are canonicalized. Callers must be careful: not
     // all constants can be represented by js::Value (wasm supports int64).
     Value toJSValue() const;
+
+    bool appendRoots(MRootList& roots) const override;
 };
 
 // Generic constructor of SIMD valuesX4.
@@ -3119,50 +3203,6 @@ bool
 CanStoreUnboxedType(TempAllocator& alloc,
                     JSValueType unboxedType, MIRType input, TypeSet* inputTypes);
 
-#ifdef DEBUG
-bool
-IonCompilationCanUseNurseryPointers();
-#endif
-
-// Helper class to check that GC pointers embedded in MIR instructions are in
-// in the nursery only when the store buffer has been marked as needing to
-// cancel all ion compilations. Otherwise, off-thread Ion compilation and
-// nursery GCs can happen in parallel, so it's invalid to store pointers to
-// nursery things. There's no need to root these pointers, as GC is suppressed
-// during compilation and off-thread compilations are canceled on major GCs.
-template <typename T>
-class CompilerGCPointer
-{
-    js::gc::Cell* ptr_;
-
-  public:
-    explicit CompilerGCPointer(T ptr)
-      : ptr_(ptr)
-    {
-        MOZ_ASSERT_IF(IsInsideNursery(ptr), IonCompilationCanUseNurseryPointers());
-#ifdef DEBUG
-        PerThreadData* pt = TlsPerThreadData.get();
-        MOZ_ASSERT_IF(pt->runtimeIfOnOwnerThread(), pt->suppressGC);
-#endif
-    }
-
-    operator T() const { return static_cast<T>(ptr_); }
-    T operator->() const { return static_cast<T>(ptr_); }
-
-  private:
-    CompilerGCPointer() = delete;
-    CompilerGCPointer(const CompilerGCPointer<T>&) = delete;
-    CompilerGCPointer<T>& operator=(const CompilerGCPointer<T>&) = delete;
-};
-
-typedef CompilerGCPointer<JSObject*> CompilerObject;
-typedef CompilerGCPointer<NativeObject*> CompilerNativeObject;
-typedef CompilerGCPointer<JSFunction*> CompilerFunction;
-typedef CompilerGCPointer<JSScript*> CompilerScript;
-typedef CompilerGCPointer<PropertyName*> CompilerPropertyName;
-typedef CompilerGCPointer<Shape*> CompilerShape;
-typedef CompilerGCPointer<ObjectGroup*> CompilerObjectGroup;
-
 class MNewArray
   : public MUnaryInstruction,
     public NoTypePolicy::Data
@@ -3267,6 +3307,10 @@ class MNewArrayCopyOnWrite : public MNullaryInstruction
     virtual AliasSet getAliasSet() const override {
         return AliasSet::None();
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
+    }
 };
 
 class MNewArrayDynamicLength
@@ -3302,6 +3346,10 @@ class MNewArrayDynamicLength
 
     virtual AliasSet getAliasSet() const override {
         return AliasSet::None();
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
     }
 };
 
@@ -3341,6 +3389,10 @@ class MNewTypedArray : public MNullaryInstruction
 
     virtual AliasSet getAliasSet() const override {
         return AliasSet::None();
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
     }
 };
 
@@ -3385,6 +3437,10 @@ class MNewTypedArrayDynamicLength
 
     virtual AliasSet getAliasSet() const override {
         return AliasSet::None();
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
     }
 };
 
@@ -3487,6 +3543,10 @@ class MNewTypedObject : public MNullaryInstruction
     virtual AliasSet getAliasSet() const override {
         return AliasSet::None();
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
+    }
 };
 
 class MTypedObjectDescr
@@ -3579,6 +3639,10 @@ class MSimdBox
     MOZ_MUST_USE bool writeRecoverData(CompactBufferWriter& writer) const override;
     bool canRecoverOnBailout() const override {
         return true;
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject_);
     }
 };
 
@@ -3876,6 +3940,10 @@ class MInitProp
     bool possiblyCalls() const override {
         return true;
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
+    }
 };
 
 class MInitPropGetterSetter
@@ -3896,6 +3964,10 @@ class MInitPropGetterSetter
 
     PropertyName* name() const {
         return name_;
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
     }
 };
 
@@ -3963,6 +4035,10 @@ class WrappedFunction : public TempObject
     const JSJitInfo* jitInfo() const { return fun_->jitInfo(); }
 
     JSFunction* rawJSFunction() const { return fun_; }
+
+    bool appendRoots(MRootList& roots) const {
+        return roots.append(fun_);
+    }
 };
 
 class MCall
@@ -4071,6 +4147,12 @@ class MCall
     // constructor but are set up later via addArg.
     virtual void computeMovable() {
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        if (target_)
+            return target_->appendRoots(roots);
+        return true;
+    }
 };
 
 class MCallDOMNative : public MCall
@@ -4163,6 +4245,12 @@ class MApplyArgs
     bool possiblyCalls() const override {
         return true;
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        if (target_)
+            return target_->appendRoots(roots);
+        return true;
+    }
 };
 
 // fun.apply(fn, array)
@@ -4194,6 +4282,12 @@ class MApplyArray
     }
 
     bool possiblyCalls() const override {
+        return true;
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        if (target_)
+            return target_->appendRoots(roots);
         return true;
     }
 };
@@ -4949,6 +5043,10 @@ class MCreateArgumentsObject
 
     bool possiblyCalls() const override {
         return true;
+    }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObj_);
     }
 };
 
@@ -6180,7 +6278,7 @@ class MAbs
     TRIVIAL_NEW_WRAPPERS
 
     static MAbs* NewAsmJS(TempAllocator& alloc, MDefinition* num, MIRType type) {
-        MAbs* ins = new(alloc) MAbs(num, type);
+        auto* ins = new(alloc) MAbs(num, type);
         if (type == MIRType::Int32)
             ins->implicitTruncate_ = true;
         return ins;
@@ -6718,7 +6816,7 @@ class MAdd : public MBinaryArithInstruction
     static MAdd* NewAsmJS(TempAllocator& alloc, MDefinition* left, MDefinition* right,
                           MIRType type)
     {
-        MAdd* add = new(alloc) MAdd(left, right);
+        auto* add = new(alloc) MAdd(left, right);
         add->specialization_ = type;
         add->setResultType(type);
         if (type == MIRType::Int32) {
@@ -6763,7 +6861,7 @@ class MSub : public MBinaryArithInstruction
     static MSub* NewAsmJS(TempAllocator& alloc, MDefinition* left, MDefinition* right,
                           MIRType type, bool mustPreserveNaN = false)
     {
-        MSub* sub = new(alloc) MSub(left, right);
+        auto* sub = new(alloc) MSub(left, right);
         sub->specialization_ = type;
         sub->setResultType(type);
         sub->setMustPreserveNaN(mustPreserveNaN);
@@ -6941,7 +7039,7 @@ class MDiv : public MBinaryArithInstruction
                           MIRType type, bool unsignd, bool trapOnError = false,
                           bool mustPreserveNaN = false)
     {
-        MDiv* div = new(alloc) MDiv(left, right, type);
+        auto* div = new(alloc) MDiv(left, right, type);
         div->unsigned_ = unsignd;
         div->trapOnError_ = trapOnError;
         if (trapOnError)
@@ -7068,7 +7166,7 @@ class MMod : public MBinaryArithInstruction
     static MMod* NewAsmJS(TempAllocator& alloc, MDefinition* left, MDefinition* right,
                           MIRType type, bool unsignd, bool trapOnError = false)
     {
-        MMod* mod = new(alloc) MMod(left, right, type);
+        auto* mod = new(alloc) MMod(left, right, type);
         mod->unsigned_ = unsignd;
         mod->trapOnError_ = trapOnError;
         if (trapOnError)
@@ -7227,6 +7325,33 @@ class MFromCharCode
     }
 
     ALLOW_CLONE(MFromCharCode)
+};
+
+class MFromCodePoint
+  : public MUnaryInstruction,
+    public IntPolicy<0>::Data
+{
+    explicit MFromCodePoint(MDefinition* codePoint)
+      : MUnaryInstruction(codePoint)
+    {
+        setGuard(); // throws on invalid code point
+        setMovable();
+        setResultType(MIRType::String);
+    }
+
+  public:
+    INSTRUCTION_HEADER(FromCodePoint)
+    TRIVIAL_NEW_WRAPPERS
+
+    AliasSet getAliasSet() const override {
+        return AliasSet::None();
+    }
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+    bool possiblyCalls() const override {
+        return true;
+    }
 };
 
 class MSinCos
@@ -7869,6 +7994,9 @@ class MDefVar
     bool possiblyCalls() const override {
         return true;
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
+    }
 };
 
 class MDefLexical
@@ -7892,6 +8020,9 @@ class MDefLexical
     }
     unsigned attrs() const {
         return attrs_;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
     }
 };
 
@@ -7917,6 +8048,9 @@ class MDefFun
     }
     bool possiblyCalls() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(fun_);
     }
 };
 
@@ -7951,6 +8085,9 @@ class MRegExp : public MNullaryInstruction
     }
     bool possiblyCalls() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(source_);
     }
 };
 
@@ -8223,6 +8360,14 @@ struct LambdaFunctionInfo
         useSingletonForClone(ObjectGroup::useSingletonForClone(fun))
     {}
 
+    bool appendRoots(MRootList& roots) const {
+        if (!roots.append(fun))
+            return false;
+        if (fun->hasScript())
+            return roots.append(fun->nonLazyScript());
+        return roots.append(fun->lazyScript());
+    }
+
   private:
     LambdaFunctionInfo(const LambdaFunctionInfo&) = delete;
     void operator=(const LambdaFunctionInfo&) = delete;
@@ -8257,6 +8402,9 @@ class MLambda
     bool canRecoverOnBailout() const override {
         return true;
     }
+    bool appendRoots(MRootList& roots) const override {
+        return info_.appendRoots(roots);
+    }
 };
 
 class MLambdaArrow
@@ -8282,6 +8430,9 @@ class MLambdaArrow
 
     const LambdaFunctionInfo& info() const {
         return info_;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return info_.appendRoots(roots);
     }
 };
 
@@ -8893,7 +9044,7 @@ class MNot
   public:
     static MNot* NewAsmJS(TempAllocator& alloc, MDefinition* input) {
         MOZ_ASSERT(input->type() == MIRType::Int32 || input->type() == MIRType::Int64);
-        MNot* ins = new(alloc) MNot(input);
+        auto* ins = new(alloc) MNot(input);
         ins->setResultType(MIRType::Int32);
         return ins;
     }
@@ -9569,6 +9720,9 @@ class MConvertUnboxedObjectToNative
         // instruction with the object itself, in the same way as MBoundsCheck.
         return AliasSet::None();
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(group_);
+    }
 };
 
 // Array.prototype.pop or Array.prototype.shift on a dense array.
@@ -9692,6 +9846,9 @@ class MArraySlice
     }
     bool possiblyCalls() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObj_);
     }
 };
 
@@ -9955,6 +10112,10 @@ class MLoadTypedArrayElementStatic
     bool needTruncation(TruncateKind kind) override;
     bool canProduceFloat32() const override { return accessType() == Scalar::Float32; }
     void collectRangeInfoPreTrunc() override;
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(someTypedArray_);
+    }
 };
 
 // Base class for MIR ops that write unboxed scalar values.
@@ -10168,6 +10329,10 @@ class MStoreTypedArrayElementStatic :
         return use == getUseFor(1) && accessType() == Scalar::Float32;
     }
     void collectRangeInfoPreTrunc() override;
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(someTypedArray_);
+    }
 };
 
 // Compute an "effective address", i.e., a compound computation of the form:
@@ -10391,6 +10556,9 @@ class InlinePropertyTable : public TempObject
         Entry(ObjectGroup* group, JSFunction* func)
           : group(group), func(func)
         { }
+        bool appendRoots(MRootList& roots) const {
+            return roots.append(group) && roots.append(func);
+        }
     };
 
     jsbytecode* pc_;
@@ -10444,6 +10612,8 @@ class InlinePropertyTable : public TempObject
 
     // Ensure that the InlinePropertyTable's domain is a subset of |targets|.
     void trimToTargets(const ObjectVector& targets);
+
+    bool appendRoots(MRootList& roots) const;
 };
 
 class CacheLocationList : public InlineConcatList<CacheLocationList>
@@ -10538,6 +10708,24 @@ class MGetPropertyCache
     MOZ_MUST_USE bool updateForReplacement(MDefinition* ins) override;
 
     bool allowDoubleResult() const;
+
+    bool appendRoots(MRootList& roots) const override {
+        if (inlinePropertyTable_)
+            return inlinePropertyTable_->appendRoots(roots);
+        return true;
+    }
+};
+
+struct PolymorphicEntry {
+    // The group and/or shape to guard against.
+    ReceiverGuard receiver;
+
+    // The property to load, null for loads from unboxed properties.
+    Shape* shape;
+
+    bool appendRoots(MRootList& roots) const {
+        return roots.append(receiver) && roots.append(shape);
+    }
 };
 
 // Emit code to load a value from an object if it matches one of the receivers
@@ -10546,15 +10734,7 @@ class MGetPropertyPolymorphic
   : public MUnaryInstruction,
     public SingleObjectPolicy::Data
 {
-    struct Entry {
-        // The group and/or shape to guard against.
-        ReceiverGuard receiver;
-
-        // The property to load, null for loads from unboxed properties.
-        Shape* shape;
-    };
-
-    Vector<Entry, 4, JitAllocPolicy> receivers_;
+    Vector<PolymorphicEntry, 4, JitAllocPolicy> receivers_;
     CompilerPropertyName name_;
 
     MGetPropertyPolymorphic(TempAllocator& alloc, MDefinition* obj, PropertyName* name)
@@ -10584,7 +10764,7 @@ class MGetPropertyPolymorphic
     }
 
     MOZ_MUST_USE bool addReceiver(const ReceiverGuard& receiver, Shape* shape) {
-        Entry entry;
+        PolymorphicEntry entry;
         entry.receiver = receiver;
         entry.shape = shape;
         return receivers_.append(entry);
@@ -10616,6 +10796,8 @@ class MGetPropertyPolymorphic
     }
 
     AliasType mightAlias(const MDefinition* store) const override;
+
+    bool appendRoots(MRootList& roots) const override;
 };
 
 // Emit code to store a value to an object's slots if its shape/group matches
@@ -10624,15 +10806,7 @@ class MSetPropertyPolymorphic
   : public MBinaryInstruction,
     public MixPolicy<SingleObjectPolicy, NoFloatPolicy<1> >::Data
 {
-    struct Entry {
-        // The group and/or shape to guard against.
-        ReceiverGuard receiver;
-
-        // The property to store, null for stores to unboxed properties.
-        Shape* shape;
-    };
-
-    Vector<Entry, 4, JitAllocPolicy> receivers_;
+    Vector<PolymorphicEntry, 4, JitAllocPolicy> receivers_;
     CompilerPropertyName name_;
     bool needsBarrier_;
 
@@ -10655,7 +10829,7 @@ class MSetPropertyPolymorphic
     }
 
     MOZ_MUST_USE bool addReceiver(const ReceiverGuard& receiver, Shape* shape) {
-        Entry entry;
+        PolymorphicEntry entry;
         entry.receiver = receiver;
         entry.shape = shape;
         return receivers_.append(entry);
@@ -10691,6 +10865,7 @@ class MSetPropertyPolymorphic
                                AliasSet::DynamicSlot |
                                (hasUnboxedStore ? AliasSet::UnboxedElement : 0));
     }
+    bool appendRoots(MRootList& roots) const override;
 };
 
 class MDispatchInstruction
@@ -10709,6 +10884,9 @@ class MDispatchInstruction
         Entry(JSFunction* func, ObjectGroup* funcGroup, MBasicBlock* block)
           : func(func), funcGroup(funcGroup), block(block)
         { }
+        bool appendRoots(MRootList& roots) const {
+            return roots.append(func) && roots.append(funcGroup);
+        }
     };
     Vector<Entry, 4, JitAllocPolicy> map_;
 
@@ -10803,6 +10981,7 @@ class MDispatchInstruction
         MOZ_ASSERT(hasFallback());
         return fallback_;
     }
+    bool appendRoots(MRootList& roots) const override;
 };
 
 // Polymorphic dispatch for inlining, keyed off incoming ObjectGroup.
@@ -10828,6 +11007,7 @@ class MObjectGroupDispatch : public MDispatchInstruction
     InlinePropertyTable* propTable() const {
         return inlinePropertyTable_;
     }
+    bool appendRoots(MRootList& roots) const override;
 };
 
 // Polymorphic dispatch for inlining, keyed off incoming JSFunction*.
@@ -10843,6 +11023,7 @@ class MFunctionDispatch : public MDispatchInstruction
     static MFunctionDispatch* New(TempAllocator& alloc, MDefinition* ins) {
         return new(alloc) MFunctionDispatch(alloc, ins);
     }
+    bool appendRoots(MRootList& roots) const override;
 };
 
 class MBindNameCache
@@ -10872,6 +11053,10 @@ class MBindNameCache
     }
     jsbytecode* pc() const {
         return pc_;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        // Don't append the script, all scripts are added anyway.
+        return roots.append(name_);
     }
 };
 
@@ -10949,6 +11134,9 @@ class MGuardShape
     AliasSet getAliasSet() const override {
         return AliasSet::Load(AliasSet::ObjectFields);
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(shape_);
+    }
 };
 
 // Bail if the object's shape or unboxed group is not in the input list.
@@ -10991,6 +11179,9 @@ class MGuardReceiverPolymorphic
     AliasSet getAliasSet() const override {
         return AliasSet::Load(AliasSet::ObjectFields);
     }
+
+    bool appendRoots(MRootList& roots) const override;
+
 };
 
 // Guard on an object's group, inclusively or exclusively.
@@ -11046,6 +11237,9 @@ class MGuardObjectGroup
     }
     AliasSet getAliasSet() const override {
         return AliasSet::Load(AliasSet::ObjectFields);
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(group_);
     }
 };
 
@@ -11348,6 +11542,9 @@ class MGetNameCache
     AccessKind accessKind() const {
         return kind_;
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
+    }
 };
 
 class MCallGetIntrinsicValue : public MNullaryInstruction
@@ -11373,6 +11570,9 @@ class MCallGetIntrinsicValue : public MNullaryInstruction
     bool possiblyCalls() const override {
         return true;
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
+    }
 };
 
 class MSetPropertyInstruction : public MBinaryInstruction
@@ -11394,6 +11594,9 @@ class MSetPropertyInstruction : public MBinaryInstruction
     }
     bool strict() const {
         return strict_;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
     }
 };
 
@@ -11441,6 +11644,9 @@ class MDeleteProperty
     }
     bool strict() const {
         return strict_;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
     }
 };
 
@@ -11558,6 +11764,9 @@ class MCallGetProperty
     }
     bool possiblyCalls() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(name_);
     }
 };
 
@@ -11718,7 +11927,7 @@ class MGetDOMProperty
     static MGetDOMProperty* New(TempAllocator& alloc, const JSJitInfo* info, MDefinition* obj,
                                 MDefinition* guard, MDefinition* globalGuard)
     {
-        MGetDOMProperty* res = new(alloc) MGetDOMProperty(info);
+        auto* res = new(alloc) MGetDOMProperty(info);
         if (!res || !res->init(alloc, obj, guard, globalGuard))
             return nullptr;
         return res;
@@ -11792,7 +12001,7 @@ class MGetDOMMember : public MGetDOMProperty
     static MGetDOMMember* New(TempAllocator& alloc, const JSJitInfo* info, MDefinition* obj,
                               MDefinition* guard, MDefinition* globalGuard)
     {
-        MGetDOMMember* res = new(alloc) MGetDOMMember(info);
+        auto* res = new(alloc) MGetDOMMember(info);
         if (!res || !res->init(alloc, obj, guard, globalGuard))
             return nullptr;
         return res;
@@ -12142,6 +12351,10 @@ class MInstanceOf
     JSObject* prototypeObject() {
         return protoObj_;
     }
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(protoObj_);
+    }
 };
 
 // Implementation for instanceof operator with unknown rhs.
@@ -12315,6 +12528,9 @@ class MRest
     }
     bool possiblyCalls() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObject());
     }
 };
 
@@ -12534,6 +12750,9 @@ class MNewNamedLambdaObject : public MNullaryInstruction
     AliasSet getAliasSet() const override {
         return AliasSet::None();
     }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObj_);
+    }
 };
 
 class MNewCallObjectBase : public MNullaryInstruction
@@ -12554,6 +12773,9 @@ class MNewCallObjectBase : public MNullaryInstruction
     }
     AliasSet getAliasSet() const override {
         return AliasSet::None();
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObj_);
     }
 };
 
@@ -12609,6 +12831,10 @@ class MNewStringObject :
     TRIVIAL_NEW_WRAPPERS
 
     StringObject* templateObj() const;
+
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(templateObj_);
+    }
 };
 
 // This is an alias for MLoadFixedSlot.

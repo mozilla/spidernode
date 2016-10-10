@@ -1341,8 +1341,8 @@ ReportOptimizedOut(JSContext* cx, HandleId id)
 {
     JSAutoByteString printable;
     if (ValueToPrintable(cx, IdToValue(id), &printable)) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_OPTIMIZED_OUT,
-                             printable.ptr());
+        JS_ReportErrorNumberLatin1(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_OPTIMIZED_OUT,
+                                   printable.ptr());
     }
 }
 
@@ -1716,7 +1716,7 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
      * code, but that's fine: createMissingThis will do the right thing in that
      * case.
      */
-    static bool isMaybeUninitializedThisValue(JSContext* cx, jsid id, Value v)
+    static bool isMaybeUninitializedThisValue(JSContext* cx, jsid id, const Value& v)
     {
         return isThis(cx, id) && v.isUndefined();
     }
@@ -1811,8 +1811,8 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
             return false;
 
         if (!argsObj) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
-                                 "Debugger scope");
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
+                                      "Debugger scope");
             return false;
         }
 
@@ -1834,8 +1834,8 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
             return false;
 
         if (!success) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
-                                 "Debugger scope");
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
+                                      "Debugger scope");
             return false;
         }
 
@@ -1891,8 +1891,8 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
             return false;
 
         if (!argsObj) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
-                                 "Debugger env");
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
+                                      "Debugger env");
             return false;
         }
 
@@ -1908,8 +1908,8 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
             return false;
 
         if (!success) {
-            JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
-                                 "Debugger env");
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_NOT_LIVE,
+                                      "Debugger env");
             return false;
         }
 
@@ -3186,9 +3186,9 @@ ReportCannotDeclareGlobalBinding(JSContext* cx, HandlePropertyName name, const c
 {
     JSAutoByteString printable;
     if (AtomToPrintableString(cx, name, &printable)) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr,
-                             JSMSG_CANT_DECLARE_GLOBAL_BINDING,
-                             printable.ptr(), reason);
+        JS_ReportErrorNumberLatin1(cx, GetErrorMessage, nullptr,
+                                   JSMSG_CANT_DECLARE_GLOBAL_BINDING,
+                                   printable.ptr(), reason);
     }
 }
 

@@ -765,6 +765,8 @@ inline void
 JSFunction::setExtendedSlot(size_t which, const js::Value& val)
 {
     MOZ_ASSERT(which < mozilla::ArrayLength(toExtended()->extendedSlots));
+    MOZ_ASSERT_IF(js::IsMarkedBlack(this) && val.isMarkable(),
+                  !JS::GCThingIsMarkedGray(JS::GCCellPtr(val)));
     toExtended()->extendedSlots[which] = val;
 }
 
@@ -815,7 +817,7 @@ namespace JS {
 namespace detail {
 
 JS_PUBLIC_API(void)
-CheckIsValidConstructible(Value calleev);
+CheckIsValidConstructible(const Value& calleev);
 
 } // namespace detail
 } // namespace JS

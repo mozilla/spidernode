@@ -315,7 +315,7 @@ ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, Cell* cell)
 }
 
 static bool
-ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, Value val)
+ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, const Value& val)
 {
     return val.isMarkable() && ShouldMarkCrossCompartment(trc, src, (Cell*)val.toGCThing());
 }
@@ -400,7 +400,7 @@ ConvertToBase(T* thingp)
 template <typename T> void DispatchToTracer(JSTracer* trc, T* thingp, const char* name);
 template <typename T> T DoCallback(JS::CallbackTracer* trc, T* thingp, const char* name);
 template <typename T> void DoMarking(GCMarker* gcmarker, T* thing);
-template <typename T> void DoMarking(GCMarker* gcmarker, T thing);
+template <typename T> void DoMarking(GCMarker* gcmarker, const T& thing);
 template <typename T> void NoteWeakEdge(GCMarker* gcmarker, T** thingp);
 template <typename T> void NoteWeakEdge(GCMarker* gcmarker, T* thingp);
 
@@ -431,7 +431,7 @@ JS_PUBLIC_API(void)
 JS::TraceEdge(JSTracer* trc, JS::Heap<T>* thingp, const char* name)
 {
     MOZ_ASSERT(thingp);
-    if (InternalBarrierMethods<T>::isMarkable(thingp->get()))
+    if (InternalBarrierMethods<T>::isMarkable(*thingp->unsafeGet()))
         DispatchToTracer(trc, ConvertToBase(thingp->unsafeGet()), name);
 }
 
@@ -439,7 +439,7 @@ JS_PUBLIC_API(void)
 JS::TraceEdge(JSTracer* trc, JS::TenuredHeap<JSObject*>* thingp, const char* name)
 {
     MOZ_ASSERT(thingp);
-    if (JSObject* ptr = thingp->getPtr()) {
+    if (JSObject* ptr = thingp->unbarrieredGetPtr()) {
         DispatchToTracer(trc, &ptr, name);
         thingp->setPtr(ptr);
     }
@@ -807,7 +807,7 @@ struct DoMarkingFunctor : public VoidDefaultAdaptor<S> {
 
 template <typename T>
 void
-DoMarking(GCMarker* gcmarker, T thing)
+DoMarking(GCMarker* gcmarker, const T& thing)
 {
     DispatchTyped(DoMarkingFunctor<T>(), thing, gcmarker);
 }
@@ -956,7 +956,7 @@ template <typename V, typename S> struct TraverseEdgeFunctor : public VoidDefaul
 
 template <typename S, typename T>
 void
-js::GCMarker::traverseEdge(S source, T thing)
+js::GCMarker::traverseEdge(S source, const T& thing)
 {
     DispatchTyped(TraverseEdgeFunctor<T, S>(), thing, this, source);
 }
@@ -1480,7 +1480,7 @@ CallTraceHook(Functor f, JSTracer* trc, JSObject* obj, CheckGeneration check, Ar
 
         InlineTypedObject& tobj = obj->as<InlineTypedObject>();
         if (tobj.typeDescr().hasTraceList()) {
-            VisitTraceList(f, tobj.typeDescr().traceList(), tobj.inlineTypedMem(),
+            VisitTraceList(f, tobj.typeDescr().traceList(), tobj.inlineTypedMemForGC(),
                            mozilla::Forward<Args>(args)...);
         }
 
@@ -2482,6 +2482,14 @@ js::TenuringTracer::traceSlots(Value* vp, Value* end)
         traverse(vp);
 }
 
+#ifdef DEBUG
+static inline ptrdiff_t
+OffsetToChunkEnd(void* p)
+{
+    return ChunkLocationOffset - (uintptr_t(p) & gc::ChunkMask);
+}
+#endif
+
 size_t
 js::TenuringTracer::moveObjectToTenured(JSObject* dst, JSObject* src, AllocKind dstKind)
 {
@@ -2501,6 +2509,7 @@ js::TenuringTracer::moveObjectToTenured(JSObject* dst, JSObject* src, AllocKind 
         tenuredSize = srcSize = sizeof(NativeObject);
 
     // Copy the Cell contents.
+    MOZ_ASSERT(OffsetToChunkEnd(src) >= ptrdiff_t(srcSize));
     js_memcpy(dst, src, srcSize);
 
     // Move any hash code attached to the object.
@@ -2949,6 +2958,7 @@ TypedUnmarkGrayCellRecursively(T* t)
 
     JSRuntime* rt = t->runtimeFromMainThread();
     MOZ_ASSERT(!rt->isHeapCollecting());
+    MOZ_ASSERT(!rt->isCycleCollecting());
 
     bool unmarkedArg = false;
     if (t->isTenured()) {

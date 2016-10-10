@@ -1592,10 +1592,6 @@ JS_updateMallocCounter(JSContext* cx, size_t nbytes);
 extern JS_PUBLIC_API(char*)
 JS_strdup(JSContext* cx, const char* s);
 
-/** Duplicate a string.  Does not report an error on failure. */
-extern JS_PUBLIC_API(char*)
-JS_strdup(JSRuntime* rt, const char* s);
-
 /**
  * Register externally maintained GC roots.
  *
@@ -3494,7 +3490,7 @@ extern JS_PUBLIC_API(JS::Value)
 JS_GetReservedSlot(JSObject* obj, uint32_t index);
 
 extern JS_PUBLIC_API(void)
-JS_SetReservedSlot(JSObject* obj, uint32_t index, JS::Value v);
+JS_SetReservedSlot(JSObject* obj, uint32_t index, const JS::Value& v);
 
 
 /************************************************************************/
@@ -4281,7 +4277,7 @@ CompileModule(JSContext* cx, const ReadOnlyCompileOptions& options,
  * value.
  */
 extern JS_PUBLIC_API(void)
-SetModuleHostDefinedField(JSObject* module, JS::Value value);
+SetModuleHostDefinedField(JSObject* module, const JS::Value& value);
 
 /**
  * Get the [[HostDefined]] field of a source text module record.
@@ -5203,9 +5199,6 @@ const uint16_t MaxNumErrorArguments = 10;
  * and its arguments.
  */
 extern JS_PUBLIC_API(void)
-JS_ReportError(JSContext* cx, const char* format, ...);
-
-extern JS_PUBLIC_API(void)
 JS_ReportErrorASCII(JSContext* cx, const char* format, ...);
 
 extern JS_PUBLIC_API(void)
@@ -5217,16 +5210,6 @@ JS_ReportErrorUTF8(JSContext* cx, const char* format, ...);
 /*
  * Use an errorNumber to retrieve the format string, args are char*
  */
-extern JS_PUBLIC_API(void)
-JS_ReportErrorNumber(JSContext* cx, JSErrorCallback errorCallback,
-                     void* userRef, const unsigned errorNumber, ...);
-
-#ifdef va_start
-extern JS_PUBLIC_API(void)
-JS_ReportErrorNumberVA(JSContext* cx, JSErrorCallback errorCallback,
-                       void* userRef, const unsigned errorNumber, va_list ap);
-#endif
-
 extern JS_PUBLIC_API(void)
 JS_ReportErrorNumberASCII(JSContext* cx, JSErrorCallback errorCallback,
                           void* userRef, const unsigned errorNumber, ...);
@@ -5274,9 +5257,6 @@ JS_ReportErrorNumberUCArray(JSContext* cx, JSErrorCallback errorCallback,
  * being set, false otherwise.
  */
 extern JS_PUBLIC_API(bool)
-JS_ReportWarning(JSContext* cx, const char* format, ...);
-
-extern JS_PUBLIC_API(bool)
 JS_ReportWarningASCII(JSContext* cx, const char* format, ...);
 
 extern JS_PUBLIC_API(bool)
@@ -5284,11 +5264,6 @@ JS_ReportWarningLatin1(JSContext* cx, const char* format, ...);
 
 extern JS_PUBLIC_API(bool)
 JS_ReportWarningUTF8(JSContext* cx, const char* format, ...);
-
-extern JS_PUBLIC_API(bool)
-JS_ReportErrorFlagsAndNumber(JSContext* cx, unsigned flags,
-                             JSErrorCallback errorCallback, void* userRef,
-                             const unsigned errorNumber, ...);
 
 extern JS_PUBLIC_API(bool)
 JS_ReportErrorFlagsAndNumberASCII(JSContext* cx, unsigned flags,
@@ -5666,7 +5641,7 @@ extern JS_PUBLIC_API(bool)
 JS_ThrowStopIteration(JSContext* cx);
 
 extern JS_PUBLIC_API(bool)
-JS_IsStopIteration(JS::Value v);
+JS_IsStopIteration(const JS::Value& v);
 
 /**
  * A JS context always has an "owner thread". The owner thread is set when the
@@ -5738,8 +5713,8 @@ typedef enum JSJitCompilerOption {
 
 extern JS_PUBLIC_API(void)
 JS_SetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t value);
-extern JS_PUBLIC_API(int)
-JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt);
+extern JS_PUBLIC_API(bool)
+JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t* valueOut);
 
 /**
  * Convert a uint32_t index into a jsid.

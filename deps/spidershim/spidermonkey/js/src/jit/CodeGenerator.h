@@ -278,6 +278,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitConcat(LConcat* lir);
     void visitCharCodeAt(LCharCodeAt* lir);
     void visitFromCharCode(LFromCharCode* lir);
+    void visitFromCodePoint(LFromCodePoint* lir);
     void visitSinCos(LSinCos *lir);
     void visitStringSplit(LStringSplit* lir);
     void visitFunctionEnvironment(LFunctionEnvironment* lir);
@@ -311,7 +312,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitArrayPopShiftV(LArrayPopShiftV* lir);
     void visitArrayPopShiftT(LArrayPopShiftT* lir);
     void emitArrayPush(LInstruction* lir, const MArrayPush* mir, Register obj,
-                       ConstantOrRegister value, Register elementsTemp, Register length);
+                       const ConstantOrRegister& value, Register elementsTemp, Register length);
     void visitArrayPushV(LArrayPushV* lir);
     void visitArrayPushT(LArrayPushT* lir);
     void visitArraySlice(LArraySlice* lir);
@@ -439,12 +440,13 @@ class CodeGenerator final : public CodeGeneratorSpecific
 
   private:
     void addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
-                             ConstantOrRegister id, TypedOrValueRegister output,
+                             const ConstantOrRegister& id, TypedOrValueRegister output,
                              bool monitoredResult, bool allowDoubleResult,
                              jsbytecode* profilerLeavePc);
     void addSetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
                              Register temp, Register tempUnbox, FloatRegister tempDouble,
-                             FloatRegister tempF32, ConstantOrRegister id, ConstantOrRegister value,
+                             FloatRegister tempF32, const ConstantOrRegister& id,
+                             const ConstantOrRegister& value,
                              bool strict, bool needsTypeBarrier, bool guardHoles,
                              jsbytecode* profilerLeavePc);
 

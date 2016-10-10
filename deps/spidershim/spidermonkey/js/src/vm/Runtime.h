@@ -1269,7 +1269,7 @@ struct JSRuntime : public JS::shadow::Runtime,
   private:
     /* The stack format for the current runtime.  Only valid on non-child
      * runtimes. */
-    js::StackFormat stackFormat_;
+    mozilla::Atomic<js::StackFormat, mozilla::ReleaseAcquire> stackFormat_;
 
   public:
     js::StackFormat stackFormat() const {

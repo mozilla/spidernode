@@ -262,6 +262,24 @@ js::NativeObject::lookupPure(jsid id)
 }
 
 uint32_t
+js::NativeObject::numFixedSlotsForCompilation() const
+{
+    // This is an alternative method for getting the number of fixed slots in an
+    // object. It requires more logic and memory accesses than numFixedSlots()
+    // but is safe to be called from the compilation thread, even if the main
+    // thread is actively mutating the VM.
+
+    // The compiler does not have access to nursery things.
+    MOZ_ASSERT(!IsInsideNursery(this));
+
+    if (this->is<ArrayObject>())
+        return 0;
+
+    gc::AllocKind kind = asTenured().getAllocKind();
+    return gc::GetGCKindSlots(kind, getClass());
+}
+
+uint32_t
 js::NativeObject::dynamicSlotsCount(uint32_t nfixed, uint32_t span, const Class* clasp)
 {
     if (span <= nfixed)
@@ -1009,7 +1027,7 @@ js::NativeLookupOwnProperty<CanGC>(ExclusiveContext* cx, HandleNativeObject obj,
                                    MutableHandleShape propp);
 
 template bool
-js::NativeLookupOwnProperty<NoGC>(ExclusiveContext* cx, NativeObject* obj, jsid id,
+js::NativeLookupOwnProperty<NoGC>(ExclusiveContext* cx, NativeObject* const& obj, const jsid& id,
                                   FakeMutableHandle<Shape*> propp);
 
 /*** [[DefineOwnProperty]] ***********************************************************************/
@@ -1961,7 +1979,7 @@ GetNonexistentProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
 
 /* The NoGC version of GetNonexistentProperty, present only to make types line up. */
 bool
-GetNonexistentProperty(JSContext* cx, NativeObject* obj, jsid id, Value& receiver,
+GetNonexistentProperty(JSContext* cx, NativeObject* const& obj, const jsid& id, const Value& receiver,
                        IsNameLookup nameLookup, FakeMutableHandle<Value> vp)
 {
     return false;
@@ -2086,7 +2104,7 @@ js::GetPropertyForNameLookup(JSContext* cx, HandleObject obj, HandleId id, Mutab
 /*** [[Set]] *************************************************************************************/
 
 static bool
-MaybeReportUndeclaredVarAssignment(JSContext* cx, JSString* propname)
+MaybeReportUndeclaredVarAssignment(JSContext* cx, HandleString propname)
 {
     unsigned flags;
     {
@@ -2105,10 +2123,11 @@ MaybeReportUndeclaredVarAssignment(JSContext* cx, JSString* propname)
             return true;
     }
 
-    JSAutoByteString bytes(cx, propname);
-    return !!bytes &&
-           JS_ReportErrorFlagsAndNumber(cx, flags, GetErrorMessage, nullptr,
-                                        JSMSG_UNDECLARED_VAR, bytes.ptr());
+    JSAutoByteString bytes;
+    if (!bytes.encodeUtf8(cx, propname))
+        return false;
+    return JS_ReportErrorFlagsAndNumberUTF8(cx, flags, GetErrorMessage, nullptr,
+                                            JSMSG_UNDECLARED_VAR, bytes.ptr());
 }
 
 /*
@@ -2269,7 +2288,8 @@ SetNonexistentProperty(JSContext* cx, HandleId id, HandleValue v, HandleValue re
                        QualifiedBool qualified, ObjectOpResult& result)
 {
     if (!qualified && receiver.isObject() && receiver.toObject().isUnqualifiedVarObj()) {
-        if (!MaybeReportUndeclaredVarAssignment(cx, JSID_TO_STRING(id)))
+        RootedString idStr(cx, JSID_TO_STRING(id));
+        if (!MaybeReportUndeclaredVarAssignment(cx, idStr))
             return false;
     }
 

@@ -66,7 +66,7 @@ LIRGenerator::visitParameter(MParameter* param)
 
     offset *= sizeof(Value);
 #if defined(JS_NUNBOX32)
-# if defined(IS_BIG_ENDIAN)
+# if MOZ_BIG_ENDIAN
     ins->getDef(0)->setOutput(LArgument(offset));
     ins->getDef(1)->setOutput(LArgument(offset + 4));
 # else
@@ -1896,6 +1896,19 @@ LIRGenerator::visitFromCharCode(MFromCharCode* ins)
     MOZ_ASSERT(code->type() == MIRType::Int32);
 
     LFromCharCode* lir = new(alloc()) LFromCharCode(useRegister(code));
+    define(lir, ins);
+    assignSafepoint(lir, ins);
+}
+
+void
+LIRGenerator::visitFromCodePoint(MFromCodePoint* ins)
+{
+    MDefinition* codePoint = ins->getOperand(0);
+
+    MOZ_ASSERT(codePoint->type() == MIRType::Int32);
+
+    LFromCodePoint* lir = new(alloc()) LFromCodePoint(useRegister(codePoint));
+    assignSnapshot(lir, Bailout_BoundsCheck);
     define(lir, ins);
     assignSafepoint(lir, ins);
 }
