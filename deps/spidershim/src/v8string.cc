@@ -352,15 +352,16 @@ int String::WriteUtf8(char* buffer, int length, int* nchars_ref, int options) co
   // The number of bytes written to the buffer.  JS::DeflateStringToUTF8Buffer
   // expects the initial value of this variable to be the buffer's length,
   // and it uses the value to determine whether/when to abort writing bytes
-  // to the buffer.
-  size_t numBytes = (size_t)length;
+  // to the buffer.  However -1 is a valid argument to the v8 method, so we
+  // need to use the maximum possible length in that case.
+  size_t numBytes = (length >= 0) ? (size_t)length : (SIZE_MAX - (size_t)buffer);
 
   // The number of Unicode characters written to the buffer. This could be
   // less than the length of the string, if the buffer isn't big enough to hold
   // the whole string.
   size_t numChars = 0;
 
-  JS::DeflateStringToUTF8Buffer(flatStr, mozilla::RangedPtr<char>(buffer, length),
+  JS::DeflateStringToUTF8Buffer(flatStr, mozilla::RangedPtr<char>(buffer, numBytes),
                                 &numBytes, &numChars);
 
   if (numChars == (size_t)Length()) {

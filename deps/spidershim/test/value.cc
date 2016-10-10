@@ -1906,6 +1906,12 @@ TEST(SpiderShim, StringWrite) {
   CHECK_EQ(0, strcmp(utf8buf, "abc\303\260\342\230\203"));
 
   memset(utf8buf, 0x1, 1000);
+  len = str2->WriteUtf8(utf8buf, -1, &charlen);
+  CHECK_EQ(9, len);
+  CHECK_EQ(5, charlen);
+  CHECK_EQ(0, strcmp(utf8buf, "abc\303\260\342\230\203"));
+
+  memset(utf8buf, 0x1, 1000);
   len = str2->WriteUtf8(utf8buf, 8, &charlen);
   CHECK_EQ(8, len);
   CHECK_EQ(5, charlen);
