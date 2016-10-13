@@ -52,7 +52,7 @@ def get_targets(base_dir):
 
     path = "deps/spidershim/tests.gyp"
     params = {
-      b'parallel': True,
+      b'parallel': False,
       b'root_targets': None,
     }
     includes = [
