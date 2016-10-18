@@ -47,7 +47,7 @@ def is_executable(f):
     return os.path.isfile(f) and os.access(f, os.X_OK)
 
 def get_targets(base_dir):
-    sys.path.append("%s/tools/gyp/pylib" % base_dir)
+    sys.path.insert(0, "%s/tools/gyp/pylib" % base_dir)
     import gyp
 
     path = "deps/spidershim/tests.gyp"
