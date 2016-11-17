@@ -1374,9 +1374,24 @@ TEST(SpiderShim, Array) {
   EXPECT_EQ(42, Integer::Cast(*val.ToLocalChecked())->Value());
   EXPECT_EQ(15u, array->Length());
 
+  Local<Object> copy = array->Clone();
+  Local<Array> arrayClone = Local<Array>::Cast(copy);
+  for (int i = 0; i < 10; ++i) {
+    MaybeLocal<Value> val = array->Get(context, i);
+    EXPECT_EQ(i * i, Integer::Cast(*val.ToLocalChecked())->Value());
+  }
+  val = arrayClone->Get(context, 14);
+  EXPECT_EQ(42, Integer::Cast(*val.ToLocalChecked())->Value());
+  EXPECT_EQ(15u, arrayClone->Length());
+
   Local<String> str = array->ToString();
   String::Utf8Value utf8(str);
   EXPECT_STREQ("0,1,4,9,16,25,36,49,64,81,,,,,42", *utf8);
+
+  str = arrayClone->ToString();
+  String::Utf8Value utf8Clone(str);
+  EXPECT_STREQ("0,1,4,9,16,25,36,49,64,81,,,,,42", *utf8Clone);
+
   EXPECT_EQ(true, array->ToBoolean()->Value());
   EXPECT_EQ(true, array->BooleanValue());
   EXPECT_TRUE(array->ToNumber(context).IsEmpty());
