@@ -469,6 +469,38 @@ Local<Object> Object::Clone() {
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx, this);
   JS::RootedObject thisObj(cx, GetObject(this));
+  bool isArray;
+  if (!JS_IsArrayObject(cx, thisObj, &isArray)) {
+    return Local<Object>();
+  }
+
+  if (isArray) {
+    uint32_t length;
+    if (!JS_GetArrayLength(cx, thisObj, &length)) {
+      return Local<Object>();
+    }
+
+    JS::RootedObject copy(cx, JS_NewArrayObject(cx, length));
+    if (!copy) {
+      return Local<Object>();
+    }
+
+    JS::RootedValue val(cx);
+    for (uint32_t i = 0; i < length; i++) {
+      if (!JS_GetElement(cx, thisObj, i, &val)) {
+        return Local<Object>();
+      }
+
+      if (!JS_DefineElement(cx, copy, i, val, JSPROP_ENUMERATE)) {
+        return Local<Object>();
+      }
+    }
+
+    JS::Value copyVal;
+    copyVal.setObject(*copy);
+    return internal::Local<Object>::New(isolate, copyVal);
+  }
+
   JS::RootedObject prototype(cx);
   JS::Value cloneVal;
   if (JS_GetPrototype(cx, thisObj, &prototype)) {
