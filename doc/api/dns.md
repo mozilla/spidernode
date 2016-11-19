@@ -6,9 +6,9 @@ The `dns` module contains functions belonging to two different categories:
 
 1) Functions that use the underlying operating system facilities to perform
 name resolution, and that do not necessarily perform any network communication.
-This category contains only one function: [`dns.lookup()`][]. __Developers
+This category contains only one function: [`dns.lookup()`][]. **Developers
 looking to perform name resolution in the same way that other applications on
-the same operating system behave should use [`dns.lookup()`][].__
+the same operating system behave should use [`dns.lookup()`][].**
 
 For example, looking up `nodejs.org`.
 
@@ -148,7 +148,7 @@ On error, `err` is an [`Error`][] object, where `err.code` is the error code.
 const dns = require('dns');
 dns.lookupService('127.0.0.1', 22, (err, hostname, service) => {
   console.log(hostname, service);
-    // Prints: localhost ssh
+  // Prints: localhost ssh
 });
 ```
 
@@ -183,7 +183,7 @@ corresponding lookup methods.
 On error, `err` is an [`Error`][] object, where `err.code` is
 one of the error codes listed [here](#dns_error_codes).
 
-## dns.resolve4(hostname, callback)
+## dns.resolve4(hostname[, options], callback)
 <!-- YAML
 added: v0.1.16
 -->
@@ -193,7 +193,14 @@ Uses the DNS protocol to resolve a IPv4 addresses (`A` records) for the
 will contain an array of IPv4 addresses (e.g.
 `['74.125.79.104', '74.125.79.105', '74.125.79.106']`).
 
-## dns.resolve6(hostname, callback)
+* `hostname` {String} Hostname to resolve.
+* `options` {Object}
+  * `ttl` {Boolean} Retrieve the Time-To-Live value (TTL) of each record.
+    The callback receives an array of `{ address: '1.2.3.4', ttl: 60 }` objects
+    rather than an array of strings.  The TTL is expressed in seconds.
+* `callback` {Function} An `(err, result)` callback function.
+
+## dns.resolve6(hostname[, options], callback)
 <!-- YAML
 added: v0.1.16
 -->
@@ -201,6 +208,13 @@ added: v0.1.16
 Uses the DNS protocol to resolve a IPv6 addresses (`AAAA` records) for the
 `hostname`. The `addresses` argument passed to the `callback` function
 will contain an array of IPv6 addresses.
+
+* `hostname` {String} Hostname to resolve.
+* `options` {Object}
+  * `ttl` {Boolean} Retrieve the Time-To-Live value (TTL) of each record.
+    The callback receives an array of `{ address: '0:1:2:3:4:5:6:7', ttl: 60 }`
+    objects rather than an array of strings.  The TTL is expressed in seconds.
+* `callback` {Function} An `(err, result)` callback function.
 
 ## dns.resolveCname(hostname, callback)
 <!-- YAML
@@ -260,7 +274,7 @@ added: v0.1.90
 Uses the DNS protocol to resolve name server records (`NS` records) for the
 `hostname`. The `addresses` argument passed to the `callback` function will
 contain an array of name server records available for `hostname`
-(e.g., `['ns1.example.com', 'ns2.example.com']`).
+(e.g. `['ns1.example.com', 'ns2.example.com']`).
 
 ## dns.resolveSoa(hostname, callback)
 <!-- YAML

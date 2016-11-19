@@ -165,7 +165,7 @@ module.exports = {
         }
 
         /**
-         * Check if return tag type is void or undefined
+         * Validate type for a given JSDoc node
          * @param {Object} jsdocNode JSDoc node
          * @param {Object} type JSDoc tag
          * @returns {void}
@@ -192,7 +192,9 @@ module.exports = {
                     elements = type.elements;
                     break;
                 case "FieldType":  // Array.<{count: number, votes: number}>
-                    typesToCheck.push(getCurrentExpectedTypes(type.value));
+                    if (type.value) {
+                        typesToCheck.push(getCurrentExpectedTypes(type.value));
+                    }
                     break;
                 default:
                     typesToCheck.push(getCurrentExpectedTypes(type));
@@ -279,7 +281,13 @@ module.exports = {
                             hasReturns = true;
 
                             if (!requireReturn && !functionData.returnPresent && (tag.type === null || !isValidReturnType(tag)) && !isAbstract) {
-                                context.report(jsdocNode, "Unexpected @" + tag.title + " tag; function has no return statement.");
+                                context.report({
+                                    node: jsdocNode,
+                                    message: "Unexpected @{{title}} tag; function has no return statement.",
+                                    data: {
+                                        title: tag.title
+                                    }
+                                });
                             } else {
                                 if (requireReturnType && !tag.type) {
                                     context.report(jsdocNode, "Missing JSDoc return type.");
@@ -330,7 +338,13 @@ module.exports = {
                     node.parent.kind !== "get" && node.parent.kind !== "constructor" &&
                     node.parent.kind !== "set" && !isTypeClass(node)) {
                     if (requireReturn || functionData.returnPresent) {
-                        context.report(jsdocNode, "Missing JSDoc @" + (prefer.returns || "returns") + " for function.");
+                        context.report({
+                            node: jsdocNode,
+                            message: "Missing JSDoc @{{returns}} for function.",
+                            data: {
+                                returns: prefer.returns || "returns"
+                            }
+                        });
                     }
                 }
 
