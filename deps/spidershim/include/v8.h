@@ -82,6 +82,7 @@ class FunctionTemplate;
 class HeapProfiler;
 class HeapSpaceStatistics;
 class HeapObjectStatistics;
+class HeapCodeStatistics;
 class HeapStatistics;
 class Int32;
 class Integer;
@@ -186,6 +187,55 @@ enum AccessControl {
   PROHIBITS_OVERWRITING = 1 << 2,
 };
 
+ /**
+ * Property filter bits. They can be or'ed to build a composite filter.
+ */
+enum PropertyFilter {
+  ALL_PROPERTIES = 0,
+  ONLY_WRITABLE = 1,
+  ONLY_ENUMERABLE = 2,
+  ONLY_CONFIGURABLE = 4,
+  SKIP_STRINGS = 8,
+  SKIP_SYMBOLS = 16
+};
+
+/**
+ * Keys/Properties filter enums:
+ *
+ * KeyCollectionMode limits the range of collected properties. kOwnOnly limits
+ * the collected properties to the given Object only. kIncludesPrototypes will
+ * include all keys of the objects's prototype chain as well.
+ */
+enum class KeyCollectionMode { kOwnOnly, kIncludePrototypes };
+
+/**
+ * kIncludesIndices allows for integer indices to be collected, while
+ * kSkipIndices will exclude integer indicies from being collected.
+ */
+enum class IndexFilter { kIncludeIndices, kSkipIndices };
+
+/**
+ * Option flags passed to the SetRAILMode function.
+ * See documentation https://developers.google.com/web/tools/chrome-devtools/
+ * profile/evaluate-performance/rail
+ */
+enum RAILMode {
+  // Response performance mode: In this mode very low virtual machine latency
+  // is provided. V8 will try to avoid JavaScript execution interruptions.
+  // Throughput may be throttled.
+  PERFORMANCE_RESPONSE,
+  // Animation performance mode: In this mode low virtual machine latency is
+  // provided. V8 will try to avoid as many JavaScript execution interruptions
+  // as possible. Throughput may be throttled. This is the default mode.
+  PERFORMANCE_ANIMATION,
+  // Idle performance mode: The embedder is idle. V8 can complete deferred work
+  // in this mode.
+  PERFORMANCE_IDLE,
+  // Load performance mode: In this mode high throughput is provided. V8 may
+  // turn off latency optimizations.
+  PERFORMANCE_LOAD
+};
+
 enum JitCodeEventOptions {
   kJitCodeEventDefault = 0,
   kJitCodeEventEnumExisting = 1,
@@ -241,6 +291,7 @@ typedef void (*IndexedPropertyEnumeratorCallback)(
 
 typedef bool (*EntropySource)(unsigned char* buffer, size_t length);
 typedef void (*FatalErrorCallback)(const char* location, const char* message);
+typedef void (*OOMErrorCallback)(const char* location, bool is_heap_oom);
 typedef void (*JitCodeEventHandler)(const JitCodeEvent* event);
 
 template <class T>
@@ -280,7 +331,7 @@ class Local {
   }
 
   template <class S>
-  V8_INLINE Local<S> As() {
+  V8_INLINE Local<S> As() const {
     return Local<S>::Cast(*this);
   }
 
@@ -448,31 +499,12 @@ class WeakCallbackInfo {
   void* internal_fields_[kInternalFieldsInWeakCallback];
 };
 
-template <class T, class P>
-class WeakCallbackData {
- public:
-  typedef void (*Callback)(const WeakCallbackData<T, P>& data);
-
-  WeakCallbackData(Isolate* isolate, P* parameter, Local<T> handle)
-      : isolate_(isolate), parameter_(parameter), handle_(handle) {}
-
-  V8_INLINE Isolate* GetIsolate() const { return isolate_; }
-  V8_INLINE P* GetParameter() const { return parameter_; }
-  V8_INLINE Local<T> GetValue() const { return handle_; }
-
- private:
-  Isolate* isolate_;
-  P* parameter_;
-  Local<T> handle_;
-};
-
-#if 0
-// A helper method for turning off the WeakReferenceCallback that was set using
-// the previous method
-V8_EXPORT void ClearObjectWeakReferenceCallback(JsValueRef object, bool revive);
-#endif
-
-enum class WeakCallbackType { kParameter, kInternalFields };
+// kParameter will pass a void* parameter back to the callback, kInternalFields
+// will pass the first two internal fields back to the callback, kFinalizer
+// will pass a void* parameter back, but is invoked before the object is
+// actually collected, so it can be resurrected. In the last case, it is not
+// possible to request a second pass callback.
+enum class WeakCallbackType { kParameter, kInternalFields, kFinalizer };
 
 template <class T>
 class PersistentBase {
@@ -509,22 +541,27 @@ class PersistentBase {
   }
 
   template <typename P>
-  V8_INLINE V8_DEPRECATE_SOON(
-      "use WeakCallbackInfo version",
-      void SetWeak(P* parameter,
-                   typename WeakCallbackData<T, P>::Callback callback));
-
-  template <typename P>
   V8_INLINE void SetWeak(P* parameter,
                          typename WeakCallbackInfo<P>::Callback callback,
                          WeakCallbackType type);
+
+  /**
+   * Turns this handle into a weak phantom handle without finalization callback.
+   * The handle will be reset automatically when the garbage collector detects
+   * that the object is no longer reachable.
+   * A related function Isolate::NumberOfPhantomHandleResetsSinceLastCall
+   * returns how many phantom handles were reset by the garbage collector.
+   */
+  V8_INLINE void SetWeak();
 
   template <typename P>
   P* ClearWeak();
 
   V8_INLINE void ClearWeak() { ClearWeak<void>(); }
   V8_INLINE void MarkIndependent();
-  V8_INLINE void MarkPartiallyDependent();
+  V8_INLINE V8_DEPRECATED(
+      "deprecated optimization, do not use partially dependent groups",
+      void MarkPartiallyDependent());
   V8_INLINE bool IsIndependent() const;
   V8_INLINE bool IsNearDeath() const;
   bool IsWeak() const;
@@ -623,12 +660,12 @@ class Persistent : public PersistentBase<T> {
   }
 
   template <class S>
-  V8_INLINE static Persistent<T>& Cast(Persistent<S>& that) {  // NOLINT
-    return reinterpret_cast<Persistent<T>&>(that);
+  V8_INLINE static Persistent<T>& Cast(const Persistent<S>& that) {  // NOLINT
+    return reinterpret_cast<Persistent<T>&>(const_cast<Persistent<S>&>(that));
   }
 
   template <class S>
-  V8_INLINE Persistent<S>& As() {  // NOLINT
+  V8_INLINE Persistent<S>& As() const {  // NOLINT
     return Persistent<S>::Cast(*this);
   }
 
@@ -1131,6 +1168,7 @@ class V8_EXPORT Value : public Data {
   bool IsSet() const;
   bool IsPromise() const;
   bool IsProxy() const;
+  bool IsWebAssemblyCompiledModule() const;
 
   V8_WARN_UNUSED_RESULT MaybeLocal<Boolean> ToBoolean(
       Local<Context> context) const;
@@ -1186,6 +1224,8 @@ class V8_EXPORT Value : public Data {
   static Value* Cast(T* value) {
     return static_cast<Value*>(value);
   }
+
+  Local<String> TypeOf(v8::Isolate*);
 
  private:
   char spidershim_padding[8];  // see the comment for Value.
@@ -1590,10 +1630,22 @@ class V8_EXPORT Object : public Value {
   V8_DEPRECATE_SOON("Use maybe version", Local<Array> GetPropertyNames());
   V8_WARN_UNUSED_RESULT MaybeLocal<Array> GetPropertyNames(
       Local<Context> context);
+  V8_WARN_UNUSED_RESULT MaybeLocal<Array> GetPropertyNames(
+      Local<Context> context, KeyCollectionMode mode,
+      PropertyFilter property_filter, IndexFilter index_filter);
 
   V8_DEPRECATE_SOON("Use maybe version", Local<Array> GetOwnPropertyNames());
   V8_WARN_UNUSED_RESULT MaybeLocal<Array> GetOwnPropertyNames(
       Local<Context> context);
+
+  /**
+   * Returns an array containing the names of the filtered properties
+   * of this object, including properties from prototype objects.  The
+   * array returned by this method contains the same values as would
+   * be enumerated by a for-in statement over this object.
+   */
+  V8_WARN_UNUSED_RESULT MaybeLocal<Array> GetOwnPropertyNames(
+      Local<Context> context, PropertyFilter filter);
 
   Local<Value> GetPrototype();
 
@@ -1622,11 +1674,15 @@ class V8_EXPORT Object : public Value {
     return object.val_->GetAlignedPointerFromInternalField(index);
   }
   void SetAlignedPointerInInternalField(int index, void* value);
+  void SetAlignedPointerInInternalFields(int argc, int indices[],
+                                         void* values[]);
 
   V8_DEPRECATE_SOON("Use maybe version",
                     bool HasOwnProperty(Handle<String> key));
   V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
                                                    Local<Name> key);
+  V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
+                                                   uint32_t index);
   V8_DEPRECATE_SOON("Use maybe version",
                     bool HasRealNamedProperty(Handle<String> key));
   V8_WARN_UNUSED_RESULT Maybe<bool> HasRealNamedProperty(Local<Context> context,
@@ -1657,12 +1713,6 @@ class V8_EXPORT Object : public Value {
   V8_WARN_UNUSED_RESULT Maybe<PropertyAttribute> GetRealNamedPropertyAttributes(
       Local<Context> context, Local<Name> key);
 
-  V8_DEPRECATE_SOON("Use v8::Object::SetPrivate instead.",
-                    bool SetHiddenValue(Handle<String> key,
-                                        Handle<Value> value));
-  V8_DEPRECATE_SOON("Use v8::Object::GetPrivate instead.",
-                    Local<Value> GetHiddenValue(Handle<String> key));
-
   Maybe<bool> HasPrivate(Local<Context> context, Local<Private> key);
   Maybe<bool> SetPrivate(Local<Context> context, Local<Private> key,
                          Local<Value> value);
@@ -1671,6 +1721,11 @@ class V8_EXPORT Object : public Value {
 
   Local<Object> Clone();
   Local<Context> CreationContext();
+
+  /**
+   * True if this object is a constructor.
+   */
+  bool IsConstructor();
 
   V8_DEPRECATE_SOON("Use maybe version",
                     Local<Value> CallAsFunction(Handle<Value> recv, int argc,
@@ -1895,12 +1950,14 @@ class PropertyCallbackInfo {
 
 typedef void (*FunctionCallback)(const FunctionCallbackInfo<Value>& info);
 
+enum class ConstructorBehavior { kThrow, kAllow };
+
 class V8_EXPORT Function : public Object {
  public:
-  static MaybeLocal<Function> New(Local<Context> context,
-                                  FunctionCallback callback,
-                                  Local<Value> data = Local<Value>(),
-                                  int length = 0);
+  static MaybeLocal<Function> New(
+      Local<Context> context, FunctionCallback callback,
+      Local<Value> data = Local<Value>(), int length = 0,
+      ConstructorBehavior behavior = ConstructorBehavior::kAllow);
   static Local<Function> New(Isolate* isolate, FunctionCallback callback,
                              Local<Value> data = Local<Value>(),
                              int length = 0);
@@ -1957,7 +2014,6 @@ class V8_EXPORT Promise : public Object {
     static void CheckCast(Value* obj);
   };
 
-  Local<Promise> Chain(Handle<Function> handler);
   Local<Promise> Catch(Handle<Function> handler);
   Local<Promise> Then(Handle<Function> handler);
 
@@ -1986,6 +2042,27 @@ class V8_EXPORT Proxy : public Object {
   static void CheckCast(Value* obj);
 };
 
+class V8_EXPORT WasmCompiledModule : public Object {
+ public:
+  typedef std::pair<std::unique_ptr<const uint8_t[]>, size_t> SerializedModule;
+
+  SerializedModule Serialize();
+  static MaybeLocal<WasmCompiledModule> Deserialize(
+      Isolate* isolate, const SerializedModule& serialized_data);
+  V8_INLINE static WasmCompiledModule* Cast(Value* obj);
+
+ private:
+  WasmCompiledModule();
+  static void CheckCast(Value* obj);
+};
+
+WasmCompiledModule* WasmCompiledModule::Cast(v8::Value* value) {
+#ifdef V8_ENABLE_CHECKS
+  CheckCast(value);
+#endif
+  return static_cast<WasmCompiledModule*>(value);
+}
+
 #ifndef V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT
 // The number of required internal fields can be defined by embedder.
 #define V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT 2
@@ -2001,6 +2078,13 @@ class V8_EXPORT ArrayBuffer : public Object {
     virtual void* Allocate(size_t length) = 0;
     virtual void* AllocateUninitialized(size_t length) = 0;
     virtual void Free(void* data, size_t length) = 0;
+
+    /**
+     * malloc/free based convenience allocator.
+     *
+     * Caller takes ownership.
+     */
+    static Allocator* NewDefaultAllocator();
   };
 
   class V8_EXPORT Contents {  // NOLINT
@@ -2160,10 +2244,13 @@ enum AccessType {
   ACCESS_KEYS
 };
 
-typedef bool (*NamedSecurityCallback)(Local<Object> host, Local<Value> key,
-                                      AccessType type, Local<Value> data);
-typedef bool (*IndexedSecurityCallback)(Local<Object> host, uint32_t index,
-                                        AccessType type, Local<Value> data);
+/**
+ * Returns true if the given context should be allowed to access the given
+ * object.
+ */
+typedef bool (*AccessCheckCallback)(Local<Context> accessing_context,
+                                    Local<Object> accessed_object,
+                                    Local<Value> data);
 
 class V8_EXPORT Template : public Data {
  public:
@@ -2202,7 +2289,12 @@ class V8_EXPORT FunctionTemplate : public Template {
   static Local<FunctionTemplate> New(
       Isolate* isolate, FunctionCallback callback = 0,
       Handle<Value> data = Handle<Value>(),
-      Handle<Signature> signature = Handle<Signature>(), int length = 0);
+      Handle<Signature> signature = Handle<Signature>(), int length = 0,
+      ConstructorBehavior behavior = ConstructorBehavior::kAllow);
+
+  /** Get a template included in the snapshot by index. */
+  static MaybeLocal<FunctionTemplate> FromSnapshot(Isolate* isolate,
+                                                   size_t index);
 
   V8_DEPRECATE_SOON("Use maybe version", Local<Function> GetFunction());
   V8_WARN_UNUSED_RESULT MaybeLocal<Function> GetFunction(
@@ -2212,6 +2304,16 @@ class V8_EXPORT FunctionTemplate : public Template {
   Local<ObjectTemplate> PrototypeTemplate();
   void SetClassName(Handle<String> name);
   void SetHiddenPrototype(bool value);
+
+  /**
+   * Similar to Context::NewRemoteContext, this creates an instance that
+   * isn't backed by an actual object.
+   *
+   * The InstanceTemplate of this FunctionTemplate must have access checks with
+   * handlers installed.
+   */
+  V8_WARN_UNUSED_RESULT MaybeLocal<Object> NewRemoteInstance();
+
   void SetCallHandler(FunctionCallback callback,
                       Handle<Value> data = Handle<Value>());
   bool HasInstance(Handle<Value> object);
@@ -2307,6 +2409,10 @@ class V8_EXPORT ObjectTemplate : public Template {
       Isolate* isolate,
       Local<FunctionTemplate> constructor = Local<FunctionTemplate>());
 
+  /** Get a template included in the snapshot by index. */
+  static MaybeLocal<ObjectTemplate> FromSnapshot(Isolate* isolate,
+                                                 size_t index);
+
   V8_DEPRECATE_SOON("Use maybe version", Local<Object> NewInstance());
   V8_WARN_UNUSED_RESULT MaybeLocal<Object> NewInstance(Local<Context> context);
 
@@ -2332,7 +2438,6 @@ class V8_EXPORT ObjectTemplate : public Template {
                                Handle<Value> data = Handle<Value>());
   void SetHandler(const NamedPropertyHandlerConfiguration& configuration);
 
-  void SetHandler(const IndexedPropertyHandlerConfiguration& configuration);
   void SetIndexedPropertyHandler(
       IndexedPropertyGetterCallback getter,
       IndexedPropertySetterCallback setter = 0,
@@ -2341,13 +2446,45 @@ class V8_EXPORT ObjectTemplate : public Template {
       IndexedPropertyEnumeratorCallback enumerator = 0,
       Handle<Value> data = Handle<Value>());
 
-  void SetAccessCheckCallbacks(NamedSecurityCallback named_handler,
-                               IndexedSecurityCallback indexed_handler,
-                               Handle<Value> data = Handle<Value>(),
-                               bool turned_on_by_default = true);
+  /**
+   * Sets an indexed property handler on the object template.
+   *
+   * Whenever an indexed property is accessed on objects created from
+   * this object template, the provided callback is invoked instead of
+   * accessing the property directly on the JavaScript object.
+   *
+   * @param configuration The IndexedPropertyHandlerConfiguration that defines
+   * the callbacks to invoke when accessing a property.
+   */
+  void SetHandler(const IndexedPropertyHandlerConfiguration& configuration);
+
+  /**
+   * Like SetAccessCheckCallback but invokes an interceptor on failed access
+   * checks instead of looking up all-can-read properties. You can only use
+   * either this method or SetAccessCheckCallback, but not both at the same
+   * time.
+   */
+  void SetAccessCheckCallbackAndHandler(
+      AccessCheckCallback callback,
+      const NamedPropertyHandlerConfiguration& named_handler,
+      const IndexedPropertyHandlerConfiguration& indexed_handler,
+      Handle<Value> data = Handle<Value>());
 
   int InternalFieldCount();
   void SetInternalFieldCount(int value);
+
+  /**
+   * Returns true if the object will be an immutable prototype exotic object.
+   */
+  bool IsImmutableProto();
+
+  /**
+   * Makes the ObjectTempate for an immutable prototype exotic object, with an
+   * immutable __proto__.
+   */
+  void SetImmutableProto();
+
+
   void SetCallAsFunctionHandler(FunctionCallback callback,
                                 Handle<Value> data = Handle<Value>());
 
@@ -2528,7 +2665,10 @@ enum GCCallbackFlags {
   kNoGCCallbackFlags = 0,
   kGCCallbackFlagCompacted = 1 << 0,
   kGCCallbackFlagConstructRetainedObjectInfos = 1 << 1,
-  kGCCallbackFlagForced = 1 << 2
+  kGCCallbackFlagForced = 1 << 2,
+  kGCCallbackFlagSynchronousPhantomCallbackProcessing = 1 << 3,
+  kGCCallbackFlagCollectAllAvailableGarbage = 1 << 4,
+  kGCCallbackFlagCollectAllExternalMemory = 1 << 5,
 };
 
 typedef void (*GCPrologueCallback)(GCType type, GCCallbackFlags flags);
@@ -2571,6 +2711,14 @@ class V8_EXPORT Isolate {
     CreateHistogramCallback create_histogram_callback;
     AddHistogramSampleCallback add_histogram_sample_callback;
     ArrayBuffer::Allocator* array_buffer_allocator;
+
+    /**
+     * Specifies an optional nullptr-terminated array of raw addresses in the
+     * embedder that V8 can match against during serialization and use for
+     * deserialization. This array and its content must stay valid for the
+     * entire lifetime of the isolate.
+     */
+    intptr_t* external_references;
   };
 
   class V8_EXPORT Scope {
@@ -2618,6 +2766,12 @@ class V8_EXPORT Isolate {
   bool GetHeapSpaceStatistics(HeapSpaceStatistics* space_statistics,
                               size_t index);
   int64_t AdjustAmountOfExternalAllocatedMemory(int64_t change_in_bytes);
+  /**
+   * Returns the number of phantom handles without callbacks that were reset
+   * by the garbage collector since the last call to this function.
+   */
+  size_t NumberOfPhantomHandleResetsSinceLastCall();
+
   void SetData(uint32_t slot, void* data);
   void* GetData(uint32_t slot);
   static uint32_t GetNumberOfDataSlots();
@@ -2635,6 +2789,8 @@ class V8_EXPORT Isolate {
   void AddMicrotasksCompletedCallback(MicrotasksCompletedCallback callback);
   void RemoveMicrotasksCompletedCallback(MicrotasksCompletedCallback callback);
   void SetFatalErrorHandler(FatalErrorCallback that);
+  /** Set the callback to invoke in case of OOM errors. */
+  void SetOOMErrorHandler(OOMErrorCallback that);
   void SetJitCodeEventHandler(JitCodeEventOptions options,
                               JitCodeEventHandler event_handler);
   bool AddMessageListener(MessageCallback that,
@@ -2642,7 +2798,8 @@ class V8_EXPORT Isolate {
   void RemoveMessageListeners(MessageCallback that);
   Local<Value> ThrowException(Local<Value> exception);
   HeapProfiler* GetHeapProfiler();
-  CpuProfiler* GetCpuProfiler();
+  V8_DEPRECATE_SOON("CpuProfiler should be created with CpuProfiler::New call.",
+                    CpuProfiler* GetCpuProfiler());
 
   typedef void (*GCPrologueCallback)(Isolate* isolate, GCType type,
                                      GCCallbackFlags flags);
@@ -2674,6 +2831,15 @@ class V8_EXPORT Isolate {
   int ContextDisposedNotification();
 
   /**
+   * Optional notification to tell V8 the current performance requirements
+   * of the embedder based on RAIL.
+   * V8 uses these notifications to guide heuristics.
+   * This is an unfinished experimental feature. Semantics and implementation
+   * may change frequently.
+   */
+  void SetRAILMode(RAILMode rail_mode);
+
+  /**
    * Returns the number of types of objects tracked in the heap at GC.
    */
   size_t NumberOfTrackedHeapObjectTypes();
@@ -2689,6 +2855,21 @@ class V8_EXPORT Isolate {
    */
   bool GetHeapObjectStatisticsAtLastGC(HeapObjectStatistics* object_statistics,
                                        size_t type_index);
+
+  /**
+   * Get statistics about code and its metadata in the heap.
+   *
+   * \param object_statistics The HeapCodeStatistics object to fill in
+   *   statistics of code, bytecode and their metadata.
+   * \returns true on success.
+   */
+  bool GetHeapCodeAndMetadataStatistics(HeapCodeStatistics* object_statistics);
+
+  /**
+   * Check if this isolate is in use.
+   * True if at least one thread Enter'ed this isolate.
+   */
+  bool IsInUse();
 
   ~Isolate();
 
@@ -2810,11 +2991,27 @@ class V8_EXPORT V8 {
   static void ShutdownPlatform() {}
   static void FromJustIsNothing();
   static void ToLocalEmpty();
-  static bool InitializeICU(const char* icu_data_file = nullptr) {
-    // SpiderMonkey links against ICU statically, so there is nothing to do
-    // here.
-    return true;
-  }
+  V8_DEPRECATE_SOON(
+      "Use version with default location.",
+      static bool InitializeICU(const char* icu_data_file = nullptr) {
+        // SpiderMonkey links against ICU statically, so there is nothing to do
+        // here.
+        return true;
+      });
+  /**
+   * Initialize the ICU library bundled with V8. The embedder should only
+   * invoke this method when using the bundled ICU. If V8 was compiled with
+   * the ICU data in an external file and when the default location of that
+   * file should be used, a path to the executable must be provided.
+   * Returns true on success.
+   *
+   * The default is a file called icudtl.dat side-by-side with the executable.
+   *
+   * Optionally, the location of the data file can be provided to override the
+   * default.
+   */
+  static bool InitializeICUDefaultLocation(const char* exec_path,
+                                           const char* icu_data_file = nullptr);
   static void InitializeExternalStartupData(const char* directory_path) {
     // No data to initialize.
   }
@@ -2843,6 +3040,63 @@ class V8_EXPORT V8 {
 
  private:
   friend class Context;
+  template <class K, class V, class T>
+  friend class PersistentValueMapBase;
+};
+
+/**
+ * Helper class to create a snapshot data blob.
+ */
+class SnapshotCreator {
+ public:
+  enum class FunctionCodeHandling { kClear, kKeep };
+
+  /**
+   * Create and enter an isolate, and set it up for serialization.
+   * The isolate is either created from scratch or from an existing snapshot.
+   * The caller keeps ownership of the argument snapshot.
+   * \param existing_blob existing snapshot from which to create this one.
+   * \param external_references a null-terminated array of external references
+   *        that must be equivalent to CreateParams::external_references.
+   */
+  SnapshotCreator(intptr_t* external_references = nullptr,
+                  StartupData* existing_blob = nullptr);
+
+  ~SnapshotCreator();
+
+  /**
+   * \returns the isolate prepared by the snapshot creator.
+   */
+  Isolate* GetIsolate();
+
+  /**
+   * Add a context to be included in the snapshot blob.
+   * \returns the index of the context in the snapshot blob.
+   */
+  size_t AddContext(Local<Context> context);
+
+  /**
+   * Add a template to be included in the snapshot blob.
+   * \returns the index of the template in the snapshot blob.
+   */
+  size_t AddTemplate(Local<Template> template_obj);
+
+  /**
+   * Created a snapshot data blob.
+   * This must not be called from within a handle scope.
+   * \param function_code_handling whether to include compiled function code
+   *        in the snapshot.
+   * \returns { nullptr, 0 } on failure, and a startup snapshot on success. The
+   *        caller acquires ownership of the data array in the return value.
+   */
+  StartupData CreateBlob(FunctionCodeHandling function_code_handling);
+
+ private:
+  void* data_;
+
+  // Disallow copying and assigning.
+  SnapshotCreator(const SnapshotCreator&);
+  void operator=(const SnapshotCreator&);
 };
 
 class V8_EXPORT Exception {
@@ -2869,6 +3123,7 @@ class V8_EXPORT HeapStatistics {
   size_t used_heap_size() { return this->used_heap_size_; }
   size_t heap_size_limit() { return 0; }
   size_t malloced_memory() { return 0; }
+  size_t peak_malloced_memory() { return 0; }
   size_t does_zap_garbage() { return 0; }
 
   friend class Isolate;
@@ -2910,6 +3165,19 @@ class V8_EXPORT HeapObjectStatistics {
   friend class Isolate;
 };
 
+class V8_EXPORT HeapCodeStatistics {
+ public:
+  HeapCodeStatistics();
+  size_t code_and_metadata_size() { return code_and_metadata_size_; }
+  size_t bytecode_and_metadata_size() { return bytecode_and_metadata_size_; }
+
+ private:
+  size_t code_and_metadata_size_;
+  size_t bytecode_and_metadata_size_;
+
+  friend class Isolate;
+};
+
 class V8_EXPORT JitCodeEvent {
  public:
   enum EventType {
@@ -2939,19 +3207,27 @@ class V8_EXPORT StartupData {
 template <class T>
 class Maybe {
  public:
-  bool IsNothing() const { return !has_value; }
-  bool IsJust() const { return has_value; }
+  bool IsNothing() const { return !has_value_; }
+  bool IsJust() const { return has_value_; }
+
+  // Will crash if the Maybe<> is nothing.
+  V8_INLINE T ToChecked() const { return FromJust(); }
+
+  V8_WARN_UNUSED_RESULT V8_INLINE bool To(T* out) const {
+    if (V8_LIKELY(IsJust())) *out = value_;
+    return IsJust();
+  }
 
   // Will crash if the Maybe<> is nothing.
   T FromJust() const {
     if (!IsJust()) {
       V8::FromJustIsNothing();
     }
-    return value;
+    return value_;
   }
 
-  T FromMaybe(const T& default_value) const {
-    return has_value ? value : default_value;
+  T FromMaybe(const T& default_value_) const {
+    return has_value_ ? value_ : default_value_;
   }
 
   bool operator==(const Maybe& other) const {
@@ -2962,11 +3238,11 @@ class Maybe {
   bool operator!=(const Maybe& other) const { return !operator==(other); }
 
  private:
-  Maybe() : has_value(false) {}
-  explicit Maybe(const T& t) : has_value(true), value(t) {}
+  Maybe() : has_value_(false) {}
+  explicit Maybe(const T& t) : has_value_(true), value_(t) {}
 
-  bool has_value;
-  T value;
+  bool has_value_;
+  T value_;
 
   template <class U>
   friend Maybe<U> Nothing();
@@ -3032,9 +3308,36 @@ class V8_EXPORT Context {
 
   static Local<Context> New(
       Isolate* isolate, ExtensionConfiguration* extensions = NULL,
-      Handle<ObjectTemplate> global_template = Handle<ObjectTemplate>(),
-      Handle<Value> global_object = Handle<Value>());
+      MaybeLocal<ObjectTemplate> global_template = MaybeLocal<ObjectTemplate>(),
+      MaybeLocal<Value> global_object = MaybeLocal<Value>());
   static Local<Context> GetCurrent();
+
+  static MaybeLocal<Context> FromSnapshot(
+      Isolate* isolate, size_t context_snapshot_index,
+      ExtensionConfiguration* extensions = nullptr,
+      MaybeLocal<ObjectTemplate> global_template = MaybeLocal<ObjectTemplate>(),
+      MaybeLocal<Value> global_object = MaybeLocal<Value>());
+
+  /**
+   * Returns an global object that isn't backed by an actual context.
+   *
+   * The global template needs to have access checks with handlers installed.
+   * If an existing global object is passed in, the global object is detached
+   * from its context.
+   *
+   * Note that this is different from a detached context where all accesses to
+   * the global proxy will fail. Instead, the access check handlers are invoked.
+   *
+   * It is also not possible to detach an object returned by this method.
+   * Instead, the access check handlers need to return nothing to achieve the
+   * same effect.
+   *
+   * It is possible, however, to create a new context from the global object
+   * returned by this method.
+   */
+  static MaybeLocal<Object> NewRemoteContext(
+      Isolate* isolate, Local<ObjectTemplate> global_template,
+      MaybeLocal<Value> global_object = MaybeLocal<Value>());
 
   Isolate* GetIsolate();
   void* GetAlignedPointerFromEmbedderData(int index);
@@ -3155,17 +3458,6 @@ void PersistentBase<T>::Reset() {
 
   Isolate::GetCurrent()->RemovePersistent(this->val_);
 
-#if 0
-  if (IsWeak()) {
-    if (_weakWrapper.unique()) {
-      chakrashim::ClearObjectWeakReferenceCallback(val_, /*revive*/false);
-    }
-    _weakWrapper.reset();
-  } else {
-    JsRelease(val_, nullptr);
-  }
-#endif
-
   val_ = nullptr;
 }
 
@@ -3209,14 +3501,6 @@ void PersistentBase<T>::SetWeakCommon(P* parameter, Callback callback) {
 
 template <class T>
 template <typename P>
-void PersistentBase<T>::SetWeak(
-    P* parameter, typename WeakCallbackData<T, P>::Callback callback) {
-  typedef typename WeakCallbackData<Value, void>::Callback Callback;
-  SetWeakCommon(parameter, reinterpret_cast<Callback>(callback));
-}
-
-template <class T>
-template <typename P>
 void PersistentBase<T>::SetWeak(P* parameter,
                                 typename WeakCallbackInfo<P>::Callback callback,
                                 WeakCallbackType type) {
@@ -3225,20 +3509,16 @@ void PersistentBase<T>::SetWeak(P* parameter,
 }
 
 template <class T>
+void PersistentBase<T>::SetWeak() {
+  // TODO: figure out what to do here.
+  return;
+}
+
+template <class T>
 template <typename P>
 P* PersistentBase<T>::ClearWeak() {
   if (!IsWeak()) return nullptr;
 
-#if 0
-  P* parameters = reinterpret_cast<P*>(_weakWrapper->parameters);
-  if (_weakWrapper.unique()) {
-    chakrashim::ClearObjectWeakReferenceCallback(val_, /*revive*/true);
-  }
-  _weakWrapper.reset();
-
-  JsAddRef(val_, nullptr);
-  return parameters;
-#endif
   return nullptr;
 }
 
