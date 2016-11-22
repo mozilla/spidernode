@@ -93,6 +93,11 @@ bool Value::IsArrayBufferView() const {
   return IsDataView() || IsTypedArray();
 }
 
+bool Value::IsSharedArrayBuffer() const {
+  // TODO: Not yet implemented.
+  return false;
+}
+
 bool Value::IsFunction() const {
   if (!IsObject()) {
     return false;
