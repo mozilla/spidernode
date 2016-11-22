@@ -90,7 +90,13 @@ Local<FunctionTemplate> FunctionTemplate::New(Isolate* isolate,
                                               FunctionCallback callback,
                                               Handle<Value> data,
                                               Handle<Signature> signature,
-                                              int length) {
+                                              int length,
+                                              ConstructorBehavior behavior) {
+  // TODO: implement behavior == ConstructorBehavior::kThrow
+  if (behavior == ConstructorBehavior::kThrow) {
+    fprintf(stderr, "behavior == ConstructorBehavior::kThrow is not supported yet\n");
+  }
+
   JSContext* cx = JSContextFromIsolate(isolate);
   AutoJSAPI jsAPI(cx);
 

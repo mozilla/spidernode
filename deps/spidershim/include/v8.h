@@ -1953,10 +1953,10 @@ enum class ConstructorBehavior { kThrow, kAllow };
 
 class V8_EXPORT Function : public Object {
  public:
-  static MaybeLocal<Function> New(Local<Context> context,
-                                  FunctionCallback callback,
-                                  Local<Value> data = Local<Value>(),
-                                  int length = 0);
+  static MaybeLocal<Function> New(
+      Local<Context> context, FunctionCallback callback,
+      Local<Value> data = Local<Value>(), int length = 0,
+      ConstructorBehavior behavior = ConstructorBehavior::kAllow);
   static Local<Function> New(Isolate* isolate, FunctionCallback callback,
                              Local<Value> data = Local<Value>(),
                              int length = 0);
@@ -2288,7 +2288,9 @@ class V8_EXPORT FunctionTemplate : public Template {
   static Local<FunctionTemplate> New(
       Isolate* isolate, FunctionCallback callback = 0,
       Handle<Value> data = Handle<Value>(),
-      Handle<Signature> signature = Handle<Signature>(), int length = 0);
+      Handle<Signature> signature = Handle<Signature>(), int length = 0,
+      ConstructorBehavior behavior = ConstructorBehavior::kAllow);
+
 
   V8_DEPRECATE_SOON("Use maybe version", Local<Function> GetFunction());
   V8_WARN_UNUSED_RESULT MaybeLocal<Function> GetFunction(
