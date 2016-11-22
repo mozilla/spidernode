@@ -64,8 +64,8 @@ Context::~Context() { delete pimpl_; }
 
 Local<Context> Context::New(Isolate* isolate,
                             ExtensionConfiguration* extensions,
-                            Handle<ObjectTemplate> global_template,
-                            Handle<Value> global_object) {
+                            MaybeLocal<ObjectTemplate> global_template,
+                            MaybeLocal<Value> global_object) {
   // TODO: Implement extensions and global_object.
   if (extensions) {
     fprintf(stderr, "ExtensionConfiguration is not supported yet\n");
@@ -89,9 +89,12 @@ Local<Context> Context::New(Isolate* isolate,
 }
 
 bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
-                           Local<ObjectTemplate> global_template) {
-  if (global_template.IsEmpty()) {
+                           MaybeLocal<ObjectTemplate> maybe_global_template) {
+  Local<ObjectTemplate> global_template;
+  if (maybe_global_template.IsEmpty()) {
     global_template = ObjectTemplate::New(isolate);
+  } else {
+    global_template = maybe_global_template.ToLocalChecked();
   }
 
   Local<FunctionTemplate> global_constructor = global_template->GetConstructor();

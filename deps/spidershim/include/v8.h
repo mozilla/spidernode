@@ -3358,7 +3358,7 @@ class V8_EXPORT Context {
   Context(JSContext* cx);
 
   bool CreateGlobal(JSContext* cx, Isolate* isolate,
-                    Local<ObjectTemplate> global_template);
+                    MaybeLocal<ObjectTemplate> global_template);
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
