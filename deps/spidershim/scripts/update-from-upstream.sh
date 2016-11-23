@@ -37,6 +37,7 @@ rsync -av --delete "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete "$SM_DIR"/js/src spidermonkey/js/
 rsync -av --delete "$SM_DIR"/js/public spidermonkey/js/
 rsync -av --delete "$SM_DIR"/js/moz.configure spidermonkey/js/
+rsync -av --delete "$SM_DIR"/js/ffi.configure spidermonkey/js/
 rsync -av --delete "$SM_DIR"/.cargo spidermonkey/
 
 for patch in `ls spidermonkey-patches/* | sort`; do
