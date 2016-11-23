@@ -12,7 +12,6 @@
 #include "jsnativestack.h"
 #include "jsnum.h" // For FIX_FPU()
 
-#include "asmjs/WasmIonCompile.h"
 #include "builtin/Promise.h"
 #include "frontend/BytecodeCompiler.h"
 #include "gc/GCInternals.h"
@@ -21,6 +20,7 @@
 #include "vm/SharedImmutableStringsCache.h"
 #include "vm/Time.h"
 #include "vm/TraceLogging.h"
+#include "wasm/WasmIonCompile.h"
 
 #include "jscntxtinlines.h"
 #include "jscompartmentinlines.h"
@@ -740,7 +740,8 @@ GlobalHelperThreadState::GlobalHelperThreadState()
    threadCount(0),
    threads(nullptr),
    wasmCompilationInProgress(false),
-   numWasmFailedJobs(0)
+   numWasmFailedJobs(0),
+   helperLock(mutexid::GlobalHelperThreadState)
 {
     cpuCount = GetCPUCount();
     threadCount = ThreadCountForCPUCount(cpuCount);
@@ -880,9 +881,9 @@ GlobalHelperThreadState::maxParseThreads() const
         return 1;
 
     // Don't allow simultaneous off thread parses, to reduce contention on the
-    // atoms table. Note that asm.js compilation depends on this to avoid
+    // atoms table. Note that wasm compilation depends on this to avoid
     // stalling the helper thread, as off thread parse tasks can trigger and
-    // block on other off thread asm.js compilation tasks.
+    // block on other off thread wasm compilation tasks.
     return 1;
 }
 
@@ -1152,6 +1153,7 @@ js::GCParallelTask::runFromHelperThread(AutoLockHelperThreadState& locked)
 {
     {
         AutoUnlockHelperThreadState parallelSection(locked);
+        gc::AutoSetThreadIsPerformingGC performingGC;
         uint64_t timeStart = PRMJ_Now();
         run();
         duration_ = PRMJ_Now() - timeStart;
@@ -1320,7 +1322,7 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
     // destination compartment.  Finish any ongoing incremental GC first and
     // assert that no allocation can occur.
     gc::FinishGC(cx);
-    JS::AutoAssertNoAlloc noAlloc(cx);
+    JS::AutoAssertNoGC nogc(cx);
 
     LeaveParseTaskZone(cx, parseTask);
 
@@ -1687,6 +1689,10 @@ js::StartOffThreadCompression(ExclusiveContext* cx, SourceCompressionTask* task)
 bool
 js::StartPromiseTask(JSContext* cx, UniquePtr<PromiseTask> task)
 {
+    // Execute synchronously if there are no helper threads.
+    if (!CanUseExtraThreads())
+        return task->executeAndFinish(cx);
+
     // If we fail to start, by interface contract, it is because the JSContext
     // is in the process of shutting down. Since promise handlers are not
     // necessarily run while shutting down *anyway*, we simply ignore the error.

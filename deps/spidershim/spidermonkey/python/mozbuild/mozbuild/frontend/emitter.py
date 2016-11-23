@@ -101,6 +101,36 @@ from .context import (
 from mozbuild.base import ExecutionSummary
 
 
+ALLOWED_XPCOM_GLUE = {
+    ('TestStreamConv', 'netwerk/streamconv/test'),
+    ('PropertiesTest', 'netwerk/test'),
+    ('ReadNTLM', 'netwerk/test'),
+    ('TestBlockingSocket', 'netwerk/test'),
+    ('TestDNS', 'netwerk/test'),
+    ('TestIncrementalDownload', 'netwerk/test'),
+    ('TestNamedPipeService', 'netwerk/test'),
+    ('TestOpen', 'netwerk/test'),
+    ('TestProtocols', 'netwerk/test'),
+    ('TestServ', 'netwerk/test'),
+    ('TestStreamLoader', 'netwerk/test'),
+    ('TestUpload', 'netwerk/test'),
+    ('TestURLParser', 'netwerk/test'),
+    ('urltest', 'netwerk/test'),
+    ('TestBind', 'netwerk/test'),
+    ('TestCookie', 'netwerk/test'),
+    ('TestUDPSocket', 'netwerk/test'),
+    ('xpcshell', 'js/xpconnect/shell'),
+    ('testcrasher', 'toolkit/crashreporter/test'),
+    ('mediaconduit_unittests', 'media/webrtc/signaling/test'),
+    ('mediapipeline_unittest', 'media/webrtc/signaling/test'),
+    ('sdp_file_parser', 'media/webrtc/signaling/fuzztest'),
+    ('signaling_unittests', 'media/webrtc/signaling/test'),
+    ('TestMailCookie', 'mailnews/base/test'),
+    ('calbasecomps', 'calendar/base/backend/libical/build'),
+    ('purplexpcom', 'extensions/purple/purplexpcom/src'),
+}
+
+
 class TreeMetadataEmitter(LoggingMixin):
     """Converts the executed mozbuild files into data structures.
 
@@ -140,8 +170,6 @@ class TreeMetadataEmitter(LoggingMixin):
         if os.path.exists(subconfigures):
             paths = open(subconfigures).read().splitlines()
         self._external_paths = set(mozpath.normsep(d) for d in paths)
-        # Add security/nss manually, since it doesn't have a subconfigure.
-        self._external_paths.add('security/nss')
 
         self._emitter_time = 0.0
         self._object_count = 0
@@ -274,11 +302,15 @@ class TreeMetadataEmitter(LoggingMixin):
         """Add linkage declarations to a given object."""
         assert isinstance(obj, Linkable)
 
+        use_xpcom = False
+
         for path in context.get(variable, []):
             force_static = path.startswith('static:') and obj.KIND == 'target'
             if force_static:
                 path = path[7:]
             name = mozpath.basename(path)
+            if name in ('xpcomglue', 'xpcomglue_s'):
+                use_xpcom = True
             dir = mozpath.dirname(path)
             candidates = [l for l in self._libs[name] if l.KIND == obj.KIND]
             if dir:
@@ -365,6 +397,36 @@ class TreeMetadataEmitter(LoggingMixin):
         for lib in context.get(variable.replace('USE', 'OS'), []):
             obj.link_system_library(lib)
 
+        key = (obj.name, obj.relativedir)
+        substs = context.config.substs
+        extra_allowed = []
+        moz_build_app = substs.get('MOZ_BUILD_APP')
+        if moz_build_app is not None: # None during some test_emitter.py tests.
+            if moz_build_app.startswith('../'):
+                # For comm-central builds, where topsrcdir is not the root
+                # source dir.
+                moz_build_app = moz_build_app[3:]
+            extra_allowed = [
+                (substs.get('MOZ_APP_NAME'), '%s/app' % moz_build_app),
+                ('%s-bin' % substs.get('MOZ_APP_NAME'), '%s/app' % moz_build_app),
+            ]
+        if substs.get('MOZ_WIDGET_TOOLKIT') != 'android':
+            extra_allowed.append((substs.get('MOZ_CHILD_PROCESS_NAME'), 'ipc/app'))
+
+        if key in ALLOWED_XPCOM_GLUE or key in extra_allowed:
+            if not use_xpcom:
+                raise SandboxValidationError(
+                    "%s is in the exception list for XPCOM glue dependency but "
+                    "doesn't depend on the XPCOM glue. Please adjust the list "
+                    "in %s." % (obj.name, __file__), context
+                )
+        elif use_xpcom:
+            raise SandboxValidationError(
+                "%s depends on the XPCOM glue. "
+                "No new dependency on the XPCOM glue is allowed."
+                % obj.name, context
+            )
+
     @memoize
     def _get_external_library(self, dir, name, force_static):
         # Create ExternalStaticLibrary or ExternalSharedLibrary object with a
@@ -437,7 +499,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 context)
 
         crate_type = crate_type[0]
-        if crate_type != 'rlib':
+        if crate_type != 'staticlib':
             raise SandboxValidationError(
                 'crate-type %s is not permitted for %s' % (crate_type, libname),
                 context)
@@ -463,7 +525,10 @@ class TreeMetadataEmitter(LoggingMixin):
                      ' in [profile.%s] section') % (libname, profile_name),
                     context)
 
-        return RustLibrary(context, libname, cargo_file, crate_type, **static_args)
+        dependencies = set(config.get('dependencies', {}).iterkeys())
+
+        return RustLibrary(context, libname, cargo_file, crate_type,
+                           dependencies, **static_args)
 
     def _handle_linkables(self, context, passthru, generated_files):
         linkables = []
@@ -650,12 +715,19 @@ class TreeMetadataEmitter(LoggingMixin):
                     raise SandboxValidationError(
                         'SYMBOLS_FILE cannot be used along DEFFILE or '
                         'LD_VERSION_SCRIPT.', context)
-                if not os.path.exists(symbols_file.full_path):
-                    raise SandboxValidationError(
-                        'Path specified in SYMBOLS_FILE does not exist: %s '
-                        '(resolved to %s)' % (symbols_file,
-                        symbols_file.full_path), context)
-                shared_args['symbols_file'] = True
+                if isinstance(symbols_file, SourcePath):
+                    if not os.path.exists(symbols_file.full_path):
+                        raise SandboxValidationError(
+                            'Path specified in SYMBOLS_FILE does not exist: %s '
+                            '(resolved to %s)' % (symbols_file,
+                            symbols_file.full_path), context)
+                    shared_args['symbols_file'] = True
+                else:
+                    if symbols_file.target_basename not in generated_files:
+                        raise SandboxValidationError(
+                            ('Objdir file specified in SYMBOLS_FILE not in ' +
+                             'GENERATED_FILES: %s') % (symbols_file,), context)
+                    shared_args['symbols_file'] = symbols_file.target_basename
 
             if shared_lib:
                 lib = SharedLibrary(context, libname, **shared_args)
@@ -667,7 +739,7 @@ class TreeMetadataEmitter(LoggingMixin):
                     yield ChromeManifestEntry(context,
                         'components/components.manifest',
                         ManifestBinaryComponent('components', lib.lib_name))
-                if symbols_file:
+                if symbols_file and isinstance(symbols_file, SourcePath):
                     script = mozpath.join(
                         mozpath.dirname(mozpath.dirname(__file__)),
                         'action', 'generate_symbols_file.py')
@@ -849,7 +921,6 @@ class TreeMetadataEmitter(LoggingMixin):
             'ANDROID_GENERATED_RESFILES',
             'DISABLE_STL_WRAPPING',
             'EXTRA_DSO_LDOPTS',
-            'PYTHON_UNIT_TESTS',
             'RCFILE',
             'RESFILE',
             'RCINCLUDE',
@@ -1175,11 +1246,6 @@ class TreeMetadataEmitter(LoggingMixin):
                 for obj in self._process_web_platform_tests_manifest(context, path, manifest):
                     yield obj
 
-        python_tests = context.get('PYTHON_UNIT_TESTS')
-        if python_tests:
-            for obj in self._process_python_tests(context, python_tests):
-                yield obj
-
     def _process_test_manifest(self, context, info, manifest_path, mpmanifest):
         flavor, install_root, install_subdir, package_tests = info
 
@@ -1190,17 +1256,15 @@ class TreeMetadataEmitter(LoggingMixin):
         install_prefix = mozpath.join(install_root, install_subdir)
 
         try:
-            defaults = mpmanifest.manifest_defaults[os.path.normpath(path)]
             if not mpmanifest.tests:
                 raise SandboxValidationError('Empty test manifest: %s'
                     % path, context)
 
+            defaults = mpmanifest.manifest_defaults[os.path.normpath(path)]
             obj = TestManifest(context, path, mpmanifest, flavor=flavor,
                 install_prefix=install_prefix,
                 relpath=mozpath.join(manifest_reldir, mozpath.basename(path)),
                 dupe_manifest='dupe-manifest' in defaults)
-
-            obj.default_support_files = defaults.get('support-files')
 
             filtered = mpmanifest.tests
 
@@ -1253,6 +1317,9 @@ class TreeMetadataEmitter(LoggingMixin):
 
                 process_support_files(test)
 
+            for path, m_defaults in mpmanifest.manifest_defaults.items():
+                process_support_files(m_defaults)
+
             # We also copy manifests into the output directory,
             # including manifests from [include:foo] directives.
             for mpath in mpmanifest.manifests():
@@ -1271,8 +1338,8 @@ class TreeMetadataEmitter(LoggingMixin):
                     del obj.installs[mozpath.join(manifest_dir, f)]
                 except KeyError:
                     raise SandboxValidationError('Error processing test '
-                       'manifest %s: entry in generated-files not present '
-                       'elsewhere in manifest: %s' % (path, f), context)
+                        'manifest %s: entry in generated-files not present '
+                        'elsewhere in manifest: %s' % (path, f), context)
 
             yield obj
         except (AssertionError, Exception):
@@ -1341,36 +1408,6 @@ class TreeMetadataEmitter(LoggingMixin):
                     'support-files': '',
                     'subsuite': '',
                 })
-
-        yield obj
-
-    def _process_python_tests(self, context, python_tests):
-        manifest_full_path = context.main_path
-        manifest_reldir = mozpath.dirname(mozpath.relpath(manifest_full_path,
-            context.config.topsrcdir))
-
-        obj = TestManifest(context, manifest_full_path,
-                mozpath.basename(manifest_full_path),
-                flavor='python', install_prefix='python/',
-                relpath=mozpath.join(manifest_reldir,
-                    mozpath.basename(manifest_full_path)))
-
-        for test in python_tests:
-            test = mozpath.normpath(mozpath.join(context.srcdir, test))
-            if not os.path.isfile(test):
-                raise SandboxValidationError('Path specified in '
-                   'PYTHON_UNIT_TESTS does not exist: %s' % test,
-                   context)
-            obj.tests.append({
-                'path': test,
-                'here': mozpath.dirname(test),
-                'manifest': manifest_full_path,
-                'name': mozpath.basename(test),
-                'head': '',
-                'tail': '',
-                'support-files': '',
-                'subsuite': '',
-            })
 
         yield obj
 

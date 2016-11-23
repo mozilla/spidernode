@@ -349,6 +349,9 @@ js::gc::GCRuntime::traceRuntimeCommon(JSTracer* trc, TraceOrMarkRuntime traceOrM
     // Trace the self-hosting global compartment.
     rt->markSelfHostingGlobal(trc);
 
+    // Trace the shared Intl data.
+    rt->traceSharedIntlData(trc);
+
     // Trace anything in the single context. Note that this is actually the
     // same struct as the JSRuntime, but is still split for historical reasons.
     rt->contextFromMainThread()->mark(trc);
@@ -475,6 +478,7 @@ js::gc::GCRuntime::bufferGrayRoots()
     for (GCZonesIter zone(rt); !zone.done(); zone.next())
         MOZ_ASSERT(zone->gcGrayRoots.empty());
 
+    gcstats::AutoPhase ap(stats, gcstats::PHASE_BUFFER_GRAY_ROOTS);
 
     BufferGrayRootsTracer grayBufferer(rt);
     if (JSTraceDataOp op = grayRootTracer.op)

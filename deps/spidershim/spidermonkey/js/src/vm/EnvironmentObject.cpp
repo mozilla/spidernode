@@ -17,6 +17,7 @@
 #include "frontend/ParseNode.h"
 #include "gc/Policy.h"
 #include "vm/ArgumentsObject.h"
+#include "vm/AsyncFunction.h"
 #include "vm/GlobalObject.h"
 #include "vm/ProxyObject.h"
 #include "vm/Shape.h"
@@ -1023,7 +1024,9 @@ const Class LexicalEnvironmentObject::class_ = {
 };
 
 /* static */ NamedLambdaObject*
-NamedLambdaObject::create(JSContext* cx, HandleFunction callee, HandleObject enclosing,
+NamedLambdaObject::create(JSContext* cx, HandleFunction callee,
+                          HandleFunction func,
+                          HandleObject enclosing,
                           gc::InitialHeap heap)
 {
     MOZ_ASSERT(callee->isNamedLambda());
@@ -1045,14 +1048,14 @@ NamedLambdaObject::create(JSContext* cx, HandleFunction callee, HandleObject enc
     if (!obj)
         return nullptr;
 
-    obj->initFixedSlot(lambdaSlot(), ObjectValue(*callee));
+    obj->initFixedSlot(lambdaSlot(), ObjectValue(*func));
     return static_cast<NamedLambdaObject*>(obj);
 }
 
 /* static */ NamedLambdaObject*
 NamedLambdaObject::createTemplateObject(JSContext* cx, HandleFunction callee, gc::InitialHeap heap)
 {
-    return create(cx, callee, nullptr, heap);
+    return create(cx, callee, callee, nullptr, heap);
 }
 
 /* static */ NamedLambdaObject*
@@ -1060,7 +1063,15 @@ NamedLambdaObject::create(JSContext* cx, AbstractFramePtr frame)
 {
     RootedFunction fun(cx, frame.callee());
     RootedObject enclosing(cx, frame.environmentChain());
-    return create(cx, fun, enclosing, gc::DefaultHeap);
+    return create(cx, fun, fun, enclosing, gc::DefaultHeap);
+}
+
+/* static */ NamedLambdaObject*
+NamedLambdaObject::create(JSContext* cx, AbstractFramePtr frame, HandleFunction replacement)
+{
+    RootedFunction fun(cx, frame.callee());
+    RootedObject enclosing(cx, frame.environmentChain());
+    return create(cx, fun, replacement, enclosing, gc::DefaultHeap);
 }
 
 /* static */ size_t
@@ -1244,7 +1255,7 @@ EnvironmentIter::settle()
                 MOZ_ASSERT(scope == &env_->as<LexicalEnvironmentObject>().scope());
             } else if (scope->is<FunctionScope>()) {
                 MOZ_ASSERT(scope->as<FunctionScope>().script() ==
-                           env_->as<CallObject>().callee().nonLazyScript());
+                           env_->as<CallObject>().callee().existingScriptNonDelazifying());
             } else if (scope->is<VarScope>()) {
                 MOZ_ASSERT(scope == &env_->as<VarEnvironmentObject>().scope());
             } else if (scope->is<WithScope>()) {
@@ -2875,6 +2886,7 @@ GetDebugEnvironmentForMissing(JSContext* cx, const EnvironmentIter& ei)
         // Generators should always reify their scopes.
         MOZ_ASSERT(!callee->isGenerator());
 
+        JS::ExposeObjectToActiveJS(callee);
         Rooted<CallObject*> callobj(cx, CallObject::createHollowForDebug(cx, callee));
         if (!callobj)
             return nullptr;
@@ -3121,7 +3133,7 @@ js::GetThisValueForDebuggerMaybeOptimizedOut(JSContext* cx, AbstractFramePtr fra
             }
 
             if (loc.kind() == BindingLocation::Kind::Frame && ei.withinInitialFrame())
-                res.set(frame.unaliasedLocal(bi.location().slot()));
+                res.set(frame.unaliasedLocal(loc.slot()));
             else
                 res.setMagic(JS_OPTIMIZED_OUT);
 
@@ -3364,7 +3376,15 @@ js::InitFunctionEnvironmentObjects(JSContext* cx, AbstractFramePtr frame)
 
     // Named lambdas may have an environment that holds itself for recursion.
     if (callee->needsNamedLambdaEnvironment()) {
-        NamedLambdaObject* declEnv = NamedLambdaObject::create(cx, frame);
+        NamedLambdaObject* declEnv;
+        if (callee->isAsync()) {
+            // Named async function needs special environment to return
+            // wrapped function for the binding.
+            RootedFunction fun(cx, GetWrappedAsyncFunction(callee));
+            declEnv = NamedLambdaObject::create(cx, frame, fun);
+        } else {
+            declEnv = NamedLambdaObject::create(cx, frame);
+        }
         if (!declEnv)
             return false;
         frame.pushOnEnvironmentChain(*declEnv);

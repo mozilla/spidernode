@@ -1,4 +1,3 @@
-// |jit-test| test-also-wasm-baseline
 load(libdir + "wasm.js");
 
 // This is meant to be a small and dumb interpreter for wast files. Either it
@@ -45,59 +44,11 @@ Element.prototype.toString = function() {
     return `(${this.list.map(x => x.toString()).join(" ")})`;
 };
 
-var module;
-
 setJitCompilerOption('wasm.test-mode', 1);
 
 // Creates a tree of s-expressions. Ported from Binaryen's SExpressionParser.
 function parseSExpression(text) {
-    var input = 0;
-
-    var commentDepth = 0;
-    function skipBlockComment() {
-        while (true) {
-            if (text[input] === '(' && text[input + 1] === ';') {
-                input += 2;
-                commentDepth++;
-            } else if (text[input] === ';' && text[input + 1] === ')') {
-                input += 2;
-                commentDepth--;
-                if (!commentDepth) {
-                    return;
-                }
-            } else {
-                input++;
-            }
-        }
-    }
-
-    function parseInnerList() {
-        if (text[input] === ';') {
-            // Parse comment.
-            input++;
-            if (text[input] === ';') {
-                while (text[input] != '\n') input++;
-                return null;
-            }
-            assert(false, 'malformed comment');
-        }
-
-        if (text[input] === '(' && text[input + 1] === ';') {
-            skipBlockComment();
-            return null;
-        }
-
-        var start = input;
-        var ret = new Element();
-        while (true) {
-            var curr = parse();
-            if (!curr) {
-                ret.lineno = countLines(text, input);
-                return ret;
-            }
-            ret.list.push(curr);
-        }
-    }
+    var pos = 0;
 
     function isSpace(c) {
         switch (c) {
@@ -113,90 +64,134 @@ function parseSExpression(text) {
         }
     }
 
-    function skipWhitespace() {
+    function skip() {
         while (true) {
-            while (isSpace(text[input]))
-                input++;
+            let prevPos = pos;
 
-            if (text[input] === ';' && text[input + 1] === ';') {
-                while (text.length > input && text[input] != '\n') input++;
-            } else if (text[input] === '(' && text[input + 1] === ';') {
-                skipBlockComment();
-            } else {
-                return;
-            }
-        }
-    }
+            if (pos + 2 < text.length) {
 
-    function parseString() {
-        var dollared = false;
-        var quoted = false;
-        if (text[input] === '$') {
-            input++;
-            dollared = true;
-        }
-
-        var start = input;
-        if (text[input] === '"') {
-            quoted = true;
-            // Parse escaping \", but leave code escaped - we'll handle escaping in memory segments specifically.
-            input++;
-            var str = "";
-            while (true) {
-                if (text[input] === '"') break;
-                if (text[input] === '\\') {
-                    str += text[input];
-                    str += text[input + 1];
-                    input += 2;
-                    continue;
+                // Block comments.
+                if (text[pos] === '(' && text[pos + 1] === ';')
+                {
+                    pos += 2;
+                    let blockDepth = 1;
+                    while (pos + 2 < text.length) {
+                        if (text[pos] === '(' && text[pos + 1] === ';') {
+                            pos += 2;
+                            blockDepth++;
+                        } else if (text[pos] === ';' && text[pos + 1] === ')') {
+                            pos += 2;
+                            if (!--blockDepth)
+                                break;
+                        } else {
+                            pos++;
+                        }
+                    }
                 }
-                str += text[input];
-                input++;
+
+                // Inline comments.
+                if (text[pos] === ';' && text[pos + 1] === ';') {
+                    pos += 2;
+                    while (text[pos] !== '\n')
+                        pos++;
+                }
             }
-            input++;
-            return new Element(str, dollared, quoted);
-        }
 
-        while (text.length > input &&
-               !isSpace(text[input]) &&
-               text[input] != ')' &&
-               text[input] != '(') {
-            input++;
-        }
+            // Whitespaces.
+            while (isSpace(text[pos])) {
+                pos++;
+            }
 
-        return new Element(text.substring(start, input), dollared);
+            if (pos === prevPos)
+                break;
+        }
     }
 
     function parse() {
-        skipWhitespace();
+        skip();
 
-        if (text.length === input || text[input] === ')')
+        if (text.length === pos || text[pos] === ')')
             return null;
 
-        if (text[input] === '(') {
-            input++;
-            var ret = parseInnerList();
-            skipWhitespace();
-            assert(text[input] === ')', 'inner list ends with a )');
-            input++;
+        if (text[pos] === '(') {
+            pos++;
+            var ret = parseInParens();
+            skip();
+            assert(text[pos] === ')', 'inner list ends with a )');
+            pos++;
             return ret;
         }
 
         return parseString();
     }
 
+    function parseInParens() {
+        skip();
+        var start = pos;
+        var ret = new Element();
+        while (true) {
+            var curr = parse();
+            if (!curr) {
+                ret.lineno = countLines(text, pos);
+                return ret;
+            }
+            ret.list.push(curr);
+        }
+    }
+
+    function parseString() {
+        var dollared = false;
+        var quoted = false;
+        if (text[pos] === '$') {
+            pos++;
+            dollared = true;
+        }
+
+        var start = pos;
+        if (text[pos] === '"') {
+            quoted = true;
+            // Parse escaping \", but leave code escaped - we'll handle escaping in memory segments specifically.
+            pos++;
+            var str = "";
+            while (true) {
+                if (text[pos] === '"') break;
+                if (text[pos] === '\\') {
+                    str += text[pos];
+                    str += text[pos + 1];
+                    pos += 2;
+                    continue;
+                }
+                str += text[pos];
+                pos++;
+            }
+            pos++;
+            return new Element(str, dollared, quoted);
+        }
+
+        while (pos < text.length &&
+               !isSpace(text[pos]) &&
+               text[pos] != ';' &&
+               text[pos] != ')' &&
+               text[pos] != '(') {
+            pos++;
+        }
+
+        return new Element(text.substring(start, pos), dollared);
+    }
+
     var root = null;
     while (!root) { // Keep parsing until we pass an initial comment.
-        root = parseInnerList();
+        root = parseInParens();
     }
     return root;
 }
 
 var imports = {
     spectest: {
-        print: function (x) {
-            print(x);
-        }
+        print,
+        global: 666,
+        table: new WebAssembly.Table({ initial: 10, maximum: 20, element: "anyfunc" }),
+        memory: new WebAssembly.Memory({ initial: 1, maximum: 2 }),
     }
 };
 
@@ -259,6 +254,29 @@ function testNaNEqualityFunction() {
 }
 
 var constantCache = new Map;
+var moduleCache = new Map;
+
+function getModuleAndField(e) {
+    let nextArgIndex = 1;
+    let nameExpr = e.list[nextArgIndex];
+    let name = nameExpr.str;
+
+    let moduleName = '__last_module__';
+    if (nameExpr.dollared && !nameExpr.quoted) {
+        moduleName = name;
+        nextArgIndex += 1;
+    }
+
+    if (!moduleCache.has(moduleName)) {
+        throw new Error('We should have a module here before trying to invoke things!');
+    }
+
+    let module = moduleCache.get(moduleName);
+    let fieldName = e.list[nextArgIndex++].str;
+    let rest = e.list.slice(nextArgIndex).map(exec);
+
+    return [module, fieldName, rest];
+}
 
 // Recursively execute the expression.
 function exec(e) {
@@ -266,25 +284,63 @@ function exec(e) {
 
     if (exprName === "module") {
         let moduleText = e.toString();
-        module = wasmEvalText(moduleText, imports).exports;
+
+        let moduleName = null;
+        if (e.list && e.list.length >= 2 && e.list[1].str && e.list[1].dollared) {
+            moduleName = e.list[1].str;
+            moduleText = moduleText.replace(`$${moduleName}`, '');
+        }
+
+        let module = wasmEvalText(moduleText, imports).exports;
+        moduleCache.set('__last_module__', module);
+        if (moduleName) {
+            moduleCache.set(moduleName, module);
+        }
+
+        return;
+    }
+
+    if (exprName === "register") {
+        // (register IMPORT_NAME MODULE_NAME?)
+        assert(e.list[1].quoted, "first arg to register is quoted");
+        let importName = e.list[1].str;
+
+        let moduleName = '__last_module__';
+        if (e.list.length > 2) {
+            moduleName = e.list[2].str;
+        }
+
+        if (!moduleCache.has(moduleName)) {
+            throw new Error("can't register an unknown module for imports");
+        }
+
+        let module = moduleCache.get(moduleName);
+
+        imports[importName] = {};
+
+        for (let [k, v] of Object.entries(module)) {
+            imports[importName][k] = v;
+        }
+
         return;
     }
 
     if (exprName === "invoke") {
-        var name = e.list[1].str;
-        var args = e.list.slice(2).map(exec);
-        var fn = null;
+        let [module, field, args] = getModuleAndField(e);
 
-        if (module === null) {
-            throw new Error('We should have a module here before trying to invoke things!');
-        }
-
-        if (typeof module[name] === "function") {
-            fn = module[name];
+        let fn = null;
+        if (typeof module[field] === "function") {
+            fn = module[field];
         } else {
-            assert(false, "Exported function not found: " + e);
+            throw new Error("Exported function not found: " + e);
         }
+
         return fn.apply(null, args);
+    }
+
+    if (exprName === "get") {
+        let [module, field, args] = getModuleAndField(e);
+        return module[field];
     }
 
     if (exprName.indexOf(".const") > 0) {
@@ -341,21 +397,50 @@ function exec(e) {
         return;
     }
 
-    if (exprName === "assert_invalid") {
+    if (exprName === "assert_invalid" || exprName === "assert_malformed") {
         let moduleText = e.list[1].toString();
         let errMsg = e.list[2];
         if (errMsg) {
-            assert(errMsg.quoted, "assert_invalid second argument must be a string");
+            assert(errMsg.quoted, "assert_invalid/malformed second argument must be a string");
             errMsg.quoted = false;
         }
+
         // assert_invalid tests both the decoder *and* the parser itself.
+        let text;
         try {
-            assertEq(WebAssembly.validate(wasmTextToBinary(moduleText)), false);
+            text = wasmTextToBinary(moduleText);
         } catch(e) {
             if (/wasm text error/.test(e.toString()))
                 return;
-            throw e;
         }
+
+        assertEq(WebAssembly.validate(text), false, "assert_invalid failed");
+
+        let caught = false;
+        try {
+            new WebAssembly.Module(text)
+        } catch (e) {
+            caught = true;
+            debug("Caught", e.toString(), ", expected:", errMsg);
+        }
+        assertEq(caught, true);
+        return;
+    }
+
+    if (exprName === "assert_soft_invalid") {
+        let moduleText = e.list[1].toString();
+        let errMsg = e.list[2];
+        if (errMsg) {
+            assert(errMsg.quoted, "assert_soft_invalid second argument must be a string");
+            errMsg.quoted = false;
+        }
+
+        try {
+            new WebAssembly.Module(wasmTextToBinary(moduleText));
+        } catch(e) {
+            debug('assert_soft_invalid caught:\nExpected:', errMsg, '\nActual:', e.toString());
+        }
+
         return;
     }
 
@@ -372,6 +457,26 @@ function exec(e) {
                 warn(`expected error message "${errMsg}", got "${err}"`);
         }
         assert(caught, "assert_trap exception not caught");
+        return;
+    }
+
+    if (exprName === 'assert_unlinkable') {
+        let moduleText = e.list[1].toString();
+        let errMsg = e.list[2];
+        if (errMsg) {
+            assert(errMsg.quoted, "assert_invalid second argument must be a string");
+            errMsg.quoted = false;
+        }
+        let module = new WebAssembly.Module(wasmTextToBinary(moduleText));
+        let caught = false;
+        try {
+            new WebAssembly.Instance(module, imports);
+        } catch(err) {
+            caught = true;
+            if (err.toString().indexOf(errMsg) === -1)
+                warn(`expected error message "${errMsg}", got "${err}"`);
+        }
+        assert(caught, "assert_unlinkable exception not caught");
         return;
     }
 

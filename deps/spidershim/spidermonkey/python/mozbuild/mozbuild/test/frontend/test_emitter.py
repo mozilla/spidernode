@@ -7,6 +7,8 @@ from __future__ import unicode_literals
 import os
 import unittest
 
+from collections import defaultdict
+from buildconfig import topsrcdir
 from mozunit import main
 
 from mozbuild.frontend.context import (
@@ -28,6 +30,7 @@ from mozbuild.frontend.data import (
     HostSources,
     IPDLFile,
     JARManifest,
+    LinkageMultipleRustLibrariesError,
     LocalInclude,
     Program,
     RustLibrary,
@@ -537,13 +540,6 @@ class TestEmitterBasic(unittest.TestCase):
         for t in obj.tests:
             self.assertTrue(t['manifest'].endswith(expected_manifests[t['name']]))
 
-    def test_python_unit_test_missing(self):
-        """Missing files in PYTHON_UNIT_TESTS should raise."""
-        reader = self.reader('test-python-unit-test-missing')
-        with self.assertRaisesRegexp(SandboxValidationError,
-            'Path specified in PYTHON_UNIT_TESTS does not exist:'):
-            self.read_topsrcdir(reader)
-
     def test_test_manifest_keys_extracted(self):
         """Ensure all metadata from test manifests is extracted."""
         reader = self.reader('test-manifest-keys-extracted')
@@ -616,9 +612,11 @@ class TestEmitterBasic(unittest.TestCase):
                 'flavor': 'crashtest',
                 'installs': {},
             },
-            'moz.build': {
+            'python.ini': {
                 'flavor': 'python',
-                'installs': {},
+                'installs': {
+                    'python.ini': False,
+                },
             }
         }
 
@@ -1075,6 +1073,14 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertRegexpMatches(lib.import_name, "random_crate")
         self.assertRegexpMatches(lib.basename, "random-crate")
 
+    def test_multiple_rust_libraries(self):
+        '''Test that linking multiple Rust libraries throws an error'''
+        reader = self.reader('multiple-rust-libraries',
+                             extra_substs=dict(RUST_TARGET='i686-pc-windows-msvc'))
+        with self.assertRaisesRegexp(LinkageMultipleRustLibrariesError,
+             'Cannot link multiple Rust libraries'):
+            self.read_topsrcdir(reader)
+
     def test_crate_dependency_path_resolution(self):
         '''Test recursive dependencies resolve with the correct paths.'''
         reader = self.reader('crate-dependency-path-resolution',
@@ -1128,6 +1134,59 @@ class TestEmitterBasic(unittest.TestCase):
             for f in files:
                 self.assertEqual(str(f), '!libfoo.so')
                 self.assertEqual(path, 'foo/bar')
+
+    def test_symbols_file(self):
+        """Test that SYMBOLS_FILE works"""
+        reader = self.reader('test-symbols-file')
+        genfile, shlib = self.read_topsrcdir(reader)
+        self.assertIsInstance(genfile, GeneratedFile)
+        self.assertIsInstance(shlib, SharedLibrary)
+        # This looks weird but MockConfig sets DLL_{PREFIX,SUFFIX} and
+        # the reader method in this class sets OS_TARGET=WINNT.
+        self.assertEqual(shlib.symbols_file, 'libfoo.so.def')
+
+    def test_symbols_file_objdir(self):
+        """Test that a SYMBOLS_FILE in the objdir works"""
+        reader = self.reader('test-symbols-file-objdir')
+        genfile, shlib = self.read_topsrcdir(reader)
+        self.assertIsInstance(genfile, GeneratedFile)
+        self.assertEqual(genfile.script,
+                         mozpath.join(reader.config.topsrcdir, 'foo.py'))
+        self.assertIsInstance(shlib, SharedLibrary)
+        self.assertEqual(shlib.symbols_file, 'foo.symbols')
+
+    def test_symbols_file_objdir_missing_generated(self):
+        """Test that a SYMBOLS_FILE in the objdir that's missing
+        from GENERATED_FILES is an error.
+        """
+        reader = self.reader('test-symbols-file-objdir-missing-generated')
+        with self.assertRaisesRegexp(SandboxValidationError,
+             'Objdir file specified in SYMBOLS_FILE not in GENERATED_FILES:'):
+            self.read_topsrcdir(reader)
+
+    def test_allowed_xpcom_glue(self):
+        """Test that the ALLOWED_XPCOM_GLUE list is still relevant."""
+        from mozbuild.frontend.emitter import ALLOWED_XPCOM_GLUE
+
+        allowed = defaultdict(list)
+        useless = []
+        for name, path in ALLOWED_XPCOM_GLUE:
+            allowed[path].append(name)
+
+        for path, names in allowed.iteritems():
+            if path.startswith(('mailnews/', 'calendar/', 'extensions/purple/purplexpcom')):
+                continue
+            try:
+                content = open(os.path.join(topsrcdir, path, 'moz.build')).read()
+            except:
+                content = ''
+            for name in names:
+                if "'%s'" % name in content or '"%s"' % name in content:
+                    continue
+                useless.append((name, path))
+
+        self.assertEqual(useless, [])
+
 
 if __name__ == '__main__':
     main()

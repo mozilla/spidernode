@@ -38,7 +38,6 @@
 #include "jswin.h"
 #include "jswrapper.h"
 
-#include "asmjs/WasmSignalHandlers.h"
 #include "builtin/Promise.h"
 #include "gc/GCInternals.h"
 #include "jit/arm/Simulator-arm.h"
@@ -52,6 +51,7 @@
 #include "js/MemoryMetrics.h"
 #include "js/SliceBudget.h"
 #include "vm/Debugger.h"
+#include "wasm/WasmSignalHandlers.h"
 
 #include "jscntxtinlines.h"
 #include "jsgcinlines.h"
@@ -94,6 +94,7 @@ PerThreadData::PerThreadData(JSRuntime* runtime)
 #ifdef DEBUG
   , ionCompiling(false)
   , ionCompilingSafeForMinorGC(false)
+  , performingGC(false)
   , gcSweeping(false)
 #endif
 {}
@@ -157,6 +158,8 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     promiseRejectionTrackerCallbackData(nullptr),
     startAsyncTaskCallback(nullptr),
     finishAsyncTaskCallback(nullptr),
+    promiseTasksToDestroy(mutexid::PromiseTaskPtrVector),
+    exclusiveAccessLock(mutexid::RuntimeExclusiveAccess),
 #ifdef DEBUG
     mainThreadHasExclusiveAccess(false),
 #endif
@@ -367,6 +370,8 @@ JSRuntime::destroyRuntime()
 
     fx.destroyInstance();
 
+    sharedIntlData.destroyInstance();
+
     if (gcInitialized) {
         /*
          * Finish any in-progress GCs first. This ensures the parseWaitingOnGC
@@ -381,7 +386,7 @@ JSRuntime::destroyRuntime()
 
         /*
          * Cancel any pending, in progress or completed Ion compilations and
-         * parse tasks. Waiting for AsmJS and compression tasks is done
+         * parse tasks. Waiting for wasm and compression tasks is done
          * synchronously (on the main thread or during parse tasks), so no
          * explicit canceling is needed for these.
          */
@@ -498,6 +503,8 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
             sharedImmutableStrings_->sizeOfExcludingThis(mallocSizeOf);
     }
 
+    rtSizes->sharedIntlData += sharedIntlData.sizeOfExcludingThis(mallocSizeOf);
+
     rtSizes->uncompressedSourceCache +=
         cx->caches.uncompressedSourceCache.sizeOfExcludingThis(mallocSizeOf);
 
@@ -578,7 +585,7 @@ InvokeInterruptCallback(JSContext* cx)
     const char16_t* chars;
     AutoStableStringChars stableChars(cx);
     if (flat && stableChars.initTwoByte(cx, flat))
-        chars = stableChars.twoByteRange().start().get();
+        chars = stableChars.twoByteRange().begin().get();
     else
         chars = u"(stack not available)";
     JS_ReportErrorFlagsAndNumberUC(cx, JSREPORT_WARNING, GetErrorMessage, nullptr,
@@ -667,6 +674,12 @@ JSRuntime::getDefaultLocale()
 }
 
 void
+JSRuntime::traceSharedIntlData(JSTracer* trc)
+{
+    sharedIntlData.trace(trc);
+}
+
+void
 JSRuntime::triggerActivityCallback(bool active)
 {
     if (!activityCallback)
@@ -731,7 +744,8 @@ JSRuntime::enqueuePromiseJob(JSContext* cx, HandleFunction job, HandleObject pro
         // intrinsic_EnqueuePromiseReactionJob for details.
         if (IsWrapper(promise))
             unwrappedPromise = UncheckedUnwrap(promise);
-        allocationSite = JS::GetPromiseAllocationSite(unwrappedPromise);
+        if (unwrappedPromise->is<PromiseObject>())
+            allocationSite = JS::GetPromiseAllocationSite(unwrappedPromise);
     }
     return cx->runtime()->enqueuePromiseJobCallback(cx, job, allocationSite, incumbentGlobal, data);
 }
@@ -846,7 +860,7 @@ JSRuntime::clearUsedByExclusiveThread(Zone* zone)
 }
 
 bool
-js::CurrentThreadCanAccessRuntime(JSRuntime* rt)
+js::CurrentThreadCanAccessRuntime(const JSRuntime* rt)
 {
     return rt->ownerThread_ == js::ThisThread::GetId();
 }
@@ -862,6 +876,14 @@ js::CurrentThreadCanAccessZone(Zone* zone)
     // is imperfect.
     return zone->usedByExclusiveThread;
 }
+
+#ifdef DEBUG
+bool
+js::CurrentThreadIsPerformingGC()
+{
+    return TlsPerThreadData.get()->performingGC;
+}
+#endif
 
 JS_FRIEND_API(void)
 JS::UpdateJSContextProfilerSampleBufferGen(JSContext* cx, uint32_t generation,

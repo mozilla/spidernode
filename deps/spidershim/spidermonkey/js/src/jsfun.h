@@ -28,6 +28,9 @@ static const uint32_t JSSLOT_BOUND_FUNCTION_TARGET     = 2;
 static const uint32_t JSSLOT_BOUND_FUNCTION_THIS       = 3;
 static const uint32_t JSSLOT_BOUND_FUNCTION_ARGS       = 4;
 
+static const char FunctionConstructorMedialSigils[] = ") {\n";
+static const char FunctionConstructorFinalBrace[] = "\n}";
+
 class JSFunction : public js::NativeObject
 {
   public:
@@ -301,6 +304,17 @@ class JSFunction : public js::NativeObject
         flags_ |= RESOLVED_NAME;
     }
 
+    void setAsyncKind(js::FunctionAsyncKind asyncKind) {
+        if (isInterpretedLazy())
+            lazyScript()->setAsyncKind(asyncKind);
+        else
+            nonLazyScript()->setAsyncKind(asyncKind);
+    }
+
+    bool getUnresolvedLength(JSContext* cx, js::MutableHandleValue v);
+
+    JSAtom* getUnresolvedName(JSContext* cx);
+
     JSAtom* name() const { return hasGuessedAtom() ? nullptr : atom_.get(); }
 
     // Because display names (see Debugger.Object.displayName) are already stored
@@ -383,8 +397,9 @@ class JSFunction : public js::NativeObject
     //   use, but has extra checks, requires a cx and may trigger a GC.
     //
     // - For inlined functions which may have a LazyScript but whose JSScript
-    //   is known to exist, existingScriptForInlinedFunction() will get the
-    //   script and delazify the function if necessary.
+    //   is known to exist, existingScript() will get the script and delazify
+    //   the function if necessary. If the function should not be delazified,
+    //   use existingScriptNonDelazifying().
     //
     // - For functions known to have a JSScript, nonLazyScript() will get it.
 
@@ -400,7 +415,7 @@ class JSFunction : public js::NativeObject
         return nonLazyScript();
     }
 
-    JSScript* existingScriptForInlinedFunction() {
+    JSScript* existingScriptNonDelazifying() const {
         MOZ_ASSERT(isInterpreted());
         if (isInterpretedLazy()) {
             // Get the script from the canonical function. Ion used the
@@ -411,11 +426,17 @@ class JSFunction : public js::NativeObject
             js::LazyScript* lazy = lazyScript();
             JSFunction* fun = lazy->functionNonDelazifying();
             MOZ_ASSERT(fun);
-            JSScript* script = fun->nonLazyScript();
+            return fun->nonLazyScript();
+        }
+        return nonLazyScript();
+    }
 
+    JSScript* existingScript() {
+        MOZ_ASSERT(isInterpreted());
+        if (isInterpretedLazy()) {
             if (shadowZone()->needsIncrementalBarrier())
-                js::LazyScript::writeBarrierPre(lazy);
-
+                js::LazyScript::writeBarrierPre(lazyScript());
+            JSScript* script = existingScriptNonDelazifying();
             flags_ &= ~INTERPRETED_LAZY;
             flags_ |= INTERPRETED;
             initScript(script);
@@ -465,6 +486,18 @@ class JSFunction : public js::NativeObject
 
     bool isStarGenerator() const { return generatorKind() == js::StarGenerator; }
 
+    js::FunctionAsyncKind asyncKind() const {
+        return isInterpretedLazy() ? lazyScript()->asyncKind() : nonLazyScript()->asyncKind();
+    }
+
+    bool isAsync() const {
+        if (isInterpretedLazy())
+            return lazyScript()->asyncKind() == js::AsyncFunction;
+        if (hasScript())
+            return nonLazyScript()->asyncKind() == js::AsyncFunction;
+        return false;
+    }
+
     void setScript(JSScript* script_) {
         mutableScript() = script_;
     }
@@ -474,11 +507,13 @@ class JSFunction : public js::NativeObject
     }
 
     void setUnlazifiedScript(JSScript* script) {
-        // Note: createScriptForLazilyInterpretedFunction triggers a barrier on
-        // lazy script before it is overwritten here.
         MOZ_ASSERT(isInterpretedLazy());
-        if (lazyScriptOrNull() && !lazyScript()->maybeScript())
-            lazyScript()->initScript(script);
+        if (lazyScriptOrNull()) {
+            // Trigger a pre barrier on the lazy script being overwritten.
+            js::LazyScript::writeBarrierPre(lazyScriptOrNull());
+            if (!lazyScript()->maybeScript())
+                lazyScript()->initScript(script);
+        }
         flags_ &= ~INTERPRETED_LAZY;
         flags_ |= INTERPRETED;
         initScript(script);
@@ -597,17 +632,22 @@ Function(JSContext* cx, unsigned argc, Value* vp);
 extern bool
 Generator(JSContext* cx, unsigned argc, Value* vp);
 
-// Allocate a new function backed by a JSNative.
+extern bool
+AsyncFunctionConstructor(JSContext* cx, unsigned argc, Value* vp);
+
+// Allocate a new function backed by a JSNative.  Note that by default this
+// creates a singleton object.
 extern JSFunction*
 NewNativeFunction(ExclusiveContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
                   gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
-                  NewObjectKind newKind = GenericObject);
+                  NewObjectKind newKind = SingletonObject);
 
-// Allocate a new constructor backed by a JSNative.
+// Allocate a new constructor backed by a JSNative.  Note that by default this
+// creates a singleton object.
 extern JSFunction*
 NewNativeConstructor(ExclusiveContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
                      gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
-                     NewObjectKind newKind = GenericObject,
+                     NewObjectKind newKind = SingletonObject,
                      JSFunction::Flags flags = JSFunction::NATIVE_CTOR);
 
 // Allocate a new scripted function.  If enclosingEnv is null, the
@@ -685,7 +725,7 @@ class FunctionExtended : public JSFunction
      * wasm/asm.js exported functions store the function index of the exported
      * function in the original module.
      */
-    static const unsigned WASM_FUNC_DEF_INDEX_SLOT = 1;
+    static const unsigned WASM_FUNC_INDEX_SLOT = 1;
 
     /*
      * asm.js module functions store their WasmModuleObject in the first slot.
@@ -723,10 +763,6 @@ CloneFunctionAndScript(JSContext* cx, HandleFunction fun, HandleObject parent,
                        HandleScope newScope,
                        gc::AllocKind kind = gc::AllocKind::FUNCTION,
                        HandleObject proto = nullptr);
-
-extern bool
-FindBody(JSContext* cx, HandleFunction fun, HandleLinearString src, size_t* bodyStart,
-         size_t* bodyEnd);
 
 } // namespace js
 
@@ -779,7 +815,7 @@ JSFunction::getExtendedSlot(size_t which) const
 
 namespace js {
 
-JSString* FunctionToString(JSContext* cx, HandleFunction fun, bool lambdaParen);
+JSString* FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPring);
 
 template<XDRMode mode>
 bool

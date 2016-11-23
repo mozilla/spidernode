@@ -582,8 +582,9 @@ IsCacheableGetPropCallNative(JSObject* obj, JSObject* holder, Shape* shape)
     return !IsWindow(obj);
 }
 
-static bool
-IsCacheableGetPropCallScripted(JSObject* obj, JSObject* holder, Shape* shape)
+bool
+jit::IsCacheableGetPropCallScripted(JSObject* obj, JSObject* holder, Shape* shape,
+                                    bool* isTemporarilyUnoptimizable)
 {
     if (!shape || !IsCacheableProtoChainForIonOrCacheIR(obj, holder))
         return false;
@@ -594,12 +595,21 @@ IsCacheableGetPropCallScripted(JSObject* obj, JSObject* holder, Shape* shape)
     if (!shape->getterValue().toObject().is<JSFunction>())
         return false;
 
-    JSFunction& getter = shape->getterValue().toObject().as<JSFunction>();
-    if (!getter.hasJITCode())
+    // See IsCacheableGetPropCallNative.
+    if (IsWindow(obj))
         return false;
 
-    // See IsCacheableGetPropCallNative.
-    return !IsWindow(obj);
+    JSFunction& getter = shape->getterValue().toObject().as<JSFunction>();
+    if (getter.isNative())
+        return false;
+
+    if (!getter.hasJITCode()) {
+        if (isTemporarilyUnoptimizable)
+            *isTemporarilyUnoptimizable = true;
+        return false;
+    }
+
+    return true;
 }
 
 static bool
@@ -3657,7 +3667,7 @@ SetPropertyIC::tryAttachAddSlot(JSContext* cx, HandleScript outerScript, IonScri
     // A GC may have caused cache.value() to become stale as it is not traced.
     // In this case the IonScript will have been invalidated, so check for that.
     // Assert no further GC is possible past this point.
-    JS::AutoAssertNoAlloc nogc;
+    JS::AutoAssertNoGC nogc;
     if (ion->invalidated())
         return true;
 
