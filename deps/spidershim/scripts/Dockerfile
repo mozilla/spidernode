@@ -6,9 +6,9 @@ RUN apt-get update && apt-get -y install \
     llvm-3.7-tools wget mercurial
 RUN wget -q https://hg.mozilla.org/mozilla-central/raw-file/default/python/mozboot/bin/bootstrap.py -O bootstrap.py && python bootstrap.py --application-choice=browser --no-interactive
 
+ENV PATH ~/.cargo/bin:$PATH
 ENV SHELL /bin/bash
 ENV TRAVIS true
 ENV CCACHE_DIR /ccache
 RUN mkdir /build /ccache
 WORKDIR /build
-
