@@ -10652,7 +10652,6 @@
       'spidermonkey/js/src/octane/zlib.js',
       'spidermonkey/js/src/old-configure',
       'spidermonkey/js/src/old-configure.in',
-      'spidermonkey/js/src/old-configure.in.orig',
       'spidermonkey/js/src/perf/jsperf.cpp',
       'spidermonkey/js/src/perf/jsperf.h',
       'spidermonkey/js/src/perf/pm_linux.cpp',
