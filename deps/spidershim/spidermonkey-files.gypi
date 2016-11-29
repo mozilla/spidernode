@@ -10650,7 +10650,6 @@
       'spidermonkey/js/src/octane/typescript.js',
       'spidermonkey/js/src/octane/zlib-data.js',
       'spidermonkey/js/src/octane/zlib.js',
-      'spidermonkey/js/src/old-configure',
       'spidermonkey/js/src/old-configure.in',
       'spidermonkey/js/src/perf/jsperf.cpp',
       'spidermonkey/js/src/perf/jsperf.h',

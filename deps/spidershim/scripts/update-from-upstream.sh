@@ -34,7 +34,7 @@ test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
 test -d spidermonkey/taskcluster || mkdir -p spidermonkey/taskcluster
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/taskcluster/moz.build spidermonkey/taskcluster/
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/modules/fdlibm spidermonkey/modules/
-rsync -av --delete --exclude='*.pyc' "$SM_DIR"/js/src spidermonkey/js/
+rsync -av --delete --exclude='*.pyc' --exclude='old-configure' "$SM_DIR"/js/src spidermonkey/js/
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/js/public spidermonkey/js/
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/js/moz.configure spidermonkey/js/
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/js/ffi.configure spidermonkey/js/
