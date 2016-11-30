@@ -3821,7 +3821,6 @@
       'spidermonkey/js/src/builtin/WeakSetObject.h',
       'spidermonkey/js/src/builtin/embedjs.py',
       'spidermonkey/js/src/builtin/make_intl_data.py',
-      'spidermonkey/js/src/configure',
       'spidermonkey/js/src/configure.in',
       'spidermonkey/js/src/ctypes/CTypes.cpp',
       'spidermonkey/js/src/ctypes/CTypes.h',
