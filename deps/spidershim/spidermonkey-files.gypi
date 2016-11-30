@@ -3704,6 +3704,7 @@
       'spidermonkey/intl/icu/source/tools/tzcode/tzselect.ksh',
       'spidermonkey/intl/icu/source/tools/tzcode/zdump.c',
       'spidermonkey/intl/icu/source/tools/tzcode/zic.c',
+      'spidermonkey/js/ffi.configure',
       'spidermonkey/js/moz.configure',
       'spidermonkey/js/public/CallArgs.h',
       'spidermonkey/js/public/CallNonGenericMethod.h',
