@@ -41,7 +41,7 @@ rsync -av --delete --exclude='*.pyc' "$SM_DIR"/js/ffi.configure spidermonkey/js/
 rsync -av --delete --exclude='*.pyc' "$SM_DIR"/.cargo spidermonkey/
 
 for patch in `ls spidermonkey-patches/* | sort`; do
-  (cd spidermonkey && patch -p1 < "../$patch")
+  (cd spidermonkey && patch -p1 --no-backup < "../$patch")
 done
 
 git add spidermonkey
