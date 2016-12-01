@@ -135,7 +135,7 @@ matrix:
             make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
           "
-      env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
+      env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true ASAN_OPTIONS=detect_leaks=0
 
     - os: linux
       compiler: clang
