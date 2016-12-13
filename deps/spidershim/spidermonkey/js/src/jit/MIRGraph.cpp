@@ -6,12 +6,12 @@
 
 #include "jit/MIRGraph.h"
 
-#include "asmjs/WasmTypes.h"
 #include "jit/BytecodeAnalysis.h"
 #include "jit/Ion.h"
 #include "jit/JitSpewer.h"
 #include "jit/MIR.h"
 #include "jit/MIRGenerator.h"
+#include "wasm/WasmTypes.h"
 
 using namespace js;
 using namespace js::jit;
@@ -39,7 +39,7 @@ MIRGenerator::MIRGenerator(CompileCompartment* compartment, const JitCompileOpti
     instrumentedProfiling_(false),
     instrumentedProfilingIsCached_(false),
     safeForMinorGC_(true),
-    minAsmJSHeapLength_(0),
+    minWasmHeapLength_(0),
     options(options),
     gs_(alloc)
 { }
@@ -141,20 +141,77 @@ MIRGraph::renumberBlocksAfter(MBasicBlock* at)
         iter->setId(++id);
 }
 
-void
-MIRGraph::removeBlocksAfter(MBasicBlock* start)
+bool
+MIRGraph::removeSuccessorBlocks(MBasicBlock* start)
 {
-    MBasicBlockIterator iter(begin());
-    iter++;
-    while (iter != end()) {
-        MBasicBlock* block = *iter;
-        iter++;
+    if (!start->hasLastIns())
+        return true;
 
-        if (block->id() <= start->id())
+    start->mark();
+
+    // Mark all successors.
+    Vector<MBasicBlock*, 4, SystemAllocPolicy> blocks;
+    for (size_t i = 0; i < start->numSuccessors(); i++) {
+        if (start->getSuccessor(i)->isMarked())
+            continue;
+        if (!blocks.append(start->getSuccessor(i)))
+            return false;
+        start->getSuccessor(i)->mark();
+    }
+    for (size_t i = 0; i < blocks.length(); i++) {
+        MBasicBlock* block = blocks[i];
+        if (!block->hasLastIns())
             continue;
 
-        removeBlock(block);
+        for (size_t j = 0; j < block->numSuccessors(); j++) {
+            if (block->getSuccessor(j)->isMarked())
+                continue;
+            if (!blocks.append(block->getSuccessor(j)))
+                return false;
+            block->getSuccessor(j)->mark();
+        }
     }
+
+    if (osrBlock()) {
+        if (osrBlock()->getSuccessor(0)->isMarked())
+            osrBlock()->mark();
+    }
+
+    // Remove blocks.
+    // If they don't have any predecessor
+    for (size_t i = 0; i < blocks.length(); i++) {
+        MBasicBlock* block = blocks[i];
+        bool allMarked = true;
+        for (size_t i = 0; i < block->numPredecessors(); i++) {
+            if (block->getPredecessor(i)->isMarked())
+                continue;
+            allMarked = false;
+            break;
+        }
+        if (allMarked) {
+            removeBlock(block);
+        } else {
+            MOZ_ASSERT(block != osrBlock());
+            for (size_t j = 0; j < block->numPredecessors(); j++) {
+                if (!block->getPredecessor(j)->isMarked())
+                    continue;
+                block->removePredecessor(block->getPredecessor(j));
+            }
+            // This shouldn't have any instructions yet.
+            MOZ_ASSERT(block->begin() == block->end());
+        }
+    }
+
+    if (osrBlock()) {
+        if (osrBlock()->getSuccessor(0)->isDead())
+            removeBlock(osrBlock());
+    }
+
+    for (size_t i = 0; i < blocks.length(); i++)
+        blocks[i]->unmark();
+    start->unmark();
+
+    return true;
 }
 
 void
@@ -175,18 +232,13 @@ MIRGraph::removeBlock(MBasicBlock* block)
         }
     }
 
-    block->discardAllInstructions();
-    block->discardAllResumePoints();
-
-    // Note: phis are disconnected from the rest of the graph, but are not
-    // removed entirely. If the block being removed is a loop header then
-    // IonBuilder may need to access these phis to more quickly converge on the
-    // possible types in the graph. See IonBuilder::analyzeNewLoopTypes.
-    block->discardAllPhiOperands();
-
+    block->clear();
     block->markAsDead();
-    blocks_.remove(block);
-    numBlocks_--;
+
+    if (block->isInList()) {
+        blocks_.remove(block);
+        numBlocks_--;
+    }
 }
 
 void
@@ -275,12 +327,12 @@ MBasicBlock::NewPendingLoopHeader(MIRGraph& graph, const CompileInfo& info,
 }
 
 MBasicBlock*
-MBasicBlock::NewSplitEdge(MIRGraph& graph, const CompileInfo& info, MBasicBlock* pred, size_t predEdgeIdx, MBasicBlock* succ)
+MBasicBlock::NewSplitEdge(MIRGraph& graph, MBasicBlock* pred, size_t predEdgeIdx, MBasicBlock* succ)
 {
     MBasicBlock* split = nullptr;
-    if (!pred->pc()) {
-        // The predecessor does not have a PC, this is an AsmJS compilation.
-        split = MBasicBlock::NewAsmJS(graph, info, pred, SPLIT_EDGE);
+    if (!succ->pc()) {
+        // The predecessor does not have a PC, this is a Wasm compilation.
+        split = MBasicBlock::New(graph, succ->info(), pred, SPLIT_EDGE);
         if (!split)
             return nullptr;
     } else {
@@ -288,7 +340,7 @@ MBasicBlock::NewSplitEdge(MIRGraph& graph, const CompileInfo& info, MBasicBlock*
         MResumePoint* succEntry = succ->entryResumePoint();
 
         BytecodeSite* site = new(graph.alloc()) BytecodeSite(succ->trackedTree(), succEntry->pc());
-        split = new(graph.alloc()) MBasicBlock(graph, info, site, SPLIT_EDGE);
+        split = new(graph.alloc()) MBasicBlock(graph, succ->info(), site, SPLIT_EDGE);
 
         if (!split->init())
             return nullptr;
@@ -329,8 +381,8 @@ MBasicBlock::NewSplitEdge(MIRGraph& graph, const CompileInfo& info, MBasicBlock*
             splitEntry->initOperand(i, def);
         }
 
-        // This is done in the NewAsmJS, so we cannot keep this line below,
-        // where the rest of the graph is modified.
+        // This is done in the New variant for wasm, so we cannot keep this
+        // line below, where the rest of the graph is modified.
         if (!split->predecessors_.append(pred))
             return nullptr;
     }
@@ -348,7 +400,7 @@ MBasicBlock::NewSplitEdge(MIRGraph& graph, const CompileInfo& info, MBasicBlock*
 }
 
 MBasicBlock*
-MBasicBlock::NewAsmJS(MIRGraph& graph, const CompileInfo& info, MBasicBlock* pred, Kind kind)
+MBasicBlock::New(MIRGraph& graph, const CompileInfo& info, MBasicBlock* pred, Kind kind)
 {
     BytecodeSite* site = new(graph.alloc()) BytecodeSite();
     MBasicBlock* block = new(graph.alloc()) MBasicBlock(graph, info, site, kind);
@@ -403,6 +455,7 @@ MBasicBlock::NewAsmJS(MIRGraph& graph, const CompileInfo& info, MBasicBlock* pre
 
 MBasicBlock::MBasicBlock(MIRGraph& graph, const CompileInfo& info, BytecodeSite* site, Kind kind)
   : unreachable_(false),
+    specialized_(false),
     graph_(graph),
     info_(info),
     predecessors_(graph.alloc()),
@@ -1006,6 +1059,19 @@ MBasicBlock::discardAllResumePoints(bool discardEntry)
 }
 
 void
+MBasicBlock::clear()
+{
+    discardAllInstructions();
+    discardAllResumePoints();
+
+    // Note: phis are disconnected from the rest of the graph, but are not
+    // removed entirely. If the block being removed is a loop header then
+    // IonBuilder may need to access these phis to more quickly converge on the
+    // possible types in the graph. See IonBuilder::analyzeNewLoopTypes.
+    discardAllPhiOperands();
+}
+
+void
 MBasicBlock::insertBefore(MInstruction* at, MInstruction* ins)
 {
     MOZ_ASSERT(at->block() == this);
@@ -1262,7 +1328,7 @@ MBasicBlock::setBackedge(TempAllocator& alloc, MBasicBlock* pred)
 }
 
 bool
-MBasicBlock::setBackedgeAsmJS(MBasicBlock* pred)
+MBasicBlock::setBackedgeWasm(MBasicBlock* pred)
 {
     // Predecessors must be finished, and at the correct stack depth.
     MOZ_ASSERT(hasLastIns());
@@ -1274,7 +1340,7 @@ MBasicBlock::setBackedgeAsmJS(MBasicBlock* pred)
 
     // Add exit definitions to each corresponding phi at the entry.
     // Note: Phis are inserted in the same order as the slots. (see
-    // MBasicBlock::NewAsmJS)
+    // MBasicBlock::New)
     size_t slot = 0;
     for (MPhiIterator phi = phisBegin(); phi != phisEnd(); phi++, slot++) {
         MPhi* entryDef = *phi;
@@ -1552,6 +1618,10 @@ MBasicBlock::inheritPhisFromBackedge(TempAllocator& alloc, MBasicBlock* backedge
 bool
 MBasicBlock::specializePhis(TempAllocator& alloc)
 {
+    if (specialized_)
+        return true;
+
+    specialized_ = true;
     for (MPhiIterator iter = phisBegin(); iter != phisEnd(); iter++) {
         MPhi* phi = *iter;
         if (!phi->specializeType(alloc))
@@ -1586,6 +1656,92 @@ MBasicBlock::immediateDominatorBranch(BranchDirection* pdirection)
     }
 
     return nullptr;
+}
+
+MBasicBlock::BackupPoint::BackupPoint(MBasicBlock* current)
+  : current_(current),
+    lastIns_(current->hasAnyIns() ? *current->rbegin() : nullptr),
+    stackPosition_(current->stackDepth()),
+    slots_()
+#ifdef DEBUG
+  , lastPhi_(!current->phisEmpty() ? *current->phis_.rbegin() : nullptr),
+    predecessorsCheckSum_(computePredecessorsCheckSum(current)),
+    instructionsCheckSum_(computeInstructionsCheckSum(current)),
+    id_(current->id()),
+    callerResumePoint_(current->callerResumePoint()),
+    entryResumePoint_(current->entryResumePoint())
+#endif
+{
+    // The block is not yet jumping into a block of an inlined function yet.
+    MOZ_ASSERT(current->outerResumePoint_ == nullptr);
+}
+
+bool
+MBasicBlock::BackupPoint::init(TempAllocator& alloc)
+{
+    if (!slots_.init(alloc, stackPosition_))
+        return false;
+    for (size_t i = 0, e = stackPosition_; i < e; ++i)
+        slots_[i] = current_->slots_[i];
+    return true;
+}
+
+#ifdef DEBUG
+uintptr_t
+MBasicBlock::BackupPoint::computePredecessorsCheckSum(MBasicBlock* block)
+{
+    uintptr_t hash = 0;
+    for (size_t i = 0; i < block->numPredecessors(); i++) {
+        MBasicBlock* pred = block->getPredecessor(i);
+        uintptr_t data = reinterpret_cast<uintptr_t>(pred);
+        hash = data + (hash << 6) + (hash << 16) - hash;
+    }
+    return hash;
+}
+
+HashNumber
+MBasicBlock::BackupPoint::computeInstructionsCheckSum(MBasicBlock* block)
+{
+    HashNumber h = 0;
+    MOZ_ASSERT_IF(lastIns_, lastIns_->block() == block);
+    for (MInstructionIterator ins = block->begin(); ins != block->end(); ++ins) {
+        h += ins->valueHash();
+        h += h << 10;
+        h ^= h >> 6;
+    }
+    return h;
+}
+#endif
+
+MBasicBlock*
+MBasicBlock::BackupPoint::restore()
+{
+    // No extra Phi got added.
+    MOZ_ASSERT((!current_->phisEmpty() ? *current_->phis_.rbegin() : nullptr) == lastPhi_);
+
+    MOZ_ASSERT_IF(lastIns_, lastIns_->block() == current_);
+    MOZ_ASSERT_IF(lastIns_, !lastIns_->isDiscarded());
+
+    if (!current_->graph().removeSuccessorBlocks(current_))
+        return nullptr;
+
+    MInstructionIterator lastIns(lastIns_ ? ++(current_->begin(lastIns_)) : current_->begin());
+    current_->discardAllInstructionsStartingAt(lastIns);
+    current_->clearOuterResumePoint();
+
+    MOZ_ASSERT(current_->slots_.length() >= stackPosition_);
+    if (current_->stackPosition_ != stackPosition_)
+        current_->setStackDepth(stackPosition_);
+    for (size_t i = 0, e = stackPosition_; i < e; ++i)
+        current_->slots_[i] = slots_[i];
+
+    MOZ_ASSERT(current_->id() == id_);
+    MOZ_ASSERT(predecessorsCheckSum_ == computePredecessorsCheckSum(current_));
+    MOZ_ASSERT(instructionsCheckSum_ == computeInstructionsCheckSum(current_));
+    MOZ_ASSERT(current_->callerResumePoint() == callerResumePoint_);
+    MOZ_ASSERT(current_->entryResumePoint() == entryResumePoint_);
+
+    return current_;
 }
 
 void

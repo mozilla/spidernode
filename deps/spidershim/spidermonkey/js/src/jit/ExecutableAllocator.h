@@ -43,7 +43,7 @@
 #include "js/HashTable.h"
 #include "js/Vector.h"
 
-#ifdef JS_CPU_SPARC
+#if defined(__sparc__)
 #ifdef __linux__  // bugzilla 502369
 static void sync_instruction_memory(caddr_t v, u_int len)
 {
@@ -235,7 +235,7 @@ class ExecutableAllocator
 
     static void poisonCode(JSRuntime* rt, JitPoisonRangeVector& ranges);
 
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || defined(JS_SIMULATOR_ARM64)
     static void cacheFlush(void*, size_t)
     {
     }
@@ -301,7 +301,7 @@ class ExecutableAllocator
     {
 	__clear_cache(code, (void *)((size_t)code + size));
     }
-#elif JS_CPU_SPARC
+#elif defined(__sparc__)
     static void cacheFlush(void* code, size_t size)
     {
         sync_instruction_memory((caddr_t)code, size);

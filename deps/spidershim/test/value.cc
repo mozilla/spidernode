@@ -3388,7 +3388,7 @@ TEST(SpiderShim, ObjectGetConstructorName) {
         x->ToObject(context)
             .ToLocalChecked()
             ->GetConstructorName()
-            ->Equals(context, v8_str("outer.inner"))
+            ->Equals(context, v8_str("inner"))
             .FromJust());
 
   Local<Value> child_prototype =

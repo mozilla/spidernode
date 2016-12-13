@@ -93,11 +93,10 @@ struct Isolate::Impl {
     eternals.emplace(iso);
   }
 
-  static void WarningReporter(JSContext* cx, const char* message,
-                              JSErrorReport* report) {
+  static void WarningReporter(JSContext* cx, JSErrorReport* report) {
     fprintf(stderr, "JS warning at %s:%u: %s\n",
             report->filename ? report->filename : "<no filename>",
-            (unsigned int)report->lineno, message);
+            (unsigned int)report->lineno, report->message().c_str());
   }
 
   static bool OnInterrupt(JSContext* cx);

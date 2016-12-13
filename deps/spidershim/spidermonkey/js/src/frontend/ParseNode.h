@@ -120,6 +120,7 @@ class ObjectBox;
     F(VOID) \
     F(NOT) \
     F(BITNOT) \
+    F(AWAIT) \
     \
     /* \
      * Binary operators. \
@@ -350,7 +351,8 @@ IsTypeofKind(ParseNodeKind kind)
  * PNK_NEG
  * PNK_VOID,    unary       pn_kid: UNARY expr
  * PNK_NOT,
- * PNK_BITNOT
+ * PNK_BITNOT,
+ * PNK_AWAIT
  * PNK_TYPEOFNAME, unary    pn_kid: UNARY expr
  * PNK_TYPEOFEXPR
  * PNK_PREINCREMENT, unary  pn_kid: MEMBER expr
@@ -448,6 +450,9 @@ class ParseNode
     uint8_t pn_op;      /* see JSOp enum and jsopcode.tbl */
     uint8_t pn_arity:4; /* see ParseNodeArity enum */
     bool pn_parens:1;   /* this expr was enclosed in parens */
+    bool pn_rhs_anon_fun:1;  /* this expr is anonymous function or class that
+                              * is a direct RHS of PNK_ASSIGN or PNK_COLON of
+                              * property, that needs SetFunctionName. */
 
     ParseNode(const ParseNode& other) = delete;
     void operator=(const ParseNode& other) = delete;
@@ -458,6 +463,7 @@ class ParseNode
         pn_op(op),
         pn_arity(arity),
         pn_parens(false),
+        pn_rhs_anon_fun(false),
         pn_pos(0, 0),
         pn_next(nullptr)
     {
@@ -470,6 +476,7 @@ class ParseNode
         pn_op(op),
         pn_arity(arity),
         pn_parens(false),
+        pn_rhs_anon_fun(false),
         pn_pos(pos),
         pn_next(nullptr)
     {
@@ -509,6 +516,13 @@ class ParseNode
     bool isInParens() const                { return pn_parens; }
     bool isLikelyIIFE() const              { return isInParens(); }
     void setInParens(bool enabled)         { pn_parens = enabled; }
+
+    bool isDirectRHSAnonFunction() const {
+        return pn_rhs_anon_fun;
+    }
+    void setDirectRHSAnonFunction(bool enabled) {
+        pn_rhs_anon_fun = enabled;
+    }
 
     TokenPos            pn_pos;         /* two 16-bit pairs here, for 64 bits */
     ParseNode*          pn_next;        /* intrinsic link in parent PN_LIST */
@@ -635,12 +649,14 @@ class ParseNode
         MOZ_ASSERT(pn_arity == PN_CODE && getKind() == PNK_FUNCTION);
         MOZ_ASSERT(isOp(JSOP_LAMBDA) ||        // lambda, genexpr
                    isOp(JSOP_LAMBDA_ARROW) ||  // arrow function
+                   isOp(JSOP_FUNWITHPROTO) ||  // already emitted lambda with needsProto
                    isOp(JSOP_DEFFUN) ||        // non-body-level function statement
                    isOp(JSOP_NOP) ||           // body-level function stmt in global code
                    isOp(JSOP_GETLOCAL) ||      // body-level function stmt in function code
                    isOp(JSOP_GETARG) ||        // body-level function redeclaring formal
                    isOp(JSOP_INITLEXICAL));    // block-level function stmt
-        return !isOp(JSOP_LAMBDA) && !isOp(JSOP_LAMBDA_ARROW) && !isOp(JSOP_DEFFUN);
+        return !isOp(JSOP_LAMBDA) && !isOp(JSOP_LAMBDA_ARROW) &&
+               !isOp(JSOP_FUNWITHPROTO) && !isOp(JSOP_DEFFUN);
     }
 
     /*
@@ -912,10 +928,14 @@ struct ListNode : public ParseNode
 
 struct CodeNode : public ParseNode
 {
-    CodeNode(ParseNodeKind kind, const TokenPos& pos)
-      : ParseNode(kind, JSOP_NOP, PN_CODE, pos)
+    CodeNode(ParseNodeKind kind, JSOp op, const TokenPos& pos)
+      : ParseNode(kind, op, PN_CODE, pos)
     {
         MOZ_ASSERT(kind == PNK_FUNCTION || kind == PNK_MODULE);
+        MOZ_ASSERT_IF(kind == PNK_MODULE, op == JSOP_NOP);
+        MOZ_ASSERT(op == JSOP_NOP || // statement, module
+                   op == JSOP_LAMBDA_ARROW || // arrow function
+                   op == JSOP_LAMBDA); // expression, method, comprehension, accessor, &c.
         MOZ_ASSERT(!pn_body);
         MOZ_ASSERT(!pn_objbox);
     }
@@ -1439,6 +1459,9 @@ FunctionFormalParametersList(ParseNode* fn, unsigned* numFormals)
     MOZ_ASSERT(argsBody->isArity(PN_LIST));
     return argsBody->pn_head;
 }
+
+bool
+IsAnonymousFunctionDefinition(ParseNode* pn);
 
 } /* namespace frontend */
 } /* namespace js */

@@ -52,6 +52,9 @@ if test "$OS_TARGET" = "Android"; then
     mips32-*) # When target_cpu is mipsel, CPU_ARCH is mips32
         ANDROID_CPU_ARCH=mips
         ;;
+    aarch64-*)
+        ANDROID_CPU_ARCH=arm64-v8a
+        ;;
     esac
 
     AC_SUBST(ANDROID_CPU_ARCH)
@@ -260,7 +263,7 @@ case "$target" in
             break
         fi
     done
-    if test "$android_build_tools_version" == ""; then
+    if test "$android_build_tools_version" = ""; then
         version=$(echo $2 | cut -d" " -f1)
         AC_MSG_ERROR([You must install the Android build-tools version $version.  Try |mach bootstrap|.  (Looked for "$android_build_tools_base"/$version)])
     fi

@@ -12,7 +12,6 @@
 #include "jsnativestack.h"
 #include "jsnum.h" // For FIX_FPU()
 
-#include "asmjs/WasmIonCompile.h"
 #include "builtin/Promise.h"
 #include "frontend/BytecodeCompiler.h"
 #include "gc/GCInternals.h"
@@ -84,7 +83,7 @@ js::SetFakeCPUCount(size_t count)
 }
 
 bool
-js::StartOffThreadWasmCompile(wasm::IonCompileTask* task)
+js::StartOffThreadWasmCompile(wasm::CompileTask* task)
 {
     AutoLockHelperThreadState lock;
 
@@ -740,7 +739,8 @@ GlobalHelperThreadState::GlobalHelperThreadState()
    threadCount(0),
    threads(nullptr),
    wasmCompilationInProgress(false),
-   numWasmFailedJobs(0)
+   numWasmFailedJobs(0),
+   helperLock(mutexid::GlobalHelperThreadState)
 {
     cpuCount = GetCPUCount();
     threadCount = ThreadCountForCPUCount(cpuCount);
@@ -866,7 +866,7 @@ GlobalHelperThreadState::maxUnpausedIonCompilationThreads() const
 size_t
 GlobalHelperThreadState::maxWasmCompilationThreads() const
 {
-    if (IsHelperThreadSimulatingOOM(js::oom::THREAD_TYPE_ASMJS))
+    if (IsHelperThreadSimulatingOOM(js::oom::THREAD_TYPE_WASM))
         return 1;
     if (cpuCount < 2)
         return 2;
@@ -880,9 +880,9 @@ GlobalHelperThreadState::maxParseThreads() const
         return 1;
 
     // Don't allow simultaneous off thread parses, to reduce contention on the
-    // atoms table. Note that asm.js compilation depends on this to avoid
+    // atoms table. Note that wasm compilation depends on this to avoid
     // stalling the helper thread, as off thread parse tasks can trigger and
-    // block on other off thread asm.js compilation tasks.
+    // block on other off thread wasm compilation tasks.
     return 1;
 }
 
@@ -919,7 +919,7 @@ GlobalHelperThreadState::canStartWasmCompile(const AutoLockHelperThreadState& lo
 
     // Honor the maximum allowed threads to compile wasm jobs at once,
     // to avoid oversaturating the machine.
-    if (!checkTaskThreadLimit<wasm::IonCompileTask*>(maxWasmCompilationThreads()))
+    if (!checkTaskThreadLimit<wasm::CompileTask*>(maxWasmCompilationThreads()))
         return false;
 
     return true;
@@ -1152,6 +1152,7 @@ js::GCParallelTask::runFromHelperThread(AutoLockHelperThreadState& locked)
 {
     {
         AutoUnlockHelperThreadState parallelSection(locked);
+        gc::AutoSetThreadIsPerformingGC performingGC;
         uint64_t timeStart = PRMJ_Now();
         run();
         duration_ = PRMJ_Now() - timeStart;
@@ -1320,7 +1321,7 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
     // destination compartment.  Finish any ongoing incremental GC first and
     // assert that no allocation can occur.
     gc::FinishGC(cx);
-    JS::AutoAssertNoAlloc noAlloc(cx);
+    JS::AutoAssertNoGC nogc(cx);
 
     LeaveParseTaskZone(cx, parseTask);
 
@@ -1406,6 +1407,7 @@ HelperThread::ThreadMain(void* arg)
     FIX_FPU();
 
     static_cast<HelperThread*>(arg)->threadLoop();
+    Mutex::ShutDown();
 }
 
 void
@@ -1417,7 +1419,7 @@ HelperThread::handleWasmWorkload(AutoLockHelperThreadState& locked)
     currentTask.emplace(HelperThreadState().wasmWorklist(locked).popCopy());
     bool success = false;
 
-    wasm::IonCompileTask* task = wasmTask();
+    wasm::CompileTask* task = wasmTask();
     {
         AutoUnlockHelperThreadState unlock(locked);
         success = wasm::CompileFunction(task);
@@ -1687,6 +1689,10 @@ js::StartOffThreadCompression(ExclusiveContext* cx, SourceCompressionTask* task)
 bool
 js::StartPromiseTask(JSContext* cx, UniquePtr<PromiseTask> task)
 {
+    // Execute synchronously if there are no helper threads.
+    if (!CanUseExtraThreads())
+        return task->executeAndFinish(cx);
+
     // If we fail to start, by interface contract, it is because the JSContext
     // is in the process of shutting down. Since promise handlers are not
     // necessarily run while shutting down *anyway*, we simply ignore the error.
@@ -1866,7 +1872,7 @@ HelperThread::threadLoop()
             js::oom::SetThreadType(js::oom::THREAD_TYPE_ION);
             handleIonWorkload(lock);
         } else if (HelperThreadState().canStartWasmCompile(lock)) {
-            js::oom::SetThreadType(js::oom::THREAD_TYPE_ASMJS);
+            js::oom::SetThreadType(js::oom::THREAD_TYPE_WASM);
             handleWasmWorkload(lock);
         } else if (HelperThreadState().canStartPromiseTask(lock)) {
             js::oom::SetThreadType(js::oom::THREAD_TYPE_PROMISE_TASK);

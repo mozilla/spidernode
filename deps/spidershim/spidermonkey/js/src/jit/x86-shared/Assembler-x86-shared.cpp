@@ -58,14 +58,12 @@ TraceDataRelocations(JSTracer* trc, uint8_t* buffer, CompactBufferReader& reader
         // are not cleared, this must be a Value.
         uintptr_t word = reinterpret_cast<uintptr_t>(ptr);
         if (word >> JSVAL_TAG_SHIFT) {
-            jsval_layout layout;
-            layout.asBits = word;
-            Value v = IMPL_TO_JSVAL(layout);
+            Value v = Value::fromRawBits(word);
             TraceManuallyBarrieredEdge(trc, &v, "jit-masm-value");
-            if (word != JSVAL_TO_IMPL(v).asBits) {
+            if (word != v.asRawBits()) {
                 // Only update the code if the Value changed, because the code
                 // is not writable if we're not moving objects.
-                X86Encoding::SetPointer(buffer + offset, (void*)JSVAL_TO_IMPL(v).asBits);
+                X86Encoding::SetPointer(buffer + offset, v.bitsAsPunboxPointer());
             }
             continue;
         }
@@ -218,6 +216,39 @@ AssemblerX86Shared::ConditionWithoutEqual(Condition cond)
       case Above:
       case AboveOrEqual:
         return Above;
+      default:
+        MOZ_CRASH("unexpected condition");
+    }
+}
+
+AssemblerX86Shared::DoubleCondition
+AssemblerX86Shared::InvertCondition(DoubleCondition cond)
+{
+    switch (cond) {
+      case DoubleEqual:
+        return DoubleNotEqualOrUnordered;
+      case DoubleEqualOrUnordered:
+        return DoubleNotEqual;
+      case DoubleNotEqualOrUnordered:
+        return DoubleEqual;
+      case DoubleNotEqual:
+        return DoubleEqualOrUnordered;
+      case DoubleLessThan:
+        return DoubleGreaterThanOrEqualOrUnordered;
+      case DoubleLessThanOrUnordered:
+        return DoubleGreaterThanOrEqual;
+      case DoubleLessThanOrEqual:
+        return DoubleGreaterThanOrUnordered;
+      case DoubleLessThanOrEqualOrUnordered:
+        return DoubleGreaterThan;
+      case DoubleGreaterThan:
+        return DoubleLessThanOrEqualOrUnordered;
+      case DoubleGreaterThanOrUnordered:
+        return DoubleLessThanOrEqual;
+      case DoubleGreaterThanOrEqual:
+        return DoubleLessThanOrUnordered;
+      case DoubleGreaterThanOrEqualOrUnordered:
+        return DoubleLessThan;
       default:
         MOZ_CRASH("unexpected condition");
     }

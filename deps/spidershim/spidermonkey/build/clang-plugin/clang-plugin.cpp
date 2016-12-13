@@ -19,6 +19,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include <memory>
+#include <iterator>
 
 #define CLANG_VERSION_FULL (CLANG_VERSION_MAJOR * 100 + CLANG_VERSION_MINOR)
 
@@ -198,6 +199,11 @@ private:
     virtual void run(const MatchFinder::MatchResult &Result);
   };
 
+  class NonParamInsideFunctionDeclChecker : public MatchFinder::MatchCallback {
+  public:
+    virtual void run(const MatchFinder::MatchResult &Result);
+  };
+
   ScopeChecker Scope;
   ArithmeticArgChecker ArithmeticArg;
   TrivialCtorDtorChecker TrivialCtorDtor;
@@ -218,6 +224,7 @@ private:
   SprintfLiteralChecker SprintfLiteral;
   OverrideBaseCallChecker OverrideBaseCall;
   OverrideBaseCallUsageChecker OverrideBaseCallUsage;
+  NonParamInsideFunctionDeclChecker NonParamInsideFunctionDecl;
   MatchFinder AstMatcher;
 };
 
@@ -261,7 +268,8 @@ bool isInIgnoredNamespaceForImplicitCtor(const Decl *Declaration) {
          Name == "MacFileUtilities" ||  // MacFileUtilities
          Name == "dwarf2reader" ||      // dwarf2reader
          Name == "arm_ex_to_module" ||  // arm_ex_to_module
-         Name == "testing";             // gtest
+         Name == "testing" ||           // gtest
+         Name == "Json";                // jsoncpp
 }
 
 bool isInIgnoredNamespaceForImplicitConversion(const Decl *Declaration) {
@@ -289,7 +297,8 @@ bool isIgnoredPathForImplicitCtor(const Decl *Declaration) {
         Begin->compare_lower(StringRef("harfbuzz")) == 0 ||
         Begin->compare_lower(StringRef("hunspell")) == 0 ||
         Begin->compare_lower(StringRef("scoped_ptr.h")) == 0 ||
-        Begin->compare_lower(StringRef("graphite2")) == 0) {
+        Begin->compare_lower(StringRef("graphite2")) == 0 ||
+        Begin->compare_lower(StringRef("icu")) == 0) {
       return true;
     }
     if (Begin->compare_lower(StringRef("chromium")) == 0) {
@@ -403,8 +412,8 @@ bool typeIsRefPtr(QualType Q) {
 
 // The method defined in clang for ignoring implicit nodes doesn't work with
 // some AST trees. To get around this, we define our own implementation of
-// IgnoreImplicit.
-const Stmt *IgnoreImplicit(const Stmt *s) {
+// IgnoreTrivials.
+const Stmt *IgnoreTrivials(const Stmt *s) {
   while (true) {
     if (auto *ewc = dyn_cast<ExprWithCleanups>(s)) {
       s = ewc->getSubExpr();
@@ -414,6 +423,8 @@ const Stmt *IgnoreImplicit(const Stmt *s) {
       s = bte->getSubExpr();
     } else if (auto *ice = dyn_cast<ImplicitCastExpr>(s)) {
       s = ice->getSubExpr();
+    } else if (auto *pe = dyn_cast<ParenExpr>(s)) {
+      s = pe->getSubExpr();
     } else {
       break;
     }
@@ -422,8 +433,8 @@ const Stmt *IgnoreImplicit(const Stmt *s) {
   return s;
 }
 
-const Expr *IgnoreImplicit(const Expr *e) {
-  return cast<Expr>(IgnoreImplicit(static_cast<const Stmt *>(e)));
+const Expr *IgnoreTrivials(const Expr *e) {
+  return cast<Expr>(IgnoreTrivials(static_cast<const Stmt *>(e)));
 }
 }
 
@@ -494,6 +505,8 @@ static CustomTypeAnnotation NonTemporaryClass =
     CustomTypeAnnotation("moz_non_temporary_class", "non-temporary");
 static CustomTypeAnnotation MustUse =
     CustomTypeAnnotation("moz_must_use_type", "must-use");
+static CustomTypeAnnotation NonParam =
+    CustomTypeAnnotation("moz_non_param", "non-param");
 
 class MemMoveAnnotation final : public CustomTypeAnnotation {
 public:
@@ -833,13 +846,26 @@ AST_MATCHER(BinaryOperator, isInSystemHeader) {
   return ASTIsInSystemHeader(Finder->getASTContext(), Node);
 }
 
-/// This matcher will match locations in SkScalar.h.  This header contains a
-/// known NaN-testing expression which we would like to whitelist.
-AST_MATCHER(BinaryOperator, isInSkScalarDotH) {
+/// This matcher will match a list of files.  These files contain
+/// known NaN-testing expressions which we would like to whitelist.
+AST_MATCHER(BinaryOperator, isInWhitelistForNaNExpr) {
+  const char* whitelist[] = {
+    "SkScalar.h",
+    "json_writer.cpp",
+    "State.cpp"
+  };
+
   SourceLocation Loc = Node.getOperatorLoc();
   auto &SourceManager = Finder->getASTContext().getSourceManager();
   SmallString<1024> FileName = SourceManager.getFilename(Loc);
-  return llvm::sys::path::rbegin(FileName)->equals("SkScalar.h");
+
+  for (auto itr = std::begin(whitelist); itr != std::end(whitelist); itr++) {
+    if (llvm::sys::path::rbegin(FileName)->equals(*itr)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /// This matcher will match all accesses to AddRef or Release methods.
@@ -882,6 +908,8 @@ AST_MATCHER(CXXRecordDecl, needsMemMovableMembers) {
 AST_MATCHER(CXXConstructorDecl, isInterestingImplicitCtor) {
   const CXXConstructorDecl *Declaration = Node.getCanonicalDecl();
   return
+      // Skip constructors in system headers
+      !ASTIsInSystemHeader(Declaration->getASTContext(), *Declaration) &&
       // Skip ignored namespaces and paths
       !isInIgnoredNamespaceForImplicitCtor(Declaration) &&
       !isIgnoredPathForImplicitCtor(Declaration) &&
@@ -1197,7 +1225,7 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
                     declRefExpr(hasType(qualType((isFloat())))).bind("lhs"))),
                 hasRHS(hasIgnoringParenImpCasts(
                     declRefExpr(hasType(qualType((isFloat())))).bind("rhs"))),
-                unless(anyOf(isInSystemHeader(), isInSkScalarDotH()))))
+                unless(anyOf(isInSystemHeader(), isInWhitelistForNaNExpr()))))
           .bind("node"),
       &NaNExpr);
 
@@ -1315,6 +1343,17 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
   AstMatcher.addMatcher(
       cxxMethodDecl(isNonVirtual(), isRequiredBaseMethod()).bind("method"),
       &OverrideBaseCallUsage);
+
+  AstMatcher.addMatcher(
+      functionDecl(anyOf(allOf(isDefinition(),
+                               hasAncestor(classTemplateSpecializationDecl()
+                                               .bind("spec"))),
+                         isDefinition()))
+          .bind("func"),
+      &NonParamInsideFunctionDecl);
+  AstMatcher.addMatcher(
+      lambdaExpr().bind("lambda"),
+      &NonParamInsideFunctionDecl);
 }
 
 // These enum variants determine whether an allocation has occured in the code.
@@ -1884,7 +1923,7 @@ void DiagnosticsMatcher::KungFuDeathGripChecker::run(
     return;
   }
 
-  const Expr *E = IgnoreImplicit(D->getInit());
+  const Expr *E = IgnoreTrivials(D->getInit());
   const CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(E);
   if (CE && CE->getNumArgs() == 0) {
     // We don't report an error when we construct and don't use a nsCOMPtr /
@@ -1897,10 +1936,10 @@ void DiagnosticsMatcher::KungFuDeathGripChecker::run(
   // We don't want to look at the single argument conversion constructors
   // which are inbetween the declaration and the actual object which we are
   // assigning into the nsCOMPtr/RefPtr. To do this, we repeatedly
-  // IgnoreImplicit, then look at the expression. If it is one of these
+  // IgnoreTrivials, then look at the expression. If it is one of these
   // conversion constructors, we ignore it and continue to dig.
   while ((CE = dyn_cast<CXXConstructExpr>(E)) && CE->getNumArgs() == 1) {
-    E = IgnoreImplicit(CE->getArg(0));
+    E = IgnoreTrivials(CE->getArg(0));
   }
 
   // We allow taking a kungFuDeathGrip of `this` because it cannot change
@@ -2119,6 +2158,57 @@ void DiagnosticsMatcher::OverrideBaseCallUsageChecker::run(
   Diag.Report(Method->getLocation(), ErrorID);
 }
 
+void DiagnosticsMatcher::NonParamInsideFunctionDeclChecker::run(
+    const MatchFinder::MatchResult &Result) {
+  static DenseSet<const FunctionDecl*> CheckedFunctionDecls;
+
+  const FunctionDecl *func = Result.Nodes.getNodeAs<FunctionDecl>("func");
+  if (!func) {
+    const LambdaExpr *lambda = Result.Nodes.getNodeAs<LambdaExpr>("lambda");
+    if (lambda) {
+      func = lambda->getCallOperator();
+    }
+  }
+
+  if (!func) {
+    return;
+  }
+
+  if (func->isDeleted()) {
+    return;
+  }
+
+  // Don't report errors on the same declarations more than once.
+  if (CheckedFunctionDecls.count(func)) {
+    return;
+  }
+  CheckedFunctionDecls.insert(func);
+
+  const ClassTemplateSpecializationDecl *Spec =
+      Result.Nodes.getNodeAs<ClassTemplateSpecializationDecl>("spec");
+
+  DiagnosticsEngine &Diag = Result.Context->getDiagnostics();
+  unsigned ErrorID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Error, "Type %0 must not be used as parameter");
+  unsigned NoteID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Note, "Please consider passing a const reference instead");
+  unsigned SpecNoteID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Note, "The bad argument was passed to %0 here");
+
+  for (ParmVarDecl *p : func->parameters()) {
+    QualType T = p->getType().withoutLocalFastQualifiers();
+    if (NonParam.hasEffectiveAnnotation(T)) {
+      Diag.Report(p->getLocation(), ErrorID) << T;
+      Diag.Report(p->getLocation(), NoteID);
+
+      if (Spec) {
+        Diag.Report(Spec->getPointOfInstantiation(), SpecNoteID)
+          << Spec->getSpecializedTemplate();
+      }
+    }
+  }
+}
+
 class MozCheckAction : public PluginASTAction {
 public:
   ASTConsumerPtr CreateASTConsumer(CompilerInstance &CI,
@@ -2148,7 +2238,3 @@ public:
 
 static FrontendPluginRegistry::Add<MozCheckAction> X("moz-check",
                                                      "check moz action");
-// Export the registry on Windows.
-#ifdef LLVM_EXPORT_REGISTRY
-LLVM_EXPORT_REGISTRY(FrontendPluginRegistry)
-#endif

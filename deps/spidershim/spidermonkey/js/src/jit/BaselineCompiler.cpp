@@ -7,6 +7,9 @@
 #include "jit/BaselineCompiler.h"
 
 #include "mozilla/Casting.h"
+#include "mozilla/SizePrintfMacros.h"
+
+#include "jsfun.h"
 
 #include "jit/BaselineIC.h"
 #include "jit/BaselineJIT.h"
@@ -21,6 +24,7 @@
 #include "jit/SharedICHelpers.h"
 #include "jit/VMFunctions.h"
 #include "js/UniquePtr.h"
+#include "vm/AsyncFunction.h"
 #include "vm/EnvironmentObject.h"
 #include "vm/Interpreter.h"
 #include "vm/TraceLogging.h"
@@ -82,10 +86,10 @@ BaselineCompiler::addPCMappingEntry(bool addIndexEntry)
 MethodStatus
 BaselineCompiler::compile()
 {
-    JitSpew(JitSpew_BaselineScripts, "Baseline compiling script %s:%d (%p)",
+    JitSpew(JitSpew_BaselineScripts, "Baseline compiling script %s:%" PRIuSIZE " (%p)",
             script->filename(), script->lineno(), script);
 
-    JitSpew(JitSpew_Codegen, "# Emitting baseline code for script %s:%d",
+    JitSpew(JitSpew_Codegen, "# Emitting baseline code for script %s:%" PRIuSIZE,
             script->filename(), script->lineno());
 
     TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
@@ -217,7 +221,7 @@ BaselineCompiler::compile()
     baselineScript->setMethod(code);
     baselineScript->setTemplateEnvironment(templateEnv);
 
-    JitSpew(JitSpew_BaselineScripts, "Created BaselineScript %p (raw %p) for %s:%d",
+    JitSpew(JitSpew_BaselineScripts, "Created BaselineScript %p (raw %p) for %s:%" PRIuSIZE,
             (void*) baselineScript.get(), (void*) code->raw(),
             script->filename(), script->lineno());
 
@@ -279,7 +283,7 @@ BaselineCompiler::compile()
     // Always register a native => bytecode mapping entry, since profiler can be
     // turned on with baseline jitcode on stack, and baseline jitcode cannot be invalidated.
     {
-        JitSpew(JitSpew_Profiling, "Added JitcodeGlobalEntry for baseline script %s:%d (%p)",
+        JitSpew(JitSpew_Profiling, "Added JitcodeGlobalEntry for baseline script %s:%" PRIuSIZE " (%p)",
                     script->filename(), script->lineno(), baselineScript.get());
 
         // Generate profiling string.
@@ -1679,6 +1683,29 @@ BaselineCompiler::emit_JSOP_LAMBDA_ARROW()
     return true;
 }
 
+typedef bool (*SetFunNameFn)(JSContext*, HandleFunction, HandleValue, FunctionPrefixKind);
+static const VMFunction SetFunNameInfo =
+    FunctionInfo<SetFunNameFn>(js::SetFunctionNameIfNoOwnName, "SetFunName");
+
+bool
+BaselineCompiler::emit_JSOP_SETFUNNAME()
+{
+    frame.popRegsAndSync(2);
+
+    frame.push(R0);
+    frame.syncStack(0);
+
+    FunctionPrefixKind prefixKind = FunctionPrefixKind(GET_UINT8(pc));
+    masm.unboxObject(R0, R0.scratchReg());
+
+    prepareVMCall();
+
+    pushArg(Imm32(int32_t(prefixKind)));
+    pushArg(R1);
+    pushArg(R0.scratchReg());
+    return callVM(SetFunNameInfo);
+}
+
 void
 BaselineCompiler::storeValue(const StackValue* source, const Address& dest,
                              const ValueOperand& scratch)
@@ -2749,15 +2776,14 @@ static const VMFunction DefFunOperationInfo =
 bool
 BaselineCompiler::emit_JSOP_DEFFUN()
 {
-    RootedFunction fun(cx, script->getFunction(GET_UINT32_INDEX(pc)));
-
-    frame.syncStack(0);
-    masm.loadPtr(frame.addressOfEnvironmentChain(), R0.scratchReg());
+    frame.popRegsAndSync(1);
+    masm.unboxObject(R0, R0.scratchReg());
+    masm.loadPtr(frame.addressOfEnvironmentChain(), R1.scratchReg());
 
     prepareVMCall();
 
-    pushArg(ImmGCPtr(fun));
     pushArg(R0.scratchReg());
+    pushArg(R1.scratchReg());
     pushArg(ImmGCPtr(script));
 
     return callVM(DefFunOperationInfo);
@@ -3803,6 +3829,27 @@ BaselineCompiler::emit_JSOP_TOID()
 
     masm.bind(&done);
     frame.pop(); // Pop index.
+    frame.push(R0);
+    return true;
+}
+
+typedef JSObject* (*ToAsyncFn)(JSContext*, HandleFunction);
+static const VMFunction ToAsyncInfo = FunctionInfo<ToAsyncFn>(js::WrapAsyncFunction, "ToAsync");
+
+bool
+BaselineCompiler::emit_JSOP_TOASYNC()
+{
+    frame.syncStack(0);
+    masm.unboxObject(frame.addressOfStackValue(frame.peek(-1)), R0.scratchReg());
+
+    prepareVMCall();
+    pushArg(R0.scratchReg());
+
+    if (!callVM(ToAsyncInfo))
+        return false;
+
+    masm.tagValue(JSVAL_TYPE_OBJECT, ReturnReg, R0);
+    frame.pop();
     frame.push(R0);
     return true;
 }
