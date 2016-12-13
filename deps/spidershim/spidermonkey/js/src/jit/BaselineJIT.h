@@ -24,6 +24,7 @@ namespace jit {
 class StackValue;
 class BaselineICEntry;
 class ICStub;
+class ControlFlowGraph;
 
 class PCMappingSlotInfo
 {
@@ -238,6 +239,8 @@ struct BaselineScript
 
     // An ion compilation that is ready, but isn't linked yet.
     IonBuilder *pendingBuilder_;
+
+    ControlFlowGraph* controlFlowGraph_;
 
   public:
     // Do not call directly, use BaselineScript::New. This is public for cx->new_.
@@ -513,6 +516,14 @@ struct BaselineScript
             script->setIonScript(nullptr, nullptr);
     }
 
+    const ControlFlowGraph* controlFlowGraph() const {
+        return controlFlowGraph_;
+    }
+
+    void setControlFlowGraph(ControlFlowGraph* controlFlowGraph) {
+        controlFlowGraph_ = controlFlowGraph;
+    }
+
 };
 static_assert(sizeof(BaselineScript) % sizeof(uintptr_t) == 0,
               "The data attached to the script must be aligned for fast JIT access.");
@@ -591,6 +602,12 @@ struct BaselineBailoutInfo
 
     // Number of baseline frames to push on the stack.
     uint32_t numFrames;
+
+    // If Ion bailed out on a global script before it could perform the global
+    // declaration conflicts check. In such cases the baseline script is
+    // resumed at the first pc instead of the prologue, so an extra flag is
+    // needed to perform the check.
+    bool checkGlobalDeclarationConflicts;
 
     // The bailout kind.
     BailoutKind bailoutKind;

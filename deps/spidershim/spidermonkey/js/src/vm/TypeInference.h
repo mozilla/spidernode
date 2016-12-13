@@ -572,6 +572,9 @@ public:
      * zone's new allocator. Type constraints only hold weak references.
      */
     virtual bool sweep(TypeZone& zone, TypeConstraint** res) = 0;
+
+    /* The associated compartment, if any. */
+    virtual JSCompartment* maybeCompartment() = 0;
 };
 
 // If there is an OOM while sweeping types, the type information is deoptimized
@@ -1296,7 +1299,7 @@ const char * InferSpewColor(TypeConstraint* constraint);
 const char * InferSpewColor(TypeSet* types);
 
 #define InferSpew(channel, ...) if (InferSpewActive(channel)) { InferSpewImpl(__VA_ARGS__); } else {}
-void InferSpewImpl(const char* fmt, ...);
+void InferSpewImpl(const char* fmt, ...) MOZ_FORMAT_PRINTF(1, 2);
 
 /* Check that the type property for id in group contains value. */
 bool ObjectGroupHasProperty(JSContext* cx, ObjectGroup* group, jsid id, const Value& value);

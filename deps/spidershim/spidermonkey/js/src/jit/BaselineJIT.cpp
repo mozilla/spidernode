@@ -10,15 +10,16 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MemoryReporting.h"
 
-#include "asmjs/WasmInstance.h"
 #include "jit/BaselineCompiler.h"
 #include "jit/BaselineIC.h"
 #include "jit/CompileInfo.h"
+#include "jit/IonControlFlow.h"
 #include "jit/JitCommon.h"
 #include "jit/JitSpewer.h"
 #include "vm/Debugger.h"
 #include "vm/Interpreter.h"
 #include "vm/TraceLogging.h"
+#include "wasm/WasmInstance.h"
 
 #include "jsobjinlines.h"
 #include "jsopcodeinlines.h"
@@ -76,7 +77,8 @@ BaselineScript::BaselineScript(uint32_t prologueOffset, uint32_t epilogueOffset,
     flags_(0),
     inlinedBytecodeLength_(0),
     maxInliningDepth_(UINT8_MAX),
-    pendingBuilder_(nullptr)
+    pendingBuilder_(nullptr),
+    controlFlowGraph_(nullptr)
 { }
 
 static const unsigned BASELINE_MAX_ARGS_LENGTH = 20000;
@@ -117,8 +119,8 @@ EnterBaseline(JSContext* cx, EnterJitData& data)
     // Assert we don't GC before entering JIT code. A GC could discard JIT code
     // or move the function stored in the CalleeToken (it won't be traced at
     // this point). We use Maybe<> here so we can call reset() to call the
-    // AutoAssertOnGC destructor before we enter JIT code.
-    mozilla::Maybe<JS::AutoAssertOnGC> nogc;
+    // AutoAssertNoGC destructor before we enter JIT code.
+    mozilla::Maybe<JS::AutoAssertNoGC> nogc;
     nogc.emplace(cx);
 #endif
 

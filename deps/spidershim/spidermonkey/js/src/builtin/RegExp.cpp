@@ -14,6 +14,7 @@
 #include "irregexp/RegExpParser.h"
 #include "jit/InlinableNatives.h"
 #include "vm/RegExpStatics.h"
+#include "vm/SelfHosting.h"
 #include "vm/StringBuffer.h"
 #include "vm/Unicode.h"
 
@@ -522,10 +523,9 @@ js::regexp_construct(JSContext* cx, unsigned argc, Value* vp)
 /*
  * ES 2017 draft rev 6a13789aa9e7c6de4e96b7d3e24d9e6eba6584ad 21.2.3.1
  * steps 4, 7-8.
- * Ignore sticky flag of flags argument, for optimized path in @@split.
  */
 bool
-js::regexp_construct_no_sticky(JSContext* cx, unsigned argc, Value* vp)
+js::regexp_construct_raw_flags(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     MOZ_ASSERT(args.length() == 2);
@@ -537,13 +537,7 @@ js::regexp_construct_no_sticky(JSContext* cx, unsigned argc, Value* vp)
     RootedAtom sourceAtom(cx, rx->getSource());
 
     // Step 4.c.
-    RootedString flagStr(cx, args[1].toString());
-    RegExpFlag flags = RegExpFlag(0);
-    if (!ParseRegExpFlags(cx, flagStr, &flags))
-        return false;
-
-    // Ignore sticky flag.
-    flags = RegExpFlag(flags & ~StickyFlag);
+    int32_t flags = int32_t(args[1].toNumber());
 
     // Step 7.
     Rooted<RegExpObject*> regexp(cx, RegExpAlloc(cx));
@@ -551,19 +545,61 @@ js::regexp_construct_no_sticky(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     // Step 8.
-    regexp->initAndZeroLastIndex(sourceAtom, flags, cx);
+    regexp->initAndZeroLastIndex(sourceAtom, RegExpFlag(flags), cx);
     args.rval().setObject(*regexp);
     return true;
 }
 
-/* ES6 draft rev32 21.2.5.4. */
+bool
+js::regexp_clone(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    RootedObject from(cx, &args[0].toObject());
+
+    RootedAtom sourceAtom(cx);
+    RegExpFlag flags;
+    {
+        RegExpGuard g(cx);
+        if (!RegExpToShared(cx, from, &g))
+            return false;
+        sourceAtom = g->getSource();
+        flags = g->getFlags();
+    }
+
+    Rooted<RegExpObject*> regexp(cx, RegExpAlloc(cx));
+    if (!regexp)
+        return false;
+
+    regexp->initAndZeroLastIndex(sourceAtom, flags, cx);
+
+    args.rval().setObject(*regexp);
+    return true;
+}
+
+MOZ_ALWAYS_INLINE bool
+IsRegExpInstanceOrPrototype(HandleValue v)
+{
+    if (!v.isObject())
+        return false;
+
+    return StandardProtoKeyOrNull(&v.toObject()) == JSProto_RegExp;
+}
+
+// ES 2017 draft 21.2.5.4.
 MOZ_ALWAYS_INLINE bool
 regexp_global_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
 
-    /* Steps 4-6. */
+    // Step 3.a.
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    // Steps 4-6.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
     args.rval().setBoolean(reObj->global());
     return true;
 }
@@ -571,19 +607,25 @@ regexp_global_impl(JSContext* cx, const CallArgs& args)
 bool
 js::regexp_global(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-3. */
+    // Steps 1-3.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_global_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_global_impl>(cx, args);
 }
 
-/* ES6 draft rev32 21.2.5.5. */
+// ES 2017 draft 21.2.5.5.
 MOZ_ALWAYS_INLINE bool
 regexp_ignoreCase_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
 
-    /* Steps 4-6. */
+    // Step 3.a
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    // Steps 4-6.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
     args.rval().setBoolean(reObj->ignoreCase());
     return true;
 }
@@ -591,19 +633,25 @@ regexp_ignoreCase_impl(JSContext* cx, const CallArgs& args)
 bool
 js::regexp_ignoreCase(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-3. */
+    // Steps 1-3.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_ignoreCase_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_ignoreCase_impl>(cx, args);
 }
 
-/* ES6 draft rev32 21.2.5.7. */
+// ES 2017 draft 21.2.5.7.
 MOZ_ALWAYS_INLINE bool
 regexp_multiline_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
 
-    /* Steps 4-6. */
+    // Step 3.a.
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    // Steps 4-6.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
     args.rval().setBoolean(reObj->multiline());
     return true;
 }
@@ -611,24 +659,30 @@ regexp_multiline_impl(JSContext* cx, const CallArgs& args)
 bool
 js::regexp_multiline(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-3. */
+    // Steps 1-3.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_multiline_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_multiline_impl>(cx, args);
 }
 
-/* ES6 draft rev32 21.2.5.10. */
+// ES 2017 draft rev32 21.2.5.10.
 MOZ_ALWAYS_INLINE bool
 regexp_source_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
 
-    /* Step 5. */
+    // Step 3.a.
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setString(cx->names().emptyRegExp);
+        return true;
+    }
+
+    // Step 5.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
     RootedAtom src(cx, reObj->getSource());
     if (!src)
         return false;
 
-    /* Step 7. */
+    // Step 7.
     RootedString str(cx, EscapeRegExpPattern(cx, src));
     if (!str)
         return false;
@@ -640,19 +694,25 @@ regexp_source_impl(JSContext* cx, const CallArgs& args)
 static bool
 regexp_source(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-4. */
+    // Steps 1-4.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_source_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_source_impl>(cx, args);
 }
 
-/* ES6 draft rev32 21.2.5.12. */
+// ES 2017 draft 21.2.5.12.
 MOZ_ALWAYS_INLINE bool
 regexp_sticky_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
 
-    /* Steps 4-6. */
+    // Step 3.a.
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    // Steps 4-6.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
     args.rval().setBoolean(reObj->sticky());
     return true;
 }
@@ -660,27 +720,35 @@ regexp_sticky_impl(JSContext* cx, const CallArgs& args)
 bool
 js::regexp_sticky(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-3. */
+    // Steps 1-3.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_sticky_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_sticky_impl>(cx, args);
 }
 
-/* ES6 21.2.5.15. */
+// ES 2017 draft 21.2.5.15.
 MOZ_ALWAYS_INLINE bool
 regexp_unicode_impl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsRegExpObject(args.thisv()));
-    /* Steps 4-6. */
-    args.rval().setBoolean(args.thisv().toObject().as<RegExpObject>().unicode());
+    MOZ_ASSERT(IsRegExpInstanceOrPrototype(args.thisv()));
+
+    // Step 3.a.
+    if (!IsRegExpObject(args.thisv())) {
+        args.rval().setUndefined();
+        return true;
+    }
+
+    // Steps 4-6.
+    Rooted<RegExpObject*> reObj(cx, &args.thisv().toObject().as<RegExpObject>());
+    args.rval().setBoolean(reObj->unicode());
     return true;
 }
 
 bool
 js::regexp_unicode(JSContext* cx, unsigned argc, JS::Value* vp)
 {
-    /* Steps 1-3. */
+    // Steps 1-3.
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsRegExpObject, regexp_unicode_impl>(cx, args);
+    return CallNonGenericMethod<IsRegExpInstanceOrPrototype, regexp_unicode_impl>(cx, args);
 }
 
 const JSPropertySpec js::regexp_properties[] = {
@@ -807,25 +875,6 @@ const JSPropertySpec js::regexp_static_props[] = {
     JS_SELF_HOSTED_SYM_GET(species, "RegExpSpecies", 0),
     JS_PS_END
 };
-
-JSObject*
-js::CreateRegExpPrototype(JSContext* cx, JSProtoKey key)
-{
-    MOZ_ASSERT(key == JSProto_RegExp);
-
-    Rooted<RegExpObject*> proto(cx, cx->global()->createBlankPrototype<RegExpObject>(cx));
-    if (!proto)
-        return nullptr;
-    proto->NativeObject::setPrivate(nullptr);
-
-    if (!RegExpObject::assignInitialShape(cx, proto))
-        return nullptr;
-
-    RootedAtom source(cx, cx->names().empty);
-    proto->initAndZeroLastIndex(source, RegExpFlag(0), cx);
-
-    return proto;
-}
 
 template <typename CharT>
 static bool
@@ -1555,11 +1604,43 @@ js::RegExpPrototypeOptimizableRaw(JSContext* cx, JSObject* proto, uint8_t* resul
         return true;
     }
 
+    JSFunction* flagsGetter;
+    if (!GetGetterPure(cx, proto, NameToId(cx->names().flags), &flagsGetter))
+        return false;
+
+    if (!flagsGetter) {
+        *result = false;
+        return true;
+    }
+
+    if (!IsSelfHostedFunctionWithName(flagsGetter, cx->names().RegExpFlagsGetter)) {
+        *result = false;
+        return true;
+    }
+
     JSNative globalGetter;
     if (!GetOwnNativeGetterPure(cx, proto, NameToId(cx->names().global), &globalGetter))
         return false;
 
     if (globalGetter != regexp_global) {
+        *result = false;
+        return true;
+    }
+
+    JSNative ignoreCaseGetter;
+    if (!GetOwnNativeGetterPure(cx, proto, NameToId(cx->names().ignoreCase), &ignoreCaseGetter))
+        return false;
+
+    if (ignoreCaseGetter != regexp_ignoreCase) {
+        *result = false;
+        return true;
+    }
+
+    JSNative multilineGetter;
+    if (!GetOwnNativeGetterPure(cx, proto, NameToId(cx->names().multiline), &multilineGetter))
+        return false;
+
+    if (multilineGetter != regexp_multiline) {
         *result = false;
         return true;
     }
@@ -1627,18 +1708,14 @@ js::RegExpInstanceOptimizable(JSContext* cx, unsigned argc, Value* vp)
 }
 
 bool
-js::RegExpInstanceOptimizableRaw(JSContext* cx, JSObject* rx, JSObject* proto, uint8_t* result)
+js::RegExpInstanceOptimizableRaw(JSContext* cx, JSObject* obj, JSObject* proto, uint8_t* result)
 {
     JS::AutoCheckCannotGC nogc;
-    if (!rx->isNative()) {
-        *result = false;
-        return true;
-    }
 
-    NativeObject* nobj = static_cast<NativeObject*>(rx);
+    RegExpObject* rx = &obj->as<RegExpObject>();
 
     Shape* shape = cx->compartment()->regExps.getOptimizableRegExpInstanceShape();
-    if (shape == nobj->lastProperty()) {
+    if (shape == rx->lastProperty()) {
         *result = true;
         return true;
     }
@@ -1653,12 +1730,12 @@ js::RegExpInstanceOptimizableRaw(JSContext* cx, JSObject* rx, JSObject* proto, u
         return true;
     }
 
-    if (!RegExpObject::isInitialShape(nobj)) {
+    if (!RegExpObject::isInitialShape(rx)) {
         *result = false;
         return true;
     }
 
-    cx->compartment()->regExps.setOptimizableRegExpInstanceShape(nobj->lastProperty());
+    cx->compartment()->regExps.setOptimizableRegExpInstanceShape(rx->lastProperty());
     *result = true;
     return true;
 }
@@ -1687,7 +1764,7 @@ js::intrinsic_GetElemBaseForLambda(JSContext* cx, unsigned argc, Value* vp)
     if (!fun->isInterpreted() || fun->isClassConstructor())
         return true;
 
-    JSScript* script = fun->getOrCreateScript(cx);
+    JSScript* script = JSFunction::getOrCreateScript(cx, fun);
     if (!script)
         return false;
 

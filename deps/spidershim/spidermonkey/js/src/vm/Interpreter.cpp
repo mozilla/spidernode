@@ -38,6 +38,7 @@
 #include "jit/BaselineJIT.h"
 #include "jit/Ion.h"
 #include "jit/IonAnalysis.h"
+#include "vm/AsyncFunction.h"
 #include "vm/Debugger.h"
 #include "vm/GeneratorObject.h"
 #include "vm/Opcodes.h"
@@ -281,8 +282,6 @@ MakeDefaultConstructor(JSContext* cx, JSOp op, JSAtom* atom, HandleObject proto)
 
     ctor->setIsConstructor();
     ctor->setIsClassConstructor();
-    if (derived)
-        ctor->setHasRest();
 
     MOZ_ASSERT(ctor->infallibleIsDefaultClassConstructor(cx));
 
@@ -363,7 +362,7 @@ js::RunScript(JSContext* cx, RunState& state)
     JS_CHECK_RECURSION(cx, return false);
 
     // Since any script can conceivably GC, make sure it's safe to do so.
-    JS::AutoAssertOnGC::VerifyIsSafeToGC(cx->runtime());
+    cx->runtime()->gc.verifyIsSafeToGC();
 
     if (!Debugger::checkNoExecute(cx, state.script()))
         return false;
@@ -447,7 +446,7 @@ js::InternalCallOrConstruct(JSContext* cx, const CallArgs& args, MaybeConstruct 
     }
 
     /* Invoke native functions. */
-    JSFunction* fun = &args.callee().as<JSFunction>();
+    RootedFunction fun(cx, &args.callee().as<JSFunction>());
     if (construct != CONSTRUCT && fun->isClassConstructor()) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_CANT_CALL_CLASS_CONSTRUCTOR);
         return false;
@@ -458,7 +457,7 @@ js::InternalCallOrConstruct(JSContext* cx, const CallArgs& args, MaybeConstruct 
         return CallJSNative(cx, fun->native(), args);
     }
 
-    if (!fun->getOrCreateScript(cx))
+    if (!JSFunction::getOrCreateScript(cx, fun))
         return false;
 
     /* Run function until JSOP_RETRVAL, JSOP_RETURN or error. */
@@ -1483,7 +1482,7 @@ SetObjectElementOperation(JSContext* cx, HandleObject obj, HandleId id, HandleVa
         int32_t i = JSID_TO_INT(id);
         if ((uint32_t)i >= length) {
             // Annotate script if provided with information (e.g. baseline)
-            if (script && script->hasBaselineScript() && *pc == JSOP_SETELEM)
+            if (script && script->hasBaselineScript() && IsSetElemPC(pc))
                 script->baselineScript()->noteArrayWriteHole(script->pcToOffset(pc));
         }
     }
@@ -1869,8 +1868,6 @@ CASE(EnableInterruptsPseudoOpcode)
 /* Various 1-byte no-ops. */
 CASE(JSOP_NOP)
 CASE(JSOP_NOP_DESTRUCTURING)
-CASE(JSOP_UNUSED149)
-CASE(JSOP_UNUSED182)
 CASE(JSOP_UNUSED183)
 CASE(JSOP_UNUSED187)
 CASE(JSOP_UNUSED192)
@@ -2931,7 +2928,7 @@ CASE(JSOP_FUNCALL)
     {
         MOZ_ASSERT(maybeFun);
         ReservedRooted<JSFunction*> fun(&rootFunction0, maybeFun);
-        ReservedRooted<JSScript*> funScript(&rootScript0, fun->getOrCreateScript(cx));
+        ReservedRooted<JSScript*> funScript(&rootScript0, JSFunction::getOrCreateScript(cx, fun));
         if (!funScript)
             goto error;
 
@@ -3446,9 +3443,10 @@ CASE(JSOP_DEFFUN)
      * a compound statement (not at the top statement level of global code, or
      * at the top level of a function body).
      */
-    ReservedRooted<JSFunction*> fun(&rootFunction0, script->getFunction(GET_UINT32_INDEX(REGS.pc)));
+    ReservedRooted<JSFunction*> fun(&rootFunction0, &REGS.sp[-1].toObject().as<JSFunction>());
     if (!DefFunOperation(cx, script, REGS.fp()->environmentChain(), fun))
         goto error;
+    REGS.sp--;
 }
 END_CASE(JSOP_DEFFUN)
 
@@ -3478,6 +3476,31 @@ CASE(JSOP_LAMBDA_ARROW)
     REGS.sp[-1].setObject(*obj);
 }
 END_CASE(JSOP_LAMBDA_ARROW)
+
+CASE(JSOP_TOASYNC)
+{
+    ReservedRooted<JSFunction*> unwrapped(&rootFunction0,
+                                          &REGS.sp[-1].toObject().as<JSFunction>());
+    JSObject* wrapped = WrapAsyncFunction(cx, unwrapped);
+    if (!wrapped)
+        goto error;
+
+    REGS.sp[-1].setObject(*wrapped);
+}
+END_CASE(JSOP_TOASYNC)
+
+CASE(JSOP_SETFUNNAME)
+{
+    MOZ_ASSERT(REGS.stackDepth() >= 2);
+    FunctionPrefixKind prefixKind = FunctionPrefixKind(GET_UINT8(REGS.pc));
+    ReservedRooted<Value> name(&rootValue0, REGS.sp[-1]);
+    ReservedRooted<JSFunction*> fun(&rootFunction0, &REGS.sp[-2].toObject().as<JSFunction>());
+    if (!SetFunctionNameIfNoOwnName(cx, fun, name, prefixKind))
+        goto error;
+
+    REGS.sp--;
+}
+END_CASE(JSOP_SETFUNNAME)
 
 CASE(JSOP_CALLEE)
     MOZ_ASSERT(REGS.fp()->isFunctionFrame());
@@ -4330,27 +4353,8 @@ js::LambdaArrow(JSContext* cx, HandleFunction fun, HandleObject parent, HandleVa
 
 bool
 js::DefFunOperation(JSContext* cx, HandleScript script, HandleObject envChain,
-                    HandleFunction funArg)
+                    HandleFunction fun)
 {
-    /*
-     * If static link is not current scope, clone fun's object to link to the
-     * current scope via parent. We do this to enable sharing of compiled
-     * functions among multiple equivalent scopes, amortizing the cost of
-     * compilation over a number of executions.  Examples include XUL scripts
-     * and event handlers shared among Firefox or other Mozilla app chrome
-     * windows, and user-defined JS functions precompiled and then shared among
-     * requests in server-side JS.
-     */
-    RootedFunction fun(cx, funArg);
-    if (fun->isNative() || fun->environment() != envChain) {
-        fun = CloneFunctionObjectIfNotSingleton(cx, fun, envChain, nullptr, TenuredObject);
-        if (!fun)
-            return false;
-    } else {
-        MOZ_ASSERT(script->treatAsRunOnce());
-        MOZ_ASSERT(!script->functionNonDelazifying());
-    }
-
     /*
      * We define the function as a property of the variable object and not the
      * current scope chain even for the case of function expression statements
@@ -4361,7 +4365,7 @@ js::DefFunOperation(JSContext* cx, HandleScript script, HandleObject envChain,
         parent = parent->enclosingEnvironment();
 
     /* ES5 10.5 (NB: with subsequent errata). */
-    RootedPropertyName name(cx, fun->name()->asPropertyName());
+    RootedPropertyName name(cx, fun->explicitName()->asPropertyName());
 
     RootedShape shape(cx);
     RootedObject pobj(cx);
@@ -4735,6 +4739,8 @@ js::SpreadCallOperation(JSContext* cx, HandleScript script, jsbytecode* pc, Hand
     JSOp op = JSOp(*pc);
     bool constructing = op == JSOP_SPREADNEW || op == JSOP_SPREADSUPERCALL;
 
+    // {Construct,Invoke}Args::init does this too, but this gives us a better
+    // error message.
     if (length > ARGS_LENGTH_MAX) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                                   constructing ? JSMSG_TOO_MANY_CON_SPREADARGS
@@ -4770,7 +4776,7 @@ js::SpreadCallOperation(JSContext* cx, HandleScript script, jsbytecode* pc, Hand
             return false;
 
         ConstructArgs cargs(cx);
-        if (!cargs.init(length))
+        if (!cargs.init(cx, length))
             return false;
 
         if (!GetElements(cx, aobj, length, cargs.array()))
@@ -4782,7 +4788,7 @@ js::SpreadCallOperation(JSContext* cx, HandleScript script, jsbytecode* pc, Hand
         res.setObject(*obj);
     } else {
         InvokeArgs args(cx);
-        if (!args.init(length))
+        if (!args.init(cx, length))
             return false;
 
         if (!GetElements(cx, aobj, length, args.array()))
@@ -5007,7 +5013,7 @@ js::ReportRuntimeLexicalError(JSContext* cx, unsigned errorNumber,
     RootedPropertyName name(cx);
 
     if (op == JSOP_THROWSETCALLEE) {
-        name = script->functionNonDelazifying()->name()->asPropertyName();
+        name = script->functionNonDelazifying()->explicitName()->asPropertyName();
     } else if (IsLocalOp(op)) {
         name = FrameSlotName(script, pc)->asPropertyName();
     } else if (IsAtomOp(op)) {
@@ -5036,6 +5042,9 @@ js::ThrowCheckIsObject(JSContext* cx, CheckIsObjectKind kind)
     switch (kind) {
       case CheckIsObjectKind::IteratorNext:
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NEXT_RETURNED_PRIMITIVE);
+        break;
+      case CheckIsObjectKind::GetIterator:
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_GET_ITER_RETURNED_PRIMITIVE);
         break;
       default:
         MOZ_CRASH("Unknown kind");
@@ -5072,8 +5081,8 @@ js::ThrowUninitializedThis(JSContext* cx, AbstractFramePtr frame)
     if (fun->isDerivedClassConstructor()) {
         const char* name = "anonymous";
         JSAutoByteString str;
-        if (fun->name()) {
-            if (!AtomToPrintableString(cx, fun->name(), &str))
+        if (fun->explicitName()) {
+            if (!AtomToPrintableString(cx, fun->explicitName(), &str))
                 return false;
             name = str.ptr();
         }

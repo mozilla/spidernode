@@ -108,20 +108,20 @@ include('build/moz.configure/pkg.configure')
 # requiring this file in unit tests.
 add_old_configure_assignment('PKG_CONFIG', pkg_config)
 
-include_when('build/moz.configure/toolchain.configure',
-             when='--enable-compile-environment')
-include_when('build/moz.configure/memory.configure',
-             when='--enable-compile-environment')
-include_when('build/moz.configure/headers.configure',
-             when='--enable-compile-environment')
-include_when('build/moz.configure/warnings.configure',
-             when='--enable-compile-environment')
+include('build/moz.configure/toolchain.configure',
+        when='--enable-compile-environment')
+include('build/moz.configure/memory.configure',
+        when='--enable-compile-environment')
+include('build/moz.configure/headers.configure',
+        when='--enable-compile-environment')
+include('build/moz.configure/warnings.configure',
+        when='--enable-compile-environment')
 
 include(include_project_configure)
 
-@dependable
+@depends('--help')
 @imports(_from='mozbuild.backend', _import='backends')
-def build_backends_choices():
+def build_backends_choices(_):
     return tuple(backends)
 
 
@@ -275,7 +275,7 @@ def check_for_hunspell(value, compile_env):
 system_hunspell = pkg_check_modules('MOZ_HUNSPELL', 'hunspell',
                                     when=check_for_hunspell)
 
-set_config('MOZ_SYSTEM_HUNSPELL', system_hunspell)
+set_config('MOZ_SYSTEM_HUNSPELL', depends_if(system_hunspell)(lambda _: True))
 
 
 @depends(target)
@@ -316,7 +316,9 @@ def nsis_version(nsis):
         raise FatalCheckError('Unknown version of makensis')
     ver = Version(m.group(0))
 
-    if ver < nsis_min_version:
+    # Versions comparisons don't quite work well with beta versions, so ensure
+    # it works for the non-beta version.
+    if ver < nsis_min_version and (ver >= '3.0a' or ver < '3'):
         raise FatalCheckError('To build the installer you must have NSIS'
                               ' version %s or greater in your path'
                               % nsis_min_version)

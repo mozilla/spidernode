@@ -51,7 +51,6 @@ TEST_HARNESS_DLLS = [
 ]
 
 TEST_PLUGIN_DLLS = [
-    'npctrltest',
     'npsecondtest',
     'npswftest',
     'nptest',
@@ -64,7 +63,6 @@ TEST_PLUGIN_DIRS = [
     'SecondTest.plugin/**',
     'Test.plugin/**',
     'ThirdTest.plugin/**',
-    'npctrltest.plugin/**',
     'npswftest.plugin/**',
 ]
 
@@ -101,18 +99,16 @@ ARCHIVE_FILES = {
             'base': 'testing/marionette',
             'patterns': [
                 'client/**',
+                'harness/**',
+                'puppeteer/**',
                 'mach_test_package_commands.py',
             ],
             'dest': 'marionette',
-        },
-        {
-            'source': buildconfig.topsrcdir,
-            'base': 'testing/marionette/harness',
-            'pattern': '**',
-            'dest': 'marionette',
             'ignore': [
-                'marionette/tests'
-            ]
+                'harness/docs',
+                'harness/marionette/tests',
+                'puppeteer/firefox/docs',
+            ],
         },
         {
             'source': buildconfig.topsrcdir,
@@ -170,11 +166,6 @@ ARCHIVE_FILES = {
             'base': 'js/src',
             'pattern': 'jsapi.h',
             'dest': 'jit-test',
-        },
-        {
-            'source': buildconfig.topsrcdir,
-            'base': 'testing',
-            'pattern': 'puppeteer/**',
         },
         {
             'source': buildconfig.topsrcdir,

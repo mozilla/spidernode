@@ -100,6 +100,12 @@ class MacroAssemblerARM : public Assembler
     void convertInt32ToFloat32(Register src, FloatRegister dest);
     void convertInt32ToFloat32(const Address& src, FloatRegister dest);
 
+    void wasmTruncateToInt32(FloatRegister input, Register output, MIRType fromType,
+                             bool isUnsigned, Label* oolEntry);
+    void outOfLineWasmTruncateToIntCheck(FloatRegister input, MIRType fromType,
+                                         MIRType toType, bool isUnsigned, Label* rejoin,
+                                         wasm::TrapOffset trapOffs);
+
     // Somewhat direct wrappers for the low-level assembler funcitons
     // bitops. Attempt to encode a virtual alu instruction using two real
     // instructions.
@@ -342,7 +348,7 @@ class MacroAssemblerARM : public Assembler
 
     // Branches when done from within arm-specific code.
     BufferOffset ma_b(Label* dest, Condition c = Always);
-    BufferOffset ma_b(wasm::JumpTarget target, Condition c = Always);
+    BufferOffset ma_b(wasm::TrapDesc target, Condition c = Always);
     void ma_b(void* target, Condition c = Always);
     void ma_bx(Register dest, Condition c = Always);
 
@@ -653,7 +659,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_ldr(addr, scratch, scratch2);
         ma_bx(scratch);
     }
-    void jump(wasm::JumpTarget target) {
+    void jump(wasm::TrapDesc target) {
         as_b(target);
     }
 
@@ -907,19 +913,17 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ScratchRegisterScope scratch(asMasm());
         SecondScratchRegisterScope scratch2(asMasm());
 
-        jsval_layout jv = JSVAL_TO_IMPL(val);
-        ma_mov(Imm32(jv.s.tag), scratch);
+        ma_mov(Imm32(val.toNunboxTag()), scratch);
         ma_str(scratch, ToType(dest), scratch2);
         if (val.isMarkable())
-            ma_mov(ImmGCPtr(reinterpret_cast<gc::Cell*>(val.toGCThing())), scratch);
+            ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch);
         else
-            ma_mov(Imm32(jv.s.payload.i32), scratch);
+            ma_mov(Imm32(val.toNunboxPayload()), scratch);
         ma_str(scratch, ToPayload(dest), scratch2);
     }
     void storeValue(const Value& val, BaseIndex dest) {
         ScratchRegisterScope scratch(asMasm());
         SecondScratchRegisterScope scratch2(asMasm());
-        jsval_layout jv = JSVAL_TO_IMPL(val);
 
         int32_t typeoffset = dest.offset + NUNBOX32_TYPE_OFFSET;
         int32_t payloadoffset = dest.offset + NUNBOX32_PAYLOAD_OFFSET;
@@ -928,11 +932,11 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
 
         // Store the type.
         if (typeoffset < 4096 && typeoffset > -4096) {
-            ma_mov(Imm32(jv.s.tag), scratch2);
+            ma_mov(Imm32(val.toNunboxTag()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(typeoffset)));
         } else {
             ma_add(Imm32(typeoffset), scratch, scratch2);
-            ma_mov(Imm32(jv.s.tag), scratch2);
+            ma_mov(Imm32(val.toNunboxTag()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(0)));
             // Restore scratch for the payload store.
             ma_alu(dest.base, lsl(dest.index, dest.scale), scratch, OpAdd);
@@ -941,16 +945,16 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         // Store the payload, marking if necessary.
         if (payloadoffset < 4096 && payloadoffset > -4096) {
             if (val.isMarkable())
-                ma_mov(ImmGCPtr(reinterpret_cast<gc::Cell*>(val.toGCThing())), scratch2);
+                ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch2);
             else
-                ma_mov(Imm32(jv.s.payload.i32), scratch2);
+                ma_mov(Imm32(val.toNunboxPayload()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(payloadoffset)));
         } else {
             ma_add(Imm32(payloadoffset), scratch, scratch2);
             if (val.isMarkable())
-                ma_mov(ImmGCPtr(reinterpret_cast<gc::Cell*>(val.toGCThing())), scratch2);
+                ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch2);
             else
-                ma_mov(Imm32(jv.s.payload.i32), scratch2);
+                ma_mov(Imm32(val.toNunboxPayload()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(0)));
         }
     }
@@ -972,12 +976,11 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void pushValue(ValueOperand val);
     void popValue(ValueOperand val);
     void pushValue(const Value& val) {
-        jsval_layout jv = JSVAL_TO_IMPL(val);
-        push(Imm32(jv.s.tag));
+        push(Imm32(val.toNunboxTag()));
         if (val.isMarkable())
-            push(ImmGCPtr(reinterpret_cast<gc::Cell*>(val.toGCThing())));
+            push(ImmGCPtr(val.toMarkablePointer()));
         else
-            push(Imm32(jv.s.payload.i32));
+            push(Imm32(val.toNunboxPayload()));
     }
     void pushValue(JSValueType type, Register reg) {
         push(ImmTag(JSVAL_TYPE_TO_TAG(type)));
@@ -1456,19 +1459,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_mov(Imm32(1), dest, cond);
     }
 
-    template <typename T1, typename T2>
-    void cmpPtrSet(Assembler::Condition cond, T1 lhs, T2 rhs, Register dest)
-    {
-        cmpPtr(lhs, rhs);
-        emitSet(cond, dest);
-    }
-    template <typename T1, typename T2>
-    void cmp32Set(Assembler::Condition cond, T1 lhs, T2 rhs, Register dest)
-    {
-        cmp32(lhs, rhs);
-        emitSet(cond, dest);
-    }
-
     void testNullSet(Condition cond, const ValueOperand& value, Register dest) {
         cond = testNull(cond, value);
         emitSet(cond, dest);
@@ -1534,18 +1524,22 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     }
 
     void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
-        loadPtr(Address(GlobalReg, globalDataOffset - AsmJSGlobalRegBias), dest);
+        loadPtr(Address(GlobalReg, globalDataOffset - WasmGlobalRegBias), dest);
     }
     void loadWasmPinnedRegsFromTls() {
         ScratchRegisterScope scratch(asMasm());
         ma_ldr(Address(WasmTlsReg, offsetof(wasm::TlsData, memoryBase)), HeapReg, scratch);
         ma_ldr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalData)), GlobalReg, scratch);
-        ma_add(Imm32(AsmJSGlobalRegBias), GlobalReg, scratch);
+        ma_add(Imm32(WasmGlobalRegBias), GlobalReg, scratch);
     }
 
     // Instrumentation for entering and leaving the profiler.
     void profilerEnterFrame(Register framePtr, Register scratch);
     void profilerExitFrame();
+
+    struct AutoPrepareForPatching {
+        explicit AutoPrepareForPatching(MacroAssemblerARMCompat&) {}
+    };
 };
 
 typedef MacroAssemblerARMCompat MacroAssemblerSpecific;

@@ -15,7 +15,6 @@
 #include "jsgc.h"
 #include "jsprf.h"
 
-#include "asmjs/WasmJS.h"
 #include "builtin/ModuleObject.h"
 #include "gc/GCInternals.h"
 #include "gc/Policy.h"
@@ -30,6 +29,7 @@
 #include "vm/Symbol.h"
 #include "vm/TypedArrayObject.h"
 #include "vm/UnboxedObject.h"
+#include "wasm/WasmJS.h"
 
 #include "jscompartmentinlines.h"
 #include "jsgcinlines.h"
@@ -223,7 +223,7 @@ js::CheckTracedThing(JSTracer* trc, T* thing)
     MOZ_ASSERT_IF(zone->requireGCTracer(), isGcMarkingTracer || IsBufferGrayRootsTracer(trc));
 
     if (isGcMarkingTracer) {
-        GCMarker* gcMarker = static_cast<GCMarker*>(trc);
+        GCMarker* gcMarker = GCMarker::fromTracer(trc);
         MOZ_ASSERT_IF(gcMarker->shouldCheckCompartments(),
                       zone->isCollecting() || zone->isAtomsZone());
 
@@ -271,12 +271,12 @@ JS_FOR_EACH_TRACEKIND(IMPL_CHECK_TRACED_THING);
 } // namespace js
 
 static bool
-ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, Cell* cell)
+ShouldTraceCrossCompartment(JSTracer* trc, JSObject* src, Cell* cell)
 {
     if (!trc->isMarkingTracer())
         return true;
 
-    uint32_t color = static_cast<GCMarker*>(trc)->markColor();
+    uint32_t color = GCMarker::fromTracer(trc)->markColor();
     MOZ_ASSERT(color == BLACK || color == GRAY);
 
     if (!cell->isTenured()) {
@@ -315,9 +315,9 @@ ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, Cell* cell)
 }
 
 static bool
-ShouldMarkCrossCompartment(JSTracer* trc, JSObject* src, const Value& val)
+ShouldTraceCrossCompartment(JSTracer* trc, JSObject* src, const Value& val)
 {
-    return val.isMarkable() && ShouldMarkCrossCompartment(trc, src, (Cell*)val.toGCThing());
+    return val.isMarkable() && ShouldTraceCrossCompartment(trc, src, (Cell*)val.toGCThing());
 }
 
 static void
@@ -467,7 +467,7 @@ js::TraceWeakEdge(JSTracer* trc, WeakRef<T>* thingp, const char* name)
     if (!trc->isMarkingTracer())
         return DispatchToTracer(trc, ConvertToBase(thingp->unsafeUnbarrieredForTracing()), name);
 
-    NoteWeakEdge(static_cast<GCMarker*>(trc),
+    NoteWeakEdge(GCMarker::fromTracer(trc),
                  ConvertToBase(thingp->unsafeUnbarrieredForTracing()));
 }
 
@@ -565,7 +565,7 @@ void
 js::TraceManuallyBarrieredCrossCompartmentEdge(JSTracer* trc, JSObject* src, T* dst,
                                                const char* name)
 {
-    if (ShouldMarkCrossCompartment(trc, src, *dst))
+    if (ShouldTraceCrossCompartment(trc, src, *dst))
         DispatchToTracer(trc, dst, name);
 }
 template void js::TraceManuallyBarrieredCrossCompartmentEdge<JSObject*>(JSTracer*, JSObject*,
@@ -578,7 +578,7 @@ void
 js::TraceCrossCompartmentEdge(JSTracer* trc, JSObject* src, WriteBarrieredBase<T>* dst,
                               const char* name)
 {
-    if (ShouldMarkCrossCompartment(trc, src, dst->get()))
+    if (ShouldTraceCrossCompartment(trc, src, dst->get()))
         DispatchToTracer(trc, dst->unsafeUnbarrieredForTracing(), name);
 }
 template void js::TraceCrossCompartmentEdge<Value>(JSTracer*, JSObject*,
@@ -658,7 +658,7 @@ DispatchToTracer(JSTracer* trc, T* thingp, const char* name)
             "Only the base cell layout types are allowed into marking/tracing internals");
 #undef IS_SAME_TYPE_OR
     if (trc->isMarkingTracer())
-        return DoMarking(static_cast<GCMarker*>(trc), *thingp);
+        return DoMarking(GCMarker::fromTracer(trc), *thingp);
     if (trc->isTenuringTracer())
         return static_cast<TenuringTracer*>(trc)->traverse(thingp);
     MOZ_ASSERT(trc->isCallbackTracer());
@@ -695,7 +695,7 @@ GCMarker::markEphemeronValues(gc::Cell* markedCell, WeakEntryVector& values)
 {
     size_t initialLen = values.length();
     for (size_t i = 0; i < initialLen; i++)
-        values[i].weakmap->traceEntry(this, markedCell, values[i].key);
+        values[i].weakmap->markEntry(this, markedCell, values[i].key);
 
     // The vector should not be appended to during iteration because the key is
     // already marked, and even in cases where we have a multipart key, we
@@ -1545,13 +1545,15 @@ GCMarker::drainMarkStack(SliceBudget& budget)
     auto acc = mozilla::MakeScopeExit([&] {strictCompartmentChecking = false;});
 #endif
 
-    if (budget.isOverBudget())
+    JSContext* cx = runtime()->contextFromMainThread();
+
+    if (budget.isOverBudget(cx))
         return false;
 
     for (;;) {
         while (!stack.isEmpty()) {
             processMarkStackTop(budget);
-            if (budget.isOverBudget()) {
+            if (budget.isOverBudget(cx)) {
                 saveValueRanges();
                 return false;
             }
@@ -1626,6 +1628,8 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     uintptr_t tag = addr & StackTagMask;
     addr &= ~StackTagMask;
 
+    JSContext* cx = runtime()->contextFromMainThread();
+
     // Dispatch
     switch (tag) {
       case ValueArrayTag: {
@@ -1679,7 +1683,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     MOZ_ASSERT(vp <= end);
     while (vp != end) {
         budget.step();
-        if (budget.isOverBudget()) {
+        if (budget.isOverBudget(cx)) {
             pushValueArray(obj, vp, end);
             return;
         }
@@ -1709,7 +1713,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
         AssertZoneIsMarking(obj);
 
         budget.step();
-        if (budget.isOverBudget()) {
+        if (budget.isOverBudget(cx)) {
             repush(obj);
             return;
         }
@@ -2085,7 +2089,7 @@ GCMarker::enterWeakMarkingMode()
         for (GCZoneGroupIter zone(runtime()); !zone.done(); zone.next()) {
             for (WeakMapBase* m : zone->gcWeakMapList) {
                 if (m->marked)
-                    (void) m->traceEntries(this);
+                    (void) m->markIteratively(this);
             }
         }
     }
@@ -2157,7 +2161,7 @@ GCMarker::markDelayedChildren(SliceBudget& budget)
         markDelayedChildren(arena);
 
         budget.step(150);
-        if (budget.isOverBudget())
+        if (budget.isOverBudget(runtime()->contextFromMainThread()))
             return false;
     } while (unmarkedArenaStackTop);
     MOZ_ASSERT(!markLaterArenas);
@@ -2249,7 +2253,8 @@ js::gc::StoreBuffer::MonoTypeBuffer<T>::trace(StoreBuffer* owner, TenuringTracer
     mozilla::ReentrancyGuard g(*owner);
     MOZ_ASSERT(owner->isEnabled());
     MOZ_ASSERT(stores_.initialized());
-    sinkStore(owner);
+    if (last_)
+        last_.trace(mover);
     for (typename StoreSet::Range r = stores_.all(); !r.empty(); r.popFront())
         r.front().trace(mover);
 }
@@ -2505,8 +2510,24 @@ js::TenuringTracer::moveObjectToTenured(JSObject* dst, JSObject* src, AllocKind 
      * because moveElementsToTenured() accounts for all Array elements,
      * even if they are inlined.
      */
-    if (src->is<ArrayObject>())
+    if (src->is<ArrayObject>()) {
         tenuredSize = srcSize = sizeof(NativeObject);
+    } else if (src->is<TypedArrayObject>()) {
+        TypedArrayObject* tarray = &src->as<TypedArrayObject>();
+        // Typed arrays with inline data do not necessarily have the same
+        // AllocKind between src and dst. The nursery does not allocate an
+        // inline data buffer that has the same size as the slow path will do.
+        // In the slow path, the Typed Array Object stores the inline data
+        // in the allocated space that fits the AllocKind. In the fast path,
+        // the nursery will allocate another buffer that is directly behind the
+        // minimal JSObject. That buffer size plus the JSObject size is not
+        // necessarily as large as the slow path's AllocKind size.
+        if (tarray->hasInlineElements()) {
+            AllocKind srcKind = GetGCObjectKind(TypedArrayObject::FIXED_DATA_START);
+            size_t headerSize = Arena::thingSize(srcKind);
+            srcSize = headerSize + tarray->byteLength();
+        }
+    }
 
     // Copy the Cell contents.
     MOZ_ASSERT(OffsetToChunkEnd(src) >= ptrdiff_t(srcSize));

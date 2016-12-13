@@ -29,10 +29,15 @@
     macro(ArrayValuesAt, ArrayValuesAt, "ArrayValuesAt") \
     macro(as, as, "as") \
     macro(Async, Async, "Async") \
+    macro(AsyncFunction, AsyncFunction, "AsyncFunction") \
+    macro(AsyncWrapped, AsyncWrapped, "AsyncWrapped") \
+    macro(async, async, "async") \
+    macro(await, await, "await") \
     macro(Bool8x16, Bool8x16, "Bool8x16") \
     macro(Bool16x8, Bool16x8, "Bool16x8") \
     macro(Bool32x4, Bool32x4, "Bool32x4") \
     macro(Bool64x2, Bool64x2, "Bool64x2") \
+    macro(boundWithSpace, boundWithSpace, "bound ") \
     macro(breakdown, breakdown, "breakdown") \
     macro(buffer, buffer, "buffer") \
     macro(builder, builder, "builder") \
@@ -120,7 +125,6 @@
     macro(frame, frame, "frame") \
     macro(from, from, "from") \
     macro(fulfilled, fulfilled, "fulfilled") \
-    macro(fulfillHandler, fulfillHandler, "fulfillHandler") \
     macro(futexNotEqual, futexNotEqual, "not-equal") \
     macro(futexOK, futexOK, "ok") \
     macro(futexTimedOut, futexTimedOut, "timed-out") \
@@ -164,6 +168,7 @@
     macro(isFinite, isFinite, "isFinite") \
     macro(isNaN, isNaN, "isNaN") \
     macro(isPrototypeOf, isPrototypeOf, "isPrototypeOf") \
+    macro(IterableToList, IterableToList, "IterableToList") \
     macro(iterate, iterate, "iterate") \
     macro(iteratorIntrinsic, iteratorIntrinsic, "__iterator__") \
     macro(join, join, "join") \
@@ -181,6 +186,7 @@
     macro(locale, locale, "locale") \
     macro(lookupGetter, lookupGetter, "__lookupGetter__") \
     macro(lookupSetter, lookupSetter, "__lookupSetter__") \
+    macro(MapConstructorInit, MapConstructorInit, "MapConstructorInit") \
     macro(MapIterator, MapIterator, "Map Iterator") \
     macro(maximumFractionDigits, maximumFractionDigits, "maximumFractionDigits") \
     macro(maximumSignificantDigits, maximumSignificantDigits, "maximumSignificantDigits") \
@@ -243,6 +249,7 @@
     macro(raw, raw, "raw") \
     macro(reason, reason, "reason") \
     macro(RegExpBuiltinExec, RegExpBuiltinExec, "RegExpBuiltinExec") \
+    macro(RegExpFlagsGetter, RegExpFlagsGetter, "RegExpFlagsGetter") \
     macro(RegExpMatcher, RegExpMatcher, "RegExpMatcher") \
     macro(RegExpSearcher, RegExpSearcher, "RegExpSearcher") \
     macro(RegExpTester, RegExpTester, "RegExpTester") \
@@ -250,7 +257,6 @@
     macro(Reify, Reify, "Reify") \
     macro(reject, reject, "reject") \
     macro(rejected, rejected, "rejected") \
-    macro(rejectHandler, rejectHandler, "rejectHandler") \
     macro(RequireObjectCoercible, RequireObjectCoercible, "RequireObjectCoercible") \
     macro(resolve, resolve, "resolve") \
     macro(resumeGenerator, resumeGenerator, "resumeGenerator") \
@@ -262,6 +268,7 @@
     macro(selfHosted, selfHosted, "self-hosted") \
     macro(sensitivity, sensitivity, "sensitivity") \
     macro(set, set, "set") \
+    macro(SetConstructorInit, SetConstructorInit, "SetConstructorInit") \
     macro(SetIterator, SetIterator, "Set Iterator") \
     macro(setPrefix, setPrefix, "set ") \
     macro(setPrototypeOf, setPrototypeOf, "setPrototypeOf") \
@@ -272,6 +279,8 @@
     macro(stack, stack, "stack") \
     macro(star, star, "*") \
     macro(starDefaultStar, starDefaultStar, "*default*") \
+    macro(StarGeneratorNext, StarGeneratorNext, "StarGeneratorNext") \
+    macro(StarGeneratorThrow, StarGeneratorThrow, "StarGeneratorThrow") \
     macro(startTimestamp, startTimestamp, "startTimestamp") \
     macro(state, state, "state") \
     macro(static, static_, "static") \
@@ -326,6 +335,8 @@
     macro(void0, void0, "(void 0)") \
     macro(wasm, wasm, "wasm") \
     macro(watch, watch, "watch") \
+    macro(WeakMapConstructorInit, WeakMapConstructorInit, "WeakMapConstructorInit") \
+    macro(WeakSetConstructorInit, WeakSetConstructorInit, "WeakSetConstructorInit") \
     macro(WeakSet_add, WeakSet_add, "WeakSet_add") \
     macro(weekday, weekday, "weekday") \
     macro(weekendEnd, weekendEnd, "weekendEnd") \

@@ -39,7 +39,7 @@ void ReportException(JSContext* cx) {
 
   fprintf(stderr, "JS error at %s:%u: %s\n",
             report.report()->filename ? report.report()->filename : "<no filename>",
-            (unsigned int)report.report()->lineno, report.message());
+            (unsigned int)report.report()->lineno, report.toStringResult().c_str());
 }
 
 }

@@ -37,8 +37,6 @@
 #endif
 #include "jswrapper.h"
 
-#include "asmjs/WasmSignalHandlers.h"
-#include "asmjs/WasmTypes.h"
 #include "gc/Barrier.h"
 #include "gc/Marking.h"
 #include "gc/Memory.h"
@@ -46,8 +44,11 @@
 #include "js/MemoryMetrics.h"
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
+#include "vm/SelfHosting.h"
 #include "vm/SharedArrayObject.h"
 #include "vm/WrapperObject.h"
+#include "wasm/WasmSignalHandlers.h"
+#include "wasm/WasmTypes.h"
 
 #include "jsatominlines.h"
 
@@ -87,6 +88,25 @@ js::ToClampedIndex(JSContext* cx, HandleValue v, uint32_t length, uint32_t* out)
     return true;
 }
 
+static bool
+arraybuffer_static_slice(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    if (args.length() < 1) {
+        ReportMissingArg(cx, args.calleev(), 1);
+        return false;
+    }
+
+    if (!GlobalObject::warnOnceAboutArrayBufferSlice(cx, cx->global()))
+        return false;
+
+    FixedInvokeArgs<2> args2(cx);
+    args2[0].set(args.get(1));
+    args2[1].set(args.get(2));
+    return CallSelfHostedFunction(cx, "ArrayBufferSlice", args[0], args2, args.rval());
+}
+
 /*
  * ArrayBufferObject
  *
@@ -99,12 +119,13 @@ js::ToClampedIndex(JSContext* cx, HandleValue v, uint32_t length, uint32_t* out)
  * ArrayBufferObject (base)
  */
 
-const Class ArrayBufferObject::protoClass = {
-    "ArrayBufferPrototype",
-    JSCLASS_HAS_CACHED_PROTO(JSProto_ArrayBuffer)
-};
+static JSObject*
+CreateArrayBufferPrototype(JSContext* cx, JSProtoKey key)
+{
+    return cx->global()->createBlankPrototype(cx, &ArrayBufferObject::protoClass_);
+}
 
-const ClassOps ArrayBufferObject::classOps_ = {
+static const ClassOps ArrayBufferObjectClassOps = {
     nullptr,        /* addProperty */
     nullptr,        /* delProperty */
     nullptr,        /* getProperty */
@@ -119,6 +140,38 @@ const ClassOps ArrayBufferObject::classOps_ = {
     ArrayBufferObject::trace,
 };
 
+static const JSFunctionSpec static_functions[] = {
+    JS_FN("isView", ArrayBufferObject::fun_isView, 1, 0),
+    JS_FN("slice", arraybuffer_static_slice, 3, 0),
+    JS_FS_END
+};
+
+static const JSPropertySpec static_properties[] = {
+    JS_SELF_HOSTED_SYM_GET(species, "ArrayBufferSpecies", 0),
+    JS_PS_END
+};
+
+
+static const JSFunctionSpec prototype_functions[] = {
+    JS_SELF_HOSTED_FN("slice", "ArrayBufferSlice", 2, 0),
+    JS_FS_END
+};
+
+static const JSPropertySpec prototype_properties[] = {
+    JS_PSG("byteLength", ArrayBufferObject::byteLengthGetter, 0),
+    JS_STRING_SYM_PS(toStringTag, "ArrayBuffer", JSPROP_READONLY),
+    JS_PS_END
+};
+
+static const ClassSpec ArrayBufferObjectClassSpec = {
+    GenericCreateConstructor<ArrayBufferObject::class_constructor, 1, gc::AllocKind::FUNCTION>,
+    CreateArrayBufferPrototype,
+    static_functions,
+    static_properties,
+    prototype_functions,
+    prototype_properties
+};
+
 static const ClassExtension ArrayBufferObjectClassExtension = {
     nullptr,    /* weakmapKeyDelegateOp */
     ArrayBufferObject::objectMoved
@@ -130,25 +183,16 @@ const Class ArrayBufferObject::class_ = {
     JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) |
     JSCLASS_HAS_CACHED_PROTO(JSProto_ArrayBuffer) |
     JSCLASS_BACKGROUND_FINALIZE,
-    &ArrayBufferObject::classOps_,
-    JS_NULL_CLASS_SPEC,
+    &ArrayBufferObjectClassOps,
+    &ArrayBufferObjectClassSpec,
     &ArrayBufferObjectClassExtension
 };
 
-const JSFunctionSpec ArrayBufferObject::jsfuncs[] = {
-    JS_SELF_HOSTED_FN("slice", "ArrayBufferSlice", 2,0),
-    JS_FS_END
-};
-
-const JSFunctionSpec ArrayBufferObject::jsstaticfuncs[] = {
-    JS_FN("isView", ArrayBufferObject::fun_isView, 1, 0),
-    JS_SELF_HOSTED_FN("slice", "ArrayBufferStaticSlice", 3,0),
-    JS_FS_END
-};
-
-const JSPropertySpec ArrayBufferObject::jsstaticprops[] = {
-    JS_SELF_HOSTED_SYM_GET(species, "ArrayBufferSpecies", 0),
-    JS_PS_END
+const Class ArrayBufferObject::protoClass_ = {
+    "ArrayBufferPrototype",
+    JSCLASS_HAS_CACHED_PROTO(JSProto_ArrayBuffer),
+    JS_NULL_CLASS_OPS,
+    &ArrayBufferObjectClassSpec
 };
 
 bool
@@ -181,6 +225,38 @@ js::AsArrayBuffer(JSObject* obj)
 {
     MOZ_ASSERT(IsArrayBuffer(obj));
     return obj->as<ArrayBufferObject>();
+}
+
+bool
+js::IsArrayBufferMaybeShared(HandleValue v)
+{
+    return v.isObject() && v.toObject().is<ArrayBufferObjectMaybeShared>();
+}
+
+bool
+js::IsArrayBufferMaybeShared(HandleObject obj)
+{
+    return obj->is<ArrayBufferObjectMaybeShared>();
+}
+
+bool
+js::IsArrayBufferMaybeShared(JSObject* obj)
+{
+    return obj->is<ArrayBufferObjectMaybeShared>();
+}
+
+ArrayBufferObjectMaybeShared&
+js::AsArrayBufferMaybeShared(HandleObject obj)
+{
+    MOZ_ASSERT(IsArrayBufferMaybeShared(obj));
+    return obj->as<ArrayBufferObjectMaybeShared>();
+}
+
+ArrayBufferObjectMaybeShared&
+js::AsArrayBufferMaybeShared(JSObject* obj)
+{
+    MOZ_ASSERT(IsArrayBufferMaybeShared(obj));
+    return obj->as<ArrayBufferObjectMaybeShared>();
 }
 
 MOZ_ALWAYS_INLINE bool
@@ -1066,7 +1142,7 @@ ArrayBufferObject::createEmpty(JSContext* cx)
 bool
 ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args)
 {
-    MOZ_ASSERT(IsArrayBuffer(args.thisv()));
+    MOZ_ASSERT(IsArrayBufferMaybeShared(args.thisv()));
 
     /*
      * This method is only called for |DataView(alienBuf, ...)| which calls
@@ -1078,7 +1154,8 @@ ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args
 
     uint32_t byteOffset = args[0].toPrivateUint32();
     uint32_t byteLength = args[1].toPrivateUint32();
-    Rooted<ArrayBufferObject*> buffer(cx, &args.thisv().toObject().as<ArrayBufferObject>());
+    Rooted<ArrayBufferObjectMaybeShared*> buffer(cx);
+    buffer = &args.thisv().toObject().as<ArrayBufferObjectMaybeShared>();
 
     /*
      * Pop off the passed-along prototype and delegate to normal DataViewObject
@@ -1095,7 +1172,7 @@ bool
 ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsArrayBuffer, createDataViewForThisImpl>(cx, args);
+    return CallNonGenericMethod<IsArrayBufferMaybeShared, createDataViewForThisImpl>(cx, args);
 }
 
 /* static */ ArrayBufferObject::BufferContents
@@ -1487,6 +1564,8 @@ void
 ArrayBufferViewObject::notifyBufferDetached(JSContext* cx, void* newData)
 {
     if (is<DataViewObject>()) {
+        if (as<DataViewObject>().isSharedMemory())
+            return;
         as<DataViewObject>().notifyBufferDetached(newData);
     } else if (is<TypedArrayObject>()) {
         if (as<TypedArrayObject>().isSharedMemory())
@@ -1498,10 +1577,12 @@ ArrayBufferViewObject::notifyBufferDetached(JSContext* cx, void* newData)
 }
 
 uint8_t*
-ArrayBufferViewObject::dataPointerUnshared(const JS::AutoAssertOnGC& nogc)
+ArrayBufferViewObject::dataPointerUnshared(const JS::AutoRequireNoGC& nogc)
 {
-    if (is<DataViewObject>())
-        return static_cast<uint8_t*>(as<DataViewObject>().dataPointer());
+    if (is<DataViewObject>()) {
+        MOZ_ASSERT(!as<DataViewObject>().isSharedMemory());
+        return static_cast<uint8_t*>(as<DataViewObject>().dataPointerUnshared());
+    }
     if (is<TypedArrayObject>()) {
         MOZ_ASSERT(!as<TypedArrayObject>().isSharedMemory());
         return static_cast<uint8_t*>(as<TypedArrayObject>().viewDataUnshared());
@@ -1523,6 +1604,7 @@ void
 ArrayBufferViewObject::setDataPointerUnshared(uint8_t* data)
 {
     if (is<DataViewObject>()) {
+        MOZ_ASSERT(!as<DataViewObject>().isSharedMemory());
         as<DataViewObject>().setPrivate(data);
     } else if (is<TypedArrayObject>()) {
         MOZ_ASSERT(!as<TypedArrayObject>().isSharedMemory());
@@ -1544,7 +1626,7 @@ ArrayBufferViewObject::bufferObject(JSContext* cx, Handle<ArrayBufferViewObject*
         return thisObject->as<TypedArrayObject>().bufferEither();
     }
     MOZ_ASSERT(thisObject->is<DataViewObject>());
-    return &thisObject->as<DataViewObject>().arrayBuffer();
+    return &thisObject->as<DataViewObject>().arrayBufferEither();
 }
 
 /* JS Friend API */
@@ -1795,12 +1877,13 @@ JS_GetArrayBufferViewData(JSObject* obj, bool* isSharedMemory, const JS::AutoChe
     if (!obj)
         return nullptr;
     if (obj->is<DataViewObject>()) {
-        *isSharedMemory = false;
-        return obj->as<DataViewObject>().dataPointer();
+        DataViewObject& dv = obj->as<DataViewObject>();
+        *isSharedMemory = dv.isSharedMemory();
+        return dv.dataPointerEither().unwrap(/*safe - caller sees isSharedMemory flag*/);
     }
     TypedArrayObject& ta = obj->as<TypedArrayObject>();
     *isSharedMemory = ta.isSharedMemory();
-    return ta.viewDataEither().unwrap(/*safe - caller sees isShared flag*/);
+    return ta.viewDataEither().unwrap(/*safe - caller sees isSharedMemory flag*/);
 }
 
 JS_FRIEND_API(JSObject*)
@@ -1845,7 +1928,8 @@ JS_GetObjectAsArrayBufferView(JSObject* obj, uint32_t* length, bool* isSharedMem
 }
 
 JS_FRIEND_API(void)
-js::GetArrayBufferViewLengthAndData(JSObject* obj, uint32_t* length, bool* isSharedMemory, uint8_t** data)
+js::GetArrayBufferViewLengthAndData(JSObject* obj, uint32_t* length, bool* isSharedMemory,
+                                    uint8_t** data)
 {
     MOZ_ASSERT(obj->is<ArrayBufferViewObject>());
 
@@ -1854,13 +1938,16 @@ js::GetArrayBufferViewLengthAndData(JSObject* obj, uint32_t* length, bool* isSha
               : obj->as<TypedArrayObject>().byteLength();
 
     if (obj->is<DataViewObject>()) {
-        *isSharedMemory = false;
-        *data = static_cast<uint8_t*>(obj->as<DataViewObject>().dataPointer());
+        DataViewObject& dv = obj->as<DataViewObject>();
+        *isSharedMemory = dv.isSharedMemory();
+        *data = static_cast<uint8_t*>(
+            dv.dataPointerEither().unwrap(/*safe - caller sees isShared flag*/));
     }
     else {
         TypedArrayObject& ta = obj->as<TypedArrayObject>();
         *isSharedMemory = ta.isSharedMemory();
-        *data = static_cast<uint8_t*>(ta.viewDataEither().unwrap(/*safe - caller sees isShared flag*/));
+        *data = static_cast<uint8_t*>(
+            ta.viewDataEither().unwrap(/*safe - caller sees isShared flag*/));
     }
 }
 
@@ -1886,62 +1973,3 @@ js::GetArrayBufferLengthAndData(JSObject* obj, uint32_t* length, bool* isSharedM
     *data = AsArrayBuffer(obj).dataPointer();
     *isSharedMemory = false;
 }
-
-JSObject*
-js::InitArrayBufferClass(JSContext* cx, HandleObject obj)
-{
-    AssertHeapIsIdle(cx);
-    CHECK_REQUEST(cx);
-    assertSameCompartment(cx, obj);
-
-    Rooted<GlobalObject*> global(cx, cx->compartment()->maybeGlobal());
-    if (global->isStandardClassResolved(JSProto_ArrayBuffer))
-        return &global->getPrototype(JSProto_ArrayBuffer).toObject();
-
-    RootedNativeObject arrayBufferProto(cx, global->createBlankPrototype(cx, &ArrayBufferObject::protoClass));
-    if (!arrayBufferProto)
-        return nullptr;
-
-    RootedFunction ctor(cx, global->createConstructor(cx, ArrayBufferObject::class_constructor,
-                                                      cx->names().ArrayBuffer, 1));
-    if (!ctor)
-        return nullptr;
-
-    if (!LinkConstructorAndPrototype(cx, ctor, arrayBufferProto))
-        return nullptr;
-
-    RootedId byteLengthId(cx, NameToId(cx->names().byteLength));
-    RootedAtom atom(cx, IdToFunctionName(cx, byteLengthId, "get"));
-    if (!atom)
-        return nullptr;
-    unsigned attrs = JSPROP_SHARED | JSPROP_GETTER;
-    JSObject* getter =
-        NewNativeFunction(cx, ArrayBufferObject::byteLengthGetter, 0, atom);
-    if (!getter)
-        return nullptr;
-
-    if (!NativeDefineProperty(cx, arrayBufferProto, byteLengthId, UndefinedHandleValue,
-                              JS_DATA_TO_FUNC_PTR(GetterOp, getter), nullptr, attrs))
-        return nullptr;
-
-    if (!JS_DefineFunctions(cx, ctor, ArrayBufferObject::jsstaticfuncs))
-        return nullptr;
-
-    if (!JS_DefineProperties(cx, ctor, ArrayBufferObject::jsstaticprops))
-        return nullptr;
-
-    if (!JS_DefineFunctions(cx, arrayBufferProto, ArrayBufferObject::jsfuncs))
-        return nullptr;
-
-    if (!DefineToStringTag(cx, arrayBufferProto, cx->names().ArrayBuffer))
-        return nullptr;
-
-    if (!GlobalObject::initBuiltinConstructor(cx, global, JSProto_ArrayBuffer,
-                                              ctor, arrayBufferProto))
-    {
-        return nullptr;
-    }
-
-    return arrayBufferProto;
-}
-

@@ -43,10 +43,12 @@ class CGConstList {
 
 struct CGObjectList {
     uint32_t            length;     /* number of emitted so far objects */
+    ObjectBox*          firstbox;  /* first emitted object */
     ObjectBox*          lastbox;   /* last emitted object */
 
-    CGObjectList() : length(0), lastbox(nullptr) {}
+    CGObjectList() : length(0), firstbox(nullptr), lastbox(nullptr) {}
 
+    bool isAdded(ObjectBox* objbox);
     unsigned add(ObjectBox* objbox);
     unsigned indexOf(JSObject* obj);
     void finish(ObjectArray* array);
@@ -433,7 +435,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitTree(ParseNode* pn, EmitLineNumberNote emitLineNote = EMIT_LINENOTE);
 
     // Emit code for the tree rooted at pn with its own TDZ cache.
-    MOZ_MUST_USE bool emitConditionallyExecutedTree(ParseNode* pn);
+    MOZ_MUST_USE bool emitTreeInBranch(ParseNode* pn);
 
     // Emit global, eval, or module code for tree rooted at body. Always
     // encompasses the entire source.
@@ -601,6 +603,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitPropOp(ParseNode* pn, JSOp op);
     MOZ_MUST_USE bool emitPropIncDec(ParseNode* pn);
 
+    MOZ_MUST_USE bool emitAsyncWrapperLambda(unsigned index, bool isArrow);
+    MOZ_MUST_USE bool emitAsyncWrapper(unsigned index, bool needsHomeObject, bool isArrow);
+
     MOZ_MUST_USE bool emitComputedPropertyName(ParseNode* computedPropName);
 
     // Emit bytecode to put operands for a JSOP_GETELEM/CALLELEM/SETELEM/DELELEM
@@ -639,15 +644,18 @@ struct MOZ_STACK_CLASS BytecodeEmitter
         DestructuringAssignment
     };
 
-    // EmitDestructuringLHS assumes the to-be-destructured value has been pushed on
+    // emitDestructuringLHS assumes the to-be-destructured value has been pushed on
     // the stack and emits code to destructure a single lhs expression (either a
     // name or a compound []/{} expression).
     MOZ_MUST_USE bool emitDestructuringLHS(ParseNode* target, DestructuringFlavor flav);
+    MOZ_MUST_USE bool emitDestructuringLHSInBranch(ParseNode* target, DestructuringFlavor flav);
 
+    // emitDestructuringOps assumes the to-be-destructured value has been
+    // pushed on the stack and emits code to destructure each part of a [] or
+    // {} lhs expression.
     MOZ_MUST_USE bool emitDestructuringOps(ParseNode* pattern, DestructuringFlavor flav);
-    MOZ_MUST_USE bool emitDestructuringOpsHelper(ParseNode* pattern, DestructuringFlavor flav);
-    MOZ_MUST_USE bool emitDestructuringOpsArrayHelper(ParseNode* pattern, DestructuringFlavor flav);
-    MOZ_MUST_USE bool emitDestructuringOpsObjectHelper(ParseNode* pattern, DestructuringFlavor flav);
+    MOZ_MUST_USE bool emitDestructuringOpsArray(ParseNode* pattern, DestructuringFlavor flav);
+    MOZ_MUST_USE bool emitDestructuringOpsObject(ParseNode* pattern, DestructuringFlavor flav);
 
     typedef bool
     (*DestructuringDeclEmitter)(BytecodeEmitter* bce, ParseNode* pn);
@@ -669,7 +677,16 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     // Check if the value on top of the stack is "undefined". If so, replace
     // that value on the stack with the value defined by |defaultExpr|.
-    MOZ_MUST_USE bool emitDefault(ParseNode* defaultExpr);
+    // |pattern| is a lhs node of the default expression.  If it's an
+    // identifier and |defaultExpr| is an anonymous function, |SetFunctionName|
+    // is called at compile time.
+    MOZ_MUST_USE bool emitDefault(ParseNode* defaultExpr, ParseNode* pattern);
+
+    MOZ_MUST_USE bool setOrEmitSetFunName(ParseNode* maybeFun, HandleAtom name,
+                                          FunctionPrefixKind prefixKind);
+
+    MOZ_MUST_USE bool emitInitializer(ParseNode* initializer, ParseNode* pattern);
+    MOZ_MUST_USE bool emitInitializerInBranch(ParseNode* initializer, ParseNode* pattern);
 
     MOZ_MUST_USE bool emitCallSiteObject(ParseNode* pn);
     MOZ_MUST_USE bool emitTemplateString(ParseNode* pn);
