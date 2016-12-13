@@ -15,7 +15,6 @@
 #include "jsgc.h"
 #include "jsprf.h"
 
-#include "asmjs/WasmJS.h"
 #include "builtin/ModuleObject.h"
 #include "gc/GCInternals.h"
 #include "gc/Policy.h"
@@ -30,6 +29,7 @@
 #include "vm/Symbol.h"
 #include "vm/TypedArrayObject.h"
 #include "vm/UnboxedObject.h"
+#include "wasm/WasmJS.h"
 
 #include "jscompartmentinlines.h"
 #include "jsgcinlines.h"
@@ -1545,13 +1545,15 @@ GCMarker::drainMarkStack(SliceBudget& budget)
     auto acc = mozilla::MakeScopeExit([&] {strictCompartmentChecking = false;});
 #endif
 
-    if (budget.isOverBudget())
+    JSContext* cx = runtime()->contextFromMainThread();
+
+    if (budget.isOverBudget(cx))
         return false;
 
     for (;;) {
         while (!stack.isEmpty()) {
             processMarkStackTop(budget);
-            if (budget.isOverBudget()) {
+            if (budget.isOverBudget(cx)) {
                 saveValueRanges();
                 return false;
             }
@@ -1626,6 +1628,8 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     uintptr_t tag = addr & StackTagMask;
     addr &= ~StackTagMask;
 
+    JSContext* cx = runtime()->contextFromMainThread();
+
     // Dispatch
     switch (tag) {
       case ValueArrayTag: {
@@ -1679,7 +1683,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     MOZ_ASSERT(vp <= end);
     while (vp != end) {
         budget.step();
-        if (budget.isOverBudget()) {
+        if (budget.isOverBudget(cx)) {
             pushValueArray(obj, vp, end);
             return;
         }
@@ -1709,7 +1713,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
         AssertZoneIsMarking(obj);
 
         budget.step();
-        if (budget.isOverBudget()) {
+        if (budget.isOverBudget(cx)) {
             repush(obj);
             return;
         }
@@ -2157,7 +2161,7 @@ GCMarker::markDelayedChildren(SliceBudget& budget)
         markDelayedChildren(arena);
 
         budget.step(150);
-        if (budget.isOverBudget())
+        if (budget.isOverBudget(runtime()->contextFromMainThread()))
             return false;
     } while (unmarkedArenaStackTop);
     MOZ_ASSERT(!markLaterArenas);
@@ -2249,7 +2253,8 @@ js::gc::StoreBuffer::MonoTypeBuffer<T>::trace(StoreBuffer* owner, TenuringTracer
     mozilla::ReentrancyGuard g(*owner);
     MOZ_ASSERT(owner->isEnabled());
     MOZ_ASSERT(stores_.initialized());
-    sinkStore(owner);
+    if (last_)
+        last_.trace(mover);
     for (typename StoreSet::Range r = stores_.all(); !r.empty(); r.popFront())
         r.front().trace(mover);
 }
@@ -2505,8 +2510,24 @@ js::TenuringTracer::moveObjectToTenured(JSObject* dst, JSObject* src, AllocKind 
      * because moveElementsToTenured() accounts for all Array elements,
      * even if they are inlined.
      */
-    if (src->is<ArrayObject>())
+    if (src->is<ArrayObject>()) {
         tenuredSize = srcSize = sizeof(NativeObject);
+    } else if (src->is<TypedArrayObject>()) {
+        TypedArrayObject* tarray = &src->as<TypedArrayObject>();
+        // Typed arrays with inline data do not necessarily have the same
+        // AllocKind between src and dst. The nursery does not allocate an
+        // inline data buffer that has the same size as the slow path will do.
+        // In the slow path, the Typed Array Object stores the inline data
+        // in the allocated space that fits the AllocKind. In the fast path,
+        // the nursery will allocate another buffer that is directly behind the
+        // minimal JSObject. That buffer size plus the JSObject size is not
+        // necessarily as large as the slow path's AllocKind size.
+        if (tarray->hasInlineElements()) {
+            AllocKind srcKind = GetGCObjectKind(TypedArrayObject::FIXED_DATA_START);
+            size_t headerSize = Arena::thingSize(srcKind);
+            srcSize = headerSize + tarray->byteLength();
+        }
+    }
 
     // Copy the Cell contents.
     MOZ_ASSERT(OffsetToChunkEnd(src) >= ptrdiff_t(srcSize));

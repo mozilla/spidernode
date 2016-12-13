@@ -62,7 +62,6 @@
 #include "jswrapper.h"
 #include "shellmoduleloader.out.h"
 
-#include "asmjs/WasmJS.h"
 #include "builtin/ModuleObject.h"
 #include "builtin/TestingFunctions.h"
 #include "frontend/Parser.h"
@@ -83,19 +82,21 @@
 #include "shell/OSObject.h"
 #include "threading/ConditionVariable.h"
 #include "threading/LockGuard.h"
-#include "threading/Mutex.h"
 #include "threading/Thread.h"
 #include "vm/ArgumentsObject.h"
+#include "vm/AsyncFunction.h"
 #include "vm/Compression.h"
 #include "vm/Debugger.h"
 #include "vm/HelperThreads.h"
 #include "vm/Monitor.h"
+#include "vm/MutexIDs.h"
 #include "vm/Shape.h"
 #include "vm/SharedArrayObject.h"
 #include "vm/StringBuffer.h"
 #include "vm/Time.h"
 #include "vm/TypedArrayObject.h"
 #include "vm/WrapperObject.h"
+#include "wasm/WasmJS.h"
 
 #include "jscompartmentinlines.h"
 #include "jsobjinlines.h"
@@ -179,7 +180,12 @@ class OffThreadState {
     };
 
   public:
-    OffThreadState() : monitor(), state(IDLE), token(), source(nullptr) { }
+    OffThreadState()
+      : monitor(mutexid::ShellOffThreadState),
+        state(IDLE),
+        token(),
+        source(nullptr)
+    { }
 
     bool startIfIdle(JSContext* cx, ScriptKind kind,
                      ScopedJSFreePtr<char16_t>& newSource)
@@ -310,6 +316,7 @@ static bool offthreadCompilation = false;
 static bool enableBaseline = false;
 static bool enableIon = false;
 static bool enableAsmJS = false;
+static bool enableWasm = false;
 static bool enableNativeRegExp = false;
 static bool enableUnboxedArrays = false;
 static bool enableSharedMemory = SHARED_MEMORY_DEFAULT;
@@ -431,9 +438,10 @@ ShellContext::ShellContext(JSContext* cx)
     lastWarning(cx, NullValue()),
 #ifdef SPIDERMONKEY_PROMISE
     promiseRejectionTrackerCallback(cx, NullValue()),
-    asyncTasks(cx),
+    asyncTasks(mutexid::ShellAsyncTasks, cx),
     drainingJobQueue(false),
 #endif // SPIDERMONKEY_PROMISE
+    watchdogLock(mutexid::ShellContextWatchdog),
     exitCode(0),
     quitting(false),
     readLineBufPos(0),
@@ -782,20 +790,25 @@ DrainJobQueue(JSContext* cx)
     // Wait for any outstanding async tasks to finish so that the
     // finishedAsyncTasks list is fixed.
     while (true) {
+        AutoLockHelperThreadState lock;
         if (!sc->asyncTasks.lock()->outstanding)
             break;
-        AutoLockHelperThreadState lock;
         HelperThreadState().wait(lock, GlobalHelperThreadState::CONSUMER);
     }
 
-    // Lock the whole time while flushing the asyncTasks finished queue so that
-    // any new tasks created during finish() cannot racily join the job queue.
+    // Lock the whole time while copying back the asyncTasks finished queue so
+    // that any new tasks created during finish() cannot racily join the job
+    // queue.  Call finish() only thereafter, to avoid a circular mutex
+    // dependency (see also bug 1297901).
+    Vector<JS::AsyncTask*> finished(cx);
     {
         ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
-        for (JS::AsyncTask* task : asyncTasks->finished)
-            task->finish(cx);
+        finished = Move(asyncTasks->finished);
         asyncTasks->finished.clear();
     }
+
+    for (JS::AsyncTask* task : finished)
+        task->finish(cx);
 
     // It doesn't make sense for job queue draining to be reentrant. At the
     // same time we don't want to assert against it, because that'd make
@@ -1148,9 +1161,8 @@ CreateMappedArrayBuffer(JSContext* cx, unsigned argc, Value* vp)
         if (!JS::ToUint32(cx, args[2], &size))
             return false;
         sizeGiven = true;
-        if (offset > size) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_ARG_INDEX_OUT_OF_RANGE,
-                                      "2");
+        if (size == 0) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
             return false;
         }
     }
@@ -1168,7 +1180,7 @@ CreateMappedArrayBuffer(JSContext* cx, unsigned argc, Value* vp)
             JS_ReportErrorASCII(cx, "Unable to stat file");
             return false;
         }
-        if (st.st_size < off_t(offset)) {
+        if (off_t(offset) >= st.st_size) {
             JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                                       JSMSG_ARG_INDEX_OUT_OF_RANGE, "2");
             return false;
@@ -1512,6 +1524,42 @@ CacheEntry_setBytecode(JSContext* cx, HandleObject cache, uint8_t* buffer, uint3
 }
 
 static bool
+ConvertTranscodeResultToJSException(JSContext* cx, JS::TranscodeResult rv)
+{
+    switch (rv) {
+      case JS::TranscodeResult_Ok:
+        return true;
+
+      default:
+        MOZ_FALLTHROUGH;
+      case JS::TranscodeResult_Failure:
+        MOZ_ASSERT(!cx->isExceptionPending());
+        JS_ReportErrorASCII(cx, "generic warning");
+        return false;
+      case JS::TranscodeResult_Failure_BadBuildId:
+        MOZ_ASSERT(!cx->isExceptionPending());
+        JS_ReportErrorASCII(cx, "the build-id does not match");
+        return false;
+      case JS::TranscodeResult_Failure_RunOnceNotSupported:
+        MOZ_ASSERT(!cx->isExceptionPending());
+        JS_ReportErrorASCII(cx, "run-once script are not supported by XDR");
+        return false;
+      case JS::TranscodeResult_Failure_AsmJSNotSupported:
+        MOZ_ASSERT(!cx->isExceptionPending());
+        JS_ReportErrorASCII(cx, "Asm.js is not supported by XDR");
+        return false;
+      case JS::TranscodeResult_Failure_UnknownClassKind:
+        MOZ_ASSERT(!cx->isExceptionPending());
+        JS_ReportErrorASCII(cx, "Unknown class kind, go fix it.");
+        return false;
+
+      case JS::TranscodeResult_Throw:
+        MOZ_ASSERT(cx->isExceptionPending());
+        return false;
+    }
+}
+
+static bool
 Evaluate(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -1628,15 +1676,19 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
     if (!codeChars.initTwoByte(cx, code))
         return false;
 
-    uint32_t loadLength = 0;
-    uint8_t* loadBuffer = nullptr;
-    uint32_t saveLength = 0;
-    ScopedJSFreePtr<uint8_t> saveBuffer;
+    JS::TranscodeBuffer loadBuffer;
+    JS::TranscodeBuffer saveBuffer;
 
     if (loadBytecode) {
-        loadBuffer = CacheEntry_getBytecode(cacheEntry, &loadLength);
-        if (!loadBuffer)
+        uint32_t loadLength = 0;
+        uint8_t* loadData = nullptr;
+        loadData = CacheEntry_getBytecode(cacheEntry, &loadLength);
+        if (!loadData)
             return false;
+        if (!loadBuffer.append(loadData, loadLength)) {
+            JS_ReportOutOfMemory(cx);
+            return false;
+        }
     }
 
     {
@@ -1656,10 +1708,12 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
             }
 
             if (loadBytecode) {
-                script = JS_DecodeScript(cx, loadBuffer, loadLength);
+                JS::TranscodeResult rv = JS::DecodeScript(cx, loadBuffer, &script);
+                if (!ConvertTranscodeResultToJSException(cx, rv))
+                    return false;
             } else {
                 mozilla::Range<const char16_t> chars = codeChars.twoByteRange();
-                (void) JS::Compile(cx, options, chars.start().get(), chars.length(), &script);
+                (void) JS::Compile(cx, options, chars.begin().get(), chars.length(), &script);
             }
 
             if (!script)
@@ -1675,7 +1729,7 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
             if (!chars.initTwoByte(cx, flat))
                 return false;
 
-            const char16_t* durl = chars.twoByteRange().start().get();
+            const char16_t* durl = chars.twoByteRange().begin().get();
             if (!script->scriptSource()->setDisplayURL(cx, durl))
                 return false;
         }
@@ -1688,7 +1742,7 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
             if (!chars.initTwoByte(cx, flat))
                 return false;
 
-            const char16_t* smurl = chars.twoByteRange().start().get();
+            const char16_t* smurl = chars.twoByteRange().begin().get();
             if (!script->scriptSource()->setSourceMapURL(cx, smurl))
                 return false;
         }
@@ -1705,8 +1759,8 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
         }
 
         if (saveBytecode) {
-            saveBuffer = reinterpret_cast<uint8_t*>(JS_EncodeScript(cx, script, &saveLength));
-            if (!saveBuffer)
+            JS::TranscodeResult rv = JS::EncodeScript(cx, saveBuffer, script);
+            if (!ConvertTranscodeResultToJSException(cx, rv))
                 return false;
         }
     }
@@ -1715,28 +1769,34 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
         // If we are both loading and saving, we assert that we are going to
         // replace the current bytecode by the same stream of bytes.
         if (loadBytecode && assertEqBytecode) {
-            if (saveLength != loadLength) {
+            if (saveBuffer.length() != loadBuffer.length()) {
                 char loadLengthStr[16];
-                SprintfLiteral(loadLengthStr, "%" PRIu32, loadLength);
+                SprintfLiteral(loadLengthStr, "%" PRIuSIZE, loadBuffer.length());
                 char saveLengthStr[16];
-                SprintfLiteral(saveLengthStr,"%" PRIu32, saveLength);
+                SprintfLiteral(saveLengthStr,"%" PRIuSIZE, saveBuffer.length());
 
                 JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr, JSSMSG_CACHE_EQ_SIZE_FAILED,
                                           loadLengthStr, saveLengthStr);
                 return false;
             }
 
-            if (!PodEqual(loadBuffer, saveBuffer.get(), loadLength)) {
+            if (!PodEqual(loadBuffer.begin(), saveBuffer.begin(), loadBuffer.length())) {
                 JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr,
                                           JSSMSG_CACHE_EQ_CONTENT_FAILED);
                 return false;
             }
         }
 
-        if (!CacheEntry_setBytecode(cx, cacheEntry, saveBuffer, saveLength))
+        size_t saveLength = saveBuffer.length();
+        if (saveLength >= INT32_MAX) {
+            JS_ReportErrorASCII(cx, "Cannot save large cache entry content");
             return false;
-
-        saveBuffer.forget();
+        }
+        uint8_t* saveData = saveBuffer.extractOrCopyRawBuffer();
+        if (!CacheEntry_setBytecode(cx, cacheEntry, saveData, saveLength)) {
+            js_free(saveData);
+            return false;
+        }
     }
 
     return JS_WrapValue(cx, args.rval());
@@ -1750,15 +1810,13 @@ js::shell::FileAsString(JSContext* cx, JS::HandleString pathnameStr)
         return nullptr;
 
     FILE* file;
-    RootedString str(cx);
-    size_t len, cc;
-    char* buf;
 
     file = fopen(pathname.ptr(), "rb");
     if (!file) {
         ReportCantOpenErrorUnknownEncoding(cx, pathname.ptr());
         return nullptr;
     }
+
     AutoCloseFile autoClose(file);
 
     if (fseek(file, 0, SEEK_END) != 0) {
@@ -1766,45 +1824,47 @@ js::shell::FileAsString(JSContext* cx, JS::HandleString pathnameStr)
         if (!pathname.encodeUtf8(cx, pathnameStr))
             return nullptr;
         JS_ReportErrorUTF8(cx, "can't seek end of %s", pathname.ptr());
-    } else {
-        len = ftell(file);
-        if (fseek(file, 0, SEEK_SET) != 0) {
+        return nullptr;
+    }
+
+    size_t len = ftell(file);
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        pathname.clear();
+        if (!pathname.encodeUtf8(cx, pathnameStr))
+            return nullptr;
+        JS_ReportErrorUTF8(cx, "can't seek start of %s", pathname.ptr());
+        return nullptr;
+    }
+
+    UniqueChars buf(static_cast<char*>(js_malloc(len + 1)));
+    if (!buf)
+        return nullptr;
+
+    size_t cc = fread(buf.get(), 1, len, file);
+    if (cc != len) {
+        if (ptrdiff_t(cc) < 0) {
+            ReportCantOpenErrorUnknownEncoding(cx, pathname.ptr());
+        } else {
             pathname.clear();
             if (!pathname.encodeUtf8(cx, pathnameStr))
                 return nullptr;
-            JS_ReportErrorUTF8(cx, "can't seek start of %s", pathname.ptr());
-        } else {
-            buf = (char*) JS_malloc(cx, len + 1);
-            if (buf) {
-                cc = fread(buf, 1, len, file);
-                if (cc != len) {
-                    if (ptrdiff_t(cc) < 0) {
-                        ReportCantOpenErrorUnknownEncoding(cx, pathname.ptr());
-                    } else {
-                        pathname.clear();
-                        if (!pathname.encodeUtf8(cx, pathnameStr))
-                            return nullptr;
-                        JS_ReportErrorUTF8(cx, "can't read %s: short read", pathname.ptr());
-                    }
-                } else {
-                    char16_t* ucbuf =
-                        JS::UTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(buf, len), &len).get();
-                    if (!ucbuf) {
-                        pathname.clear();
-                        if (!pathname.encodeUtf8(cx, pathnameStr))
-                            return nullptr;
-                        JS_ReportErrorUTF8(cx, "Invalid UTF-8 in file '%s'", pathname.ptr());
-                        return nullptr;
-                    }
-                    str = JS_NewUCStringCopyN(cx, ucbuf, len);
-                    free(ucbuf);
-                }
-                JS_free(cx, buf);
-            }
+            JS_ReportErrorUTF8(cx, "can't read %s: short read", pathname.ptr());
         }
+        return nullptr;
     }
 
-    return str;
+    UniqueTwoByteChars ucbuf(
+        JS::LossyUTF8CharsToNewTwoByteCharsZ(cx, JS::UTF8Chars(buf.get(), len), &len).get()
+    );
+    if (!ucbuf) {
+        pathname.clear();
+        if (!pathname.encodeUtf8(cx, pathnameStr))
+            return nullptr;
+        JS_ReportErrorUTF8(cx, "Invalid UTF-8 in file '%s'", pathname.ptr());
+        return nullptr;
+    }
+
+    return JS_NewUCStringCopyN(cx, ucbuf.get(), len);
 }
 
 /*
@@ -1834,7 +1894,7 @@ Run(JSContext* cx, unsigned argc, Value* vp)
     if (!chars.initTwoByte(cx, str))
         return false;
 
-    const char16_t* ucbuf = chars.twoByteRange().start().get();
+    const char16_t* ucbuf = chars.twoByteRange().begin().get();
     size_t buflen = str->length();
 
     RootedScript script(cx);
@@ -2222,7 +2282,7 @@ ValueToScript(JSContext* cx, HandleValue v, JSFunction** funp = nullptr)
         AutoStableStringChars linearChars(cx);
         if (!linearChars.initTwoByte(cx, linearStr))
             return nullptr;
-        const char16_t* chars = linearChars.twoByteRange().start().get();
+        const char16_t* chars = linearChars.twoByteRange().begin().get();
 
         RootedScript script(cx);
         CompileOptions options(cx);
@@ -2243,6 +2303,10 @@ ValueToScript(JSContext* cx, HandleValue v, JSFunction** funp = nullptr)
         else
             break;
     }
+
+    // Get unwrapped async function.
+    if (IsWrappedAsyncFunction(fun))
+        fun = GetUnwrappedAsyncFunction(fun);
 
     if (!fun->isInterpreted()) {
         JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr, JSSMSG_SCRIPTS_ONLY);
@@ -2267,13 +2331,13 @@ GetTopScript(JSContext* cx)
 }
 
 static bool
-GetScriptAndPCArgs(JSContext* cx, unsigned argc, Value* argv, MutableHandleScript scriptp,
+GetScriptAndPCArgs(JSContext* cx, CallArgs& args, MutableHandleScript scriptp,
                    int32_t* ip)
 {
     RootedScript script(cx, GetTopScript(cx));
     *ip = 0;
-    if (argc != 0) {
-        RootedValue v(cx, argv[0]);
+    if (!args.get(0).isUndefined()) {
+        HandleValue v = args[0];
         unsigned intarg = 0;
         if (v.isObject() &&
             JS_GetClass(&v.toObject()) == Jsvalify(&JSFunction::class_)) {
@@ -2282,8 +2346,8 @@ GetScriptAndPCArgs(JSContext* cx, unsigned argc, Value* argv, MutableHandleScrip
                 return false;
             intarg++;
         }
-        if (argc > intarg) {
-            if (!JS::ToInt32(cx, HandleValue::fromMarkedLocation(&argv[intarg]), ip))
+        if (!args.get(intarg).isUndefined()) {
+            if (!JS::ToInt32(cx, args[intarg], ip))
                 return false;
             if ((uint32_t)*ip >= script->length()) {
                 JS_ReportErrorASCII(cx, "Invalid PC");
@@ -2335,7 +2399,7 @@ PCToLine(JSContext* cx, unsigned argc, Value* vp)
     int32_t i;
     unsigned lineno;
 
-    if (!GetScriptAndPCArgs(cx, args.length(), args.array(), &script, &i))
+    if (!GetScriptAndPCArgs(cx, args, &script, &i))
         return false;
     lineno = PCToLineNumber(script, script->offsetToPC(i));
     if (!lineno)
@@ -2956,7 +3020,7 @@ Intern(JSContext* cx, unsigned argc, Value* vp)
 
     mozilla::Range<const char16_t> chars = strChars.twoByteRange();
 
-    if (!JS_AtomizeAndPinUCStringN(cx, chars.start().get(), chars.length()))
+    if (!JS_AtomizeAndPinUCStringN(cx, chars.begin().get(), chars.length()))
         return false;
 
     args.rval().setUndefined();
@@ -3158,7 +3222,7 @@ EvalInContext(JSContext* cx, unsigned argc, Value* vp)
 
     mozilla::Range<const char16_t> chars = strChars.twoByteRange();
     size_t srclen = chars.length();
-    const char16_t* src = chars.start().get();
+    const char16_t* src = chars.begin().get();
 
     bool lazy = false;
     if (srclen == 4) {
@@ -3349,7 +3413,7 @@ EvalInWorker(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     if (!workerThreadsLock) {
-        workerThreadsLock = js_new<Mutex>();
+        workerThreadsLock = js_new<Mutex>(mutexid::ShellWorkerThreads);
         if (!workerThreadsLock) {
             ReportOutOfMemory(cx);
             return false;
@@ -3415,6 +3479,27 @@ GroupOf(JSContext* cx, unsigned argc, JS::Value* vp)
     if (!group)
         return false;
     args.rval().set(JS_NumberValue(double(uintptr_t(group) >> 3)));
+    return true;
+}
+
+static bool
+UnwrappedObjectsHaveSameShape(JSContext* cx, unsigned argc, JS::Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (!args.get(0).isObject() || !args.get(1).isObject()) {
+        JS_ReportErrorASCII(cx, "2 objects expected");
+        return false;
+    }
+
+    RootedObject obj1(cx, UncheckedUnwrap(&args[0].toObject()));
+    RootedObject obj2(cx, UncheckedUnwrap(&args[1].toObject()));
+
+    if (!obj1->is<ShapedObject>() || !obj2->is<ShapedObject>()) {
+        JS_ReportErrorASCII(cx, "object does not have a Shape");
+        return false;
+    }
+
+    args.rval().setBoolean(obj1->as<ShapedObject>().shape() == obj2->as<ShapedObject>().shape());
     return true;
 }
 
@@ -3533,7 +3618,10 @@ ScheduleWatchdog(JSContext* cx, double t)
     LockGuard<Mutex> guard(sc->watchdogLock);
     if (!sc->watchdogThread) {
         MOZ_ASSERT(!sc->watchdogTimeout);
-        sc->watchdogThread.emplace(WatchdogMain, cx);
+        sc->watchdogThread.emplace();
+        AutoEnterOOMUnsafeRegion oomUnsafe;
+        if (!sc->watchdogThread->init(WatchdogMain, cx))
+            oomUnsafe.crash("watchdogThread.init");
     } else if (!sc->watchdogTimeout || timeout < sc->watchdogTimeout.value()) {
         sc->watchdogWakeup.notify_one();
     }
@@ -3854,7 +3942,7 @@ Compile(JSContext* cx, unsigned argc, Value* vp)
            .setIsRunOnce(true)
            .setNoScriptRval(true);
     RootedScript script(cx);
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
     bool ok = JS_CompileUCScript(cx, chars, scriptContents->length(), options, &script);
     args.rval().setUndefined();
     return ok;
@@ -3903,7 +3991,7 @@ ParseModule(JSContext* cx, unsigned argc, Value* vp)
     if (!stableChars.initTwoByte(cx, scriptContents))
         return false;
 
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
     SourceBufferHolder srcBuf(chars, scriptContents->length(),
                               SourceBufferHolder::NoOwnership);
 
@@ -3973,7 +4061,7 @@ Parse(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     size_t length = scriptContents->length();
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
 
     CompileOptions options(cx);
     options.setIntroductionType("js shell parse")
@@ -4026,7 +4114,7 @@ SyntaxParse(JSContext* cx, unsigned argc, Value* vp)
     if (!stableChars.initTwoByte(cx, scriptContents))
         return false;
 
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
     size_t length = scriptContents->length();
     UsedNameTracker usedNames(cx);
     if (!usedNames.init())
@@ -4111,7 +4199,7 @@ OffThreadCompileScript(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     size_t length = scriptContents->length();
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
 
     // Make sure we own the string's chars, so that they are not freed before
     // the compilation is finished.
@@ -4198,7 +4286,7 @@ OffThreadCompileModule(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     size_t length = scriptContents->length();
-    const char16_t* chars = stableChars.twoByteRange().start().get();
+    const char16_t* chars = stableChars.twoByteRange().begin().get();
 
     // Make sure we own the string's chars, so that they are not freed before
     // the compilation is finished.
@@ -4783,8 +4871,7 @@ SingleStepCallback(void* arg, jit::Simulator* sim, void* pc)
                 if (!stack.append(",", 1))
                     oomUnsafe.crash("stack.append");
             }
-            auto chars = frames[i].label.get();
-            if (!stack.append(chars, strlen(chars)))
+            if (!stack.append(frames[i].label, strlen(frames[i].label)))
                 oomUnsafe.crash("stack.append");
             frameNo++;
         }
@@ -4942,7 +5029,7 @@ static SharedArrayRawBuffer* sharedArrayBufferMailbox;
 static bool
 InitSharedArrayBufferMailbox()
 {
-    sharedArrayBufferMailboxLock = js_new<Mutex>();
+    sharedArrayBufferMailboxLock = js_new<Mutex>(mutexid::ShellArrayBufferMailbox);
     return sharedArrayBufferMailboxLock != nullptr;
 }
 
@@ -5191,7 +5278,7 @@ ReflectTrackedOptimizations(JSContext* cx, unsigned argc, Value* vp)
             uint8_t* addr = ion->method()->raw() + endOffset;
             entry.youngestFrameLocationAtAddr(rt, addr, &script, &pc);
 
-            if (!sp.jsprintf("{\"location\":\"%s:%u\",\"offset\":%u,\"index\":%u}%s",
+            if (!sp.jsprintf("{\"location\":\"%s:%" PRIuSIZE "\",\"offset\":%" PRIuSIZE ",\"index\":%u}%s",
                              script->filename(), script->lineno(), script->pcToOffset(pc), index,
                              iter.more() ? "," : ""))
             {
@@ -5481,7 +5568,7 @@ EntryPoints(JSContext* cx, unsigned argc, Value* vp)
             AutoStableStringChars stableChars(cx);
             if (!stableChars.initTwoByte(cx, codeString))
                 return false;
-            const char16_t* chars = stableChars.twoByteRange().start().get();
+            const char16_t* chars = stableChars.twoByteRange().begin().get();
             size_t length = codeString->length();
 
             CompileOptions options(cx);
@@ -5757,6 +5844,12 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
     JS_FN_HELP("groupOf", GroupOf, 1, 0,
 "groupOf(obj)",
 "  Get the group of obj (an implementation detail)."),
+
+    JS_FN_HELP("unwrappedObjectsHaveSameShape", UnwrappedObjectsHaveSameShape, 2, 0,
+"unwrappedObjectsHaveSameShape(obj1, obj2)",
+"  Returns true iff obj1 and obj2 have the same shape, false otherwise. Both\n"
+"  objects are unwrapped first, so this can be used on objects from different\n"
+"  globals."),
 
 #ifdef DEBUG
     JS_FN_HELP("arrayInfo", ArrayInfo, 1, 0,
@@ -6273,7 +6366,7 @@ CreateLastWarningObject(JSContext* cx, JSErrorReport* report)
     if (!DefineProperty(cx, warningObj, cx->names().name, nameVal))
         return false;
 
-    RootedString messageStr(cx, JS_NewUCStringCopyZ(cx, report->ucmessage));
+    RootedString messageStr(cx, report->newMessageString(cx));
     if (!messageStr)
         return false;
     RootedValue messageVal(cx, StringValue(messageStr));
@@ -6353,7 +6446,8 @@ js::shell::AutoReportException::~AutoReportException()
     ShellContext* sc = GetShellContext(cx);
     js::ErrorReport report(cx);
     if (!report.init(cx, exn, js::ErrorReport::WithSideEffects)) {
-        PrintError(cx, stderr, "out of memory initializing ErrorReport", nullptr, reportWarnings);
+        fprintf(stderr, "out of memory initializing ErrorReport\n");
+        fflush(stderr);
         JS_ClearPendingException(cx);
         return;
     }
@@ -6361,7 +6455,7 @@ js::shell::AutoReportException::~AutoReportException()
     MOZ_ASSERT(!JSREPORT_IS_WARNING(report.report()->flags));
 
     FILE* fp = ErrorFilePointer();
-    PrintError(cx, fp, report.message(), report.report(), reportWarnings);
+    PrintError(cx, fp, report.toStringResult(), report.report(), reportWarnings);
 
     {
         JS::AutoSaveExceptionState savedExc(cx);
@@ -6379,7 +6473,7 @@ js::shell::AutoReportException::~AutoReportException()
 }
 
 void
-js::shell::WarningReporter(JSContext* cx, const char* message, JSErrorReport* report)
+js::shell::WarningReporter(JSContext* cx, JSErrorReport* report)
 {
     ShellContext* sc = GetShellContext(cx);
     FILE* fp = ErrorFilePointer();
@@ -6397,7 +6491,7 @@ js::shell::WarningReporter(JSContext* cx, const char* message, JSErrorReport* re
     }
 
     // Print the warning.
-    PrintError(cx, fp, message, report, reportWarnings);
+    PrintError(cx, fp, JS::ConstUTF8CharsZ(), report, reportWarnings);
 }
 
 static bool
@@ -7125,6 +7219,7 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
     enableBaseline = !op.getBoolOption("no-baseline");
     enableIon = !op.getBoolOption("no-ion");
     enableAsmJS = !op.getBoolOption("no-asmjs");
+    enableWasm = !op.getBoolOption("no-wasm");
     enableNativeRegExp = !op.getBoolOption("no-native-regexp");
     enableUnboxedArrays = op.getBoolOption("unboxed-arrays");
     enableWasmAlwaysBaseline = op.getBoolOption("wasm-always-baseline");
@@ -7132,10 +7227,13 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
     JS::ContextOptionsRef(cx).setBaseline(enableBaseline)
                              .setIon(enableIon)
                              .setAsmJS(enableAsmJS)
-                             .setWasm(true)
+                             .setWasm(enableWasm)
                              .setWasmAlwaysBaseline(enableWasmAlwaysBaseline)
                              .setNativeRegExp(enableNativeRegExp)
                              .setUnboxedArrays(enableUnboxedArrays);
+
+    if (op.getBoolOption("wasm-check-bce"))
+        jit::JitOptions.wasmAlwaysCheckBounds = true;
 
     if (op.getBoolOption("no-unboxed-objects"))
         jit::JitOptions.disableUnboxedObjects = true;
@@ -7410,7 +7508,7 @@ SetWorkerContextOptions(JSContext* cx)
     JS::ContextOptionsRef(cx).setBaseline(enableBaseline)
                              .setIon(enableIon)
                              .setAsmJS(enableAsmJS)
-                             .setWasm(true)
+                             .setWasm(enableWasm)
                              .setWasmAlwaysBaseline(enableWasmAlwaysBaseline)
                              .setNativeRegExp(enableNativeRegExp)
                              .setUnboxedArrays(enableUnboxedArrays);
@@ -7590,10 +7688,12 @@ main(int argc, char** argv, char** envp)
         || !op.addBoolOption('\0', "ion", "Enable IonMonkey (default)")
         || !op.addBoolOption('\0', "no-ion", "Disable IonMonkey")
         || !op.addBoolOption('\0', "no-asmjs", "Disable asm.js compilation")
+        || !op.addBoolOption('\0', "no-wasm", "Disable WebAssembly compilation")
         || !op.addBoolOption('\0', "no-native-regexp", "Disable native regexp compilation")
         || !op.addBoolOption('\0', "no-unboxed-objects", "Disable creating unboxed plain objects")
         || !op.addBoolOption('\0', "unboxed-arrays", "Allow creating unboxed arrays")
-        || !op.addBoolOption('\0', "wasm-always-baseline", "Enable experimental Wasm baseline compiler when possible")
+        || !op.addBoolOption('\0', "wasm-always-baseline", "Enable wasm baseline compiler when possible")
+        || !op.addBoolOption('\0', "wasm-check-bce", "Always generate wasm bounds check, even redundant ones.")
 #ifdef ENABLE_SHARED_ARRAY_BUFFER
         || !op.addStringOption('\0', "shared-memory", "on/off",
                                "SharedArrayBuffer and Atomics "

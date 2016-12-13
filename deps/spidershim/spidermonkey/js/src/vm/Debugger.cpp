@@ -20,7 +20,6 @@
 #include "jsprf.h"
 #include "jswrapper.h"
 
-#include "asmjs/WasmInstance.h"
 #include "frontend/BytecodeCompiler.h"
 #include "frontend/Parser.h"
 #include "gc/Marking.h"
@@ -33,10 +32,13 @@
 #include "js/Vector.h"
 #include "proxy/ScriptedProxyHandler.h"
 #include "vm/ArgumentsObject.h"
+#include "vm/AsyncFunction.h"
 #include "vm/DebuggerMemory.h"
+#include "vm/GeneratorObject.h"
 #include "vm/SPSProfiler.h"
 #include "vm/TraceLogging.h"
 #include "vm/WrapperObject.h"
+#include "wasm/WasmInstance.h"
 
 #include "jsgcinlines.h"
 #include "jsobjinlines.h"
@@ -1557,13 +1559,30 @@ static bool
 CheckResumptionValue(JSContext* cx, AbstractFramePtr frame, const Maybe<HandleValue>& maybeThisv,
                      JSTrapStatus status, MutableHandleValue vp)
 {
+    if (status == JSTRAP_RETURN && frame && frame.isFunctionFrame()) {
+        // Don't let a { return: ... } resumption value make a generator or
+        // async function violate the iterator protocol. The return value from
+        // such a frame must have the form { done: <bool>, value: <anything> }.
+        RootedFunction callee(cx, frame.callee());
+        if (callee->isAsync()) {
+            if (!CheckAsyncResumptionValue(cx, vp)) {
+                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_BAD_AWAIT);
+                return false;
+            }
+        } else if (callee->isStarGenerator()) {
+            if (!CheckStarGeneratorResumptionValue(cx, vp)) {
+                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_BAD_YIELD);
+                return false;
+            }
+        }
+    }
+
     if (maybeThisv.isSome()) {
         const HandleValue& thisv = maybeThisv.ref();
         if (status == JSTRAP_RETURN && vp.isPrimitive()) {
             if (vp.isUndefined()) {
-                if (thisv.isMagic(JS_UNINITIALIZED_LEXICAL)) {
+                if (thisv.isMagic(JS_UNINITIALIZED_LEXICAL))
                     return ThrowUninitializedThis(cx, frame);
-                }
 
                 vp.set(thisv);
             } else {
@@ -1702,7 +1721,7 @@ CallMethodIfPresent(JSContext* cx, HandleObject obj, const char* name, size_t ar
         return true;
 
     InvokeArgs args(cx);
-    if (!args.init(argc))
+    if (!args.init(cx, argc))
         return false;
 
     for (size_t i = 0; i < argc; i++)
@@ -5626,7 +5645,7 @@ DebuggerScript_getChildScripts(JSContext* cx, unsigned argc, Value* vp)
             obj = objects->vector[i];
             if (obj->is<JSFunction>()) {
                 fun = &obj->as<JSFunction>();
-                // The inner function could be an asm.js native.
+                // The inner function could be a wasm native.
                 if (fun->isNative())
                     continue;
                 funScript = GetOrCreateFunctionScript(cx, fun);
@@ -6866,8 +6885,13 @@ class DebuggerSourceGetTextMatcher
         bool hasSourceData = ss->hasSourceData();
         if (!ss->hasSourceData() && !JSScript::loadSource(cx_, ss, &hasSourceData))
             return nullptr;
-        return hasSourceData ? ss->substring(cx_, 0, ss->length())
-                             : NewStringCopyZ<CanGC>(cx_, "[no source]");
+        if (!hasSourceData)
+            return NewStringCopyZ<CanGC>(cx_, "[no source]");
+
+        if (ss->isFunctionBody())
+            return ss->functionBodyString(cx_);
+
+        return ss->substring(cx_, 0, ss->length());
     }
 
     ReturnType match(Handle<WasmInstanceObject*> wasmInstance) {
@@ -7455,7 +7479,7 @@ EvaluateInEnv(JSContext* cx, Handle<Env*> env, AbstractFramePtr frame,
            .setIntroductionType("debugger eval")
            .maybeMakeStrictMode(frame ? frame.script()->strict() : false);
     RootedScript callerScript(cx, frame ? frame.script() : nullptr);
-    SourceBufferHolder srcBuf(chars.start().get(), chars.length(), SourceBufferHolder::NoOwnership);
+    SourceBufferHolder srcBuf(chars.begin().get(), chars.length(), SourceBufferHolder::NoOwnership);
     RootedScript script(cx);
 
     ScopeKind scopeKind;
@@ -8637,6 +8661,22 @@ DebuggerObject::errorMessageNameGetter(JSContext *cx, unsigned argc, Value* vp)
 }
 
 /* static */ bool
+DebuggerObject::errorLineNumberGetter(JSContext *cx, unsigned argc, Value* vp)
+{
+    THIS_DEBUGOBJECT(cx, argc, vp, "get errorLineNumber", args, object)
+
+    return DebuggerObject::getErrorLineNumber(cx, object, args.rval());
+}
+
+/* static */ bool
+DebuggerObject::errorColumnNumberGetter(JSContext *cx, unsigned argc, Value* vp)
+{
+    THIS_DEBUGOBJECT(cx, argc, vp, "get errorColumnNumber", args, object)
+
+    return DebuggerObject::getErrorColumnNumber(cx, object, args.rval());
+}
+
+/* static */ bool
 DebuggerObject::isProxyGetter(JSContext* cx, unsigned argc, Value* vp)
 {
     THIS_DEBUGOBJECT(cx, argc, vp, "get isProxy", args, object)
@@ -9279,6 +9319,8 @@ const JSPropertySpec DebuggerObject::properties_[] = {
     JS_PSG("global", DebuggerObject::globalGetter, 0),
     JS_PSG("allocationSite", DebuggerObject::allocationSiteGetter, 0),
     JS_PSG("errorMessageName", DebuggerObject::errorMessageNameGetter, 0),
+    JS_PSG("errorLineNumber", DebuggerObject::errorLineNumberGetter, 0),
+    JS_PSG("errorColumnNumber", DebuggerObject::errorColumnNumberGetter, 0),
     JS_PSG("isProxy", DebuggerObject::isProxyGetter, 0),
     JS_PSG("proxyTarget", DebuggerObject::proxyTargetGetter, 0),
     JS_PSG("proxyHandler", DebuggerObject::proxyHandlerGetter, 0),
@@ -9599,12 +9641,9 @@ DebuggerObject::getAllocationSite(JSContext* cx, HandleDebuggerObject object,
 }
 
 /* static */ bool
-DebuggerObject::getErrorMessageName(JSContext* cx, HandleDebuggerObject object,
-                                    MutableHandleString result)
+DebuggerObject::getErrorReport(JSContext* cx, HandleObject maybeError, JSErrorReport*& report)
 {
-    RootedObject referent(cx, object->referent());
-
-    JSObject* obj = referent;
+    JSObject* obj = maybeError;
     if (IsCrossCompartmentWrapper(obj))
         obj = CheckedUnwrap(obj);
 
@@ -9613,22 +9652,76 @@ DebuggerObject::getErrorMessageName(JSContext* cx, HandleDebuggerObject object,
         return false;
     }
 
-    if (obj->is<ErrorObject>()) {
-        JSErrorReport* report = obj->as<ErrorObject>().getErrorReport();
-        if (report) {
-            const JSErrorFormatString* efs = GetErrorMessage(nullptr, report->errorNumber);
-            if (efs) {
-                RootedString str(cx, JS_NewStringCopyZ(cx, efs->name));
-                if (!cx->compartment()->wrap(cx, &str))
-                    return false;
-
-                result.set(str);
-                return true;
-            }
-        }
+    if (!obj->is<ErrorObject>()) {
+        report = nullptr;
+        return true;
     }
 
-    result.set(nullptr);
+    report = obj->as<ErrorObject>().getErrorReport();
+    return true;
+}
+
+/* static */ bool
+DebuggerObject::getErrorMessageName(JSContext* cx, HandleDebuggerObject object,
+                                    MutableHandleString result)
+{
+    RootedObject referent(cx, object->referent());
+    JSErrorReport* report;
+    if (!getErrorReport(cx, referent, report))
+        return false;
+
+    if (!report) {
+        result.set(nullptr);
+        return true;
+    }
+
+    const JSErrorFormatString* efs = GetErrorMessage(nullptr, report->errorNumber);
+    if (!efs) {
+        result.set(nullptr);
+        return true;
+    }
+
+    RootedString str(cx, JS_NewStringCopyZ(cx, efs->name));
+    if (!cx->compartment()->wrap(cx, &str))
+        return false;
+
+    result.set(str);
+    return true;
+}
+
+/* static */ bool
+DebuggerObject::getErrorLineNumber(JSContext* cx, HandleDebuggerObject object,
+                                   MutableHandleValue result)
+{
+    RootedObject referent(cx, object->referent());
+    JSErrorReport* report;
+    if (!getErrorReport(cx, referent, report))
+        return false;
+
+    if (!report) {
+        result.setUndefined();
+        return true;
+    }
+
+    result.setNumber(report->lineno);
+    return true;
+}
+
+/* static */ bool
+DebuggerObject::getErrorColumnNumber(JSContext* cx, HandleDebuggerObject object,
+                                     MutableHandleValue result)
+{
+    RootedObject referent(cx, object->referent());
+    JSErrorReport* report;
+    if (!getErrorReport(cx, referent, report))
+        return false;
+
+    if (!report) {
+        result.setUndefined();
+        return true;
+    }
+
+    result.setNumber(report->column);
     return true;
 }
 
@@ -9954,7 +10047,7 @@ DebuggerObject::call(JSContext* cx, HandleDebuggerObject object, HandleValue thi
     {
         InvokeArgs invokeArgs(cx);
 
-        ok = invokeArgs.init(args2.length());
+        ok = invokeArgs.init(cx, args2.length());
         if (ok) {
             for (size_t i = 0; i < args2.length(); ++i)
                 invokeArgs[i].set(args2[i]);

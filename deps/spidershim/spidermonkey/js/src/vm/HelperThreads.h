@@ -23,7 +23,7 @@
 #include "frontend/TokenStream.h"
 #include "jit/Ion.h"
 #include "threading/ConditionVariable.h"
-#include "threading/Mutex.h"
+#include "vm/MutexIDs.h"
 
 namespace JS {
 struct Zone;
@@ -87,7 +87,7 @@ class GlobalHelperThreadState
     wasm::IonCompileTaskPtrVector wasmWorklist_, wasmFinishedList_;
 
   public:
-    // For now, only allow a single parallel asm.js compilation to happen at a
+    // For now, only allow a single parallel wasm compilation to happen at a
     // time. This avoids race conditions on wasmWorklist/wasmFinishedList/etc.
     mozilla::Atomic<bool> wasmCompilationInProgress;
 
@@ -400,8 +400,10 @@ bool
 StartOffThreadWasmCompile(wasm::IonCompileTask* task);
 
 /*
- * Start executing the given PromiseTask on a helper thread, finishing back on
- * the originating JSContext's owner thread.
+ * If helper threads are available, start executing the given PromiseTask on a
+ * helper thread, finishing back on the originating JSContext's owner thread. If
+ * no helper threads are available, the PromiseTask is synchronously executed
+ * and finished.
  */
 bool
 StartPromiseTask(JSContext* cx, UniquePtr<PromiseTask> task);

@@ -1154,10 +1154,6 @@ VARIABLES = {
         Implies FORCE_SHARED_LIB.
         """),
 
-    'PYTHON_UNIT_TESTS': (StrictOrderingOnAppendList, list,
-        """A list of python unit tests.
-        """),
-
     'HOST_LIBRARY_NAME': (unicode, unicode,
         """Name of target library generated when cross compiling.
         """),
@@ -1268,7 +1264,7 @@ VARIABLES = {
         This variable can only be used on Linux.
         """),
 
-    'SYMBOLS_FILE': (SourcePath, unicode,
+    'SYMBOLS_FILE': (Path, unicode,
         """A file containing a list of symbols to export from a shared library.
 
         The given file contains a list of symbols to be exported, and is
@@ -1535,10 +1531,6 @@ VARIABLES = {
         """List of manifest files defining marionette-unit tests.
         """),
 
-    'MARIONETTE_UPDATE_MANIFESTS': (ManifestparserManifestList, list,
-        """List of manifest files defining marionette-update tests.
-        """),
-
     'MARIONETTE_WEBAPI_MANIFESTS': (ManifestparserManifestList, list,
         """List of manifest files defining marionette-webapi tests.
         """),
@@ -1578,6 +1570,11 @@ VARIABLES = {
     'XPCSHELL_TESTS_MANIFESTS': (ManifestparserManifestList, list,
         """List of manifest files defining xpcshell tests.
         """),
+
+    'PYTHON_UNITTEST_MANIFESTS': (ManifestparserManifestList, list,
+        """List of manifest files defining python unit tests.
+        """),
+
 
     # The following variables are used to control the target of installed files.
     'XPI_NAME': (unicode, unicode,
@@ -1628,7 +1625,10 @@ VARIABLES = {
             'variables': dict,
             'input': unicode,
             'sandbox_vars': dict,
+            'no_chromium': bool,
+            'no_unified': bool,
             'non_unified_sources': StrictOrderingOnAppendList,
+            'action_overrides': dict,
         }), list,
         """Defines a list of object directories handled by gyp configurations.
 
@@ -1643,9 +1643,15 @@ VARIABLES = {
             - sandbox_vars, a dictionary containing variables and values to
               pass to the mozbuild processor on top of those derived from gyp
               configuration.
+            - no_chromium, a boolean which if set to True disables some
+              special handling that emulates gyp_chromium.
+            - no_unified, a boolean which if set to True disables source
+              file unification entirely.
             - non_unified_sources, a list containing sources files, relative to
               the current moz.build, that should be excluded from source file
               unification.
+            - action_overrides, a dict of action_name to values of the `script`
+              attribute to use for GENERATED_FILES for the specified action.
 
         Typical use looks like:
             GYP_DIRS += ['foo', 'bar']

@@ -15,7 +15,6 @@
 #include "jsprototypes.h"
 #include "jsweakmap.h"
 
-#include "asmjs/WasmJS.h"
 #include "builtin/AtomicsObject.h"
 #include "builtin/Eval.h"
 #if EXPOSE_INTL_API
@@ -40,6 +39,7 @@
 #include "vm/RegExpStatics.h"
 #include "vm/RegExpStaticsObject.h"
 #include "vm/StopIterationObject.h"
+#include "wasm/WasmJS.h"
 
 #include "jscompartmentinlines.h"
 #include "jsobjinlines.h"
@@ -98,8 +98,8 @@ js::GlobalObject::getTypedObjectModule() const {
 /* static */ bool
 GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key)
 {
-    if (key == JSProto_Wasm || key == JSProto_WebAssembly)
-        return !cx->options().wasm() || !wasm::HasCompilerSupport(cx);
+    if (key == JSProto_WebAssembly)
+        return !wasm::HasSupport(cx);
 
 #ifdef ENABLE_SHARED_ARRAY_BUFFER
     // Return true if the given constructor has been disabled at run-time.
@@ -228,11 +228,9 @@ GlobalObject::resolveConstructor(JSContext* cx, Handle<GlobalObject*> global, JS
         global->setConstructor(key, ObjectValue(*ctor));
     }
 
-    // Define any specified functions and properties, unless we're a dependent
-    // standard class (in which case they live on the prototype), or we're
-    // operating on the self-hosting global, in which case we don't want any
+    // If we're operating on the self-hosting global, we don't want any
     // functions and properties on the builtins and their prototypes.
-    if (!StandardClassIsDependent(key) && !cx->runtime()->isSelfHostingGlobal(global)) {
+    if (!cx->runtime()->isSelfHostingGlobal(global)) {
         if (const JSFunctionSpec* funs = clasp->specPrototypeFunctions()) {
             if (!JS_DefineFunctions(cx, proto, funs))
                 return false;
@@ -536,7 +534,6 @@ GlobalObject::initSelfHostingBuiltins(JSContext* cx, Handle<GlobalObject*> globa
            InitBareBuiltinCtor(cx, global, JSProto_Int32Array) &&
            InitBareWeakMapCtor(cx, global) &&
            InitStopIterationClass(cx, global) &&
-           InitSelfHostingCollectionIteratorFunctions(cx, global) &&
            DefineFunctions(cx, global, builtins, AsIntrinsic);
 }
 
@@ -625,17 +622,18 @@ GlobalObject::createBlankPrototypeInheriting(JSContext* cx, const Class* clasp, 
 }
 
 bool
-js::LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor_, JSObject* proto_)
+js::LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor_, JSObject* proto_,
+                                unsigned prototypeAttrs, unsigned constructorAttrs)
 {
     RootedObject ctor(cx, ctor_), proto(cx, proto_);
 
     RootedValue protoVal(cx, ObjectValue(*proto));
     RootedValue ctorVal(cx, ObjectValue(*ctor));
 
-    return DefineProperty(cx, ctor, cx->names().prototype, protoVal,
-                          nullptr, nullptr, JSPROP_PERMANENT | JSPROP_READONLY) &&
-           DefineProperty(cx, proto, cx->names().constructor, ctorVal,
-                          nullptr, nullptr, 0);
+    return DefineProperty(cx, ctor, cx->names().prototype, protoVal, nullptr, nullptr,
+                          prototypeAttrs) &&
+           DefineProperty(cx, proto, cx->names().constructor, ctorVal, nullptr, nullptr,
+                          constructorAttrs);
 }
 
 bool

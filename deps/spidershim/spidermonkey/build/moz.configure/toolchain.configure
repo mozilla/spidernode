@@ -62,12 +62,6 @@ set_config('HAVE_YASM', have_yasm)
 # Until the YASM variable is not necessary in old-configure.
 add_old_configure_assignment('YASM', have_yasm)
 
-@dependable
-def extra_toolchain_flags():
-    # This value will be overriden for android builds, where
-    # extra flags are required to do basic checks.
-    return []
-
 # Android NDK
 # ==============================================================
 
@@ -75,7 +69,7 @@ def extra_toolchain_flags():
 def compiling_android(compile_env, build_project, gonkdir, _):
     return compile_env and (gonkdir or build_project in ('mobile/android', 'js'))
 
-include_when('android-ndk.configure', when=compiling_android)
+include('android-ndk.configure', when=compiling_android)
 
 # MacOS deployment target version
 # ==============================================================
@@ -122,11 +116,29 @@ def ccache(value):
 
 ccache = check_prog('CCACHE', progs=(), input=ccache)
 
+# Distinguish ccache from sccache.
 @depends_if(ccache)
-def using_ccache(ccache):
+def ccache_is_sccache(ccache):
+    return check_cmd_output(ccache, '--version').startswith('sccache')
+
+@depends(ccache, ccache_is_sccache)
+def using_ccache(ccache, ccache_is_sccache):
+    return ccache and not ccache_is_sccache
+
+@depends_if(ccache, ccache_is_sccache)
+def using_sccache(ccache, ccache_is_sccache):
     return True
 
 set_config('MOZ_USING_CCACHE', using_ccache)
+set_config('MOZ_USING_SCCACHE', using_sccache)
+
+option(env='SCCACHE_VERBOSE_STATS', help='Print verbose sccache stats after build')
+
+@depends(using_sccache, 'SCCACHE_VERBOSE_STATS')
+def sccache_verbose_stats(using_sccache, verbose_stats):
+    return using_sccache and bool(verbose_stats)
+
+set_config('SCCACHE_VERBOSE_STATS', sccache_verbose_stats)
 
 @depends('--with-compiler-wrapper', ccache)
 @imports(_from='mozbuild.shellutil', _import='split', _as='shell_split')
@@ -162,18 +174,23 @@ set_config('MOZ_USING_COMPILER_WRAPPER', using_compiler_wrapper)
 js_option('--with-toolchain-prefix', env='TOOLCHAIN_PREFIX', nargs=1,
           help='Prefix for the target toolchain')
 
-@depends('--with-toolchain-prefix', target, host, cross_compiling)
-def toolchain_prefix(value, target, host, cross_compiling):
+@depends('--with-toolchain-prefix', target, cross_compiling)
+def toolchain_prefix(value, target, cross_compiling):
     if value:
-        return value[0]
-    # Special case x86-64 <-> x86 cross compiling until we have the right tests
-    # in moz.configure land.
-    if cross_compiling and not all(i.cpu in ('x86_64', 'x86')
-                                   for i in (target, host)):
-        return '%s-' % target.toolchain
+        return tuple(value)
+    if cross_compiling:
+        return ('%s-' % target.toolchain, '%s-' % target.alias)
 
-set_config('TOOLCHAIN_PREFIX', toolchain_prefix)
-add_old_configure_assignment('TOOLCHAIN_PREFIX', toolchain_prefix)
+@depends(toolchain_prefix, target)
+def first_toolchain_prefix(toolchain_prefix, target):
+    # Pass TOOLCHAIN_PREFIX down to the build system if it was given from the
+    # command line/environment (in which case there's only one value in the tuple),
+    # or when cross-compiling for Android.
+    if toolchain_prefix and (target.os == 'Android' or len(toolchain_prefix) == 1):
+        return toolchain_prefix[0]
+
+set_config('TOOLCHAIN_PREFIX', first_toolchain_prefix)
+add_old_configure_assignment('TOOLCHAIN_PREFIX', first_toolchain_prefix)
 
 
 # Compilers
@@ -469,15 +486,17 @@ def default_c_compilers(host_or_target):
     '''
     assert host_or_target in (host, target)
 
-    @depends(host_or_target, host, toolchain_prefix)
-    def default_c_compilers(host_or_target, host, toolchain_prefix):
+    @depends(host_or_target, target, toolchain_prefix)
+    def default_c_compilers(host_or_target, target, toolchain_prefix):
+        gcc = ('gcc',)
+        if toolchain_prefix and host_or_target is target:
+            gcc = tuple('%sgcc' % p for p in toolchain_prefix) + gcc
+
         if host_or_target.kernel == 'WINNT':
-            return ('cl', 'clang-cl', 'gcc', 'clang')
+            return ('cl', 'clang-cl') + gcc + ('clang',)
         if host_or_target.kernel == 'Darwin':
             return ('clang',)
-        if host_or_target != host:  # cross compilation
-            return ('%sgcc' % toolchain_prefix, 'gcc', 'clang')
-        return ('gcc', 'clang')
+        return gcc + ('clang',)
 
     return default_c_compilers
 
@@ -838,6 +857,27 @@ def debug_flags(env_debug_flags, enable_debug_flags, default_debug_flags):
 set_config('MOZ_DEBUG_FLAGS', debug_flags)
 add_old_configure_assignment('MOZ_DEBUG_FLAGS', debug_flags)
 
+@depends(c_compiler)
+def color_cflags(info):
+    # We could test compiling with flags. By why incur the overhead when
+    # color support should always be present in a specific toolchain
+    # version?
+
+    # Code for auto-adding this flag to compiler invocations needs to
+    # determine if an existing flag isn't already present. That is likely
+    # using exact string matching on the returned value. So if the return
+    # value changes to e.g. "<x>=always", exact string match may fail and
+    # multiple color flags could be added. So examine downstream consumers
+    # before adding flags to return values.
+    if info.type == 'gcc' and info.version >= '4.9.0':
+        return '-fdiagnostics-color'
+    elif info.type == 'clang':
+        return '-fcolor-diagnostics'
+    else:
+        return ''
+
+set_config('COLOR_CFLAGS', color_cflags)
+
 # Some standard library headers (notably bionic on Android) declare standard
 # functions (e.g. getchar()) and also #define macros for those standard
 # functions.  libc++ deals with this by doing something like the following
@@ -882,8 +922,8 @@ def libcxx_inline_visibility(c_compiler, target):
 set_define('_LIBCPP_INLINE_VISIBILITY', libcxx_inline_visibility)
 set_define('_LIBCPP_INLINE_VISIBILITY_EXCEPT_GCC49', libcxx_inline_visibility)
 
-@depends(c_compiler, target, check_build_environment)
-def visibility_flags(c_compiler, target, env):
+@depends(target, check_build_environment)
+def visibility_flags(target, env):
     if target.os != 'WINNT':
         if target.kernel == 'Darwin':
             return ('-fvisibility=hidden', '-fvisibility-inlines-hidden')

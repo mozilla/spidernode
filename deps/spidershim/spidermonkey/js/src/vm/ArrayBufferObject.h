@@ -131,8 +131,6 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
     static bool byteLengthGetterImpl(JSContext* cx, const CallArgs& args);
     static bool fun_slice_impl(JSContext* cx, const CallArgs& args);
 
-    static const ClassOps classOps_;
-
   public:
     static const uint8_t DATA_SLOT = 0;
     static const uint8_t BYTE_LENGTH_SLOT = 1;
@@ -231,11 +229,7 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
     };
 
     static const Class class_;
-
-    static const Class protoClass;
-    static const JSFunctionSpec jsfuncs[];
-    static const JSFunctionSpec jsstaticfuncs[];
-    static const JSPropertySpec jsstaticprops[];
+    static const Class protoClass_;
 
     static bool byteLengthGetter(JSContext* cx, unsigned argc, Value* vp);
 
@@ -440,7 +434,7 @@ class ArrayBufferViewObject : public JSObject
 
     // By construction we only need unshared variants here.  See
     // comments in ArrayBufferObject.cpp.
-    uint8_t* dataPointerUnshared(const JS::AutoAssertOnGC&);
+    uint8_t* dataPointerUnshared(const JS::AutoRequireNoGC&);
     void setDataPointerUnshared(uint8_t* data);
 
     static void trace(JSTracer* trc, JSObject* obj);
@@ -634,9 +628,6 @@ class WeakCacheBase<InnerViewTable>
         return table().sizeOfExcludingThis(mallocSizeOf);
     }
 };
-
-extern JSObject*
-InitArrayBufferClass(JSContext* cx, HandleObject obj);
 
 } // namespace js
 

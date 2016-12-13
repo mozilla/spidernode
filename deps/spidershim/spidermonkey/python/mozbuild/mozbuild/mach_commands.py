@@ -230,6 +230,11 @@ class BuildOutputManager(LoggingMixin):
             # Prevents the footer from being redrawn if logging occurs.
             self._handler.footer = None
 
+        # Ensure the resource monitor is stopped because leaving it running
+        # could result in the process hanging on exit because the resource
+        # collection child process hasn't been told to stop.
+        self.monitor.stop_resource_recording()
+
     def write_line(self, line):
         if self.footer:
             self.footer.clear()
@@ -504,7 +509,7 @@ class Build(MachCommandBase):
             # to avoid accidentally disclosing PII.
             telemetry_data['substs'] = {}
             try:
-                for key in ['MOZ_ARTIFACT_BUILDS', 'MOZ_USING_CCACHE']:
+                for key in ['MOZ_ARTIFACT_BUILDS', 'MOZ_USING_CCACHE', 'MOZ_USING_SCCACHE']:
                     value = self.substs.get(key, False)
                     telemetry_data['substs'][key] = value
             except BuildEnvironmentNotFoundException:
@@ -1076,10 +1081,12 @@ class Install(MachCommandBase):
 
     @Command('install', category='post-build',
         description='Install the package on the machine, or on a device.')
-    def install(self):
+    @CommandArgument('--verbose', '-v', action='store_true',
+        help='Print verbose output when installing to an Android emulator.')
+    def install(self, verbose=False):
         if conditions.is_android(self):
             from mozrunner.devices.android_device import verify_android_device
-            verify_android_device(self)
+            verify_android_device(self, verbose=verbose)
         ret = self._run_make(directory=".", target='install', ensure_exit_code=False)
         if ret == 0:
             self.notify('Install complete')

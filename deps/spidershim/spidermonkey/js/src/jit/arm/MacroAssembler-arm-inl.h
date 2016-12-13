@@ -998,6 +998,25 @@ MacroAssembler::rotateRight64(Register shift, Register64 src, Register64 dest, R
 }
 
 // ===============================================================
+// Condition functions
+
+template <typename T1, typename T2>
+void
+MacroAssembler::cmp32Set(Condition cond, T1 lhs, T2 rhs, Register dest)
+{
+    cmp32(lhs, rhs);
+    emitSet(cond, dest);
+}
+
+template <typename T1, typename T2>
+void
+MacroAssembler::cmpPtrSet(Condition cond, T1 lhs, T2 rhs, Register dest)
+{
+    cmpPtr(lhs, rhs);
+    emitSet(cond, dest);
+}
+
+// ===============================================================
 // Bit counting functions
 
 void
@@ -1358,8 +1377,9 @@ MacroAssembler::branchPtr(Condition cond, Register lhs, ImmWord rhs, Label* labe
     branch32(cond, lhs, Imm32(rhs.value), label);
 }
 
+template <class L>
 void
-MacroAssembler::branchPtr(Condition cond, const Address& lhs, Register rhs, Label* label)
+MacroAssembler::branchPtr(Condition cond, const Address& lhs, Register rhs, L label)
 {
     branch32(cond, lhs, rhs, label);
 }
@@ -2047,6 +2067,20 @@ MacroAssembler::storeFloat32x3(FloatRegister src, const BaseIndex& dest)
     MOZ_CRASH("NYI");
 }
 
+void
+MacroAssembler::memoryBarrier(MemoryBarrierBits barrier)
+{
+    // On ARMv6 the optional argument (BarrierST, etc) is ignored.
+    if (barrier == (MembarStoreStore|MembarSynchronizing))
+        ma_dsb(BarrierST);
+    else if (barrier & MembarSynchronizing)
+        ma_dsb();
+    else if (barrier == MembarStoreStore)
+        ma_dmb(BarrierST);
+    else if (barrier)
+        ma_dmb();
+}
+
 // ===============================================================
 // Clamping functions.
 
@@ -2087,7 +2121,7 @@ MacroAssembler::wasmPatchBoundsCheck(uint8_t* patchAt, uint32_t limit)
     MOZ_ASSERT(cmp->extractOp2().isImm8());
 
     Imm8 imm8 = Imm8(limit);
-    MOZ_RELEASE_ASSERT(!imm8.invalid);
+    MOZ_RELEASE_ASSERT(!imm8.invalid());
 
     *inst = InstALU(InvalidReg, index, imm8, OpCmp, SetCC, Always);
     // Don't call Auto Flush Cache; the wasm caller has done this for us.

@@ -19,6 +19,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include <memory>
+#include <iterator>
 
 #define CLANG_VERSION_FULL (CLANG_VERSION_MAJOR * 100 + CLANG_VERSION_MINOR)
 
@@ -198,6 +199,11 @@ private:
     virtual void run(const MatchFinder::MatchResult &Result);
   };
 
+  class NonParamInsideFunctionDeclChecker : public MatchFinder::MatchCallback {
+  public:
+    virtual void run(const MatchFinder::MatchResult &Result);
+  };
+
   ScopeChecker Scope;
   ArithmeticArgChecker ArithmeticArg;
   TrivialCtorDtorChecker TrivialCtorDtor;
@@ -218,6 +224,7 @@ private:
   SprintfLiteralChecker SprintfLiteral;
   OverrideBaseCallChecker OverrideBaseCall;
   OverrideBaseCallUsageChecker OverrideBaseCallUsage;
+  NonParamInsideFunctionDeclChecker NonParamInsideFunctionDecl;
   MatchFinder AstMatcher;
 };
 
@@ -261,7 +268,8 @@ bool isInIgnoredNamespaceForImplicitCtor(const Decl *Declaration) {
          Name == "MacFileUtilities" ||  // MacFileUtilities
          Name == "dwarf2reader" ||      // dwarf2reader
          Name == "arm_ex_to_module" ||  // arm_ex_to_module
-         Name == "testing";             // gtest
+         Name == "testing" ||           // gtest
+         Name == "Json";                // jsoncpp
 }
 
 bool isInIgnoredNamespaceForImplicitConversion(const Decl *Declaration) {
@@ -289,7 +297,8 @@ bool isIgnoredPathForImplicitCtor(const Decl *Declaration) {
         Begin->compare_lower(StringRef("harfbuzz")) == 0 ||
         Begin->compare_lower(StringRef("hunspell")) == 0 ||
         Begin->compare_lower(StringRef("scoped_ptr.h")) == 0 ||
-        Begin->compare_lower(StringRef("graphite2")) == 0) {
+        Begin->compare_lower(StringRef("graphite2")) == 0 ||
+        Begin->compare_lower(StringRef("icu")) == 0) {
       return true;
     }
     if (Begin->compare_lower(StringRef("chromium")) == 0) {
@@ -494,6 +503,8 @@ static CustomTypeAnnotation NonTemporaryClass =
     CustomTypeAnnotation("moz_non_temporary_class", "non-temporary");
 static CustomTypeAnnotation MustUse =
     CustomTypeAnnotation("moz_must_use_type", "must-use");
+static CustomTypeAnnotation NonParam =
+    CustomTypeAnnotation("moz_non_param", "non-param");
 
 class MemMoveAnnotation final : public CustomTypeAnnotation {
 public:
@@ -833,13 +844,25 @@ AST_MATCHER(BinaryOperator, isInSystemHeader) {
   return ASTIsInSystemHeader(Finder->getASTContext(), Node);
 }
 
-/// This matcher will match locations in SkScalar.h.  This header contains a
-/// known NaN-testing expression which we would like to whitelist.
-AST_MATCHER(BinaryOperator, isInSkScalarDotH) {
+/// This matcher will match a list of files.  These files contain
+/// known NaN-testing expressions which we would like to whitelist.
+AST_MATCHER(BinaryOperator, isInWhitelistForNaNExpr) {
+  const char* whitelist[] = {
+    "SkScalar.h",
+    "json_writer.cpp"
+  };
+
   SourceLocation Loc = Node.getOperatorLoc();
   auto &SourceManager = Finder->getASTContext().getSourceManager();
   SmallString<1024> FileName = SourceManager.getFilename(Loc);
-  return llvm::sys::path::rbegin(FileName)->equals("SkScalar.h");
+
+  for (auto itr = std::begin(whitelist); itr != std::end(whitelist); itr++) {
+    if (llvm::sys::path::rbegin(FileName)->equals(*itr)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /// This matcher will match all accesses to AddRef or Release methods.
@@ -1197,7 +1220,7 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
                     declRefExpr(hasType(qualType((isFloat())))).bind("lhs"))),
                 hasRHS(hasIgnoringParenImpCasts(
                     declRefExpr(hasType(qualType((isFloat())))).bind("rhs"))),
-                unless(anyOf(isInSystemHeader(), isInSkScalarDotH()))))
+                unless(anyOf(isInSystemHeader(), isInWhitelistForNaNExpr()))))
           .bind("node"),
       &NaNExpr);
 
@@ -1315,6 +1338,17 @@ DiagnosticsMatcher::DiagnosticsMatcher() {
   AstMatcher.addMatcher(
       cxxMethodDecl(isNonVirtual(), isRequiredBaseMethod()).bind("method"),
       &OverrideBaseCallUsage);
+
+  AstMatcher.addMatcher(
+      functionDecl(anyOf(allOf(isDefinition(),
+                               hasAncestor(classTemplateSpecializationDecl()
+                                               .bind("spec"))),
+                         isDefinition()))
+          .bind("func"),
+      &NonParamInsideFunctionDecl);
+  AstMatcher.addMatcher(
+      lambdaExpr().bind("lambda"),
+      &NonParamInsideFunctionDecl);
 }
 
 // These enum variants determine whether an allocation has occured in the code.
@@ -2117,6 +2151,57 @@ void DiagnosticsMatcher::OverrideBaseCallUsageChecker::run(
   const CXXMethodDecl *Method = Result.Nodes.getNodeAs<CXXMethodDecl>("method");
 
   Diag.Report(Method->getLocation(), ErrorID);
+}
+
+void DiagnosticsMatcher::NonParamInsideFunctionDeclChecker::run(
+    const MatchFinder::MatchResult &Result) {
+  static DenseSet<const FunctionDecl*> CheckedFunctionDecls;
+
+  const FunctionDecl *func = Result.Nodes.getNodeAs<FunctionDecl>("func");
+  if (!func) {
+    const LambdaExpr *lambda = Result.Nodes.getNodeAs<LambdaExpr>("lambda");
+    if (lambda) {
+      func = lambda->getCallOperator();
+    }
+  }
+
+  if (!func) {
+    return;
+  }
+
+  if (func->isDeleted()) {
+    return;
+  }
+
+  // Don't report errors on the same declarations more than once.
+  if (CheckedFunctionDecls.count(func)) {
+    return;
+  }
+  CheckedFunctionDecls.insert(func);
+
+  const ClassTemplateSpecializationDecl *Spec =
+      Result.Nodes.getNodeAs<ClassTemplateSpecializationDecl>("spec");
+
+  DiagnosticsEngine &Diag = Result.Context->getDiagnostics();
+  unsigned ErrorID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Error, "Type %0 must not be used as parameter");
+  unsigned NoteID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Note, "Please consider passing a const reference instead");
+  unsigned SpecNoteID = Diag.getDiagnosticIDs()->getCustomDiagID(
+      DiagnosticIDs::Note, "The bad argument was passed to %0 here");
+
+  for (ParmVarDecl *p : func->parameters()) {
+    QualType T = p->getType().withoutLocalFastQualifiers();
+    if (NonParam.hasEffectiveAnnotation(T)) {
+      Diag.Report(p->getLocation(), ErrorID) << T;
+      Diag.Report(p->getLocation(), NoteID);
+
+      if (Spec) {
+        Diag.Report(Spec->getPointOfInstantiation(), SpecNoteID)
+          << Spec->getSpecializedTemplate();
+      }
+    }
+  }
 }
 
 class MozCheckAction : public PluginASTAction {

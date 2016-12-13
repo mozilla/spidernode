@@ -27,6 +27,9 @@ FoldTests(MIRGraph& graph);
 MOZ_MUST_USE bool
 SplitCriticalEdges(MIRGraph& graph);
 
+bool
+IsUint32Type(const MDefinition* def);
+
 enum Observability {
     ConservativeObservability,
     AggressiveObservability
@@ -153,7 +156,7 @@ class LinearSum
 
     // Unlike the above function, on failure this leaves the sum unchanged and
     // it can still be used.
-    MOZ_MUST_USE bool divide(int32_t scale);
+    MOZ_MUST_USE bool divide(uint32_t scale);
 
     int32_t constant() const { return constant_; }
     size_t numTerms() const { return terms_.length(); }
@@ -192,6 +195,9 @@ DeadIfUnused(const MDefinition* def);
 
 bool
 IsDiscardable(const MDefinition* def);
+
+void
+DumpMIRExpressions(MIRGraph& graph);
 
 } // namespace jit
 } // namespace js

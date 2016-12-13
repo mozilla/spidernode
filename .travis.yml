@@ -133,7 +133,7 @@ matrix:
             export CC=\"ccache clang\" CXX=\"ccache clang++\";
             ./configure --engine=spidermonkey --debug --enable-asan &&
             make V= -C out BUILDTYPE=Debug;
-            ./deps/spidershim/scripts/run-tests.py
+            ASAN_OPTIONS=detect_leaks=0 ./deps/spidershim/scripts/run-tests.py
           "
       env: BUILD_CONFIG=normal ENABLE_ASAN=true ENABLE_DEBUG=true
 

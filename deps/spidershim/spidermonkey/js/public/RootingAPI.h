@@ -256,8 +256,12 @@ class Heap : public js::HeapBase<T>
     DECLARE_POINTER_ASSIGN_OPS(Heap, T);
 
     const T* address() const { return &ptr; }
-    const T& get() const {
+
+    void exposeToActiveJS() const {
         js::BarrierMethods<T>::exposeToJS(ptr);
+    }
+    const T& get() const {
+        exposeToActiveJS();
         return ptr;
     }
     const T& unbarrieredGet() const {
@@ -271,18 +275,6 @@ class Heap : public js::HeapBase<T>
     }
     explicit operator bool() {
         return bool(js::BarrierMethods<T>::asGCThingOrNull(ptr));
-    }
-
-    /*
-     * Set the pointer to a value which will cause a crash if it is
-     * dereferenced.
-     */
-    void setToCrashOnTouch() {
-        ptr = reinterpret_cast<T>(crashOnTouchPointer);
-    }
-
-    bool isSetToCrashOnTouch() {
-        return ptr == crashOnTouchPointer;
     }
 
   private:
@@ -300,10 +292,6 @@ class Heap : public js::HeapBase<T>
     void post(const T& prev, const T& next) {
         js::BarrierMethods<T>::postBarrier(&ptr, prev, next);
     }
-
-    enum {
-        crashOnTouchPointer = 1
-    };
 
     T ptr;
 };
@@ -419,10 +407,12 @@ class TenuredHeap : public js::HeapBase<T>
     T unbarrieredGetPtr() const { return reinterpret_cast<T>(bits & ~flagsMask); }
     uintptr_t getFlags() const { return bits & flagsMask; }
 
+    void exposeToActiveJS() const {
+        js::BarrierMethods<T>::exposeToJS(unbarrieredGetPtr());
+    }
     T getPtr() const {
-        T ptr = unbarrieredGetPtr();
-        js::BarrierMethods<T>::exposeToJS(ptr);
-        return ptr;
+        exposeToActiveJS();
+        return unbarrieredGetPtr();
     }
 
     operator T() const { return getPtr(); }

@@ -44,7 +44,11 @@ struct RootingContext;
 class Value;
 struct Zone;
 
-} /* namespace JS */
+namespace shadow {
+struct Runtime;
+} // namespace shadow
+
+} // namespace JS
 
 namespace js {
 class RootLists;
@@ -126,12 +130,24 @@ namespace gc {
 class AutoTraceSession;
 class StoreBuffer;
 } // namespace gc
+
+// Whether the current thread is permitted access to any part of the specified
+// runtime or zone.
+JS_FRIEND_API(bool)
+CurrentThreadCanAccessRuntime(const JSRuntime* rt);
+
+#ifdef DEBUG
+JS_FRIEND_API(bool)
+CurrentThreadIsPerformingGC();
+#endif
+
 } // namespace js
 
 namespace JS {
 
 class JS_PUBLIC_API(AutoEnterCycleCollection);
-struct PropertyDescriptor;
+class JS_PUBLIC_API(AutoAssertOnBarrier);
+struct JS_PUBLIC_API(PropertyDescriptor);
 
 typedef void (*OffThreadCompileCallback)(void* token, void* callbackData);
 
@@ -147,29 +163,52 @@ namespace shadow {
 
 struct Runtime
 {
-  protected:
-    // Allow inlining of heapState checks.
-    friend class js::gc::AutoTraceSession;
-    friend class JS::AutoEnterCycleCollection;
+  private:
     JS::HeapState heapState_;
+
+  protected:
+    void setHeapState(JS::HeapState newState) {
+        MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(asRuntime()));
+        MOZ_ASSERT(heapState_ != newState);
+        heapState_ = newState;
+    }
+
+    JS::HeapState heapState() const {
+        MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(asRuntime()) ||
+                   js::CurrentThreadIsPerformingGC());
+        return heapState_;
+    }
+
+    // In some cases, invoking GC barriers (incremental or otherwise) will break
+    // things. These barriers assert if this flag is set.
+    bool allowGCBarriers_;
+    friend class JS::AutoAssertOnBarrier;
 
     js::gc::StoreBuffer* gcStoreBufferPtr_;
 
   public:
     Runtime()
       : heapState_(JS::HeapState::Idle)
+      , allowGCBarriers_(true)
       , gcStoreBufferPtr_(nullptr)
     {}
 
-    bool isHeapBusy() const { return heapState_ != JS::HeapState::Idle; }
-    bool isHeapMajorCollecting() const { return heapState_ == JS::HeapState::MajorCollecting; }
-    bool isHeapMinorCollecting() const { return heapState_ == JS::HeapState::MinorCollecting; }
+    bool isHeapBusy() const { return heapState() != JS::HeapState::Idle; }
+    bool isHeapTracing() const { return heapState() == JS::HeapState::Tracing; }
+    bool isHeapMajorCollecting() const { return heapState() == JS::HeapState::MajorCollecting; }
+    bool isHeapMinorCollecting() const { return heapState() == JS::HeapState::MinorCollecting; }
     bool isHeapCollecting() const { return isHeapMinorCollecting() || isHeapMajorCollecting(); }
     bool isCycleCollecting() const {
-        return heapState_ == JS::HeapState::CycleCollecting;
+        return heapState() == JS::HeapState::CycleCollecting;
     }
 
+    bool allowGCBarriers() const { return allowGCBarriers_; }
+
     js::gc::StoreBuffer* gcStoreBufferPtr() { return gcStoreBufferPtr_; }
+
+    const JSRuntime* asRuntime() const {
+        return reinterpret_cast<const JSRuntime*>(this);
+    }
 
     static JS::shadow::Runtime* asShadowRuntime(JSRuntime* rt) {
         return reinterpret_cast<JS::shadow::Runtime*>(rt);
@@ -188,7 +227,7 @@ struct Runtime
 class MOZ_STACK_CLASS JS_PUBLIC_API(AutoEnterCycleCollection)
 {
 #ifdef DEBUG
-    shadow::Runtime* runtime;
+    JSRuntime* runtime;
 
   public:
     explicit AutoEnterCycleCollection(JSContext* cx);

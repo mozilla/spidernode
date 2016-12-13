@@ -972,15 +972,13 @@ MacroAssembler::fillSlotsWithConstantValue(Address base, Register temp,
 #ifdef JS_NUNBOX32
     // We only have a single spare register, so do the initialization as two
     // strided writes of the tag and body.
-    jsval_layout jv = JSVAL_TO_IMPL(v);
-
     Address addr = base;
-    move32(Imm32(jv.s.payload.i32), temp);
+    move32(Imm32(v.toNunboxPayload()), temp);
     for (unsigned i = start; i < end; ++i, addr.offset += sizeof(GCPtrValue))
         store32(temp, ToPayload(addr));
 
     addr = base;
-    move32(Imm32(jv.s.tag), temp);
+    move32(Imm32(v.toNunboxTag()), temp);
     for (unsigned i = start; i < end; ++i, addr.offset += sizeof(GCPtrValue))
         store32(temp, ToType(addr));
 #else
@@ -1261,7 +1259,7 @@ MacroAssembler::initGCThing(Register obj, Register temp, JSObject* templateObj,
             }
         }
     } else if (templateObj->is<InlineTypedObject>()) {
-        JS::AutoAssertOnGC nogc; // off-thread, so cannot GC
+        JS::AutoAssertNoGC nogc; // off-thread, so cannot GC
         size_t nbytes = templateObj->as<InlineTypedObject>().size();
         const uint8_t* memory = templateObj->as<InlineTypedObject>().inlineTypedMem(nogc);
 
@@ -1597,7 +1595,7 @@ void
 MacroAssembler::assumeUnreachable(const char* output)
 {
 #ifdef DEBUG
-    if (!IsCompilingAsmJS()) {
+    if (!IsCompilingWasm()) {
         AllocatableRegisterSet regs(RegisterSet::Volatile());
         LiveRegisterSet save(regs.asLiveSet());
         PushRegsInMask(save);
@@ -2389,6 +2387,14 @@ MacroAssembler::icRestoreLive(LiveRegisterSet& liveRegs, AfterICSaveLive& aic)
     PopRegsInMask(liveRegs);
 }
 
+#ifndef JS_CODEGEN_ARM64
+void
+MacroAssembler::subFromStackPtr(Register reg)
+{
+    subPtr(reg, getStackPointer());
+}
+#endif // JS_CODEGEN_ARM64
+
 //{{{ check_macroassembler_style
 // ===============================================================
 // Stack manipulation functions.
@@ -2654,7 +2660,7 @@ void
 MacroAssembler::callWithABINoProfiler(wasm::SymbolicAddress imm, MoveOp::Type result)
 {
     uint32_t stackAdjust;
-    callWithABIPre(&stackAdjust, /* callFromAsmJS = */ true);
+    callWithABIPre(&stackAdjust, /* callFromWasm = */ true);
     call(imm);
     callWithABIPost(stackAdjust, result);
 }
@@ -2803,12 +2809,16 @@ MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc, const wasm::Cal
 
     // WebAssembly throws if the index is out-of-bounds.
     loadWasmGlobalPtr(callee.tableLengthGlobalDataOffset(), scratch);
-    branch32(Assembler::Condition::AboveOrEqual, index, scratch, wasm::JumpTarget::OutOfBounds);
+
+    wasm::TrapOffset trapOffset(desc.lineOrBytecode());
+    wasm::TrapDesc oobTrap(trapOffset, wasm::Trap::OutOfBounds, framePushed());
+    branch32(Assembler::Condition::AboveOrEqual, index, scratch, oobTrap);
 
     // Load the base pointer of the table.
     loadWasmGlobalPtr(callee.tableBaseGlobalDataOffset(), scratch);
 
     // Load the callee from the table.
+    wasm::TrapDesc nullTrap(trapOffset, wasm::Trap::IndirectCallToNull, framePushed());
     if (callee.wasmTableIsExternal()) {
         static_assert(sizeof(wasm::ExternalTableElem) == 8 || sizeof(wasm::ExternalTableElem) == 16,
                       "elements of external tables are two words");
@@ -2820,17 +2830,86 @@ MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc, const wasm::Cal
         }
 
         loadPtr(Address(scratch, offsetof(wasm::ExternalTableElem, tls)), WasmTlsReg);
-        branchTest32(Assembler::Zero, WasmTlsReg, WasmTlsReg, wasm::JumpTarget::IndirectCallToNull);
+        branchTest32(Assembler::Zero, WasmTlsReg, WasmTlsReg, nullTrap);
 
         loadWasmPinnedRegsFromTls();
 
         loadPtr(Address(scratch, offsetof(wasm::ExternalTableElem, code)), scratch);
     } else {
         loadPtr(BaseIndex(scratch, index, ScalePointer), scratch);
-        branchTest32(Assembler::Zero, scratch, scratch, wasm::JumpTarget::IndirectCallToNull);
+        branchTest32(Assembler::Zero, scratch, scratch, nullTrap);
     }
 
     call(desc, scratch);
+}
+
+void
+MacroAssembler::wasmEmitTrapOutOfLineCode()
+{
+    for (const wasm::TrapSite& site : trapSites()) {
+        // Trap out-of-line codes are created for two kinds of trap sites:
+        //  - jumps, which are bound directly to the trap out-of-line path
+        //  - memory accesses, which can fault and then have control transferred
+        //    to the out-of-line path directly via signal handler setting pc
+        switch (site.kind) {
+          case wasm::TrapSite::Jump: {
+            RepatchLabel jump;
+            jump.use(site.codeOffset);
+            bind(&jump);
+            break;
+          }
+          case wasm::TrapSite::MemoryAccess: {
+            append(wasm::MemoryAccess(site.codeOffset, currentOffset()));
+            break;
+          }
+        }
+
+        if (site.trap == wasm::Trap::IndirectCallBadSig) {
+            // The indirect call bad-signature trap is a special case for two
+            // reasons:
+            //  - the check happens in the very first instructions of the
+            //    prologue, before the stack frame has been set up which messes
+            //    up everything (stack depth computations, unwinding)
+            //  - the check happens in the callee while the trap should be
+            //    reported at the caller's call_indirect
+            // To solve both problems at once, the out-of-line path (far) jumps
+            // directly to the trap exit stub. This takes advantage of the fact
+            // that there is already a CallSite for call_indirect and the
+            // current pre-prologue stack/register state.
+            append(wasm::TrapFarJump(site.trap, farJumpWithPatch()));
+        } else {
+            // Inherit the frame depth of the trap site. This value is captured
+            // by the wasm::CallSite to allow unwinding this frame.
+            setFramePushed(site.framePushed);
+
+            // Align the stack for a nullary call.
+            size_t alreadyPushed = sizeof(wasm::Frame) + framePushed();
+            size_t toPush = ABIArgGenerator().stackBytesConsumedSoFar();
+            if (size_t dec = StackDecrementForCall(ABIStackAlignment, alreadyPushed, toPush))
+                reserveStack(dec);
+
+            // Call the trap's exit, using the bytecode offset of the trap site.
+            // Note that this code is inside the same CodeRange::Function as the
+            // trap site so it's as if the trapping instruction called the
+            // trap-handling function. The frame iterator knows to skip the trap
+            // exit's frame so that unwinding begins at the frame and offset of
+            // the trapping instruction.
+            wasm::CallSiteDesc desc(site.bytecodeOffset, wasm::CallSiteDesc::TrapExit);
+            call(desc, site.trap);
+        }
+
+#ifdef DEBUG
+        // Traps do not return, so no need to freeStack().
+        breakpoint();
+#endif
+    }
+
+    // Ensure that the return address of the last emitted call above is always
+    // within this function's CodeRange which is necessary for the stack
+    // iterator to find the right CodeRange while walking the stack.
+    breakpoint();
+
+    clearTrapSites();
 }
 
 //}}} check_macroassembler_style

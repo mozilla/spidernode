@@ -9,6 +9,8 @@
 
 #include "mozilla/Attributes.h"
 
+#include <string.h>
+
 #include "frontend/ParseNode.h"
 #include "frontend/TokenStream.h"
 
@@ -97,6 +99,10 @@ class SyntaxParseHandler
         NodeUnparenthesizedEvalName,
         NodeUnparenthesizedName,
 
+        // Node representing the "async" name, which may actually be a
+        // contextual keyword.
+        NodePotentialAsyncKeyword,
+
         // Valuable for recognizing potential destructuring patterns.
         NodeUnparenthesizedArray,
         NodeUnparenthesizedObject,
@@ -182,6 +188,8 @@ class SyntaxParseHandler
         lastAtom = name;
         if (name == cx->names().arguments)
             return NodeUnparenthesizedArgumentsName;
+        if (pos.begin + strlen("async") == pos.end && name == cx->names().async)
+            return NodePotentialAsyncKeyword;
         if (name == cx->names().eval)
             return NodeUnparenthesizedEvalName;
         return NodeUnparenthesizedName;
@@ -289,6 +297,7 @@ class SyntaxParseHandler
     MOZ_MUST_USE bool addClassMethodDefinition(Node literal, Node name, Node fn, JSOp op, bool isStatic) { return true; }
     Node newYieldExpression(uint32_t begin, Node value, Node gen) { return NodeGeneric; }
     Node newYieldStarExpression(uint32_t begin, Node value, Node gen) { return NodeGeneric; }
+    Node newAwaitExpression(uint32_t begin, Node value, Node gen) { return NodeGeneric; }
 
     // Statements
 
@@ -335,7 +344,11 @@ class SyntaxParseHandler
                                     Node catchGuard, Node catchBody) { return true; }
 
     MOZ_MUST_USE bool setLastFunctionFormalParameterDefault(Node funcpn, Node pn) { return true; }
-    Node newFunctionDefinition() { return NodeFunctionDefinition; }
+
+    Node newFunctionStatement() { return NodeFunctionDefinition; }
+    Node newFunctionExpression() { return NodeFunctionDefinition; }
+    Node newArrowFunction() { return NodeFunctionDefinition; }
+
     bool setComprehensionLambdaBody(Node pn, Node body) { return true; }
     void setFunctionFormalParametersAndBody(Node pn, Node kid) {}
     void setFunctionBody(Node pn, Node kid) {}
@@ -487,7 +500,7 @@ class SyntaxParseHandler
             return NodeParenthesizedArgumentsName;
         if (node == NodeUnparenthesizedEvalName)
             return NodeParenthesizedEvalName;
-        if (node == NodeUnparenthesizedName)
+        if (node == NodeUnparenthesizedName || node == NodePotentialAsyncKeyword)
             return NodeParenthesizedName;
 
         if (node == NodeUnparenthesizedArray)
@@ -512,14 +525,15 @@ class SyntaxParseHandler
     MOZ_MUST_USE Node setLikelyIIFE(Node pn) {
         return pn; // Remain in syntax-parse mode.
     }
-    void setPrologue(Node pn) {}
+    void setInDirectivePrologue(Node pn) {}
 
     bool isConstant(Node pn) { return false; }
 
     bool isUnparenthesizedName(Node node) {
         return node == NodeUnparenthesizedArgumentsName ||
                node == NodeUnparenthesizedEvalName ||
-               node == NodeUnparenthesizedName;
+               node == NodeUnparenthesizedName ||
+               node == NodePotentialAsyncKeyword;
     }
 
     bool isNameAnyParentheses(Node node) {
@@ -530,9 +544,7 @@ class SyntaxParseHandler
                node == NodeParenthesizedName;
     }
 
-    bool nameIsEvalAnyParentheses(Node node, ExclusiveContext* cx) {
-        MOZ_ASSERT(isNameAnyParentheses(node),
-                   "must only call this function on known names");
+    bool isEvalAnyParentheses(Node node, ExclusiveContext* cx) {
         return node == NodeUnparenthesizedEvalName || node == NodeParenthesizedEvalName;
     }
 
@@ -540,11 +552,15 @@ class SyntaxParseHandler
         MOZ_ASSERT(isNameAnyParentheses(node),
                    "must only call this method on known names");
 
-        if (nameIsEvalAnyParentheses(node, cx))
+        if (isEvalAnyParentheses(node, cx))
             return js_eval_str;
         if (node == NodeUnparenthesizedArgumentsName || node == NodeParenthesizedArgumentsName)
             return js_arguments_str;
         return nullptr;
+    }
+
+    bool isAsyncKeyword(Node node, ExclusiveContext* cx) {
+        return node == NodePotentialAsyncKeyword;
     }
 
     PropertyName* maybeDottedProperty(Node node) {

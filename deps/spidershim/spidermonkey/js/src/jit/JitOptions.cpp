@@ -62,7 +62,7 @@ DefaultJitOptions::DefaultJitOptions()
 {
     // Whether to perform expensive graph-consistency DEBUG-only assertions.
     // It can be useful to disable this to reduce DEBUG-compile time of large
-    // asm.js programs.
+    // wasm programs.
     SET_DEFAULT(checkGraphConsistency, true);
 
 #ifdef CHECK_OSIPOINT_REGISTERS
@@ -226,6 +226,9 @@ DefaultJitOptions::DefaultJitOptions()
 
     // Test whether wasm int64 / double NaN bits testing is enabled.
     SET_DEFAULT(wasmTestMode, false);
+
+    // Test whether wasm bounds check should always be generated.
+    SET_DEFAULT(wasmAlwaysCheckBounds, false);
 
     // Toggles the optimization whereby offsets are folded into loads and not
     // included in the bounds check.
