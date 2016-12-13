@@ -83,7 +83,6 @@
         'libraries': [
           '-ljs_static',
           '-lz',
-          '-lmozglue',
         ],
         'conditions': [
           [ 'target_arch=="arm"', {
@@ -91,8 +90,14 @@
           }],
           ['OS == "linux"', {
             'libraries': [
+              '-Wl,--whole-archive -lmozglue -Wl,--no-whole-archive',
               '-ldl',
               '-lrt',
+            ],
+          }],
+          ['OS != "linux"', {
+            'libraries': [
+              '-lmozglue',
             ],
           }],
           ['external_spidermonkey_has_nspr == 1', {
