@@ -74,7 +74,7 @@ function error_test() {
       if (read_buffer !== client_unix.expect) {
         var expect = client_unix.expect;
         if (expect === prompt_multiline)
-          expect = /[\.]{3} /;
+          expect = /[.]{3} /;
         assert.ok(read_buffer.match(expect));
         console.error('match');
       }
@@ -175,7 +175,7 @@ function error_test() {
     // should throw
     { client: client_unix, send: '/(/;',
       expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Invalid regular expression\:/,
+        v8: /\bSyntaxError: Invalid regular expression:/,
         chakracore: /^SyntaxError: Expected '\)' in regular expression/})
     },
     // invalid RegExp modifiers are a special case of syntax error,
@@ -357,7 +357,7 @@ function error_test() {
     { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
-    { client: client_unix, send: "function x(s) {\nreturn s.replace(/\'/,'');\n}",
+    { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
     { client: client_unix, send: 'function x(s) {\nreturn s.replace(/"/,"");\n}',

@@ -29,26 +29,29 @@
 #include "spidershim_natives.h"
 #include "utils.h"
 
-namespace {
+namespace spidershim {
 
 bool InitLibraries(JSContext* cx) {
-  for (auto& native : spidershim::natives) {
-    JS::CompileOptions options(cx);
-    options.setVersion(JSVERSION_DEFAULT)
-        .setNoScriptRval(true)
-        .setUTF8(true)
-        .setSourceIsLazy(false)
-        .setFile(native.name)
-        .setLine(1)
-        .setColumn(0)
-        .forceAsync = true;
-    JS::RootedValue value(cx);
-    if (!JS::Evaluate(cx, options,
-                      reinterpret_cast<const char*>(native.source),
-                      native.source_len, &value)) {
-      return false;
-    }
-  }
+#define V(id)                                                                 \
+  do {                                                                        \
+    JS::CompileOptions options(cx);                                           \
+    options.setVersion(JSVERSION_DEFAULT)                                     \
+        .setNoScriptRval(true)                                                \
+        .setUTF8(true)                                                        \
+        .setSourceIsLazy(false)                                               \
+        .setFile(reinterpret_cast<const char*>(id##_name))                    \
+        .setLine(1)                                                           \
+        .setColumn(0)                                                         \
+        .forceAsync = true;                                                   \
+    JS::RootedValue value(cx);                                                \
+    if (!JS::Evaluate(cx, options,                                            \
+                      reinterpret_cast<const char*>(id##_data),               \
+                      sizeof(id##_data), &value)) {                           \
+      return false;                                                           \
+    }                                                                         \
+  } while (0);
+  NODE_NATIVES_MAP(V)
+#undef V
   return true;
 }
 }
@@ -61,8 +64,8 @@ Context::~Context() { delete pimpl_; }
 
 Local<Context> Context::New(Isolate* isolate,
                             ExtensionConfiguration* extensions,
-                            Handle<ObjectTemplate> global_template,
-                            Handle<Value> global_object) {
+                            MaybeLocal<ObjectTemplate> global_template,
+                            MaybeLocal<Value> global_object) {
   // TODO: Implement extensions and global_object.
   if (extensions) {
     fprintf(stderr, "ExtensionConfiguration is not supported yet\n");
@@ -86,9 +89,12 @@ Local<Context> Context::New(Isolate* isolate,
 }
 
 bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
-                           Local<ObjectTemplate> global_template) {
-  if (global_template.IsEmpty()) {
+                           MaybeLocal<ObjectTemplate> maybe_global_template) {
+  Local<ObjectTemplate> global_template;
+  if (maybe_global_template.IsEmpty()) {
     global_template = ObjectTemplate::New(isolate);
+  } else {
+    global_template = maybe_global_template.ToLocalChecked();
   }
 
   Local<FunctionTemplate> global_constructor = global_template->GetConstructor();
@@ -142,7 +148,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
   }
 #endif
 
-  return InitLibraries(cx);
+  return spidershim::InitLibraries(cx);
 }
 
 Local<Object> Context::Global() { return pimpl_->globalObj; }

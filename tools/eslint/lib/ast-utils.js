@@ -560,6 +560,7 @@ module.exports = {
                 /* falls through */
 
             case "UnaryExpression":
+            case "AwaitExpression":
                 return 14;
 
             case "UpdateExpression":
@@ -680,5 +681,62 @@ module.exports = {
         }
 
         return null;
+    },
+
+    /**
+     * Get directives from directive prologue of a Program or Function node.
+     * @param {ASTNode} node - The node to check.
+     * @returns {ASTNode[]} The directives found in the directive prologue.
+     */
+    getDirectivePrologue(node) {
+        const directives = [];
+
+        // Directive prologues only occur at the top of files or functions.
+        if (
+            node.type === "Program" ||
+            node.type === "FunctionDeclaration" ||
+            node.type === "FunctionExpression" ||
+
+            // Do not check arrow functions with implicit return.
+            // `() => "use strict";` returns the string `"use strict"`.
+            (node.type === "ArrowFunctionExpression" && node.body.type === "BlockStatement")
+        ) {
+            const statements = node.type === "Program" ? node.body : node.body.body;
+
+            for (const statement of statements) {
+                if (
+                    statement.type === "ExpressionStatement" &&
+                    statement.expression.type === "Literal"
+                ) {
+                    directives.push(statement);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        return directives;
+    },
+
+
+    /**
+     * Determines whether this node is a decimal integer literal. If a node is a decimal integer literal, a dot added
+     after the node will be parsed as a decimal point, rather than a property-access dot.
+     * @param {ASTNode} node - The node to check.
+     * @returns {boolean} `true` if this node is a decimal integer.
+     * @example
+     *
+     * 5       // true
+     * 5.      // false
+     * 5.0     // false
+     * 05      // false
+     * 0x5     // false
+     * 0b101   // false
+     * 0o5     // false
+     * 5e0     // false
+     * '5'     // false
+     */
+    isDecimalInteger(node) {
+        return node.type === "Literal" && typeof node.value === "number" && /^(0|[1-9]\d*)$/.test(node.raw);
     }
 };

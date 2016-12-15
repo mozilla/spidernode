@@ -3,7 +3,7 @@
 > Stability: 2 - Stable
 
 The `repl` module provides a Read-Eval-Print-Loop (REPL) implementation that
-is available both as a standalone program or includable in other applications.
+is available both as a standalone program or includible in other applications.
 It can be accessed using:
 
 ```js
@@ -118,7 +118,7 @@ const repl = require('repl');
 var msg = 'message';
 
 const r = repl.start('> ');
-Object.defineProperty(r, 'm', {
+Object.defineProperty(r.context, 'm', {
   configurable: false,
   enumerable: true,
   value: msg
@@ -416,8 +416,8 @@ The `repl.start()` method creates and starts a `repl.REPLServer` instance.
 ## The Node.js REPL
 
 Node.js itself uses the `repl` module to provide its own interactive interface
-for executing JavaScript. This can used by executing the Node.js binary without
-passing any arguments (or by passing the `-i` argument):
+for executing JavaScript. This can be used by executing the Node.js binary
+without passing any arguments (or by passing the `-i` argument):
 
 ```js
 $ node

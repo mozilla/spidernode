@@ -308,7 +308,13 @@ void Function::SetName(Local<String> name) {
 MaybeLocal<Function> Function::New(Local<Context> context,
                                    FunctionCallback callback,
                                    Local<Value> data,
-                                   int length) {
+                                   int length,
+                                   ConstructorBehavior behavior) {
+  // TODO: implement behavior == ConstructorBehavior::kThrow
+  if (behavior == ConstructorBehavior::kThrow) {
+    fprintf(stderr, "behavior == ConstructorBehavior::kThrow is not supported yet\n");
+  }
+
   return New(context, callback, data, length, Local<FunctionTemplate>(),
              Local<String>());
 }
