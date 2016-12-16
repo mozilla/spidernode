@@ -3304,8 +3304,8 @@ class V8_EXPORT Context {
 
   static Local<Context> New(
       Isolate* isolate, ExtensionConfiguration* extensions = NULL,
-      Handle<ObjectTemplate> global_template = Handle<ObjectTemplate>(),
-      Handle<Value> global_object = Handle<Value>());
+      MaybeLocal<ObjectTemplate> global_template = MaybeLocal<ObjectTemplate>(),
+      MaybeLocal<Value> global_object = MaybeLocal<Value>());
   static Local<Context> GetCurrent();
 
   static MaybeLocal<Context> FromSnapshot(
@@ -3354,7 +3354,7 @@ class V8_EXPORT Context {
   Context(JSContext* cx);
 
   bool CreateGlobal(JSContext* cx, Isolate* isolate,
-                    Local<ObjectTemplate> global_template);
+                    MaybeLocal<ObjectTemplate> global_template);
   void Dispose();
   friend class Isolate;
   friend JSContext* JSContextFromIsolate(Isolate* isolate);
