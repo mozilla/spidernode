@@ -1341,21 +1341,6 @@ js::ReportIsNotFunction(JSContext* cx, HandleValue v)
     return ReportIsNotFunction(cx, v, -1);
 }
 
-JS_FRIEND_API(void)
-js::ReportASCIIErrorWithId(JSContext* cx, const char* msg, HandleId id)
-{
-    RootedValue idv(cx);
-    if (!JS_IdToValue(cx, id, &idv))
-        return;
-    RootedString idstr(cx, JS::ToString(cx, idv));
-    if (!idstr)
-        return;
-    JSAutoByteString bytes;
-    if (!bytes.encodeUtf8(cx, idstr))
-        return;
-    JS_ReportErrorUTF8(cx, msg, bytes.ptr());
-}
-
 #ifdef DEBUG
 bool
 js::HasObjectMovedOp(JSObject* obj) {
@@ -1432,4 +1417,10 @@ JS_FRIEND_API(bool)
 js::detail::IsWindowSlow(JSObject* obj)
 {
     return obj->as<GlobalObject>().maybeWindowProxy();
+}
+
+JS_FRIEND_API(bool)
+js::AllowGCBarriers(JSContext* cx)
+{
+    return cx->allowGCBarriers();
 }

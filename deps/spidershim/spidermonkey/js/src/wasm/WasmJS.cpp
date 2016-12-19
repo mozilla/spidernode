@@ -20,6 +20,7 @@
 
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/RangedPtr.h"
 
 #include "jsprf.h"
 
@@ -44,6 +45,7 @@ using mozilla::CheckedInt;
 using mozilla::IsNaN;
 using mozilla::IsSame;
 using mozilla::Nothing;
+using mozilla::RangedPtr;
 
 bool
 wasm::HasCompilerSupport(ExclusiveContext* cx)
@@ -503,6 +505,7 @@ const JSFunctionSpec WasmModuleObject::static_methods[] =
 {
     JS_FN("imports", WasmModuleObject::imports, 1, 0),
     JS_FN("exports", WasmModuleObject::exports, 1, 0),
+    JS_FN("customSections", WasmModuleObject::customSections, 2, 0),
     JS_FS_END
 };
 
@@ -679,6 +682,58 @@ WasmModuleObject::exports(JSContext* cx, unsigned argc, Value* vp)
             return false;
 
         elems.infallibleAppend(ObjectValue(*obj));
+    }
+
+    JSObject* arr = NewDenseCopiedArray(cx, elems.length(), elems.begin());
+    if (!arr)
+        return false;
+
+    args.rval().setObject(*arr);
+    return true;
+}
+
+/* static */ bool
+WasmModuleObject::customSections(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    Module* module;
+    if (!GetModuleArg(cx, args, "WebAssembly.Module.customSections", &module))
+        return false;
+
+    Vector<char, 8> name(cx);
+    {
+        RootedString str(cx, ToString(cx, args.get(1)));
+        if (!str)
+            return false;
+
+        Rooted<JSFlatString*> flat(cx, str->ensureFlat(cx));
+        if (!flat)
+            return false;
+
+        if (!name.initLengthUninitialized(JS::GetDeflatedUTF8StringLength(flat)))
+            return false;
+
+        JS::DeflateStringToUTF8Buffer(flat, RangedPtr<char>(name.begin(), name.length()));
+    }
+
+    const uint8_t* bytecode = module->bytecode().begin();
+
+    AutoValueVector elems(cx);
+    RootedArrayBufferObject buf(cx);
+    for (const CustomSection& sec : module->metadata().customSections) {
+        if (name.length() != sec.name.length)
+            continue;
+        if (memcmp(name.begin(), bytecode + sec.name.offset, name.length()))
+            continue;
+
+        buf = ArrayBufferObject::create(cx, sec.length);
+        if (!buf)
+            return false;
+
+        memcpy(buf->dataPointer(), bytecode + sec.offset, sec.length);
+        if (!elems.append(ObjectValue(*buf)))
+            return false;
     }
 
     JSObject* arr = NewDenseCopiedArray(cx, elems.length(), elems.begin());
@@ -1621,7 +1676,6 @@ WebAssembly_toSource(JSContext* cx, unsigned argc, Value* vp)
 }
 #endif
 
-#ifdef SPIDERMONKEY_PROMISE
 static bool
 Nop(JSContext* cx, unsigned argc, Value* vp)
 {
@@ -1895,7 +1949,6 @@ WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
     callArgs.rval().setObject(*promise);
     return true;
 }
-#endif
 
 static bool
 WebAssembly_validate(JSContext* cx, unsigned argc, Value* vp)
@@ -1926,10 +1979,8 @@ static const JSFunctionSpec WebAssembly_static_methods[] =
 #if JS_HAS_TOSOURCE
     JS_FN(js_toSource_str, WebAssembly_toSource, 0, 0),
 #endif
-#ifdef SPIDERMONKEY_PROMISE
     JS_FN("compile", WebAssembly_compile, 1, 0),
     JS_FN("instantiate", WebAssembly_instantiate, 2, 0),
-#endif
     JS_FN("validate", WebAssembly_validate, 1, 0),
     JS_FS_END
 };

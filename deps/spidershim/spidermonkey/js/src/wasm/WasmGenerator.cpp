@@ -219,6 +219,14 @@ ModuleGenerator::init(UniqueModuleEnvironment env, const CompileArgs& args,
     return true;
 }
 
+ModuleEnvironment&
+ModuleGenerator::mutableEnv()
+{
+    // Mutation is not safe during parallel compilation.
+    MOZ_ASSERT(!startedFuncDefs_ || finishedFuncDefs_);
+    return *env_;
+}
+
 bool
 ModuleGenerator::finishOutstandingTask()
 {
@@ -272,8 +280,6 @@ typedef HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> 
 bool
 ModuleGenerator::patchCallSites(TrapExitOffsetArray* maybeTrapExits)
 {
-    MacroAssembler::AutoPrepareForPatching patching(masm_);
-
     masm_.haltingAlign(CodeAlignment);
 
     // Create far jumps for calls that have relative offsets that may otherwise
@@ -369,8 +375,6 @@ ModuleGenerator::patchCallSites(TrapExitOffsetArray* maybeTrapExits)
 bool
 ModuleGenerator::patchFarJumps(const TrapExitOffsetArray& trapExits)
 {
-    MacroAssembler::AutoPrepareForPatching patching(masm_);
-
     for (CallThunk& callThunk : metadata_->callThunks) {
         uint32_t funcIndex = callThunk.u.funcIndex;
         callThunk.u.codeRangeIndex = funcToCodeRange_[funcIndex];
@@ -1045,8 +1049,7 @@ ModuleGenerator::initSigTableElems(uint32_t sigIndex, Uint32Vector&& elemFuncInd
 }
 
 SharedModule
-ModuleGenerator::finish(const ShareableBytes& bytecode, DataSegmentVector&& dataSegments,
-                        NameInBytecodeVector&& funcNames)
+ModuleGenerator::finish(const ShareableBytes& bytecode)
 {
     MOZ_ASSERT(!activeFuncDef_);
     MOZ_ASSERT(finishedFuncDefs_);
@@ -1083,8 +1086,6 @@ ModuleGenerator::finish(const ShareableBytes& bytecode, DataSegmentVector&& data
     if (!metadata_->callSites.appendAll(masm_.callSites()))
         return nullptr;
 
-    metadata_->funcNames = Move(funcNames);
-
     // The MacroAssembler has accumulated all the memory accesses during codegen.
     metadata_->memoryAccesses = masm_.extractMemoryAccesses();
     metadata_->memoryPatches = masm_.extractMemoryPatches();
@@ -1096,6 +1097,8 @@ ModuleGenerator::finish(const ShareableBytes& bytecode, DataSegmentVector&& data
     metadata_->maxMemoryLength = env_->maxMemoryLength;
     metadata_->tables = Move(env_->tables);
     metadata_->globals = Move(env_->globals);
+    metadata_->funcNames = Move(env_->funcNames);
+    metadata_->customSections = Move(env_->customSections);
 
     // These Vectors can get large and the excess capacity can be significant,
     // so realloc them down to size.
@@ -1128,7 +1131,7 @@ ModuleGenerator::finish(const ShareableBytes& bytecode, DataSegmentVector&& data
                                        Move(linkData_),
                                        Move(env_->imports),
                                        Move(env_->exports),
-                                       Move(dataSegments),
+                                       Move(env_->dataSegments),
                                        Move(env_->elemSegments),
                                        *metadata_,
                                        bytecode));

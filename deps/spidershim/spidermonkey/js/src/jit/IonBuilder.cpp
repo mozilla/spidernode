@@ -1507,8 +1507,10 @@ IonBuilder::visitBlock(const CFGBlock* cfgblock, MBasicBlock* mblock)
 
     // Optimization to move a predecessor that only has this block as successor
     // just before this block.
-    if (mblock->numPredecessors() == 1 && mblock->getPredecessor(0)->numSuccessors() == 1)
-        graph().moveBlockToEnd(mblock->getPredecessor(0));
+    if (mblock->numPredecessors() == 1 && mblock->getPredecessor(0)->numSuccessors() == 1) {
+        graph().removeBlockFromList(mblock->getPredecessor(0));
+        graph().addBlock(mblock->getPredecessor(0));
+    }
 
     if (!setCurrentAndSpecializePhis(mblock))
         return false;
@@ -1677,14 +1679,9 @@ IonBuilder::visitBackEdge(CFGBackEdge* ins, bool* restarted)
         // phis may have generated incorrect nodes. The new types have been
         // incorporated into the header phis, so remove all blocks for the
         // loop body and restart with the new types.
-        GraphSpewer& gs = graphSpewer();
-        gs.spewPass("beforeloop");
-
         *restarted = true;
         if (!restartLoop(ins->getSuccessor(0)))
             return false;
-
-        gs.spewPass("afterloop");
         return true;
     }
 
