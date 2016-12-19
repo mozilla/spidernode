@@ -66,4 +66,4 @@ fi
 
 # First try running Make.  If configure has changed, it will fail, so
 # we'll fall back to configure && make.
-$make || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell --enable-sm-promise $ccache_arg $args $* && $make)
+$make || (cd "$srcdir/spidermonkey/js/src" && $AUTOCONF && cd - && "$srcdir/spidermonkey/js/src/configure" --disable-shared-js --disable-export-js --disable-js-shell $ccache_arg $args $* && $make)
