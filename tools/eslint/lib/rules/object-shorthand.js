@@ -15,6 +15,11 @@ const OPTIONS = {
 };
 
 //------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+const astUtils = require("../ast-utils");
+
+//------------------------------------------------------------------------------
 // Rule Definition
 //------------------------------------------------------------------------------
 module.exports = {
@@ -113,13 +118,13 @@ module.exports = {
         }
 
         /**
-         * Determines if the property is not a getter and a setter.
+         * Determines if the property can have a shorthand form.
          * @param {ASTNode} property Property AST node
-         * @returns {boolean} True if the property is not a getter and a setter, false if it is.
+         * @returns {boolean} True if the property can have a shorthand form
          * @private
          **/
-        function isNotGetterOrSetter(property) {
-            return (property.kind !== "set" && property.kind !== "get");
+        function canHaveShorthand(property) {
+            return (property.kind !== "set" && property.kind !== "get" && property.type !== "SpreadProperty" && property.type !== "ExperimentalSpreadProperty");
         }
 
         /**
@@ -149,15 +154,17 @@ module.exports = {
          * @returns {boolean} True if the key and value are named equally, false if not.
          * @private
          **/
-        function isRedudant(property) {
-            return (property.key && (
+        function isRedundant(property) {
+            const value = property.value;
 
-                // A function expression
-                property.value && property.value.id && property.value.id.name === property.key.name ||
+            if (value.type === "FunctionExpression") {
+                return !value.id; // Only anonymous should be shorthand method.
+            }
+            if (value.type === "Identifier") {
+                return astUtils.getStaticPropertyName(property) === value.name;
+            }
 
-                // A property
-                property.value && property.value.name === property.key.name
-            ));
+            return false;
         }
 
         /**
@@ -168,8 +175,8 @@ module.exports = {
          **/
         function checkConsistency(node, checkRedundancy) {
 
-            // We are excluding getters and setters as they are considered neither longform nor shorthand.
-            const properties = node.properties.filter(isNotGetterOrSetter);
+            // We are excluding getters/setters and spread properties as they are considered neither longform nor shorthand.
+            const properties = node.properties.filter(canHaveShorthand);
 
             // Do we still have properties left after filtering the getters and setters?
             if (properties.length > 0) {
@@ -185,8 +192,8 @@ module.exports = {
                     } else if (checkRedundancy) {
 
                         // If all properties of the object contain a method or value with a name matching it's key,
-                        // all the keys are redudant.
-                        const canAlwaysUseShorthand = properties.every(isRedudant);
+                        // all the keys are redundant.
+                        const canAlwaysUseShorthand = properties.every(isRedundant);
 
                         if (canAlwaysUseShorthand) {
                             context.report(node, "Expected shorthand for all properties.");
@@ -237,17 +244,20 @@ module.exports = {
 
                         context.report({
                             node,
-                            message: "Expected longform " + type + " syntax.",
+                            message: "Expected longform {{type}} syntax.",
+                            data: {
+                                type
+                            },
                             fix(fixer) {
                                 if (node.method) {
                                     if (node.value.generator) {
-                                        return fixer.replaceTextRange([node.range[0], node.key.range[1]], node.key.name + ": function*");
+                                        return fixer.replaceTextRange([node.range[0], node.key.range[1]], `${node.key.name}: function*`);
                                     }
 
                                     return fixer.insertTextAfter(node.key, ": function");
                                 }
 
-                                return fixer.insertTextAfter(node.key, ": " + node.key.name);
+                                return fixer.insertTextAfter(node.key, `: ${node.key.name}`);
                             }
                         });
                     }
@@ -289,7 +299,7 @@ module.exports = {
                                 if (node.value.generator) {
                                     return fixer.replaceTextRange(
                                         [node.key.range[0], node.value.range[0] + "function*".length],
-                                        "*[" + node.key.name + "]"
+                                        `*[${node.key.name}]`
                                     );
                                 }
 
@@ -307,7 +317,7 @@ module.exports = {
                             if (node.value.generator) {
                                 return fixer.replaceTextRange(
                                     [node.key.range[0], node.value.range[0] + "function*".length],
-                                    "*" + node.key.name
+                                    `*${node.key.name}`
                                 );
                             }
 

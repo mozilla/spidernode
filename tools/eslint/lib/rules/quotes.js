@@ -56,7 +56,7 @@ QUOTE_SETTINGS.backtick.convert = function(str) {
             return escaped; // unescape
         }
         if (match === newQuote || newQuote === "`" && match === "${") {
-            return "\\" + match; // escape
+            return `\\${match}`; // escape
         }
         if (newline && oldQuote === "`") {
             return "\\n"; // escape newlines
@@ -123,12 +123,26 @@ module.exports = {
 
         /**
          * Determines if a given node is part of JSX syntax.
-         * @param {ASTNode} node The node to check.
-         * @returns {boolean} True if the node is a JSX node, false if not.
+         *
+         * This function returns `true` in the following cases:
+         *
+         * - `<div className="foo"></div>` ... If the literal is an attribute value, the parent of the literal is `JSXAttribute`.
+         * - `<div>foo</div>` ... If the literal is a text content, the parent of the literal is `JSXElement`.
+         *
+         * In particular, this function returns `false` in the following cases:
+         *
+         * - `<div className={"foo"}></div>`
+         * - `<div>{"foo"}</div>`
+         *
+         * In both cases, inside of the braces is handled as normal JavaScript.
+         * The braces are `JSXExpressionContainer` nodes.
+         *
+         * @param {ASTNode} node The Literal node to check.
+         * @returns {boolean} True if the node is a part of JSX, false if not.
          * @private
          */
-        function isJSXElement(node) {
-            return node.type.indexOf("JSX") === 0;
+        function isJSXLiteral(node) {
+            return node.parent.type === "JSXAttribute" || node.parent.type === "JSXElement";
         }
 
         /**
@@ -215,7 +229,7 @@ module.exports = {
 
                 if (settings && typeof val === "string") {
                     isValid = (quoteOption === "backtick" && isAllowedAsNonBacktick(node)) ||
-                        isJSXElement(node.parent) ||
+                        isJSXLiteral(node) ||
                         astUtils.isSurroundedBy(rawVal, settings.quote);
 
                     if (!isValid && avoidEscape) {
@@ -225,7 +239,10 @@ module.exports = {
                     if (!isValid) {
                         context.report({
                             node,
-                            message: "Strings must use " + settings.description + ".",
+                            message: "Strings must use {{description}}.",
+                            data: {
+                                description: settings.description
+                            },
                             fix(fixer) {
                                 return fixer.replaceText(node, settings.convert(node.raw));
                             }
@@ -246,7 +263,10 @@ module.exports = {
                 if (shouldWarn) {
                     context.report({
                         node,
-                        message: "Strings must use " + settings.description + ".",
+                        message: "Strings must use {{description}}.",
+                        data: {
+                            description: settings.description,
+                        },
                         fix(fixer) {
                             return fixer.replaceText(node, settings.convert(sourceCode.getText(node)));
                         }

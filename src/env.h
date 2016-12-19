@@ -16,6 +16,7 @@
 #include "v8.h"
 
 #include <stdint.h>
+#include <vector>
 
 // Caveat emptor: we're going slightly crazy with macros here but the end
 // hopefully justifies the means. We have a lot of per-context properties
@@ -93,7 +94,6 @@ namespace node {
   V(encoding_string, "encoding")                                              \
   V(enter_string, "enter")                                                    \
   V(env_pairs_string, "envPairs")                                             \
-  V(env_string, "env")                                                        \
   V(errno_string, "errno")                                                    \
   V(error_string, "error")                                                    \
   V(events_string, "_events")                                                 \
@@ -104,6 +104,7 @@ namespace node {
   V(exponent_string, "exponent")                                              \
   V(exports_string, "exports")                                                \
   V(ext_key_usage_string, "ext_key_usage")                                    \
+  V(external_string, "external")                                              \
   V(external_stream_string, "_externalStream")                                \
   V(family_string, "family")                                                  \
   V(fatal_exception_string, "_fatalException")                                \
@@ -275,9 +276,9 @@ class IsolateData {
   inline uv_loop_t* event_loop() const;
   inline uint32_t* zero_fill_field() const;
 
-#define VP(PropertyName, StringValue) V(v8::Private, PropertyName, StringValue)
-#define VS(PropertyName, StringValue) V(v8::String, PropertyName, StringValue)
-#define V(TypeName, PropertyName, StringValue)                                \
+#define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
+#define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName(v8::Isolate* isolate) const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_STRING_PROPERTIES(VS)
@@ -286,9 +287,9 @@ class IsolateData {
 #undef VP
 
  private:
-#define VP(PropertyName, StringValue) V(v8::Private, PropertyName, StringValue)
-#define VS(PropertyName, StringValue) V(v8::String, PropertyName, StringValue)
-#define V(TypeName, PropertyName, StringValue)                                \
+#define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
+#define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define V(TypeName, PropertyName)                                             \
   v8::Eternal<TypeName> PropertyName ## _;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_STRING_PROPERTIES(VS)
@@ -431,8 +432,10 @@ class Environment {
   inline uint32_t watched_providers() const;
 
   static inline Environment* from_immediate_check_handle(uv_check_t* handle);
+  static inline Environment* from_destroy_ids_idle_handle(uv_idle_t* handle);
   inline uv_check_t* immediate_check_handle();
   inline uv_idle_t* immediate_idle_handle();
+  inline uv_idle_t* destroy_ids_idle_handle();
 
   // Register clean-up cb to be called on environment destruction.
   inline void RegisterHandleCleanup(uv_handle_t* handle,
@@ -463,11 +466,14 @@ class Environment {
 
   inline int64_t get_async_wrap_uid();
 
-  inline uint32_t* heap_statistics_buffer() const;
-  inline void set_heap_statistics_buffer(uint32_t* pointer);
+  // List of id's that have been destroyed and need the destroy() cb called.
+  inline std::vector<int64_t>* destroy_ids_list();
 
-  inline uint32_t* heap_space_statistics_buffer() const;
-  inline void set_heap_space_statistics_buffer(uint32_t* pointer);
+  inline double* heap_statistics_buffer() const;
+  inline void set_heap_statistics_buffer(double* pointer);
+
+  inline double* heap_space_statistics_buffer() const;
+  inline void set_heap_space_statistics_buffer(double* pointer);
 
   inline char* http_parser_buffer() const;
   inline void set_http_parser_buffer(char* buffer);
@@ -484,11 +490,6 @@ class Environment {
                                const char* message = nullptr,
                                const char* path = nullptr,
                                const char* dest = nullptr);
-
-  // Convenience methods for contextify
-  inline static void ThrowError(v8::Isolate* isolate, const char* errmsg);
-  inline static void ThrowTypeError(v8::Isolate* isolate, const char* errmsg);
-  inline static void ThrowRangeError(v8::Isolate* isolate, const char* errmsg);
 
   inline v8::Local<v8::FunctionTemplate>
       NewFunctionTemplate(v8::FunctionCallback callback,
@@ -510,9 +511,9 @@ class Environment {
 
   // Strings and private symbols are shared across shared contexts
   // The getters simply proxy to the per-isolate primitive.
-#define VP(PropertyName, StringValue) V(v8::Private, PropertyName, StringValue)
-#define VS(PropertyName, StringValue) V(v8::String, PropertyName, StringValue)
-#define V(TypeName, PropertyName, StringValue)                                \
+#define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
+#define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName() const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_STRING_PROPERTIES(VS)
@@ -546,10 +547,14 @@ class Environment {
   static const int kContextEmbedderDataIndex = NODE_CONTEXT_EMBEDDER_DATA_INDEX;
 
  private:
+  inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
+                         const char* errmsg);
+
   v8::Isolate* const isolate_;
   IsolateData* const isolate_data_;
   uv_check_t immediate_check_handle_;
   uv_idle_t immediate_idle_handle_;
+  uv_idle_t destroy_ids_idle_handle_;
   uv_prepare_t idle_prepare_handle_;
   uv_check_t idle_check_handle_;
   AsyncHooks async_hooks_;
@@ -564,6 +569,7 @@ class Environment {
   bool trace_sync_io_;
   size_t makecallback_cntr_;
   int64_t async_wrap_uid_;
+  std::vector<int64_t> destroy_ids_list_;
   debugger::Agent debugger_agent_;
 #if HAVE_INSPECTOR
   inspector::Agent inspector_agent_;
@@ -575,8 +581,8 @@ class Environment {
            &HandleCleanup::handle_cleanup_queue_> handle_cleanup_queue_;
   int handle_cleanup_waiting_;
 
-  uint32_t* heap_statistics_buffer_ = nullptr;
-  uint32_t* heap_space_statistics_buffer_ = nullptr;
+  double* heap_statistics_buffer_ = nullptr;
+  double* heap_space_statistics_buffer_ = nullptr;
 
   char* http_parser_buffer_;
 

@@ -207,8 +207,10 @@ persist*, they are removed when the last reference to them is closed. Do not
 forget JavaScript string escaping requires paths to be specified with
 double-backslashes, such as:
 
-    net.createServer().listen(
-        path.join('\\\\?\\pipe', process.cwd(), 'myctl'))
+```js
+net.createServer().listen(
+    path.join('\\\\?\\pipe', process.cwd(), 'myctl'))
+```
 
 The parameter `backlog` behaves the same as in
 [`server.listen([port][, hostname][, backlog][, callback])`][`server.listen(port, host, backlog, callback)`].
@@ -363,7 +365,7 @@ Emitted when data is received.  The argument `data` will be a `Buffer` or
 `String`.  Encoding of data is set by `socket.setEncoding()`.
 (See the [Readable Stream][] section for more information.)
 
-Note that the __data will be lost__ if there is no listener when a `Socket`
+Note that the **data will be lost** if there is no listener when a `Socket`
 emits a `'data'` event.
 
 ### Event: 'drain'
@@ -511,7 +513,7 @@ added: v0.1.90
 -->
 
 As [`socket.connect(options[, connectListener])`][`socket.connect(options, connectListener)`],
-with options either as either `{port: port, host: host}` or `{path: path}`.
+with options as either `{port: port, host: host}` or `{path: path}`.
 
 ### socket.connecting
 <!-- YAML
@@ -764,6 +766,8 @@ connects with the supplied `options`.
 
 The options are passed to both the [`net.Socket`][] constructor and the
 [`socket.connect`][] method.
+
+Passing `timeout` as an option will call [`socket.setTimeout()`][] after the socket is created, but before it is connecting.
 
 The `connectListener` parameter will be added as a listener for the
 [`'connect'`][] event once.

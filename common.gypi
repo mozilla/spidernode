@@ -33,6 +33,9 @@
     # Don't bake anything extra into the snapshot.
     'v8_use_external_startup_data%': 0,
 
+    # Don't use ICU data file (icudtl.dat) from V8, we use our own.
+    'icu_use_data_file_flag%': 0,
+
     'conditions': [
       ['OS == "win"', {
         'os_posix': 0,
@@ -331,6 +334,9 @@
           ['_type=="static_library" and OS=="solaris"', {
             'standalone_static_library': 1,
           }],
+          ['OS=="openbsd"', {
+            'ldflags': [ '-Wl,-z,wxneeded' ],
+          }],
         ],
         'conditions': [
           [ 'target_arch=="ia32"', {
@@ -435,6 +441,7 @@
             'xcode_settings': {
               'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
               'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++0x',  # -std=gnu++0x
+              'CLANG_CXX_LIBRARY': 'libc++',
             },
           }],
           ['node_engine=="spidermonkey"', {

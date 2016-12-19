@@ -51,7 +51,7 @@ module.exports = {
          * @returns {void}
          */
         function parens(node) {
-            const token = sourceCode.getFirstToken(node);
+            const token = sourceCode.getFirstToken(node, node.async ? 1 : 0);
 
             // "as-needed", { "requireForBlockBody": true }: x => x
             if (
@@ -87,7 +87,7 @@ module.exports = {
                         node,
                         message: requireForBlockBodyNoParensMessage,
                         fix(fixer) {
-                            return fixer.replaceText(token, "(" + token.value + ")");
+                            return fixer.replaceText(token, `(${token.value})`);
                         }
                     });
                 }
@@ -123,7 +123,7 @@ module.exports = {
                         node,
                         message,
                         fix(fixer) {
-                            return fixer.replaceText(token, "(" + token.value + ")");
+                            return fixer.replaceText(token, `(${token.value})`);
                         }
                     });
                 }
