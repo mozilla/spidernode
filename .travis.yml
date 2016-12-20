@@ -292,7 +292,17 @@ script:
 after_script:
   - if [ "$USE_CCACHE" == "true" ]; then ccache -s; fi
 notifications:
-  email: true
+  email:
+    recipients:
+      - tbsaunde+github@tbsaunde.org
+      - myk@mykzilla.org
+    on_success: always # [always|never|change] # default: change
+    on_failure: always # [always|never|change] # default: always
+  irc:
+    channels:
+      - "irc.mozilla.org#spidernode"
+    on_success: always # [always|never|change] # default: always
+    on_failure: always # [always|never|change] # default: always
 env:
   global:
     - LANG="en_US.UTF-8"
