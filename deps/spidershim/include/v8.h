@@ -1135,6 +1135,7 @@ class V8_EXPORT Value : public Data {
   bool IsTrue() const;
   bool IsFalse() const;
   bool IsString() const;
+  bool IsSymbol() const;
   bool IsFunction() const;
   bool IsArray() const;
   bool IsObject() const;
