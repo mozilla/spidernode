@@ -377,4 +377,10 @@ Value::IsSharedArrayBuffer() const
 
   return JS_IsSharedArrayBufferObject(obj);
 }
+
+bool
+Value::IsSymbol() const
+{
+  return GetValue(this)->isSymbol();
+}
 }
