@@ -303,6 +303,11 @@ notifications:
       - "irc.mozilla.org#spidernode"
     on_success: always # [always|never|change] # default: always
     on_failure: always # [always|never|change] # default: always
+    template:
+      - "%{repository_slug} - %{commit_subject} - %{result} - %{build_url}"
+    use_notice: true
+    # We can do this if we remove the NO_EXTERNAL_MSGS flag (+n).
+    #skip_join: true
 env:
   global:
     - LANG="en_US.UTF-8"
