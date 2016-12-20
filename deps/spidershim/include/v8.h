@@ -36,6 +36,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <memory>
+#include <vector>
+
 #include "v8-version.h"
 #include "v8config.h"
 
