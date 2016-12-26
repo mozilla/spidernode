@@ -370,13 +370,11 @@ def check_compiler(compiler, language, target):
         if info.type == 'clang-cl' and info.language_version != 201402:
             append_flag('-std=c++14')
 
-    # We force clang-cl to emulate Visual C++ 2015 Update 3 with fallback to
-    # cl.exe.
+    # We force clang-cl to emulate Visual C++ 2015 Update 3.
     if info.type == 'clang-cl' and info.version != '19.00.24213':
-        # Those flags are direct clang-cl flags that don't need -Xclang, add
-        # them directly.
+        # This flag is a direct clang-cl flag that doesn't need -Xclang,
+        # add it directly.
         flags.append('-fms-compatibility-version=19.00.24213')
-        flags.append('-fallback')
 
     # Check compiler target
     # --------------------------------------------------------------------
@@ -704,9 +702,9 @@ def compiler(language, host_or_target, c_compiler=None, other_compiler=None,
         # Check the compiler version here instead of in `compiler_version` so
         # that the `checking` message doesn't pretend the compiler can be used
         # to then bail out one line later.
-        if info.type == 'gcc' and info.version < '4.8.0':
+        if info.type == 'gcc' and info.version < '4.9.0':
             raise FatalCheckError(
-                'Only GCC 4.8 or newer is supported (found version %s).'
+                'Only GCC 4.9 or newer is supported (found version %s).'
                 % info.version)
 
         # If you want to bump the version check here search for

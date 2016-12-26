@@ -191,6 +191,8 @@ namespace jit {
 // Defined in JitFrames.h
 enum ExitFrameTokenValues;
 
+class AutoSaveLiveRegisters;
+
 // The public entrypoint for emitting assembly. Note that a MacroAssembler can
 // use cx->lifoAlloc, so take care not to interleave masm use with other
 // lifoAlloc use if one will be destroyed before the other.
@@ -422,6 +424,12 @@ class MacroAssembler : public MacroAssemblerSpecific
     void PushRegsInMask(LiveRegisterSet set)
                             DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
     void PushRegsInMask(LiveGeneralRegisterSet set);
+
+    // Like PushRegsInMask, but instead of pushing the registers, store them to
+    // |dest|. |dest| should point to the end of the reserved space, so the
+    // first register will be stored at |dest.offset - sizeof(register)|.
+    void storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
+        DEFINED_ON(arm, arm64, x86_shared);
 
     void PopRegsInMask(LiveRegisterSet set);
     void PopRegsInMask(LiveGeneralRegisterSet set);
@@ -1497,10 +1505,12 @@ class MacroAssembler : public MacroAssemblerSpecific
             storeTypedOrValue(src.reg(), dest);
     }
 
-    void storeCallResult(Register reg) {
+    void storeCallWordResult(Register reg) {
         if (reg != ReturnReg)
             mov(ReturnReg, reg);
     }
+
+    inline void storeCallBoolResult(Register reg);
 
     void storeCallFloatResult(FloatRegister reg) {
         if (reg != ReturnDoubleReg)
@@ -2107,6 +2117,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     AfterICSaveLive icSaveLive(LiveRegisterSet& liveRegs);
     MOZ_MUST_USE bool icBuildOOLFakeExitFrame(void* fakeReturnAddr, AfterICSaveLive& aic);
     void icRestoreLive(LiveRegisterSet& liveRegs, AfterICSaveLive& aic);
+
+    MOZ_MUST_USE bool icBuildOOLFakeExitFrame(void* fakeReturnAddr, AutoSaveLiveRegisters& save);
 
     // Align the stack pointer based on the number of arguments which are pushed
     // on the stack, such that the JitFrameLayout would be correctly aligned on

@@ -265,37 +265,34 @@ ArrayBufferObject::fun_isView(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-/*
- * new ArrayBuffer(byteLength)
- */
+// ES2017 draft 24.1.2.1
 bool
 ArrayBufferObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
+    // Step 1.
     if (!ThrowIfNotConstructing(cx, args, "ArrayBuffer"))
         return false;
 
-    int32_t nbytes = 0;
-    if (argc > 0 && !ToInt32(cx, args[0], &nbytes))
+    // Step 2.
+    uint64_t byteLength;
+    if (!ToIndex(cx, args.get(0), &byteLength))
         return false;
 
-    if (nbytes < 0) {
-        /*
-         * We're just not going to support arrays that are bigger than what will fit
-         * as an integer value; if someone actually ever complains (validly), then we
-         * can fix.
-         */
+    // Non-standard: Refuse to allocate buffers larger than ~2 GiB.
+    if (byteLength > INT32_MAX) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
         return false;
     }
 
+    // Step 3.
     RootedObject proto(cx);
     RootedObject newTarget(cx, &args.newTarget().toObject());
     if (!GetPrototypeFromConstructor(cx, newTarget, &proto))
         return false;
 
-    JSObject* bufobj = create(cx, uint32_t(nbytes), proto);
+    JSObject* bufobj = create(cx, uint32_t(byteLength), proto);
     if (!bufobj)
         return false;
     args.rval().setObject(*bufobj);
@@ -443,12 +440,12 @@ ArrayBufferObject::changeContents(JSContext* cx, BufferContents newContents,
  * The linear heap in Wasm is an mmaped array buffer. Several
  * constants manage its lifetime:
  *
- *  - length - the wasm-visible current length of the buffer. Acesses in the
- *    range [0, length] succeed. May only increase
+ *  - length - the wasm-visible current length of the buffer. Accesses in the
+ *    range [0, length] succeed. May only increase.
  *
  *  - boundsCheckLimit - when !WASM_HUGE_MEMORY, the size against which we
  *    perform bounds checks. It is always a constant offset smaller than
- *    mappedSize. Currently that constant offset is 0.
+ *    mappedSize. Currently that constant offset is 64k (wasm::GuardSize).
  *
  *  - max - the optional declared limit on how much length can grow.
  *
@@ -456,10 +453,10 @@ ArrayBufferObject::changeContents(JSContext* cx, BufferContents newContents,
  *    [0, mappedSize] will either succeed, or be handled by the wasm signal
  *    handlers.
  *
- * The below diagram shows the layout of the wams heap. The wasm-visible
+ * The below diagram shows the layout of the wasm heap. The wasm-visible
  * portion of the heap starts at 0. There is one extra page prior to the
  * start of the wasm heap which contains the WasmArrayRawBuffer struct at
- * its end. (i.e. right before the start of the WASM heap).
+ * its end (i.e. right before the start of the WASM heap).
  *
  *  WasmArrayRawBuffer
  *      \    ArrayBufferObject::dataPointer()

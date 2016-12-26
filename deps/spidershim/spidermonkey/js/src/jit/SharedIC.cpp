@@ -16,7 +16,7 @@
 #include "jstypes.h"
 
 #include "gc/Policy.h"
-#include "jit/BaselineCacheIR.h"
+#include "jit/BaselineCacheIRCompiler.h"
 #include "jit/BaselineDebugModeOSR.h"
 #include "jit/BaselineIC.h"
 #include "jit/JitSpewer.h"
@@ -355,27 +355,6 @@ ICStub::trace(JSTracer* trc)
         TraceEdge(trc, &globalStub->globalShape(), "baseline-global-stub-globalshape");
         break;
       }
-      case ICStub::GetName_Env0:
-        static_cast<ICGetName_Env<0>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env1:
-        static_cast<ICGetName_Env<1>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env2:
-        static_cast<ICGetName_Env<2>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env3:
-        static_cast<ICGetName_Env<3>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env4:
-        static_cast<ICGetName_Env<4>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env5:
-        static_cast<ICGetName_Env<5>*>(this)->traceEnvironments(trc);
-        break;
-      case ICStub::GetName_Env6:
-        static_cast<ICGetName_Env<6>*>(this)->traceEnvironments(trc);
-        break;
       case ICStub::GetIntrinsic_Constant: {
         ICGetIntrinsic_Constant* constantStub = toGetIntrinsic_Constant();
         TraceEdge(trc, &constantStub->value(), "baseline-getintrinsic-constant-value");
@@ -462,7 +441,7 @@ ICStub::trace(JSTracer* trc)
         break;
       }
       case ICStub::CacheIR_Monitored:
-        TraceBaselineCacheIRStub(trc, this, toCacheIR_Monitored()->stubInfo());
+        TraceCacheIRStub(trc, this, toCacheIR_Monitored()->stubInfo());
         break;
       default:
         break;
@@ -749,7 +728,7 @@ ICStubCompiler::leaveStubFrame(MacroAssembler& masm, bool calledIntoIon)
 void
 ICStubCompiler::pushStubPayload(MacroAssembler& masm, Register scratch)
 {
-    if (engine_ == Engine::IonMonkey) {
+    if (engine_ == Engine::IonSharedIC) {
         masm.push(Imm32(0));
         return;
     }
@@ -1356,7 +1335,7 @@ ICBinaryArith_DoubleWithInt32::Compiler::generateStubCode(MacroAssembler& masm)
         masm.setupUnalignedABICall(scratchReg);
         masm.passABIArg(FloatReg0, MoveOp::DOUBLE);
         masm.callWithABI(mozilla::BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
-        masm.storeCallResult(scratchReg);
+        masm.storeCallWordResult(scratchReg);
         masm.pop(intReg);
 
         masm.bind(&doneTruncate);
@@ -1509,7 +1488,7 @@ ICUnaryArith_Double::Compiler::generateStubCode(MacroAssembler& masm)
         masm.setupUnalignedABICall(scratchReg);
         masm.passABIArg(FloatReg0, MoveOp::DOUBLE);
         masm.callWithABI(BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
-        masm.storeCallResult(scratchReg);
+        masm.storeCallWordResult(scratchReg);
 
         masm.bind(&doneTruncate);
         masm.not32(scratchReg);
@@ -2324,8 +2303,8 @@ DoGetPropFallback(JSContext* cx, void* payload, ICGetProp_Fallback* stub_,
 
     if (!attached && !JitOptions.disableCacheIR) {
         RootedValue idVal(cx, StringValue(name));
-        GetPropIRGenerator gen(cx, pc, engine, CacheKind::GetProp, &isTemporarilyUnoptimizable,
-                               val, idVal, res);
+        GetPropIRGenerator gen(cx, pc, CacheKind::GetProp, engine, &isTemporarilyUnoptimizable,
+                               val, idVal);
         if (gen.tryAttachStub()) {
             ICStub* newStub = AttachBaselineCacheIRStub(cx, gen.writerRef(), gen.cacheKind(),
                                                         engine, info.outerScript(cx), stub);

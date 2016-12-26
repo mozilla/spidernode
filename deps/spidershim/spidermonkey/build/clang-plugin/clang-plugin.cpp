@@ -298,7 +298,10 @@ bool isIgnoredPathForImplicitCtor(const Decl *Declaration) {
         Begin->compare_lower(StringRef("hunspell")) == 0 ||
         Begin->compare_lower(StringRef("scoped_ptr.h")) == 0 ||
         Begin->compare_lower(StringRef("graphite2")) == 0 ||
-        Begin->compare_lower(StringRef("icu")) == 0) {
+        Begin->compare_lower(StringRef("icu")) == 0 ||
+        Begin->compare_lower(StringRef("libcubeb")) == 0 ||
+        Begin->compare_lower(StringRef("libstagefright")) == 0 ||
+        Begin->compare_lower(StringRef("cairo")) == 0) {
       return true;
     }
     if (Begin->compare_lower(StringRef("chromium")) == 0) {
@@ -523,7 +526,30 @@ protected:
       // This doesn't check that it's really ::std::pair and not
       // ::std::something_else::pair, but should be good enough.
       StringRef Name = getNameChecked(D);
-      if (Name == "pair" || Name == "atomic" || Name == "__atomic_base") {
+      if (Name == "pair" ||
+          Name == "atomic" ||
+          // libstdc++ specific names
+          Name == "__atomic_base" ||
+          Name == "atomic_bool" ||
+          // MSVCRT specific names
+          Name == "_Atomic_impl" ||
+          Name == "_Atomic_base" ||
+          Name == "_Atomic_bool" ||
+          Name == "_Atomic_char" ||
+          Name == "_Atomic_schar" ||
+          Name == "_Atomic_uchar" ||
+          Name == "_Atomic_char16_t" ||
+          Name == "_Atomic_char32_t" ||
+          Name == "_Atomic_wchar_t" ||
+          Name == "_Atomic_short" ||
+          Name == "_Atomic_ushort" ||
+          Name == "_Atomic_int" ||
+          Name == "_Atomic_uint" ||
+          Name == "_Atomic_long" ||
+          Name == "_Atomic_ulong" ||
+          Name == "_Atomic_llong" ||
+          Name == "_Atomic_ullong" ||
+          Name == "_Atomic_address") {
         return false;
       }
       return true;

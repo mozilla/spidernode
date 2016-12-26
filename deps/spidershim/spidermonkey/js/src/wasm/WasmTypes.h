@@ -23,7 +23,6 @@
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Move.h"
-#include "mozilla/RefCounted.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Unused.h"
 
@@ -31,6 +30,7 @@
 
 #include "ds/LifoAlloc.h"
 #include "jit/IonTypes.h"
+#include "js/RefCounted.h"
 #include "js/UniquePtr.h"
 #include "js/Utility.h"
 #include "js/Vector.h"
@@ -77,7 +77,6 @@ using mozilla::Nothing;
 using mozilla::PodZero;
 using mozilla::PodCopy;
 using mozilla::PodEqual;
-using mozilla::RefCounted;
 using mozilla::Some;
 using mozilla::Unused;
 
@@ -1526,37 +1525,6 @@ struct MemoryPatch
 };
 
 WASM_DECLARE_POD_VECTOR(MemoryPatch, MemoryPatchVector)
-
-// Constants:
-
-static const unsigned NaN64GlobalDataOffset       = 0;
-static const unsigned NaN32GlobalDataOffset       = NaN64GlobalDataOffset + sizeof(double);
-static const unsigned InitialGlobalDataBytes      = NaN32GlobalDataOffset + sizeof(float);
-
-static const unsigned MaxSigs                     =        4 * 1024;
-static const unsigned MaxFuncs                    =      512 * 1024;
-static const unsigned MaxGlobals                  =        4 * 1024;
-static const unsigned MaxLocals                   =       64 * 1024;
-static const unsigned MaxImports                  =       64 * 1024;
-static const unsigned MaxExports                  =       64 * 1024;
-static const unsigned MaxTables                   =        4 * 1024;
-static const unsigned MaxTableElems               =     1024 * 1024;
-static const unsigned MaxDataSegments             =       64 * 1024;
-static const unsigned MaxElemSegments             =       64 * 1024;
-static const unsigned MaxArgsPerFunc              =        4 * 1024;
-static const unsigned MaxBrTableElems             = 4 * 1024 * 1024;
-
-// To be able to assign function indices during compilation while the number of
-// imports is still unknown, asm.js sets a maximum number of imports so it can
-// immediately start handing out function indices starting at the maximum + 1.
-// this means that there is a "hole" between the last import and the first
-// definition, but that's fine.
-
-static const unsigned AsmJSMaxImports             = 4 * 1024;
-static const unsigned AsmJSFirstDefFuncIndex      = AsmJSMaxImports + 1;
-
-static_assert(AsmJSMaxImports <= MaxImports, "conservative");
-static_assert(AsmJSFirstDefFuncIndex < MaxFuncs, "conservative");
 
 } // namespace wasm
 } // namespace js

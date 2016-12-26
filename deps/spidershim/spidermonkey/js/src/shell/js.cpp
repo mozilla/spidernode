@@ -3175,9 +3175,9 @@ NewSandbox(JSContext* cx, bool lazy)
         RootedValue value(cx, BooleanValue(lazy));
         if (!JS_SetProperty(cx, obj, "lazy", value))
             return nullptr;
-    }
 
-    JS_FireOnNewGlobalObject(cx, obj);
+        JS_FireOnNewGlobalObject(cx, obj);
+    }
 
     if (!cx->compartment()->wrap(cx, &obj))
         return nullptr;
@@ -4632,6 +4632,11 @@ NewGlobal(JSContext* cx, unsigned argc, Value* vp)
             return false;
         if (v.isBoolean())
             creationOptions.setCloneSingletons(v.toBoolean());
+
+        if (!JS_GetProperty(cx, opts, "experimentalNumberFormatFormatToPartsEnabled", &v))
+            return false;
+        if (v.isBoolean())
+            creationOptions.setExperimentalNumberFormatFormatToPartsEnabled(v.toBoolean());
 
         if (!JS_GetProperty(cx, opts, "sameZoneAs", &v))
             return false;
@@ -7062,9 +7067,9 @@ NewGlobalObject(JSContext* cx, JS::CompartmentOptions& options,
 
         /* Initialize FakeDOMObject.prototype */
         InitDOMObject(domProto);
-    }
 
-    JS_FireOnNewGlobalObject(cx, glob);
+        JS_FireOnNewGlobalObject(cx, glob);
+    }
 
     return glob;
 }
