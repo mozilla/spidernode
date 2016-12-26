@@ -32,12 +32,12 @@ matrix:
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true
 
     - os: linux
-      compiler: gcc-4.8
+      compiler: gcc-4.9
       services: docker
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            export CC=\"ccache gcc-4.9\" CXX=\"ccache g++-4.9\";
             ./configure --engine=spidermonkey &&
             make V= -C out BUILDTYPE=Release;
             ./deps/spidershim/scripts/run-tests.py
@@ -45,12 +45,12 @@ matrix:
       env: BUILD_CONFIG=normal
 
     - os: linux
-      compiler: gcc-4.8
+      compiler: gcc-4.9
       services: docker
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            export CC=\"ccache gcc-4.9\" CXX=\"ccache g++-4.9\";
             ./configure --engine=spidermonkey --debug &&
             make V= -C out BUILDTYPE=Debug;
             ./deps/spidershim/scripts/run-tests.py
@@ -166,12 +166,12 @@ matrix:
       env: BUILD_CONFIG=normal ENABLE_DEBUG=true EXTERNAL_SPIDERMONKEY=true
 
     - os: linux
-      compiler: gcc-4.8
+      compiler: gcc-4.9
       services: docker
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            export CC=\"ccache gcc-4.9\" CXX=\"ccache g++-4.9\";
             mkdir /tmp/sm; BUILDTYPE=Release ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
             ./configure --engine=spidermonkey --with-external-spidermonkey-release=/tmp/sm &&
             make V= -C out BUILDTYPE=Release;
@@ -180,12 +180,12 @@ matrix:
       env: BUILD_CONFIG=normal EXTERNAL_SPIDERMONKEY=true
 
     - os: linux
-      compiler: gcc-4.8
+      compiler: gcc-4.9
       services: docker
       script:
         - docker run -v `pwd`:/build -v $HOME/.ccache:/ccache spidernode
           sh -c "
-            export CC=\"ccache gcc-4.8\" CXX=\"ccache g++-4.8\";
+            export CC=\"ccache gcc-4.9\" CXX=\"ccache g++-4.9\";
             mkdir /tmp/sm; BUILDTYPE=Debug ./deps/spidershim/scripts/build-spidermonkey.sh /tmp/sm;
             ./configure --engine=spidermonkey --debug --with-external-spidermonkey-release=/tmp/sm --with-external-spidermonkey-debug=/tmp/sm &&
             make V= -C out BUILDTYPE=Debug;
