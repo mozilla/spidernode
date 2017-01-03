@@ -255,10 +255,10 @@ class MacroAssemblerNone : public Assembler
     template <typename T, typename S> void cmpPtrSet(Condition, T, S, Register) { MOZ_CRASH(); }
     template <typename T, typename S> void cmp32Set(Condition, T, S, Register) { MOZ_CRASH(); }
 
-    template <typename T, typename S> void mov(T, S) { MOZ_CRASH(); }
+    template <typename T> void mov(T, Register) { MOZ_CRASH(); }
+    template <typename T> void movePtr(T, Register) { MOZ_CRASH(); }
+    template <typename T> void move32(T, Register) { MOZ_CRASH(); }
     template <typename T, typename S> void movq(T, S) { MOZ_CRASH(); }
-    template <typename T, typename S> void movePtr(T, S) { MOZ_CRASH(); }
-    template <typename T, typename S> void move32(T, S) { MOZ_CRASH(); }
     template <typename T, typename S> void moveFloat32(T, S) { MOZ_CRASH(); }
     template <typename T, typename S> void moveDouble(T, S) { MOZ_CRASH(); }
     template <typename T, typename S> void move64(T, S) { MOZ_CRASH(); }
@@ -393,8 +393,6 @@ class MacroAssemblerNone : public Assembler
 
     void loadConstantDouble(double, FloatRegister) { MOZ_CRASH(); }
     void loadConstantFloat32(float, FloatRegister) { MOZ_CRASH(); }
-    void loadConstantDouble(wasm::RawF64, FloatRegister) { MOZ_CRASH(); }
-    void loadConstantFloat32(wasm::RawF32, FloatRegister) { MOZ_CRASH(); }
     Condition testInt32Truthy(bool, ValueOperand) { MOZ_CRASH(); }
     Condition testStringTruthy(bool, ValueOperand) { MOZ_CRASH(); }
 

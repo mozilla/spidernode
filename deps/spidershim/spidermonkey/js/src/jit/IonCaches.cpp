@@ -2427,15 +2427,29 @@ IsCacheableSetPropCallNative(HandleObject obj, HandleObject holder, HandleShape 
     if (!shape || !IsCacheableProtoChainForIonOrCacheIR(obj, holder))
         return false;
 
-    return shape->hasSetterValue() && shape->setterObject() &&
-           shape->setterObject()->is<JSFunction>() &&
-           shape->setterObject()->as<JSFunction>().isNative();
+    if (!shape->hasSetterValue())
+        return false;
+
+    if (!shape->setterObject() || !shape->setterObject()->is<JSFunction>())
+        return false;
+
+    JSFunction& setter = shape->setterObject()->as<JSFunction>();
+    if (!setter.isNative())
+        return false;
+
+    if (setter.jitInfo() && !setter.jitInfo()->needsOuterizedThisObject())
+        return true;
+
+    return !IsWindow(obj);
 }
 
 static bool
 IsCacheableSetPropCallScripted(HandleObject obj, HandleObject holder, HandleShape shape)
 {
     if (!shape || !IsCacheableProtoChainForIonOrCacheIR(obj, holder))
+        return false;
+
+    if (IsWindow(obj))
         return false;
 
     return shape->hasSetterValue() && shape->setterObject() &&
@@ -3690,7 +3704,7 @@ SetPropertyIC::update(JSContext* cx, HandleScript outerScript, size_t cacheIndex
     RootedObjectGroup oldGroup(cx);
     RootedShape oldShape(cx);
     if (cache.canAttachStub()) {
-        oldGroup = obj->getGroup(cx);
+        oldGroup = JSObject::getGroup(cx, obj);
         if (!oldGroup)
             return false;
 
@@ -4015,9 +4029,10 @@ GetPropertyIC::canAttachTypedOrUnboxedArrayElement(JSObject* obj, const Value& i
     if (idval.isInt32()) {
         index = idval.toInt32();
     } else {
-        index = GetIndexFromString(idval.toString());
-        if (index == UINT32_MAX)
+        int32_t indexInt32 = GetIndexFromString(idval.toString());
+        if (indexInt32 < 0)
             return false;
+        index = indexInt32;
     }
 
     if (obj->is<TypedArrayObject>()) {
@@ -4061,7 +4076,7 @@ GenerateGetTypedOrUnboxedArrayElement(JSContext* cx, MacroAssembler& masm,
     MOZ_ASSERT(tmpReg != InvalidReg);
     Register indexReg = tmpReg;
     if (idval.isString()) {
-        MOZ_ASSERT(GetIndexFromString(idval.toString()) != UINT32_MAX);
+        MOZ_ASSERT(GetIndexFromString(idval.toString()) >= 0);
 
         if (index.constant()) {
             MOZ_ASSERT(idval == index.value());
@@ -4096,7 +4111,7 @@ GenerateGetTypedOrUnboxedArrayElement(JSContext* cx, MacroAssembler& masm,
             ignore.add(indexReg);
             masm.PopRegsInMaskIgnore(save, ignore);
 
-            masm.branch32(Assembler::Equal, indexReg, Imm32(UINT32_MAX), &failures);
+            masm.branchTest32(Assembler::Signed, indexReg, indexReg, &failures);
         }
     } else {
         MOZ_ASSERT(idval.isInt32());

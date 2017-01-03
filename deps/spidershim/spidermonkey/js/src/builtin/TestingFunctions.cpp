@@ -1044,7 +1044,7 @@ HasChild(JSContext* cx, unsigned argc, Value* vp)
     RootedValue parent(cx, args.get(0));
     RootedValue child(cx, args.get(1));
 
-    if (!parent.isMarkable() || !child.isMarkable()) {
+    if (!parent.isGCThing() || !child.isGCThing()) {
         args.rval().setBoolean(false);
         return true;
     }
@@ -3337,7 +3337,8 @@ GetConstructorName(JSContext* cx, unsigned argc, Value* vp)
     }
 
     RootedAtom name(cx);
-    if (!args[0].toObject().constructorDisplayAtom(cx, &name))
+    RootedObject obj(cx, &args[0].toObject());
+    if (!JSObject::constructorDisplayAtom(cx, obj, &name))
         return false;
 
     if (name) {

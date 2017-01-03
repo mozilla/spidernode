@@ -761,7 +761,7 @@ SetReservedSlot(JSObject* obj, size_t slot, const JS::Value& value)
 {
     MOZ_ASSERT(slot < JSCLASS_RESERVED_SLOTS(GetObjectClass(obj)));
     shadow::Object* sobj = reinterpret_cast<shadow::Object*>(obj);
-    if (sobj->slotRef(slot).isMarkable() || value.isMarkable())
+    if (sobj->slotRef(slot).isGCThing() || value.isGCThing())
         SetReservedOrProxyPrivateSlotWithBarrier(obj, slot, value);
     else
         sobj->slotRef(slot) = value;
@@ -2906,6 +2906,12 @@ ToWindowIfWindowProxy(JSObject* obj);
 
 JS_FRIEND_API(bool)
 AllowGCBarriers(JSContext* cx);
+
+// Create and add the Intl.PluralRules constructor function to the provided
+// object.  This function throws if called more than once per realm/global
+// object.
+extern bool
+AddPluralRulesConstructor(JSContext* cx, JS::Handle<JSObject*> intl);
 
 } /* namespace js */
 
