@@ -140,6 +140,7 @@ d.run(function() {
         fs.stat('this file does not exist', function(er, stat) {
           // uh oh!  stat isn't set!
           // pretty common error.
+          console.log(stat);
           console.log(stat.isDirectory());
         });
       });
