@@ -356,11 +356,11 @@ struct BaselineStackBuilder
         BufferPointer<JitFrameLayout> topFrame = topFrameAddress();
         FrameType type = topFrame->prevType();
 
-        // For IonJS, IonAccessorIC and Entry frames, the "saved" frame pointer
+        // For IonJS, IonICCall and Entry frames, the "saved" frame pointer
         // in the baseline frame is meaningless, since Ion saves all registers
         // before calling other ion frames, and the entry frame saves all
         // registers too.
-        if (type == JitFrame_IonJS || type == JitFrame_Entry || type == JitFrame_IonAccessorIC)
+        if (type == JitFrame_IonJS || type == JitFrame_Entry || type == JitFrame_IonICCall)
             return nullptr;
 
         // BaselineStub - Baseline calling into Ion.
@@ -907,9 +907,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
                 // We would love to just save all the arguments and leave them
                 // in the stub frame pushed below, but we will lose the inital
                 // argument which the function was called with, which we must
-                // return to the caller, even if the setter internally modifies
-                // its arguments. Stash the initial argument on the stack, to be
-                // later retrieved by the SetProp_Fallback stub.
+                // leave on the stack. It's pushed as the result of the SETPROP.
                 Value initialArg = savedCallerArgs[inlined_args - 1];
                 JitSpew(JitSpew_BaselineBailouts, "     pushing setter's initial argument");
                 if (!builder.writeValue(initialArg, "StackValue"))
@@ -1483,7 +1481,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
                prevFrameType == JitFrame_BaselineStub ||
                prevFrameType == JitFrame_Entry ||
                prevFrameType == JitFrame_Rectifier ||
-               prevFrameType == JitFrame_IonAccessorIC);
+               prevFrameType == JitFrame_IonICCall);
 #endif
 
     // All incoming frames are going to look like this:

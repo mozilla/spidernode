@@ -191,6 +191,8 @@ namespace jit {
 // Defined in JitFrames.h
 enum ExitFrameTokenValues;
 
+class AutoSaveLiveRegisters;
+
 // The public entrypoint for emitting assembly. Note that a MacroAssembler can
 // use cx->lifoAlloc, so take care not to interleave masm use with other
 // lifoAlloc use if one will be destroyed before the other.
@@ -371,6 +373,9 @@ class MacroAssembler : public MacroAssemblerSpecific
         initWithAllocator();
         armbuffer_.id = 0;
 #endif
+
+        // Disable page protection for WASM.
+        disableProtection();
     }
 
     void constructRoot(JSContext* cx) {
@@ -422,6 +427,12 @@ class MacroAssembler : public MacroAssemblerSpecific
     void PushRegsInMask(LiveRegisterSet set)
                             DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
     void PushRegsInMask(LiveGeneralRegisterSet set);
+
+    // Like PushRegsInMask, but instead of pushing the registers, store them to
+    // |dest|. |dest| should point to the end of the reserved space, so the
+    // first register will be stored at |dest.offset - sizeof(register)|.
+    void storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
+        DEFINED_ON(arm, arm64, x86_shared);
 
     void PopRegsInMask(LiveRegisterSet set);
     void PopRegsInMask(LiveGeneralRegisterSet set);
@@ -770,6 +781,13 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void add64(const Operand& src, Register64 dest) DEFINED_ON(x64, mips64);
 
     inline void addFloat32(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
+
+    // Compute dest=src+imm where `src` and `dest` are pointer registers; `src`
+    // may be SP, and `src` may equal `dest`.  `dest` should not normally be SP,
+    // as stack probes are required for large negative immediates.  The offset
+    // returned from add32ToPtrWithPatch() must be passed to patchAdd32ToPtr().
+    inline CodeOffset add32ToPtrWithPatch(Register src, Register dest) PER_ARCH;
+    inline void patchAdd32ToPtr(CodeOffset offset, Imm32 imm) PER_ARCH;
 
     inline void addDouble(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
     inline void addConstantDouble(double d, FloatRegister dest) DEFINED_ON(x86);
@@ -1497,10 +1515,12 @@ class MacroAssembler : public MacroAssemblerSpecific
             storeTypedOrValue(src.reg(), dest);
     }
 
-    void storeCallResult(Register reg) {
+    void storeCallWordResult(Register reg) {
         if (reg != ReturnReg)
             mov(ReturnReg, reg);
     }
+
+    inline void storeCallBoolResult(Register reg);
 
     void storeCallFloatResult(FloatRegister reg) {
         if (reg != ReturnDoubleReg)
@@ -1641,6 +1661,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     Register extractString(const ValueOperand& value, Register scratch) {
         return extractObject(value, scratch);
     }
+
+    void debugAssertIsObject(const ValueOperand& val);
 
     using MacroAssemblerSpecific::extractTag;
     Register extractTag(const TypedOrValueRegister& reg, Register scratch) {
@@ -2107,6 +2129,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     AfterICSaveLive icSaveLive(LiveRegisterSet& liveRegs);
     MOZ_MUST_USE bool icBuildOOLFakeExitFrame(void* fakeReturnAddr, AfterICSaveLive& aic);
     void icRestoreLive(LiveRegisterSet& liveRegs, AfterICSaveLive& aic);
+
+    MOZ_MUST_USE bool icBuildOOLFakeExitFrame(void* fakeReturnAddr, AutoSaveLiveRegisters& save);
 
     // Align the stack pointer based on the number of arguments which are pushed
     // on the stack, such that the JitFrameLayout would be correctly aligned on

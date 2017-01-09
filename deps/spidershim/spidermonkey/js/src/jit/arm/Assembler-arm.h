@@ -1395,6 +1395,12 @@ class Assembler : public AssemblerShared
 
     bool oom() const;
 
+    void disableProtection() {}
+    void enableProtection() {}
+    void setLowerBoundForProtection(size_t) {}
+    void unprotectRegion(unsigned char*, size_t) {}
+    void reprotectRegion(unsigned char*, size_t) {}
+
     void setPrinter(Sprinter* sp) {
 #ifdef JS_DISASM_ARM
         printer_ = sp;
@@ -1551,9 +1557,9 @@ class Assembler : public AssemblerShared
                                Label* documentation = nullptr);
 
     // Load a 64 bit floating point immediate from a pool into a register.
-    BufferOffset as_FImm64Pool(VFPRegister dest, wasm::RawF64 value, Condition c = Always);
+    BufferOffset as_FImm64Pool(VFPRegister dest, double value, Condition c = Always);
     // Load a 32 bit floating point immediate from a pool into a register.
-    BufferOffset as_FImm32Pool(VFPRegister dest, wasm::RawF32 value, Condition c = Always);
+    BufferOffset as_FImm32Pool(VFPRegister dest, float value, Condition c = Always);
 
     // Atomic instructions: ldrex, ldrexh, ldrexb, strex, strexh, strexb.
     //

@@ -21,6 +21,9 @@
          intl_availableCalendars: false,
          intl_patternForSkeleton: false,
          intl_FormatDateTime: false,
+         intl_SelectPluralRule: false,
+         intl_GetPluralCategories: false,
+         intl_GetCalendarInfo: false,
 */
 
 /*
@@ -839,6 +842,7 @@ function BestAvailableLocaleIgnoringDefault(availableLocales, locale) {
     return BestAvailableLocaleHelper(availableLocales, locale, false);
 }
 
+var noRelevantExtensionKeys = [];
 
 /**
  * Compares a BCP 47 language priority list against the set of locales in
@@ -1166,9 +1170,10 @@ function GetOption(options, property, type, values, fallback) {
  * Spec: ECMAScript Internationalization API Specification, 9.2.10.
  */
 function GetNumberOption(options, property, minimum, maximum, fallback) {
-    assert(typeof minimum === "number", "GetNumberOption");
-    assert(typeof maximum === "number", "GetNumberOption");
-    assert(fallback === undefined || (fallback >= minimum && fallback <= maximum), "GetNumberOption");
+    assert(typeof minimum === "number" && (minimum | 0) === minimum, "GetNumberOption");
+    assert(typeof maximum === "number" && (maximum | 0) === maximum, "GetNumberOption");
+    assert(typeof fallback === "number" && (fallback | 0) === fallback, "GetNumberOption");
+    assert(minimum <= fallback && fallback <= maximum, "GetNumberOption");
 
     // Step 1.
     var value = options[property];
@@ -1178,7 +1183,10 @@ function GetNumberOption(options, property, minimum, maximum, fallback) {
         value = ToNumber(value);
         if (Number_isNaN(value) || value < minimum || value > maximum)
             ThrowRangeError(JSMSG_INVALID_DIGITS_VALUE, value);
-        return std_Math_floor(value);
+
+        // Apply bitwise-or to convert -0 to +0 per ES2017, 5.2 and to ensure
+        // the result is an int32 value.
+        return std_Math_floor(value) | 0;
     }
 
     // Step 3.
@@ -1252,7 +1260,9 @@ function initializeIntlObject(obj) {
 function setLazyData(internals, type, lazyData)
 {
     assert(internals.type === "partial", "can't set lazy data for anything but a newborn");
-    assert(type === "Collator" || type === "DateTimeFormat" || type == "NumberFormat", "bad type");
+    assert(type === "Collator" || type === "DateTimeFormat" ||
+           type == "NumberFormat" || type === "PluralRules",
+           "bad type");
     assert(IsObject(lazyData), "non-object lazy data");
 
     // Set in reverse order so that the .type change is a barrier.
@@ -1302,7 +1312,9 @@ function isInitializedIntlObject(obj) {
     if (IsObject(internals)) {
         assert(callFunction(std_Object_hasOwnProperty, internals, "type"), "missing type");
         var type = internals.type;
-        assert(type === "partial" || type === "Collator" || type === "DateTimeFormat" || type === "NumberFormat", "unexpected type");
+        assert(type === "partial" || type === "Collator" ||
+               type === "DateTimeFormat" || type === "NumberFormat" || type === "PluralRules",
+               "unexpected type");
         assert(callFunction(std_Object_hasOwnProperty, internals, "lazyData"), "missing lazyData");
         assert(callFunction(std_Object_hasOwnProperty, internals, "internalProps"), "missing internalProps");
     } else {
@@ -1359,6 +1371,8 @@ function getInternals(obj)
         internalProps = resolveCollatorInternals(lazyData)
     else if (type === "DateTimeFormat")
         internalProps = resolveDateTimeFormatInternals(lazyData)
+    else if (type === "PluralRules")
+        internalProps = resolvePluralRulesInternals(lazyData)
     else
         internalProps = resolveNumberFormatInternals(lazyData);
     setInternalProperties(internals, internalProps);
@@ -1690,6 +1704,7 @@ function Intl_Collator_compare_get() {
     // Step 2.
     return internals.boundCompare;
 }
+_SetCanonicalName(Intl_Collator_compare_get, "get compare");
 
 
 /**
@@ -1758,45 +1773,37 @@ function resolveNumberFormatInternals(lazyNumberFormatData) {
     // Step 6.
     var opt = lazyNumberFormatData.opt;
 
-    // Compute effective locale.
-    // Step 9.
     var NumberFormat = numberFormatInternalProperties;
 
-    // Step 10.
+    // Step 9.
     var localeData = NumberFormat.localeData;
 
-    // Step 11.
+    // Step 10.
     var r = ResolveLocale(callFunction(NumberFormat.availableLocales, NumberFormat),
                           lazyNumberFormatData.requestedLocales,
                           lazyNumberFormatData.opt,
                           NumberFormat.relevantExtensionKeys,
                           localeData);
 
-    // Steps 12-13.  (Step 14 is not relevant to our implementation.)
+    // Steps 11-12.  (Step 13 is not relevant to our implementation.)
     internalProps.locale = r.locale;
     internalProps.numberingSystem = r.nu;
 
     // Compute formatting options.
-    // Step 16.
-    var s = lazyNumberFormatData.style;
-    internalProps.style = s;
+    // Step 15.
+    var style = lazyNumberFormatData.style;
+    internalProps.style = style;
 
-    // Steps 20, 22.
-    if (s === "currency") {
+    // Steps 19, 21.
+    if (style === "currency") {
         internalProps.currency = lazyNumberFormatData.currency;
         internalProps.currencyDisplay = lazyNumberFormatData.currencyDisplay;
     }
 
-    // Step 24.
     internalProps.minimumIntegerDigits = lazyNumberFormatData.minimumIntegerDigits;
-
-    // Steps 27.
     internalProps.minimumFractionDigits = lazyNumberFormatData.minimumFractionDigits;
-
-    // Step 30.
     internalProps.maximumFractionDigits = lazyNumberFormatData.maximumFractionDigits;
 
-    // Step 33.
     if ("minimumSignificantDigits" in lazyNumberFormatData) {
         // Note: Intl.NumberFormat.prototype.resolvedOptions() exposes the
         // actual presence (versus undefined-ness) of these properties.
@@ -1805,10 +1812,10 @@ function resolveNumberFormatInternals(lazyNumberFormatData) {
         internalProps.maximumSignificantDigits = lazyNumberFormatData.maximumSignificantDigits;
     }
 
-    // Step 35.
+    // Step 27.
     internalProps.useGrouping = lazyNumberFormatData.useGrouping;
 
-    // Step 42.
+    // Step 34.
     internalProps.boundFormat = undefined;
 
     // The caller is responsible for associating |internalProps| with the right
@@ -1834,6 +1841,44 @@ function getNumberFormatInternals(obj, methodName) {
     internalProps = resolveNumberFormatInternals(internals.lazyData);
     setInternalProperties(internals, internalProps);
     return internalProps;
+}
+
+/**
+ * Applies digit options used for number formatting onto the intl object.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 11.1.1.
+ */
+function SetNumberFormatDigitOptions(lazyData, options, mnfdDefault, mxfdDefault) {
+    // We skip Step 1 because we set the properties on a lazyData object.
+
+    // Step 2-3.
+    assert(IsObject(options), "SetNumberFormatDigitOptions");
+    assert(typeof mnfdDefault === "number", "SetNumberFormatDigitOptions");
+    assert(typeof mxfdDefault === "number", "SetNumberFormatDigitOptions");
+    assert(mnfdDefault <= mxfdDefault, "SetNumberFormatDigitOptions");
+
+    // Steps 4-6.
+    const mnid = GetNumberOption(options, "minimumIntegerDigits", 1, 21, 1);
+    const mnfd = GetNumberOption(options, "minimumFractionDigits", 0, 20, mnfdDefault);
+    const mxfdActualDefault = std_Math_max(mnfd, mxfdDefault);
+    const mxfd = GetNumberOption(options, "maximumFractionDigits", mnfd, 20, mxfdActualDefault);
+
+    // Steps 7-8.
+    let mnsd = options.minimumSignificantDigits;
+    let mxsd = options.maximumSignificantDigits;
+
+    // Steps 9-11.
+    lazyData.minimumIntegerDigits = mnid;
+    lazyData.minimumFractionDigits = mnfd;
+    lazyData.maximumFractionDigits = mxfd;
+
+    // Step 12.
+    if (mnsd !== undefined || mxsd !== undefined) {
+        mnsd = GetNumberOption(options, "minimumSignificantDigits", 1, 21, 1);
+        mxsd = GetNumberOption(options, "maximumSignificantDigits", mnsd, 21, 21);
+        lazyData.minimumSignificantDigits = mnsd;
+        lazyData.maximumSignificantDigits = mxsd;
+    }
 }
 
 
@@ -1885,7 +1930,7 @@ function InitializeNumberFormat(numberFormat, locales, options) {
     //   }
     //
     // Note that lazy data is only installed as a final step of initialization,
-    // so every Collator lazy data object has *all* these properties, never a
+    // so every NumberFormat lazy data object has *all* these properties, never a
     // subset of them.
     var lazyNumberFormatData = std_Object_create(null);
 
@@ -1915,109 +1960,51 @@ function InitializeNumberFormat(numberFormat, locales, options) {
     opt.localeMatcher = matcher;
 
     // Compute formatting options.
-    // Step 15.
-    var s = GetOption(options, "style", "string", ["decimal", "percent", "currency"], "decimal");
-    lazyNumberFormatData.style = s;
+    // Step 14.
+    var style = GetOption(options, "style", "string", ["decimal", "percent", "currency"], "decimal");
+    lazyNumberFormatData.style = style;
 
-    // Steps 17-20.
+    // Steps 16-19.
     var c = GetOption(options, "currency", "string", undefined, undefined);
     if (c !== undefined && !IsWellFormedCurrencyCode(c))
         ThrowRangeError(JSMSG_INVALID_CURRENCY_CODE, c);
     var cDigits;
-    if (s === "currency") {
+    if (style === "currency") {
         if (c === undefined)
             ThrowTypeError(JSMSG_UNDEFINED_CURRENCY);
 
-        // Steps 20.a-c.
+        // Steps 19.a-c.
         c = toASCIIUpperCase(c);
         lazyNumberFormatData.currency = c;
         cDigits = CurrencyDigits(c);
     }
 
-    // Step 21.
+    // Step 20.
     var cd = GetOption(options, "currencyDisplay", "string", ["code", "symbol", "name"], "symbol");
-    if (s === "currency")
+    if (style === "currency")
         lazyNumberFormatData.currencyDisplay = cd;
 
-    // Step 23.
-    var mnid = GetNumberOption(options, "minimumIntegerDigits", 1, 21, 1);
-    lazyNumberFormatData.minimumIntegerDigits = mnid;
-
-    // Steps 25-26.
-    var mnfdDefault = (s === "currency") ? cDigits : 0;
-    var mnfd = GetNumberOption(options, "minimumFractionDigits", 0, 20, mnfdDefault);
-    lazyNumberFormatData.minimumFractionDigits = mnfd;
-
-    // Steps 28-29.
-    var mxfdDefault;
-    if (s === "currency")
-        mxfdDefault = std_Math_max(mnfd, cDigits);
-    else if (s === "percent")
-        mxfdDefault = std_Math_max(mnfd, 0);
-    else
-        mxfdDefault = std_Math_max(mnfd, 3);
-    var mxfd = GetNumberOption(options, "maximumFractionDigits", mnfd, 20, mxfdDefault);
-    lazyNumberFormatData.maximumFractionDigits = mxfd;
-
-    // Steps 31-32.
-    var mnsd = options.minimumSignificantDigits;
-    var mxsd = options.maximumSignificantDigits;
-
-    // Step 33.
-    if (mnsd !== undefined || mxsd !== undefined) {
-        mnsd = GetNumberOption(options, "minimumSignificantDigits", 1, 21, 1);
-        mxsd = GetNumberOption(options, "maximumSignificantDigits", mnsd, 21, 21);
-        lazyNumberFormatData.minimumSignificantDigits = mnsd;
-        lazyNumberFormatData.maximumSignificantDigits = mxsd;
+    // Steps 22-25.
+    var mnfdDefault, mxfdDefault;
+    if (style === "currency") {
+        mnfdDefault = cDigits;
+        mxfdDefault = cDigits;
+    } else {
+        mnfdDefault = 0;
+        mxfdDefault = style === "percent" ? 0 : 3;
     }
+    SetNumberFormatDigitOptions(lazyNumberFormatData, options, mnfdDefault, mxfdDefault);
 
-    // Step 34.
+    // Steps 26.
     var g = GetOption(options, "useGrouping", "boolean", undefined, true);
     lazyNumberFormatData.useGrouping = g;
 
-    // Step 43.
+    // Steps 35-36.
     //
     // We've done everything that must be done now: mark the lazy data as fully
     // computed and install it.
     setLazyData(internals, "NumberFormat", lazyNumberFormatData);
 }
-
-
-/**
- * Mapping from currency codes to the number of decimal digits used for them.
- * Default is 2 digits.
- *
- * Spec: ISO 4217 Currency and Funds Code List.
- * http://www.currency-iso.org/en/home/tables/table-a1.html
- */
-var currencyDigits = {
-    BHD: 3,
-    BIF: 0,
-    BYR: 0,
-    CLF: 4,
-    CLP: 0,
-    DJF: 0,
-    GNF: 0,
-    IQD: 3,
-    ISK: 0,
-    JOD: 3,
-    JPY: 0,
-    KMF: 0,
-    KRW: 0,
-    KWD: 3,
-    LYD: 3,
-    OMR: 3,
-    PYG: 0,
-    RWF: 0,
-    TND: 3,
-    UGX: 0,
-    UYI: 0,
-    VND: 0,
-    VUV: 0,
-    XAF: 0,
-    XOF: 0,
-    XPF: 0
-};
 
 
 /**
@@ -2101,7 +2088,7 @@ function numberFormatFormatToBind(value) {
 
     // Step 1.a.ii-iii.
     var x = ToNumber(value);
-    return intl_FormatNumber(this, x);
+    return intl_FormatNumber(this, x, /* formatToParts = */ false);
 }
 
 
@@ -2127,6 +2114,22 @@ function Intl_NumberFormat_format_get() {
     }
     // Step 2.
     return internals.boundFormat;
+}
+_SetCanonicalName(Intl_NumberFormat_format_get, "get format");
+
+
+function Intl_NumberFormat_formatToParts(value) {
+    // Step 1.
+    var nf = this;
+
+    // Steps 2-3.
+    getNumberFormatInternals(nf, "formatToParts");
+
+    // Step 4.
+    var x = ToNumber(value);
+
+    // Step 5.
+    return intl_FormatNumber(nf, x, /* formatToParts = */ true);
 }
 
 
@@ -2649,7 +2652,6 @@ function ToDateTimeOptions(options, required, defaults) {
     return options;
 }
 
-
 /**
  * Compares the date and time components requested by options with the available
  * date and time formats in formats, and selects the best match according
@@ -2835,6 +2837,7 @@ function Intl_DateTimeFormat_format_get() {
     // Step 2.
     return internals.boundFormat;
 }
+_SetCanonicalName(Intl_DateTimeFormat_format_get, "get format");
 
 
 function Intl_DateTimeFormat_formatToParts() {
@@ -2969,6 +2972,227 @@ function resolveICUPattern(pattern, result) {
         }
     }
 }
+
+/********** Intl.PluralRules **********/
+
+/**
+ * PluralRules internal properties.
+ *
+ * Spec: ECMAScript 402 API, PluralRules, 1.3.3.
+ */
+var pluralRulesInternalProperties = {
+    _availableLocales: null,
+    availableLocales: function()
+    {
+        var locales = this._availableLocales;
+        if (locales)
+            return locales;
+
+        locales = intl_PluralRules_availableLocales();
+        addSpecialMissingLanguageTags(locales);
+        return (this._availableLocales = locales);
+    }
+};
+
+/**
+ * Compute an internal properties object from |lazyPluralRulesData|.
+ */
+function resolvePluralRulesInternals(lazyPluralRulesData) {
+    assert(IsObject(lazyPluralRulesData), "lazy data not an object?");
+
+    var internalProps = std_Object_create(null);
+
+    var requestedLocales = lazyPluralRulesData.requestedLocales;
+
+    var PluralRules = pluralRulesInternalProperties;
+
+    // Step 13.
+    const r = ResolveLocale(callFunction(PluralRules.availableLocales, PluralRules),
+                          lazyPluralRulesData.requestedLocales,
+                          lazyPluralRulesData.opt,
+                          noRelevantExtensionKeys, undefined);
+
+    // Step 14.
+    internalProps.locale = r.locale;
+    internalProps.type = lazyPluralRulesData.type;
+
+    internalProps.pluralCategories = intl_GetPluralCategories(
+        internalProps.locale,
+        internalProps.type);
+
+    internalProps.minimumIntegerDigits = lazyPluralRulesData.minimumIntegerDigits;
+    internalProps.minimumFractionDigits = lazyPluralRulesData.minimumFractionDigits;
+    internalProps.maximumFractionDigits = lazyPluralRulesData.maximumFractionDigits;
+
+    if ("minimumSignificantDigits" in lazyPluralRulesData) {
+        assert("maximumSignificantDigits" in lazyPluralRulesData, "min/max sig digits mismatch");
+        internalProps.minimumSignificantDigits = lazyPluralRulesData.minimumSignificantDigits;
+        internalProps.maximumSignificantDigits = lazyPluralRulesData.maximumSignificantDigits;
+    }
+
+    return internalProps;
+}
+
+/**
+ * Returns an object containing the PluralRules internal properties of |obj|,
+ * or throws a TypeError if |obj| isn't PluralRules-initialized.
+ */
+function getPluralRulesInternals(obj, methodName) {
+    var internals = getIntlObjectInternals(obj, "PluralRules", methodName);
+    assert(internals.type === "PluralRules", "bad type escaped getIntlObjectInternals");
+
+    var internalProps = maybeInternalProperties(internals);
+    if (internalProps)
+        return internalProps;
+
+    internalProps = resolvePluralRulesInternals(internals.lazyData);
+    setInternalProperties(internals, internalProps);
+    return internalProps;
+}
+
+/**
+ * Initializes an object as a PluralRules.
+ *
+ * This method is complicated a moderate bit by its implementing initialization
+ * as a *lazy* concept.  Everything that must happen now, does -- but we defer
+ * all the work we can until the object is actually used as a PluralRules.
+ * This later work occurs in |resolvePluralRulesInternals|; steps not noted
+ * here occur there.
+ *
+ * Spec: ECMAScript 402 API, PluralRules, 1.1.1.
+ */
+function InitializePluralRules(pluralRules, locales, options) {
+    assert(IsObject(pluralRules), "InitializePluralRules");
+
+    // Step 1.
+    if (isInitializedIntlObject(pluralRules))
+        ThrowTypeError(JSMSG_INTL_OBJECT_REINITED);
+
+    let internals = initializeIntlObject(pluralRules);
+
+    // Lazy PluralRules data has the following structure:
+    //
+    //   {
+    //     requestedLocales: List of locales,
+    //     type: "cardinal" / "ordinal",
+    //
+    //     opt: // opt object computer in InitializePluralRules
+    //       {
+    //         localeMatcher: "lookup" / "best fit",
+    //       }
+    //
+    //     minimumIntegerDigits: integer ∈ [1, 21],
+    //     minimumFractionDigits: integer ∈ [0, 20],
+    //     maximumFractionDigits: integer ∈ [0, 20],
+    //
+    //     // optional
+    //     minimumSignificantDigits: integer ∈ [1, 21],
+    //     maximumSignificantDigits: integer ∈ [1, 21],
+    //   }
+    //
+    // Note that lazy data is only installed as a final step of initialization,
+    // so every PluralRules lazy data object has *all* these properties, never a
+    // subset of them.
+    const lazyPluralRulesData = std_Object_create(null);
+
+    // Step 3.
+    let requestedLocales = CanonicalizeLocaleList(locales);
+    lazyPluralRulesData.requestedLocales = requestedLocales;
+
+    // Steps 4-5.
+    if (options === undefined)
+        options = {};
+    else
+        options = ToObject(options);
+
+    // Step 6.
+    const type = GetOption(options, "type", "string", ["cardinal", "ordinal"], "cardinal");
+    lazyPluralRulesData.type = type;
+
+    // Step 8.
+    let opt = new Record();
+    lazyPluralRulesData.opt = opt;
+
+    // Steps 9-10.
+    let matcher = GetOption(options, "localeMatcher", "string", ["lookup", "best fit"], "best fit");
+    opt.localeMatcher = matcher;
+
+    // Steps 11-12.
+    SetNumberFormatDigitOptions(lazyPluralRulesData, options, 0, 3);
+
+    setLazyData(internals, "PluralRules", lazyPluralRulesData)
+}
+
+/**
+ * Returns the subset of the given locale list for which this locale list has a
+ * matching (possibly fallback) locale. Locales appear in the same order in the
+ * returned list as in the input list.
+ *
+ * Spec: ECMAScript 402 API, PluralRules, 1.3.2.
+ */
+function Intl_PluralRules_supportedLocalesOf(locales /*, options*/) {
+    var options = arguments.length > 1 ? arguments[1] : undefined;
+
+    // Step 1.
+    var availableLocales = callFunction(pluralRulesInternalProperties.availableLocales,
+                                        pluralRulesInternalProperties);
+    // Step 2.
+    let requestedLocales = CanonicalizeLocaleList(locales);
+
+    // Step 3.
+    return SupportedLocales(availableLocales, requestedLocales, options);
+}
+
+/**
+ * Returns a String value representing the plural category matching
+ * the number passed as value according to the
+ * effective locale and the formatting options of this PluralRules.
+ *
+ * Spec: ECMAScript 402 API, PluralRules, 1.4.3.
+ */
+function Intl_PluralRules_select(value) {
+    // Step 1.
+    let pluralRules = this;
+    // Step 2.
+    let internals = getPluralRulesInternals(pluralRules, "select");
+
+    // Steps 3-4.
+    let n = ToNumber(value);
+
+    // Step 5.
+    return intl_SelectPluralRule(pluralRules, n);
+}
+
+/**
+ * Returns the resolved options for a PluralRules object.
+ *
+ * Spec: ECMAScript 402 API, PluralRules, 1.4.4.
+ */
+function Intl_PluralRules_resolvedOptions() {
+    var internals = getPluralRulesInternals(this, "resolvedOptions");
+
+    var result = {
+        locale: internals.locale,
+        type: internals.type,
+        pluralCategories: callFunction(std_Array_slice, internals.pluralCategories, 0),
+        minimumIntegerDigits: internals.minimumIntegerDigits,
+        minimumFractionDigits: internals.minimumFractionDigits,
+        maximumFractionDigits: internals.maximumFractionDigits,
+    };
+
+    var optionalProperties = [
+        "minimumSignificantDigits",
+        "maximumSignificantDigits"
+    ];
+
+    for (var i = 0; i < optionalProperties.length; i++) {
+        var p = optionalProperties[i];
+        if (callFunction(std_Object_hasOwnProperty, internals, p))
+            _DefineDataProperty(result, p, internals[p]);
+    }
+    return result;
+}
+
 
 function Intl_getCanonicalLocales(locales) {
   let codes = CanonicalizeLocaleList(locales);

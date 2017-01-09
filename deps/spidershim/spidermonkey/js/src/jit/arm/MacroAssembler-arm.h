@@ -130,6 +130,8 @@ class MacroAssemblerARM : public Assembler
     static void ma_mov_patch(ImmPtr imm, Register dest, Assembler::Condition c,
                              RelocStyle rs, Instruction* i);
 
+    Instruction* offsetToInstruction(CodeOffset offs);
+
     // ALU based ops
     // mov
     void ma_mov(Register src, Register dest, SBit s = LeaveCC, Condition c = Always);
@@ -374,8 +376,8 @@ class MacroAssemblerARM : public Assembler
     void ma_vsqrt(FloatRegister src, FloatRegister dest, Condition cc = Always);
     void ma_vsqrt_f32(FloatRegister src, FloatRegister dest, Condition cc = Always);
 
-    void ma_vimm(wasm::RawF64 value, FloatRegister dest, Condition cc = Always);
-    void ma_vimm_f32(wasm::RawF32 value, FloatRegister dest, Condition cc = Always);
+    void ma_vimm(double value, FloatRegister dest, Condition cc = Always);
+    void ma_vimm_f32(float value, FloatRegister dest, Condition cc = Always);
 
     void ma_vcmp(FloatRegister src1, FloatRegister src2, Condition cc = Always);
     void ma_vcmp_f32(FloatRegister src1, FloatRegister src2, Condition cc = Always);
@@ -791,7 +793,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void loadInt32OrDouble(Register base, Register index,
                            FloatRegister dest, int32_t shift = defaultShift);
     void loadConstantDouble(double dp, FloatRegister dest);
-    void loadConstantDouble(wasm::RawF64 dp, FloatRegister dest);
 
     // Treat the value as a boolean, and set condition codes accordingly.
     Condition testInt32Truthy(bool truthy, const ValueOperand& operand);
@@ -802,7 +803,6 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void boolValueToFloat32(const ValueOperand& operand, FloatRegister dest);
     void int32ValueToFloat32(const ValueOperand& operand, FloatRegister dest);
     void loadConstantFloat32(float f, FloatRegister dest);
-    void loadConstantFloat32(wasm::RawF32 f, FloatRegister dest);
 
     void moveValue(const Value& val, Register type, Register data);
 
@@ -915,8 +915,8 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
 
         ma_mov(Imm32(val.toNunboxTag()), scratch);
         ma_str(scratch, ToType(dest), scratch2);
-        if (val.isMarkable())
-            ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch);
+        if (val.isGCThing())
+            ma_mov(ImmGCPtr(val.toGCThing()), scratch);
         else
             ma_mov(Imm32(val.toNunboxPayload()), scratch);
         ma_str(scratch, ToPayload(dest), scratch2);
@@ -944,15 +944,15 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
 
         // Store the payload, marking if necessary.
         if (payloadoffset < 4096 && payloadoffset > -4096) {
-            if (val.isMarkable())
-                ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch2);
+            if (val.isGCThing())
+                ma_mov(ImmGCPtr(val.toGCThing()), scratch2);
             else
                 ma_mov(Imm32(val.toNunboxPayload()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(payloadoffset)));
         } else {
             ma_add(Imm32(payloadoffset), scratch, scratch2);
-            if (val.isMarkable())
-                ma_mov(ImmGCPtr(val.toMarkablePointer()), scratch2);
+            if (val.isGCThing())
+                ma_mov(ImmGCPtr(val.toGCThing()), scratch2);
             else
                 ma_mov(Imm32(val.toNunboxPayload()), scratch2);
             ma_str(scratch2, DTRAddr(scratch, DtrOffImm(0)));
@@ -977,8 +977,8 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void popValue(ValueOperand val);
     void pushValue(const Value& val) {
         push(Imm32(val.toNunboxTag()));
-        if (val.isMarkable())
-            push(ImmGCPtr(val.toMarkablePointer()));
+        if (val.isGCThing())
+            push(ImmGCPtr(val.toGCThing()));
         else
             push(Imm32(val.toNunboxPayload()));
     }
@@ -1104,12 +1104,16 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         store32(imm.hi(), Address(address.base, address.offset + INT64HIGH_OFFSET));
     }
 
-    template <typename T> void storePtr(ImmWord imm, T address);
-    template <typename T> void storePtr(ImmPtr imm, T address);
-    template <typename T> void storePtr(ImmGCPtr imm, T address);
+    void storePtr(ImmWord imm, const Address& address);
+    void storePtr(ImmWord imm, const BaseIndex& address);
+    void storePtr(ImmPtr imm, const Address& address);
+    void storePtr(ImmPtr imm, const BaseIndex& address);
+    void storePtr(ImmGCPtr imm, const Address& address);
+    void storePtr(ImmGCPtr imm, const BaseIndex& address);
     void storePtr(Register src, const Address& address);
     void storePtr(Register src, const BaseIndex& address);
     void storePtr(Register src, AbsoluteAddress dest);
+
     void moveDouble(FloatRegister src, FloatRegister dest, Condition cc = Always) {
         ma_vmov(src, dest, cc);
     }

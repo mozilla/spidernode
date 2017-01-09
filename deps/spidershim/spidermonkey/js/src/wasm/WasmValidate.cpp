@@ -116,6 +116,8 @@ Decoder::startSection(SectionId id, ModuleEnvironment* env, uint32_t* sectionSta
 bool
 Decoder::finishSection(uint32_t sectionStart, uint32_t sectionSize, const char* sectionName)
 {
+    if (resilientMode_)
+        return true;
     if (sectionSize != (cur_ - beg_) - sectionStart)
         return fail("byte size mismatch in %s section", sectionName);
     return true;
@@ -675,12 +677,15 @@ DecodeFunctionBodyExprs(FunctionDecoder& f)
 }
 
 bool
-wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Decoder& d)
+wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, uint32_t bodySize,
+                           Decoder& d)
 {
     ValTypeVector locals;
     const Sig& sig = *env.funcSigs[funcIndex];
     if (!locals.appendAll(sig.args()))
         return false;
+
+    const uint8_t* bodyBegin = d.currentPosition();
 
     if (!DecodeLocalEntries(d, ModuleKind::Wasm, &locals))
         return false;
@@ -693,7 +698,13 @@ wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Dec
     if (!DecodeFunctionBodyExprs(f))
         return false;
 
-    return f.iter().readFunctionEnd();
+    if (!f.iter().readFunctionEnd())
+        return false;
+
+    if (d.currentPosition() != bodyBegin + bodySize)
+        return d.fail("function body length mismatch");
+
+    return true;
 }
 
 // Section macros.
@@ -701,6 +712,9 @@ wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Dec
 static bool
 DecodePreamble(Decoder& d)
 {
+    if (d.bytesRemain() > MaxModuleBytes)
+        return d.fail("module too big");
+
     uint32_t u32;
     if (!d.readFixedU32(&u32) || u32 != MagicNumber)
         return d.fail("failed to match magic number");
@@ -725,7 +739,7 @@ DecodeTypeSection(Decoder& d, ModuleEnvironment* env)
     if (!d.readVarU32(&numSigs))
         return d.fail("expected number of signatures");
 
-    if (numSigs > MaxSigs)
+    if (numSigs > MaxTypes)
         return d.fail("too many signatures");
 
     if (!env->sigs.resize(numSigs))
@@ -740,7 +754,7 @@ DecodeTypeSection(Decoder& d, ModuleEnvironment* env)
         if (!d.readVarU32(&numArgs))
             return d.fail("bad number of function args");
 
-        if (numArgs > MaxArgsPerFunc)
+        if (numArgs > MaxParams)
             return d.fail("too many arguments in signature");
 
         ValTypeVector args;
@@ -783,6 +797,9 @@ DecodeName(Decoder& d)
 {
     uint32_t numBytes;
     if (!d.readVarU32(&numBytes))
+        return nullptr;
+
+    if (numBytes > MaxStringBytes)
         return nullptr;
 
     const uint8_t* bytes;
@@ -855,7 +872,7 @@ DecodeTableLimits(Decoder& d, TableDescVector* tables)
     if (!DecodeLimits(d, &limits))
         return false;
 
-    if (limits.initial > MaxTableElems)
+    if (limits.initial > MaxTableLength)
         return d.fail("too many table elements");
 
     if (tables->length())
@@ -959,6 +976,8 @@ DecodeImport(Decoder& d, ModuleEnvironment* env)
             return false;
         if (!env->funcSigs.append(&env->sigs[sigIndex]))
             return false;
+        if (env->funcSigs.length() > MaxFuncs)
+            return d.fail("too many functions");
         break;
       }
       case DefinitionKind::Table: {
@@ -981,6 +1000,8 @@ DecodeImport(Decoder& d, ModuleEnvironment* env)
             return false;
         if (!env->globals.append(GlobalDesc(type, isMutable, env->globals.length())))
             return false;
+        if (env->globals.length() > MaxGlobals)
+            return d.fail("too many globals");
         break;
       }
       default:
@@ -1129,14 +1150,14 @@ DecodeInitializerExpression(Decoder& d, const GlobalDescVector& globals, ValType
         break;
       }
       case uint16_t(Op::F32Const): {
-        RawF32 f32;
+        float f32;
         if (!d.readFixedF32(&f32))
             return d.fail("failed to read initializer f32 expression");
         *init = InitExpr(Val(f32));
         break;
       }
       case uint16_t(Op::F64Const): {
-        RawF64 f64;
+        double f64;
         if (!d.readFixedF64(&f64))
             return d.fail("failed to read initializer f64 expression");
         *init = InitExpr(Val(f64));
@@ -1392,6 +1413,9 @@ DecodeElemSection(Decoder& d, ModuleEnvironment* env)
         if (!d.readVarU32(&numElems))
             return d.fail("expected segment size");
 
+        if (numElems > MaxTableLength)
+            return d.fail("too many table elements");
+
         Uint32Vector elemFuncIndices;
         if (!elemFuncIndices.resize(numElems))
             return false;
@@ -1458,16 +1482,14 @@ DecodeFunctionBody(Decoder& d, const ModuleEnvironment& env, uint32_t funcIndex)
     if (!d.readVarU32(&bodySize))
         return d.fail("expected number of function body bytes");
 
+    if (bodySize > MaxFunctionBytes)
+        return d.fail("function body too big");
+
     if (d.bytesRemain() < bodySize)
         return d.fail("function body length too big");
 
-    const uint8_t* bodyBegin = d.currentPosition();
-
-    if (!ValidateFunctionBody(env, funcIndex, d))
+    if (!ValidateFunctionBody(env, funcIndex, bodySize, d))
         return false;
-
-    if (d.currentPosition() != bodyBegin + bodySize)
-        return d.fail("function body length mismatch");
 
     return true;
 }
@@ -1575,6 +1597,8 @@ MaybeDecodeNameSectionBody(Decoder& d, ModuleEnvironment* env)
         uint32_t numBytes;
         if (!d.readVarU32(&numBytes))
             return;
+        if (numBytes > MaxStringLength)
+            return;
 
         NameInBytecode name;
         name.offset = d.currentOffset();
@@ -1588,10 +1612,16 @@ MaybeDecodeNameSectionBody(Decoder& d, ModuleEnvironment* env)
         uint32_t numLocals;
         if (!d.readVarU32(&numLocals))
             return;
+        if (numLocals > MaxLocals)
+            return;
+
         for (uint32_t j = 0; j < numLocals; j++) {
             uint32_t numBytes;
             if (!d.readVarU32(&numBytes))
                 return;
+            if (numBytes > MaxStringLength)
+                return;
+
             if (!d.readBytes(numBytes))
                 return;
         }
@@ -1627,8 +1657,13 @@ wasm::DecodeModuleTail(Decoder& d, ModuleEnvironment* env)
         return false;
 
     while (!d.done()) {
-        if (!d.skipCustomSection(env))
+        if (!d.skipCustomSection(env)) {
+            if (d.resilientMode()) {
+                d.clearError();
+                return true;
+            }
             return false;
+        }
     }
 
     return true;

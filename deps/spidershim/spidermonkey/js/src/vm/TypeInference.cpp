@@ -1324,7 +1324,8 @@ js::EnsureTrackPropertyTypes(JSContext* cx, JSObject* obj, jsid id)
         AutoEnterAnalysis enter(cx);
         if (obj->hasLazyGroup()) {
             AutoEnterOOMUnsafeRegion oomUnsafe;
-            if (!obj->getGroup(cx)) {
+            RootedObject objRoot(cx, obj);
+            if (!JSObject::getGroup(cx, objRoot)) {
                 oomUnsafe.crash("Could not allocate ObjectGroup in EnsureTrackPropertyTypes");
                 return;
             }
@@ -1343,9 +1344,12 @@ HeapTypeSetKey::instantiate(JSContext* cx)
 {
     if (maybeTypes())
         return true;
-    if (object()->isSingleton() && !object()->singleton()->getGroup(cx)) {
-        cx->clearPendingException();
-        return false;
+    if (object()->isSingleton()) {
+        RootedObject obj(cx, object()->singleton());
+        if (!JSObject::getGroup(cx, obj)) {
+            cx->clearPendingException();
+            return false;
+        }
     }
     JSObject* obj = object()->isSingleton() ? object()->singleton() : nullptr;
     maybeTypes_ = object()->maybeGroup()->getProperty(cx, obj, id());
@@ -2530,6 +2534,7 @@ js::ClassCanHaveExtraProperties(const Class* clasp)
     if (clasp == &UnboxedPlainObject::class_ || clasp == &UnboxedArrayObject::class_)
         return false;
     return clasp->getResolve()
+        || clasp->getGetProperty()
         || clasp->getOpsLookupProperty()
         || clasp->getOpsGetProperty()
         || IsTypedArrayClass(clasp);
@@ -3178,7 +3183,7 @@ js::AddClearDefiniteGetterSetterForPrototypeChain(JSContext* cx, ObjectGroup* gr
      */
     RootedObject proto(cx, group->proto().toObjectOrNull());
     while (proto) {
-        ObjectGroup* protoGroup = proto->getGroup(cx);
+        ObjectGroup* protoGroup = JSObject::getGroup(cx, proto);
         if (!protoGroup) {
             cx->recoverFromOutOfMemory();
             return false;

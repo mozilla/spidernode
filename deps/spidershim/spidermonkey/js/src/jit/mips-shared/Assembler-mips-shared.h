@@ -910,6 +910,12 @@ class AssemblerMIPSShared : public AssemblerShared
   public:
     bool oom() const;
 
+    void disableProtection() {}
+    void enableProtection() {}
+    void setLowerBoundForProtection(size_t) {}
+    void unprotectRegion(unsigned char*, size_t) {}
+    void reprotectRegion(unsigned char*, size_t) {}
+
     void setPrinter(Sprinter* sp) {
     }
 
@@ -1272,6 +1278,8 @@ class AssemblerMIPSShared : public AssemblerShared
 
     static void ToggleToJmp(CodeLocationLabel inst_);
     static void ToggleToCmp(CodeLocationLabel inst_);
+
+    static void UpdateLuiOriValue(Instruction* inst0, Instruction* inst1, uint32_t value);
 
     void processCodeLabels(uint8_t* rawCode);
 

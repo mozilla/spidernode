@@ -70,6 +70,8 @@ JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data)
 JS_FRIEND_API(JSObject*)
 JS_FindCompilationScope(JSContext* cx, HandleObject objArg)
 {
+    assertSameCompartment(cx, objArg);
+
     RootedObject obj(cx, objArg);
 
     /*
@@ -103,6 +105,7 @@ JS_SplicePrototype(JSContext* cx, HandleObject obj, HandleObject proto)
      * does not nuke type information for the object.
      */
     CHECK_REQUEST(cx);
+    assertSameCompartment(cx, obj, proto);
 
     if (!obj->isSingleton()) {
         /*
@@ -113,7 +116,7 @@ JS_SplicePrototype(JSContext* cx, HandleObject obj, HandleObject proto)
     }
 
     Rooted<TaggedProto> tagged(cx, TaggedProto(proto));
-    return obj->splicePrototype(cx, obj->getClass(), tagged);
+    return JSObject::splicePrototype(cx, obj, obj->getClass(), tagged);
 }
 
 JS_FRIEND_API(JSObject*)
@@ -137,6 +140,7 @@ JS_NewObjectWithUniqueType(JSContext* cx, const JSClass* clasp, HandleObject pro
 JS_FRIEND_API(JSObject*)
 JS_NewObjectWithoutMetadata(JSContext* cx, const JSClass* clasp, JS::Handle<JSObject*> proto)
 {
+    assertSameCompartment(cx, proto);
     AutoSuppressAllocationMetadataBuilder suppressMetadata(cx);
     return JS_NewObjectWithGivenProto(cx, clasp, proto);
 }
@@ -310,6 +314,7 @@ js::GetBuiltinClass(JSContext* cx, HandleObject obj, ESClass* cls)
 JS_FRIEND_API(const char*)
 js::ObjectClassName(JSContext* cx, HandleObject obj)
 {
+    assertSameCompartment(cx, obj);
     return GetObjectClassName(cx, obj);
 }
 
@@ -504,6 +509,8 @@ js::FunctionHasNativeReserved(JSObject* fun)
 JS_FRIEND_API(bool)
 js::GetObjectProto(JSContext* cx, JS::Handle<JSObject*> obj, JS::MutableHandle<JSObject*> proto)
 {
+    assertSameCompartment(cx, obj);
+
     if (IsProxy(obj))
         return JS_GetPrototype(cx, obj, proto);
 
@@ -652,6 +659,8 @@ JS_SetAccumulateTelemetryCallback(JSContext* cx, JSAccumulateTelemetryDataCallba
 JS_FRIEND_API(JSObject*)
 JS_CloneObject(JSContext* cx, HandleObject obj, HandleObject protoArg)
 {
+    // |obj| might be in a different compartment.
+    assertSameCompartment(cx, protoArg);
     Rooted<TaggedProto> proto(cx, TaggedProto(protoArg.get()));
     return CloneObject(cx, obj, proto);
 }
@@ -1052,6 +1061,17 @@ JS::ForceLexicalInitialization(JSContext *cx, HandleObject obj)
     return initializedAny;
 }
 
+extern JS_FRIEND_API(int)
+JS::IsGCPoisoning()
+{
+#ifdef JS_GC_POISONING
+    static bool disablePoison = bool(getenv("JSGC_DISABLE_POISONING"));
+    return !disablePoison;
+#else
+    return false;
+#endif
+}
+
 struct DumpHeapTracer : public JS::CallbackTracer, public WeakMapTracer
 {
     const char* prefix;
@@ -1338,6 +1358,7 @@ js::GetAllocationMetadata(JSObject* obj)
 JS_FRIEND_API(bool)
 js::ReportIsNotFunction(JSContext* cx, HandleValue v)
 {
+    assertSameCompartment(cx, v);
     return ReportIsNotFunction(cx, v, -1);
 }
 

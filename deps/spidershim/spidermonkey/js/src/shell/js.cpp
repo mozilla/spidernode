@@ -50,6 +50,7 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jscntxt.h"
+#include "jsfriendapi.h"
 #include "jsfun.h"
 #include "jsobj.h"
 #include "jsprf.h"
@@ -778,52 +779,64 @@ DrainJobQueue(JSContext* cx)
     if (sc->quitting || sc->drainingJobQueue)
         return true;
 
-    // Wait for any outstanding async tasks to finish so that the
-    // finishedAsyncTasks list is fixed.
     while (true) {
-        AutoLockHelperThreadState lock;
-        if (!sc->asyncTasks.lock()->outstanding)
-            break;
-        HelperThreadState().wait(lock, GlobalHelperThreadState::CONSUMER);
-    }
-
-    // Lock the whole time while copying back the asyncTasks finished queue so
-    // that any new tasks created during finish() cannot racily join the job
-    // queue.  Call finish() only thereafter, to avoid a circular mutex
-    // dependency (see also bug 1297901).
-    Vector<JS::AsyncTask*> finished(cx);
-    {
-        ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
-        finished = Move(asyncTasks->finished);
-        asyncTasks->finished.clear();
-    }
-
-    for (JS::AsyncTask* task : finished)
-        task->finish(cx);
-
-    // It doesn't make sense for job queue draining to be reentrant. At the
-    // same time we don't want to assert against it, because that'd make
-    // drainJobQueue unsafe for fuzzers. We do want fuzzers to test this, so
-    // we simply ignore nested calls of drainJobQueue.
-    sc->drainingJobQueue = true;
-
-    RootedObject job(cx);
-    JS::HandleValueArray args(JS::HandleValueArray::empty());
-    RootedValue rval(cx);
-    // Execute jobs in a loop until we've reached the end of the queue.
-    // Since executing a job can trigger enqueuing of additional jobs,
-    // it's crucial to re-check the queue length during each iteration.
-    for (size_t i = 0; i < sc->jobQueue.length(); i++) {
-        job = sc->jobQueue[i];
-        AutoCompartment ac(cx, job);
-        {
-            AutoReportException are(cx);
-            JS::Call(cx, UndefinedHandleValue, job, args, &rval);
+        // Wait for any outstanding async tasks to finish so that the
+        // finishedAsyncTasks list is fixed.
+        while (true) {
+            AutoLockHelperThreadState lock;
+            if (!sc->asyncTasks.lock()->outstanding)
+                break;
+            HelperThreadState().wait(lock, GlobalHelperThreadState::CONSUMER);
         }
-        sc->jobQueue[i].set(nullptr);
+
+        // Lock the whole time while copying back the asyncTasks finished queue
+        // so that any new tasks created during finish() cannot racily join the
+        // job queue.  Call finish() only thereafter, to avoid a circular mutex
+        // dependency (see also bug 1297901).
+        Vector<JS::AsyncTask*> finished(cx);
+        {
+            ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
+            finished = Move(asyncTasks->finished);
+            asyncTasks->finished.clear();
+        }
+
+        for (JS::AsyncTask* task : finished)
+            task->finish(cx);
+
+        // It doesn't make sense for job queue draining to be reentrant. At the
+        // same time we don't want to assert against it, because that'd make
+        // drainJobQueue unsafe for fuzzers. We do want fuzzers to test this,
+        // so we simply ignore nested calls of drainJobQueue.
+        sc->drainingJobQueue = true;
+
+        RootedObject job(cx);
+        JS::HandleValueArray args(JS::HandleValueArray::empty());
+        RootedValue rval(cx);
+
+        // Execute jobs in a loop until we've reached the end of the queue.
+        // Since executing a job can trigger enqueuing of additional jobs,
+        // it's crucial to re-check the queue length during each iteration.
+        for (size_t i = 0; i < sc->jobQueue.length(); i++) {
+            job = sc->jobQueue[i];
+            AutoCompartment ac(cx, job);
+            {
+                AutoReportException are(cx);
+                JS::Call(cx, UndefinedHandleValue, job, args, &rval);
+            }
+            sc->jobQueue[i].set(nullptr);
+        }
+        sc->jobQueue.clear();
+        sc->drainingJobQueue = false;
+
+        // It's possible a job added an async task, and it's also possible
+        // that task has already finished.
+        {
+            ExclusiveData<ShellAsyncTasks>::Guard asyncTasks = sc->asyncTasks.lock();
+            if (asyncTasks->outstanding == 0 && asyncTasks->finished.length() == 0)
+                break;
+        }
     }
-    sc->jobQueue.clear();
-    sc->drainingJobQueue = false;
+
     return true;
 }
 
@@ -898,6 +911,9 @@ AddIntlExtras(JSContext* cx, unsigned argc, Value* vp)
     };
 
     if (!JS_DefineFunctions(cx, intl, funcs))
+        return false;
+
+    if (!js::AddPluralRulesConstructor(cx, intl))
         return false;
 
     args.rval().setUndefined();
@@ -3175,9 +3191,9 @@ NewSandbox(JSContext* cx, bool lazy)
         RootedValue value(cx, BooleanValue(lazy));
         if (!JS_SetProperty(cx, obj, "lazy", value))
             return nullptr;
-    }
 
-    JS_FireOnNewGlobalObject(cx, obj);
+        JS_FireOnNewGlobalObject(cx, obj);
+    }
 
     if (!cx->compartment()->wrap(cx, &obj))
         return nullptr;
@@ -3456,8 +3472,8 @@ GroupOf(JSContext* cx, unsigned argc, JS::Value* vp)
         JS_ReportErrorASCII(cx, "groupOf: object expected");
         return false;
     }
-    JSObject* obj = &args[0].toObject();
-    ObjectGroup* group = obj->getGroup(cx);
+    RootedObject obj(cx, &args[0].toObject());
+    ObjectGroup* group = JSObject::getGroup(cx, obj);
     if (!group)
         return false;
     args.rval().set(JS_NumberValue(double(uintptr_t(group) >> 3)));
@@ -3859,6 +3875,7 @@ StackDump(JSContext* cx, unsigned argc, Value* vp)
     char* buf = JS::FormatStackDump(cx, nullptr, showArgs, showLocals, showThisProps);
     if (!buf) {
         fputs("Failed to format JavaScript stack for dump\n", gOutFile->fp);
+        JS_ClearPendingException(cx);
     } else {
         fputs(buf, gOutFile->fp);
         JS_smprintf_free(buf);
@@ -4632,6 +4649,11 @@ NewGlobal(JSContext* cx, unsigned argc, Value* vp)
             return false;
         if (v.isBoolean())
             creationOptions.setCloneSingletons(v.toBoolean());
+
+        if (!JS_GetProperty(cx, opts, "experimentalNumberFormatFormatToPartsEnabled", &v))
+            return false;
+        if (v.isBoolean())
+            creationOptions.setExperimentalNumberFormatFormatToPartsEnabled(v.toBoolean());
 
         if (!JS_GetProperty(cx, opts, "sameZoneAs", &v))
             return false;
@@ -6086,7 +6108,8 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "provided object (this should generally be Intl itself).  The added\n"
 "functions and their behavior are experimental: don't depend upon them\n"
 "unless you're willing to update your code if these experimental APIs change\n"
-"underneath you."),
+"underneath you.  Calling this function more than once in a realm/global\n"
+"will throw."),
 #endif // ENABLE_INTL_API
 
     JS_FS_HELP_END
@@ -7062,9 +7085,9 @@ NewGlobalObject(JSContext* cx, JS::CompartmentOptions& options,
 
         /* Initialize FakeDOMObject.prototype */
         InitDOMObject(domProto);
-    }
 
-    JS_FireOnNewGlobalObject(cx, glob);
+        JS_FireOnNewGlobalObject(cx, glob);
+    }
 
     return glob;
 }

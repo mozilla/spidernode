@@ -644,7 +644,7 @@ js::EnqueuePendingParseTasksAfterGC(JSRuntime* rt)
 
         for (size_t i = 0; i < waiting.length(); i++) {
             ParseTask* task = waiting[i];
-            if (task->runtimeMatches(rt)) {
+            if (task->runtimeMatches(rt) && !task->exclusiveContextGlobal->zone()->wasGCStarted()) {
                 AutoEnterOOMUnsafeRegion oomUnsafe;
                 if (!newTasks.append(task))
                     oomUnsafe.crash("EnqueuePendingParseTasksAfterGC");
@@ -868,8 +868,6 @@ GlobalHelperThreadState::maxWasmCompilationThreads() const
 {
     if (IsHelperThreadSimulatingOOM(js::oom::THREAD_TYPE_WASM))
         return 1;
-    if (cpuCount < 2)
-        return 2;
     return cpuCount;
 }
 
@@ -1142,9 +1140,9 @@ js::GCParallelTask::runFromMainThread(JSRuntime* rt)
 {
     MOZ_ASSERT(state == NotStarted);
     MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(rt));
-    uint64_t timeStart = PRMJ_Now();
+    mozilla::TimeStamp timeStart = mozilla::TimeStamp::Now();
     run();
-    duration_ = PRMJ_Now() - timeStart;
+    duration_ = mozilla::TimeStamp::Now() - timeStart;
 }
 
 void
@@ -1153,9 +1151,9 @@ js::GCParallelTask::runFromHelperThread(AutoLockHelperThreadState& locked)
     {
         AutoUnlockHelperThreadState parallelSection(locked);
         gc::AutoSetThreadIsPerformingGC performingGC;
-        uint64_t timeStart = PRMJ_Now();
+        mozilla::TimeStamp timeStart = mozilla::TimeStamp::Now();
         run();
-        duration_ = PRMJ_Now() - timeStart;
+        duration_ = mozilla::TimeStamp::Now() - timeStart;
     }
 
     state = Finished;
@@ -1418,11 +1416,12 @@ HelperThread::handleWasmWorkload(AutoLockHelperThreadState& locked)
 
     currentTask.emplace(HelperThreadState().wasmWorklist(locked).popCopy());
     bool success = false;
+    UniqueChars error;
 
     wasm::CompileTask* task = wasmTask();
     {
         AutoUnlockHelperThreadState unlock(locked);
-        success = wasm::CompileFunction(task);
+        success = wasm::CompileFunction(task, &error);
     }
 
     // On success, try to move work to the finished list.
@@ -1430,8 +1429,10 @@ HelperThread::handleWasmWorkload(AutoLockHelperThreadState& locked)
         success = HelperThreadState().wasmFinishedList(locked).append(task);
 
     // On failure, note the failure for harvesting by the parent.
-    if (!success)
+    if (!success) {
         HelperThreadState().noteWasmFailure(locked);
+        HelperThreadState().setWasmError(locked, Move(error));
+    }
 
     // Notify the main thread in case it's waiting.
     HelperThreadState().notifyAll(GlobalHelperThreadState::CONSUMER, locked);

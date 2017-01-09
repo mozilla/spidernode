@@ -860,9 +860,7 @@ EnumerableOwnProperties(JSContext* cx, const JS::CallArgs& args, EnumerableOwnPr
             // (Omitted because Object.keys doesn't use this implementation.)
 
             // Step 4.a.ii.2.a.
-            if (obj->isNative() && desc.hasValue())
-                value = desc.value();
-            else if (!GetProperty(cx, obj, obj, id, &value))
+            if (!GetProperty(cx, obj, obj, id, &value))
                 return false;
         }
 
@@ -1316,8 +1314,8 @@ FinishObjectClassInit(JSContext* cx, JS::HandleObject ctor, JS::HandleObject pro
      * only set the [[Prototype]] if it hasn't already been set.
      */
     Rooted<TaggedProto> tagged(cx, TaggedProto(proto));
-    if (global->shouldSplicePrototype(cx)) {
-        if (!global->splicePrototype(cx, global->getClass(), tagged))
+    if (global->shouldSplicePrototype()) {
+        if (!JSObject::splicePrototype(cx, global, global->getClass(), tagged))
             return false;
     }
     return true;

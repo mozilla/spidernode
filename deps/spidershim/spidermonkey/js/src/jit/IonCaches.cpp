@@ -23,6 +23,7 @@
 #endif
 #include "jit/VMFunctions.h"
 #include "js/Proxy.h"
+#include "proxy/Proxy.h"
 #include "vm/Shape.h"
 #include "vm/Stack.h"
 
@@ -383,14 +384,15 @@ IonCache::updateBaseAddress(JitCode* code, MacroAssembler& masm)
     rejoinLabel_.repoint(code, &masm);
 }
 
-void IonCache::trace(JSTracer* trc)
+void
+IonCache::trace(JSTracer* trc)
 {
     if (script_)
         TraceManuallyBarrieredEdge(trc, &script_, "IonCache::script_");
 }
 
-static void*
-GetReturnAddressToIonCode(JSContext* cx)
+void*
+jit::GetReturnAddressToIonCode(JSContext* cx)
 {
     JitFrameIterator iter(cx);
     MOZ_ASSERT(iter.type() == JitFrame_Exit,
@@ -1042,9 +1044,9 @@ EmitGetterCall(JSContext* cx, MacroAssembler& masm,
         JSFunction* target = &shape->getterValue().toObject().as<JSFunction>();
         uint32_t framePushedBefore = masm.framePushed();
 
-        // Construct IonAccessorICFrameLayout.
+        // Construct IonICCallFrameLayout.
         uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS,
-                                                  IonAccessorICFrameLayout::Size());
+                                                  IonICCallFrameLayout::Size());
         attacher.pushStubCodePointer(masm);
         masm.Push(Imm32(descriptor));
         masm.Push(ImmPtr(returnAddr));
@@ -1064,7 +1066,7 @@ EmitGetterCall(JSContext* cx, MacroAssembler& masm,
 
         masm.movePtr(ImmGCPtr(target), scratchReg);
 
-        descriptor = MakeFrameDescriptor(argSize + padding, JitFrame_IonAccessorIC,
+        descriptor = MakeFrameDescriptor(argSize + padding, JitFrame_IonICCall,
                                          JitFrameLayout::Size());
         masm.Push(Imm32(0)); // argc
         masm.Push(scratchReg);
@@ -2426,15 +2428,29 @@ IsCacheableSetPropCallNative(HandleObject obj, HandleObject holder, HandleShape 
     if (!shape || !IsCacheableProtoChainForIonOrCacheIR(obj, holder))
         return false;
 
-    return shape->hasSetterValue() && shape->setterObject() &&
-           shape->setterObject()->is<JSFunction>() &&
-           shape->setterObject()->as<JSFunction>().isNative();
+    if (!shape->hasSetterValue())
+        return false;
+
+    if (!shape->setterObject() || !shape->setterObject()->is<JSFunction>())
+        return false;
+
+    JSFunction& setter = shape->setterObject()->as<JSFunction>();
+    if (!setter.isNative())
+        return false;
+
+    if (setter.jitInfo() && !setter.jitInfo()->needsOuterizedThisObject())
+        return true;
+
+    return !IsWindow(obj);
 }
 
 static bool
 IsCacheableSetPropCallScripted(HandleObject obj, HandleObject holder, HandleShape shape)
 {
     if (!shape || !IsCacheableProtoChainForIonOrCacheIR(obj, holder))
+        return false;
+
+    if (IsWindow(obj))
         return false;
 
     return shape->hasSetterValue() && shape->setterObject() &&
@@ -2845,9 +2861,9 @@ GenerateCallSetter(JSContext* cx, IonScript* ion, MacroAssembler& masm,
         JSFunction* target = &shape->setterValue().toObject().as<JSFunction>();
         uint32_t framePushedBefore = masm.framePushed();
 
-        // Construct IonAccessorICFrameLayout.
+        // Construct IonICCallFrameLayout.
         uint32_t descriptor = MakeFrameDescriptor(masm.framePushed(), JitFrame_IonJS,
-                                                  IonAccessorICFrameLayout::Size());
+                                                  IonICCallFrameLayout::Size());
         attacher.pushStubCodePointer(masm);
         masm.Push(Imm32(descriptor));
         masm.Push(ImmPtr(returnAddr));
@@ -2869,7 +2885,7 @@ GenerateCallSetter(JSContext* cx, IonScript* ion, MacroAssembler& masm,
 
         masm.movePtr(ImmGCPtr(target), tempReg);
 
-        descriptor = MakeFrameDescriptor(argSize + padding, JitFrame_IonAccessorIC,
+        descriptor = MakeFrameDescriptor(argSize + padding, JitFrame_IonICCall,
                                          JitFrameLayout::Size());
         masm.Push(Imm32(1)); // argc
         masm.Push(tempReg);
@@ -3689,7 +3705,7 @@ SetPropertyIC::update(JSContext* cx, HandleScript outerScript, size_t cacheIndex
     RootedObjectGroup oldGroup(cx);
     RootedShape oldShape(cx);
     if (cache.canAttachStub()) {
-        oldGroup = obj->getGroup(cx);
+        oldGroup = JSObject::getGroup(cx, obj);
         if (!oldGroup)
             return false;
 
@@ -4014,9 +4030,10 @@ GetPropertyIC::canAttachTypedOrUnboxedArrayElement(JSObject* obj, const Value& i
     if (idval.isInt32()) {
         index = idval.toInt32();
     } else {
-        index = GetIndexFromString(idval.toString());
-        if (index == UINT32_MAX)
+        int32_t indexInt32 = GetIndexFromString(idval.toString());
+        if (indexInt32 < 0)
             return false;
+        index = indexInt32;
     }
 
     if (obj->is<TypedArrayObject>()) {
@@ -4060,7 +4077,7 @@ GenerateGetTypedOrUnboxedArrayElement(JSContext* cx, MacroAssembler& masm,
     MOZ_ASSERT(tmpReg != InvalidReg);
     Register indexReg = tmpReg;
     if (idval.isString()) {
-        MOZ_ASSERT(GetIndexFromString(idval.toString()) != UINT32_MAX);
+        MOZ_ASSERT(GetIndexFromString(idval.toString()) >= 0);
 
         if (index.constant()) {
             MOZ_ASSERT(idval == index.value());
@@ -4095,7 +4112,7 @@ GenerateGetTypedOrUnboxedArrayElement(JSContext* cx, MacroAssembler& masm,
             ignore.add(indexReg);
             masm.PopRegsInMaskIgnore(save, ignore);
 
-            masm.branch32(Assembler::Equal, indexReg, Imm32(UINT32_MAX), &failures);
+            masm.branchTest32(Assembler::Signed, indexReg, indexReg, &failures);
         }
     } else {
         MOZ_ASSERT(idval.isInt32());

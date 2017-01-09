@@ -39,6 +39,17 @@ MacroAssemblerMIPSShared::ma_li(Register dest, Imm32 imm)
     }
 }
 
+// This method generates lui and ori instruction pair that can be modified by
+// UpdateLuiOriValue, either during compilation (eg. Assembler::bind), or
+// during execution (eg. jit::PatchJump).
+void
+MacroAssemblerMIPSShared::ma_liPatchable(Register dest, Imm32 imm)
+{
+    m_buffer.ensureSpace(2 * sizeof(uint32_t));
+    as_lui(dest, Imm16::Upper(imm).encode());
+    as_ori(dest, dest, Imm16::Lower(imm).encode());
+}
+
 // Shifts
 void
 MacroAssemblerMIPSShared::ma_sll(Register rd, Register rt, Imm32 shift)
@@ -991,15 +1002,6 @@ void
 MacroAssemblerMIPSShared::ma_lis(FloatRegister dest, float value)
 {
     Imm32 imm(mozilla::BitwiseCast<uint32_t>(value));
-
-    ma_li(ScratchRegister, imm);
-    moveToFloat32(ScratchRegister, dest);
-}
-
-void
-MacroAssemblerMIPSShared::ma_lis(FloatRegister dest, wasm::RawF32 value)
-{
-    Imm32 imm(value.bits());
 
     ma_li(ScratchRegister, imm);
     moveToFloat32(ScratchRegister, dest);

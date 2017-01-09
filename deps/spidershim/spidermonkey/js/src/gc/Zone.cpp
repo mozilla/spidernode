@@ -31,6 +31,7 @@ JS::Zone::Zone(JSRuntime* rt)
     types(this),
     compartments(),
     gcGrayRoots(),
+    gcWeakKeys(SystemAllocPolicy(), rt->randomHashCodeScrambler()),
     typeDescrObjects(this, SystemAllocPolicy()),
     gcMallocBytes(0),
     gcMallocGCTriggered(false),
@@ -254,8 +255,10 @@ Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode)
          *
          * Defer freeing any allocated blocks until after the next minor GC.
          */
-        if (discardBaselineCode)
+        if (discardBaselineCode) {
             jitZone()->optimizedStubSpace()->freeAllAfterMinorGC(fop->runtime());
+            jitZone()->purgeIonCacheIRStubInfo();
+        }
 
         /*
          * Free all control flow graphs that are cached on BaselineScripts.

@@ -664,7 +664,9 @@ void PostWriteBarrier(JSRuntime* rt, JSObject* obj);
 void PostWriteElementBarrier(JSRuntime* rt, JSObject* obj, int32_t index);
 void PostGlobalWriteBarrier(JSRuntime* rt, JSObject* obj);
 
-uint32_t GetIndexFromString(JSString* str);
+// If |str| is an index in the range [0, INT32_MAX], return it. If the string
+// is not an index in this range, return -1.
+int32_t GetIndexFromString(JSString* str);
 
 MOZ_MUST_USE bool
 DebugPrologue(JSContext* cx, BaselineFrame* frame, jsbytecode* pc, bool* mustReturn);
@@ -810,11 +812,9 @@ MOZ_MUST_USE bool
 BaselineGetFunctionThis(JSContext* cx, BaselineFrame* frame, MutableHandleValue res);
 
 MOZ_MUST_USE bool
-ProxyGetProperty(JSContext* cx, HandleObject proxy, HandleId id, MutableHandleValue vp);
+CallNativeGetter(JSContext* cx, HandleFunction callee, HandleObject obj,
+                 MutableHandleValue result);
 
-MOZ_MUST_USE bool
-ProxyGetPropertyByValue(JSContext* cx, HandleObject proxy, HandleValue idVal,
-                        MutableHandleValue vp);
 
 MOZ_MUST_USE bool
 EqualStringsHelper(JSString* str1, JSString* str2);

@@ -231,8 +231,10 @@ JS_FOR_EACH_TYPED_ARRAY(OBJECT_MOVED_TYPED_ARRAY)
 
     // Set a forwarding pointer for the element buffers in case they were
     // preserved on the stack by Ion.
-    nursery.maybeSetForwardingPointer(trc, oldObj->elements(), newObj->elements(),
-                                      /* direct = */nbytes >= sizeof(uintptr_t));
+    if (nbytes > 0) {
+        nursery.maybeSetForwardingPointer(trc, oldObj->elements(), newObj->elements(),
+                                          /* direct = */nbytes >= sizeof(uintptr_t));
+    }
 
     return newObj->hasInlineElements() ? 0 : nbytes;
 }
@@ -1655,6 +1657,11 @@ DataViewObject*
 DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
                        Handle<ArrayBufferObjectMaybeShared*> arrayBuffer, JSObject* protoArg)
 {
+    if (arrayBuffer->isDetached()) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
+        return nullptr;
+    }
+
     MOZ_ASSERT(byteOffset <= INT32_MAX);
     MOZ_ASSERT(byteLength <= INT32_MAX);
     MOZ_ASSERT(byteOffset + byteLength < UINT32_MAX);
@@ -1904,11 +1911,9 @@ DataViewObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
 
 template <typename NativeType>
 /* static */ SharedMem<uint8_t*>
-DataViewObject::getDataPointer(JSContext* cx, Handle<DataViewObject*> obj, double offset,
+DataViewObject::getDataPointer(JSContext* cx, Handle<DataViewObject*> obj, uint64_t offset,
                                bool* isSharedMemory)
 {
-    MOZ_ASSERT(offset >= 0);
-
     const size_t TypeSize = sizeof(NativeType);
     if (offset > UINT32_MAX - TypeSize || offset + TypeSize > obj->byteLength()) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_ARG_INDEX_OUT_OF_RANGE,
@@ -2013,31 +2018,6 @@ struct DataViewIO
     }
 };
 
-static bool
-ToIndex(JSContext* cx, HandleValue v, double* index)
-{
-    if (v.isUndefined()) {
-        *index = 0.0;
-        return true;
-    }
-
-    double integerIndex;
-    if (!ToInteger(cx, v, &integerIndex))
-        return false;
-
-    // Inlined version of ToLength.
-    // 1. Already an integer
-    // 2. Step eliminates < 0, +0 == -0 with SameValueZero
-    // 3/4. Limit to <= 2^53-1, so everything above should fail.
-    if (integerIndex < 0 || integerIndex > 9007199254740991) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
-        return false;
-    }
-
-    *index = integerIndex;
-    return true;
-}
-
 template<typename NativeType>
 /* static */ bool
 DataViewObject::read(JSContext* cx, Handle<DataViewObject*> obj,
@@ -2047,7 +2027,7 @@ DataViewObject::read(JSContext* cx, Handle<DataViewObject*> obj,
     // Step 3. unnecessary assert
 
     // Step 4.
-    double getIndex;
+    uint64_t getIndex;
     if (!ToIndex(cx, args.get(0), &getIndex))
         return false;
 
@@ -2119,7 +2099,7 @@ DataViewObject::write(JSContext* cx, Handle<DataViewObject*> obj,
     // Step 3. unnecessary assert
 
     // Step 4.
-    double getIndex;
+    uint64_t getIndex;
     if (!ToIndex(cx, args.get(0), &getIndex))
         return false;
 
@@ -3031,36 +3011,50 @@ js::DefineTypedArrayElement(JSContext* cx, HandleObject obj, uint64_t index,
 {
     MOZ_ASSERT(obj->is<TypedArrayObject>());
 
-    // These are all substeps of 3.c.
-    // Steps i-vi.
+    // These are all substeps of 3.b.
+
+    // Steps i-iii are handled by the caller.
+
+    // Steps iv-v.
     // We (wrongly) ignore out of range defines with a value.
-    if (index >= obj->as<TypedArrayObject>().length())
+    uint32_t length = obj->as<TypedArrayObject>().length();
+    if (index >= length)
         return result.succeed();
 
-    // Step vii.
+    // Step vi.
     if (desc.isAccessorDescriptor())
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
-    // Step viii.
+    // Step vii.
     if (desc.hasConfigurable() && desc.configurable())
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
-    // Step ix.
+    // Step viii.
     if (desc.hasEnumerable() && !desc.enumerable())
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
-    // Step x.
+    // Step ix.
     if (desc.hasWritable() && !desc.writable())
         return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
-    // Step xi.
+    // Step x.
     if (desc.hasValue()) {
-        double d;
-        if (!ToNumber(cx, desc.value(), &d))
+        // The following step numbers refer to 9.4.5.9
+        // IntegerIndexedElementSet.
+
+        // Steps 1-2 are enforced by the caller.
+
+        // Step 3.
+        double numValue;
+        if (!ToNumber(cx, desc.value(), &numValue))
             return false;
 
-        if (obj->is<TypedArrayObject>())
-            TypedArrayObject::setElement(obj->as<TypedArrayObject>(), index, d);
+        // Steps 4-5, 8-9.
+        if (obj->as<TypedArrayObject>().hasDetachedBuffer())
+            return result.fail(JSMSG_TYPED_ARRAY_DETACHED);
+
+        // Steps 10-16.
+        TypedArrayObject::setElement(obj->as<TypedArrayObject>(), index, numValue);
     }
 
     // Step xii.

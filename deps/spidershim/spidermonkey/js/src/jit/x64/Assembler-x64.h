@@ -360,6 +360,13 @@ class Assembler : public AssemblerX86Shared
         return movWithPatch(ImmWord(uintptr_t(imm.value)), dest);
     }
 
+    // This is for patching during code generation, not after.
+    void patchAddq(CodeOffset offset, int32_t n) {
+        unsigned char* code = masm.acquireData();
+        X86Encoding::SetInt32(code + offset.offset(), n);
+        masm.releaseData();
+    }
+
     // Load an ImmWord value into a register. Note that this instruction will
     // attempt to optimize its immediate field size. When a full 64-bit
     // immediate is needed for a relocation, use movWithPatch.
@@ -553,6 +560,10 @@ class Assembler : public AssemblerX86Shared
 
     void addq(Imm32 imm, Register dest) {
         masm.addq_ir(imm.value, dest.encoding());
+    }
+    CodeOffset addqWithPatch(Imm32 imm, Register dest) {
+        masm.addq_i32r(imm.value, dest.encoding());
+        return CodeOffset(masm.currentOffset());
     }
     void addq(Imm32 imm, const Operand& dest) {
         switch (dest.kind()) {

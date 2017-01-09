@@ -649,6 +649,7 @@ typedef enum JSExnType {
         JSEXN_URIERR,
         JSEXN_DEBUGGEEWOULDRUN,
         JSEXN_WASMCOMPILEERROR,
+        JSEXN_WASMLINKERROR,
         JSEXN_WASMRUNTIMEERROR,
     JSEXN_ERROR_LIMIT,
     JSEXN_WARN = JSEXN_ERROR_LIMIT,
@@ -726,6 +727,17 @@ typedef void
 typedef void
 (* JSCompartmentNameCallback)(JSContext* cx, JSCompartment* compartment,
                               char* buf, size_t bufsize);
+
+/**
+ * Callback used by memory reporting to ask the embedder how much memory an
+ * external string is keeping alive.  The embedder is expected to return a value
+ * that corresponds to the size of the allocation that will be released by the
+ * JSStringFinalizer passed to JS_NewExternalString for this string.
+ *
+ * Implementations of this callback MUST NOT do anything that can cause GC.
+ */
+using JSExternalStringSizeofCallback =
+    size_t (*)(JSString* str, mozilla::MallocSizeOf mallocSizeOf);
 
 /************************************************************************/
 
@@ -1293,6 +1305,9 @@ JS_SetCompartmentNameCallback(JSContext* cx, JSCompartmentNameCallback callback)
 
 extern JS_PUBLIC_API(void)
 JS_SetWrapObjectCallbacks(JSContext* cx, const JSWrapObjectCallbacks* callbacks);
+
+extern JS_PUBLIC_API(void)
+JS_SetExternalStringSizeofCallback(JSContext* cx, JSExternalStringSizeofCallback callback);
 
 extern JS_PUBLIC_API(void)
 JS_SetCompartmentPrivate(JSCompartment* compartment, void* data);
@@ -2195,6 +2210,7 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         mergeable_(false),
         preserveJitCode_(false),
         cloneSingletons_(false),
+        experimentalNumberFormatFormatToPartsEnabled_(false),
         sharedMemoryAndAtomics_(false),
         secureContext_(false)
     {
@@ -2259,6 +2275,23 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         return *this;
     }
 
+    // ECMA-402 is considering adding a "formatToParts" NumberFormat method,
+    // that exposes not just a formatted string but its subcomponents.  The
+    // method, its semantics, and its name aren't finalized, so for now it's
+    // exposed *only* if requested.
+    //
+    // Until "formatToParts" is included in a final specification edition, it's
+    // subject to change or removal at any time.  Do *not* rely on it in
+    // mission-critical code that can't be changed if ECMA-402 decides not to
+    // accept the method in its current form.
+    bool experimentalNumberFormatFormatToPartsEnabled() const {
+        return experimentalNumberFormatFormatToPartsEnabled_;
+    }
+    CompartmentCreationOptions& setExperimentalNumberFormatFormatToPartsEnabled(bool flag) {
+        experimentalNumberFormatFormatToPartsEnabled_ = flag;
+        return *this;
+    }
+
     bool getSharedMemoryAndAtomicsEnabled() const;
     CompartmentCreationOptions& setSharedMemoryAndAtomicsEnabled(bool flag);
 
@@ -2283,6 +2316,7 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
     bool mergeable_;
     bool preserveJitCode_;
     bool cloneSingletons_;
+    bool experimentalNumberFormatFormatToPartsEnabled_;
     bool sharedMemoryAndAtomics_;
     bool secureContext_;
 };
@@ -6089,7 +6123,6 @@ SetBuildIdOp(JSContext* cx, BuildIdOp buildIdOp);
 
 struct WasmModule : js::AtomicRefCounted<WasmModule>
 {
-    MOZ_DECLARE_REFCOUNTED_TYPENAME(WasmModule)
     virtual ~WasmModule() {}
 
     virtual void serializedSize(size_t* maybeBytecodeSize, size_t* maybeCompiledSize) const = 0;

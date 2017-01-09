@@ -66,10 +66,12 @@ class CentOSFedoraBootstrapper(BaseBootstrapper):
 
             self.packages += [
                 'python2-devel',
+                'redhat-rpm-config',
             ]
 
             self.browser_packages += [
                 'gcc-c++',
+                'python-dbus',
             ]
 
             self.mobile_android_packages += [

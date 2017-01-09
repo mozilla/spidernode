@@ -1,5 +1,7 @@
 load(libdir + "wasm.js");
 
+const LinkError = WebAssembly.LinkError;
+
 // ----------------------------------------------------------------------------
 // exports
 
@@ -15,7 +17,7 @@ assertEq(names.length, 1);
 assertEq(names[0], 'a');
 var desc = Object.getOwnPropertyDescriptor(o, 'a');
 assertEq(typeof desc.value, "function");
-assertEq(desc.value.name, "wasm-function[0]");
+assertEq(desc.value.name, "0");
 assertEq(desc.value.length, 0);
 assertEq(desc.value(), undefined);
 assertEq(desc.writable, false);
@@ -33,14 +35,14 @@ wasmFailValidateText('(module (func) (func) (export "a" 2))', /exported function
 
 var o = wasmEvalText('(module (func) (export "a" 0) (export "b" 0))').exports;
 assertEq(Object.getOwnPropertyNames(o).sort().toString(), "a,b");
-assertEq(o.a.name, "wasm-function[0]");
-assertEq(o.b.name, "wasm-function[0]");
+assertEq(o.a.name, "0");
+assertEq(o.b.name, "0");
 assertEq(o.a === o.b, true);
 
 var o = wasmEvalText('(module (func) (func) (export "a" 0) (export "b" 1))').exports;
 assertEq(Object.getOwnPropertyNames(o).sort().toString(), "a,b");
-assertEq(o.a.name, "wasm-function[0]");
-assertEq(o.b.name, "wasm-function[1]");
+assertEq(o.a.name, "0");
+assertEq(o.b.name, "1");
 assertEq(o.a === o.b, false);
 
 var o = wasmEvalText('(module (func (result i32) (i32.const 1)) (func (result i32) (i32.const 2)) (export "a" 0) (export "b" 1))').exports;
@@ -104,8 +106,8 @@ var code = '(module (import "a" "b"))';
 assertErrorMessage(() => wasmEvalText(code), TypeError, noImportObj);
 assertErrorMessage(() => wasmEvalText(code, {}), TypeError, notObject);
 assertErrorMessage(() => wasmEvalText(code, {a:1}), TypeError, notObject);
-assertErrorMessage(() => wasmEvalText(code, {a:{}}), TypeError, notFunction);
-assertErrorMessage(() => wasmEvalText(code, {a:{b:1}}), TypeError, notFunction);
+assertErrorMessage(() => wasmEvalText(code, {a:{}}), LinkError, notFunction);
+assertErrorMessage(() => wasmEvalText(code, {a:{b:1}}), LinkError, notFunction);
 wasmEvalText(code, {a:{b:()=>{}}});
 
 var code = '(module (import "" "b"))';
@@ -118,7 +120,7 @@ assertErrorMessage(() => wasmEvalText(code, {a:1}), TypeError, notObject);
 wasmEvalText(code, {a:{"":()=>{}}});
 
 var code = '(module (import "a" "") (import "b" "c") (import "c" ""))';
-assertErrorMessage(() => wasmEvalText(code, {a:()=>{}, b:{c:()=>{}}, c:{}}), TypeError, notFunction);
+assertErrorMessage(() => wasmEvalText(code, {a:()=>{}, b:{c:()=>{}}, c:{}}), LinkError, notFunction);
 wasmEvalText(code, {a:{"":()=>{}}, b:{c:()=>{}}, c:{"":()=>{}}});
 
 wasmEvalText('(module (import "a" "" (result i32)))', {a:{"":()=>{}}});

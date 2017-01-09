@@ -198,11 +198,11 @@ class Encoder
     MOZ_MUST_USE bool writeFixedU32(uint32_t i) {
         return write<uint32_t>(i);
     }
-    MOZ_MUST_USE bool writeFixedF32(RawF32 f) {
-        return write<uint32_t>(f.bits());
+    MOZ_MUST_USE bool writeFixedF32(float f) {
+        return write<float>(f);
     }
-    MOZ_MUST_USE bool writeFixedF64(RawF64 d) {
-        return write<uint64_t>(d.bits());
+    MOZ_MUST_USE bool writeFixedF64(double d) {
+        return write<double>(d);
     }
     MOZ_MUST_USE bool writeFixedI8x16(const I8x16& i8x16) {
         return write<I8x16>(i8x16);
@@ -303,6 +303,7 @@ class Decoder
     const uint8_t* const end_;
     const uint8_t* cur_;
     UniqueChars* error_;
+    bool resilientMode_;
 
     template <class T>
     MOZ_MUST_USE bool read(T* out) {
@@ -383,11 +384,13 @@ class Decoder
     }
 
   public:
-    Decoder(const uint8_t* begin, const uint8_t* end, UniqueChars* error)
+    Decoder(const uint8_t* begin, const uint8_t* end, UniqueChars* error,
+            bool resilientMode = false)
       : beg_(begin),
         end_(end),
         cur_(begin),
-        error_(error)
+        error_(error),
+        resilientMode_(resilientMode)
     {
         MOZ_ASSERT(begin <= end);
     }
@@ -395,7 +398,8 @@ class Decoder
       : beg_(bytes.begin()),
         end_(bytes.end()),
         cur_(bytes.begin()),
-        error_(error)
+        error_(error),
+        resilientMode_(false)
     {}
 
     bool fail(const char* msg, ...) MOZ_FORMAT_PRINTF(2, 3);
@@ -408,6 +412,9 @@ class Decoder
     bool done() const {
         MOZ_ASSERT(cur_ <= end_);
         return cur_ == end_;
+    }
+    bool resilientMode() const {
+        return resilientMode_;
     }
 
     size_t bytesRemain() const {
@@ -437,19 +444,11 @@ class Decoder
     MOZ_MUST_USE bool readFixedU32(uint32_t* u) {
         return read<uint32_t>(u);
     }
-    MOZ_MUST_USE bool readFixedF32(RawF32* f) {
-        uint32_t u;
-        if (!read<uint32_t>(&u))
-            return false;
-        *f = RawF32::fromBits(u);
-        return true;
+    MOZ_MUST_USE bool readFixedF32(float* f) {
+        return read<float>(f);
     }
-    MOZ_MUST_USE bool readFixedF64(RawF64* d) {
-        uint64_t u;
-        if (!read<uint64_t>(&u))
-            return false;
-        *d = RawF64::fromBits(u);
-        return true;
+    MOZ_MUST_USE bool readFixedF64(double* d) {
+        return read<double>(d);
     }
     MOZ_MUST_USE bool readFixedI8x16(I8x16* i8x16) {
         return read<I8x16>(i8x16);
@@ -556,11 +555,11 @@ class Decoder
     uint32_t uncheckedReadFixedU32() {
         return uncheckedRead<uint32_t>();
     }
-    RawF32 uncheckedReadFixedF32() {
-        return RawF32::fromBits(uncheckedRead<uint32_t>());
+    void uncheckedReadFixedF32(float* out) {
+        uncheckedRead<float>(out);
     }
-    RawF64 uncheckedReadFixedF64() {
-        return RawF64::fromBits(uncheckedRead<uint64_t>());
+    void uncheckedReadFixedF64(double* out) {
+        uncheckedRead<double>(out);
     }
     template <typename UInt>
     UInt uncheckedReadVarU() {
@@ -647,7 +646,8 @@ MOZ_MUST_USE bool
 DecodeModuleEnvironment(Decoder& d, ModuleEnvironment* env);
 
 MOZ_MUST_USE bool
-ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Decoder& d);
+ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, uint32_t bodySize,
+                     Decoder& d);
 
 MOZ_MUST_USE bool
 DecodeModuleTail(Decoder& d, ModuleEnvironment* env);

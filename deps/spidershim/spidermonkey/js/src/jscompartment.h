@@ -701,6 +701,12 @@ struct JSCompartment
     // Initialize randomNumberGenerator if needed.
     void ensureRandomNumberGenerator();
 
+  private:
+    mozilla::non_crypto::XorShift128PlusRNG randomKeyGenerator_;
+
+  public:
+    mozilla::HashCodeScrambler randomHashCodeScrambler();
+
     static size_t offsetOfRegExps() {
         return offsetof(JSCompartment, regExps);
     }
@@ -883,7 +889,6 @@ struct JSCompartment
         // NO LONGER USING 8
         // NO LONGER USING 9
         DeprecatedBlockScopeFunRedecl = 10,
-        DeprecatedStringGenerics = 11,
         DeprecatedLanguageExtensionCount
     };
 

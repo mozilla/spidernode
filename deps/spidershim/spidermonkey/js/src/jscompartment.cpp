@@ -77,6 +77,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     nonSyntacticLexicalEnvironments_(nullptr),
     gcIncomingGrayPointers(nullptr),
     debugModeBits(0),
+    randomKeyGenerator_(runtime_->forkRandomKeyGenerator()),
     watchpointMap(nullptr),
     scriptCountsMap(nullptr),
     debugScriptMap(nullptr),
@@ -1025,6 +1026,15 @@ AddLazyFunctionsForCompartment(JSContext* cx, AutoObjectVector& lazyFunctions, A
             continue;
         }
 
+        // This creates a new reference to an object that an ongoing incremental
+        // GC may find to be unreachable. Treat as if we're reading a weak
+        // reference and trigger the read barrier.
+        if (cx->zone()->needsIncrementalBarrier())
+            fun->readBarrier(fun);
+
+        // TODO: The above checks should be rolled into the cell iterator (see
+        // bug 1322971).
+
         if (fun->isInterpretedLazy()) {
             LazyScript* lazy = fun->lazyScriptOrNull();
             if (lazy && lazy->sourceObject() && !lazy->hasUncompiledEnclosingScript()) {
@@ -1266,6 +1276,13 @@ JSCompartment::addTelemetry(const char* filename, DeprecatedLanguageExtension e)
         return;
 
     sawDeprecatedLanguageExtension[e] = true;
+}
+
+mozilla::HashCodeScrambler
+JSCompartment::randomHashCodeScrambler()
+{
+    return mozilla::HashCodeScrambler(randomKeyGenerator_.next(),
+                                      randomKeyGenerator_.next());
 }
 
 AutoSetNewObjectMetadata::AutoSetNewObjectMetadata(ExclusiveContext* ecx

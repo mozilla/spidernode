@@ -189,6 +189,7 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Move.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/TimeStamp.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -245,6 +246,7 @@ using namespace js::gc;
 
 using mozilla::ArrayLength;
 using mozilla::Get;
+using mozilla::HashCodeScrambler;
 using mozilla::Maybe;
 using mozilla::Swap;
 
@@ -1382,16 +1384,12 @@ namespace {
 class AutoNotifyGCActivity {
   public:
     explicit AutoNotifyGCActivity(GCRuntime& gc) : gc_(gc) {
-        if (!gc_.isIncrementalGCInProgress()) {
-            gcstats::AutoPhase ap(gc_.stats, gcstats::PHASE_GC_BEGIN);
+        if (!gc_.isIncrementalGCInProgress())
             gc_.callGCCallback(JSGC_BEGIN);
-        }
     }
     ~AutoNotifyGCActivity() {
-        if (!gc_.isIncrementalGCInProgress()) {
-            gcstats::AutoPhase ap(gc_.stats, gcstats::PHASE_GC_END);
+        if (!gc_.isIncrementalGCInProgress())
             gc_.callGCCallback(JSGC_END);
-        }
     }
 
   private:
@@ -4166,7 +4164,7 @@ js::gc::MarkingValidator::nonIncrementalMark(AutoLockForExclusiveAccess& lock)
      * For saving, smush all of the keys into one big table and split them back
      * up into per-zone tables when restoring.
      */
-    gc::WeakKeyTable savedWeakKeys;
+    gc::WeakKeyTable savedWeakKeys(SystemAllocPolicy(), runtime->randomHashCodeScrambler());
     if (!savedWeakKeys.init())
         return;
 

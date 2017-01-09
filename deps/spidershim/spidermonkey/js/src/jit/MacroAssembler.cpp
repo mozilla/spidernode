@@ -1979,7 +1979,7 @@ MacroAssembler::outOfLineTruncateSlow(FloatRegister src, Register dest, bool wid
         callWithABI(wasm::SymbolicAddress::ToInt32);
     else
         callWithABI(mozilla::BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
-    storeCallResult(dest);
+    storeCallWordResult(dest);
 
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
     defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
@@ -2383,6 +2383,12 @@ MacroAssembler::icSaveLive(LiveRegisterSet& liveRegs)
 
 bool
 MacroAssembler::icBuildOOLFakeExitFrame(void* fakeReturnAddr, AfterICSaveLive& aic)
+{
+    return buildOOLFakeExitFrame(fakeReturnAddr);
+}
+
+bool
+MacroAssembler::icBuildOOLFakeExitFrame(void* fakeReturnAddr, AutoSaveLiveRegisters& save)
 {
     return buildOOLFakeExitFrame(fakeReturnAddr);
 }
@@ -2952,6 +2958,17 @@ MacroAssembler::BranchGCPtr::emit(MacroAssembler& masm)
 {
     MOZ_ASSERT(isInitialized());
     masm.branchPtr(cond(), reg(), ptr_, jump());
+}
+
+void
+MacroAssembler::debugAssertIsObject(const ValueOperand& val)
+{
+#ifdef DEBUG
+    Label ok;
+    branchTestObject(Assembler::Equal, val, &ok);
+    assumeUnreachable("Expected an object!");
+    bind(&ok);
+#endif
 }
 
 namespace js {

@@ -129,6 +129,11 @@ IsFunctionInStrictMode(JSFunction* fun)
     return IsAsmJSStrictModeModuleOrFunction(fun);
 }
 
+static bool
+IsNewerTypeFunction(JSFunction* fun) {
+    return fun->isArrow() || fun->isGenerator() || fun->isAsync() || fun->isMethod();
+}
+
 // Beware: this function can be invoked on *any* function! That includes
 // natives, strict mode functions, bound functions, arrow functions,
 // self-hosted functions and constructors, asm.js functions, functions with
@@ -142,7 +147,9 @@ ArgumentsRestrictions(JSContext* cx, HandleFunction fun)
     // a strict mode function, or a bound function.
     // TODO (bug 1057208): ensure semantics are correct for all possible
     // pairings of callee/caller.
-    if (fun->isBuiltin() || IsFunctionInStrictMode(fun) || fun->isBoundFunction()) {
+    if (fun->isBuiltin() || IsFunctionInStrictMode(fun) ||
+        fun->isBoundFunction() || IsNewerTypeFunction(fun))
+    {
         ThrowTypeErrorBehavior(cx);
         return false;
     }
@@ -229,7 +236,9 @@ CallerRestrictions(JSContext* cx, HandleFunction fun)
     // a strict mode function, or a bound function.
     // TODO (bug 1057208): ensure semantics are correct for all possible
     // pairings of callee/caller.
-    if (fun->isBuiltin() || IsFunctionInStrictMode(fun) || fun->isBoundFunction()) {
+    if (fun->isBuiltin() || IsFunctionInStrictMode(fun) ||
+        fun->isBoundFunction() || IsNewerTypeFunction(fun))
+    {
         ThrowTypeErrorBehavior(cx);
         return false;
     }
@@ -275,6 +284,8 @@ CallerGetterImpl(JSContext* cx, const CallArgs& args)
     }
 
     RootedObject caller(cx, iter.callee(cx));
+    if (caller->is<JSFunction>() && caller->as<JSFunction>().isAsync())
+        caller = GetWrappedAsyncFunction(&caller->as<JSFunction>());
     if (!cx->compartment()->wrap(cx, &caller))
         return false;
 
@@ -289,6 +300,8 @@ CallerGetterImpl(JSContext* cx, const CallArgs& args)
         }
 
         JSFunction* callerFun = &callerObj->as<JSFunction>();
+        if (IsWrappedAsyncFunction(callerFun))
+            callerFun = GetUnwrappedAsyncFunction(callerFun);
         MOZ_ASSERT(!callerFun->isBuiltin(), "non-builtin iterator returned a builtin?");
 
         if (callerFun->strict()) {
@@ -342,6 +355,10 @@ CallerSetterImpl(JSContext* cx, const CallArgs& args)
         return true;
 
     RootedObject caller(cx, iter.callee(cx));
+    // |caller| is only used for security access-checking and for its
+    // strictness.  An unwrapped async function has its wrapped async
+    // function's security access and strictness, so don't bother calling
+    // |GetUnwrappedAsyncFunction|.
     if (!cx->compartment()->wrap(cx, &caller)) {
         cx->clearPendingException();
         return true;
@@ -840,7 +857,7 @@ CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
         return nullptr;
 
     functionProto->initScript(script);
-    ObjectGroup* protoGroup = functionProto->getGroup(cx);
+    ObjectGroup* protoGroup = JSObject::getGroup(cx, functionProto);
     if (!protoGroup)
         return nullptr;
 

@@ -1044,7 +1044,7 @@ AstDecodeExpr(AstDecodeContext& c)
             return false;
         break;
       case uint16_t(Op::F32Const): {
-        RawF32 f32;
+        float f32;
         if (!c.iter().readF32Const(&f32))
             return false;
         tmp = new(c.lifo) AstConst(Val(f32));
@@ -1053,7 +1053,7 @@ AstDecodeExpr(AstDecodeContext& c)
         break;
       }
       case uint16_t(Op::F64Const): {
-        RawF64 f64;
+        double f64;
         if (!c.iter().readF64Const(&f64))
             return false;
         tmp = new(c.lifo) AstConst(Val(f64));
@@ -1821,7 +1821,6 @@ AstDecodeCodeSection(AstDecodeContext& c)
     if (sectionStart == Decoder::NotStarted) {
         if (c.env().numFuncDefs() != 0)
             return c.d.fail("expected function bodies");
-
         return true;
     }
 
@@ -1840,10 +1839,7 @@ AstDecodeCodeSection(AstDecodeContext& c)
             return false;
     }
 
-    if (!c.d.finishSection(sectionStart, sectionSize, "code"))
-        return false;
-
-    return true;
+    return c.d.finishSection(sectionStart, sectionSize, "code");
 }
 
 // Number of bytes to display in a single fragment of a data section (per line).
@@ -1883,15 +1879,15 @@ AstDecodeModuleTail(AstDecodeContext& c)
 }
 
 bool
-wasm::BinaryToAst(JSContext* cx, const uint8_t* bytes, uint32_t length,
-                  LifoAlloc& lifo, AstModule** module)
+wasm::BinaryToAst(JSContext* cx, const uint8_t* bytes, uint32_t length, LifoAlloc& lifo,
+                  AstModule** module)
 {
     AstModule* result = new(lifo) AstModule(lifo);
-    if (!result->init())
+    if (!result || !result->init())
         return false;
 
     UniqueChars error;
-    Decoder d(bytes, bytes + length, &error);
+    Decoder d(bytes, bytes + length, &error, /* resilient */ true);
     AstDecodeContext c(cx, lifo, d, *result, true);
 
     if (!AstDecodeEnvironment(c) ||

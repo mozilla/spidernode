@@ -141,7 +141,9 @@ namespace gc {
 
 struct WeakKeyTableHashPolicy {
     typedef JS::GCCellPtr Lookup;
-    static HashNumber hash(const Lookup& v) { return mozilla::HashGeneric(v.asCell()); }
+    static HashNumber hash(const Lookup& v, const mozilla::HashCodeScrambler&) {
+        return mozilla::HashGeneric(v.asCell());
+    }
     static bool match(const JS::GCCellPtr& k, const Lookup& l) { return k == l; }
     static bool isEmpty(const JS::GCCellPtr& v) { return !v; }
     static void makeEmpty(JS::GCCellPtr* vp) { *vp = nullptr; }
@@ -401,7 +403,7 @@ IsAboutToBeFinalizedDuringSweep(TenuredCell& tenured);
 inline Cell*
 ToMarkable(const Value& v)
 {
-    if (v.isMarkable())
+    if (v.isGCThing())
         return (Cell*)v.toGCThing();
     return nullptr;
 }
