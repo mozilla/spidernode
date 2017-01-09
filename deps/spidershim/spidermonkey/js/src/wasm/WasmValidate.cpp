@@ -116,6 +116,8 @@ Decoder::startSection(SectionId id, ModuleEnvironment* env, uint32_t* sectionSta
 bool
 Decoder::finishSection(uint32_t sectionStart, uint32_t sectionSize, const char* sectionName)
 {
+    if (resilientMode_)
+        return true;
     if (sectionSize != (cur_ - beg_) - sectionStart)
         return fail("byte size mismatch in %s section", sectionName);
     return true;
@@ -675,12 +677,15 @@ DecodeFunctionBodyExprs(FunctionDecoder& f)
 }
 
 bool
-wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Decoder& d)
+wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, uint32_t bodySize,
+                           Decoder& d)
 {
     ValTypeVector locals;
     const Sig& sig = *env.funcSigs[funcIndex];
     if (!locals.appendAll(sig.args()))
         return false;
+
+    const uint8_t* bodyBegin = d.currentPosition();
 
     if (!DecodeLocalEntries(d, ModuleKind::Wasm, &locals))
         return false;
@@ -693,7 +698,13 @@ wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, Dec
     if (!DecodeFunctionBodyExprs(f))
         return false;
 
-    return f.iter().readFunctionEnd();
+    if (!f.iter().readFunctionEnd())
+        return false;
+
+    if (d.currentPosition() != bodyBegin + bodySize)
+        return d.fail("function body length mismatch");
+
+    return true;
 }
 
 // Section macros.
@@ -1477,13 +1488,8 @@ DecodeFunctionBody(Decoder& d, const ModuleEnvironment& env, uint32_t funcIndex)
     if (d.bytesRemain() < bodySize)
         return d.fail("function body length too big");
 
-    const uint8_t* bodyBegin = d.currentPosition();
-
-    if (!ValidateFunctionBody(env, funcIndex, d))
+    if (!ValidateFunctionBody(env, funcIndex, bodySize, d))
         return false;
-
-    if (d.currentPosition() != bodyBegin + bodySize)
-        return d.fail("function body length mismatch");
 
     return true;
 }
@@ -1651,8 +1657,13 @@ wasm::DecodeModuleTail(Decoder& d, ModuleEnvironment* env)
         return false;
 
     while (!d.done()) {
-        if (!d.skipCustomSection(env))
+        if (!d.skipCustomSection(env)) {
+            if (d.resilientMode()) {
+                d.clearError();
+                return true;
+            }
             return false;
+        }
     }
 
     return true;

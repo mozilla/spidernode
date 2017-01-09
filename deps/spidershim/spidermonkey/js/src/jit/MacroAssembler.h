@@ -373,6 +373,9 @@ class MacroAssembler : public MacroAssemblerSpecific
         initWithAllocator();
         armbuffer_.id = 0;
 #endif
+
+        // Disable page protection for WASM.
+        disableProtection();
     }
 
     void constructRoot(JSContext* cx) {
@@ -1658,6 +1661,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     Register extractString(const ValueOperand& value, Register scratch) {
         return extractObject(value, scratch);
     }
+
+    void debugAssertIsObject(const ValueOperand& val);
 
     using MacroAssemblerSpecific::extractTag;
     Register extractTag(const TypedOrValueRegister& reg, Register scratch) {
