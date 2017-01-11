@@ -75,6 +75,7 @@
       'lib/v8.js',
       'lib/vm.js',
       'lib/zlib.js',
+      'lib/internal/buffer.js',
       'lib/internal/child_process.js',
       'lib/internal/cluster.js',
       'lib/internal/freelist.js',
@@ -90,6 +91,7 @@
       'lib/internal/readline.js',
       'lib/internal/repl.js',
       'lib/internal/socket_list.js',
+      'lib/internal/url.js',
       'lib/internal/util.js',
       'lib/internal/v8_prof_polyfill.js',
       'lib/internal/v8_prof_processor.js',
@@ -153,12 +155,14 @@
         'src/node_config.cc',
         'src/node_constants.cc',
         'src/node_contextify.cc',
+        'src/node_debug_options.cc',
         'src/node_file.cc',
         'src/node_http_parser.cc',
         'src/node_javascript.cc',
         'src/node_main.cc',
         'src/node_os.cc',
         'src/node_revert.cc',
+        'src/node_url.cc',
         'src/node_util.cc',
         'src/node_v8.cc',
         'src/node_stat_watcher.cc',
@@ -192,6 +196,7 @@
         'src/node.h',
         'src/node_buffer.h',
         'src/node_constants.h',
+        'src/node_debug_options.h',
         'src/node_file.h',
         'src/node_http_parser.h',
         'src/node_internals.h',
@@ -260,8 +265,8 @@
         }],
         [ 'node_use_bundled_v8=="true" and node_engine=="v8"', {
           'dependencies': [
-            'deps/v8/tools/gyp/v8.gyp:v8',
-            'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
+            'deps/v8/src/v8.gyp:v8',
+            'deps/v8/src/v8.gyp:v8_libplatform'
           ],
         }],
         [ 'node_use_v8_platform=="true" and node_engine=="v8"', {
@@ -312,22 +317,23 @@
         [ 'v8_inspector=="true" and node_engine=="v8"', {
           'defines': [
             'HAVE_INSPECTOR=1',
-            'V8_INSPECTOR_USE_STL=1',
-            'V8_INSPECTOR_USE_OLD_STL=1',
           ],
           'sources': [
             'src/inspector_agent.cc',
             'src/inspector_socket.cc',
-            'src/inspector_socket.h',
+            'src/inspector_socket_server.cc',
             'src/inspector_agent.h',
+            'src/inspector_socket.h',
+            'src/inspector_socket_server.h',
           ],
           'dependencies': [
-            'deps/v8_inspector/third_party/v8_inspector/platform/'
-                'v8_inspector/v8_inspector.gyp:v8_inspector_stl',
+            'deps/v8_inspector/src/inspector/inspector.gyp:standalone_inspector',
+            'v8_inspector_compress_protocol_json#host',
           ],
           'include_dirs': [
-            'deps/v8_inspector/third_party/v8_inspector',
-            '<(SHARED_INTERMEDIATE_DIR)/blink', # for inspector
+            'deps/v8_inspector/include',
+            '<(SHARED_INTERMEDIATE_DIR)/include', # for inspector
+            '<(SHARED_INTERMEDIATE_DIR)',
           ],
         }, {
           'defines': [ 'HAVE_INSPECTOR=0' ]
@@ -464,7 +470,7 @@
           'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
         } ],
         [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true" and node_engine=="v8"', {
-          'dependencies': [ 'deps/v8/tools/gyp/v8.gyp:postmortem-metadata' ],
+          'dependencies': [ 'deps/v8/src/v8.gyp:postmortem-metadata' ],
           'conditions': [
             # -force_load is not applicable for the static library
             [ 'node_engine=="v8" and node_target_type!="static_library"', {
@@ -574,7 +580,7 @@
             'NODE_PLATFORM="sunos"',
           ],
         }],
-        [ '(OS=="freebsd" or OS=="linux") and node_shared=="false"', {
+        [ '(OS=="freebsd" or OS=="linux") and node_shared=="false" and coverage=="false"', {
           'ldflags': [ '-Wl,-z,noexecstack',
                        '-Wl,--no-whole-archive' ]
         }],
@@ -679,6 +685,33 @@
           ],
         } ]
       ]
+    },
+    {
+      'target_name': 'v8_inspector_compress_protocol_json',
+      'type': 'none',
+      'toolsets': ['host'],
+      'conditions': [
+        [ 'v8_inspector=="true"', {
+          'actions': [
+            {
+              'action_name': 'v8_inspector_compress_protocol_json',
+              'process_outputs_as_sources': 1,
+              'inputs': [
+                'deps/v8_inspector/src/inspector/js_protocol.json',
+              ],
+              'outputs': [
+                '<(SHARED_INTERMEDIATE_DIR)/v8_inspector_protocol_json.h',
+              ],
+              'action': [
+                'python',
+                'tools/compress_json.py',
+                '<@(_inputs)',
+                '<@(_outputs)',
+              ],
+            },
+          ],
+        }],
+      ],
     },
     {
       'target_name': 'node_js2c',
@@ -857,6 +890,18 @@
       'dependencies': [ 'deps/gtest/gtest.gyp:gtest' ],
       'include_dirs': [
         'src',
+        'deps/spidershim/include',
+        '<(SHARED_INTERMEDIATE_DIR)'
+      ],
+      'defines': [
+        # gtest's ASSERT macros conflict with our own.
+        'GTEST_DONT_DEFINE_ASSERT_EQ=1',
+        'GTEST_DONT_DEFINE_ASSERT_GE=1',
+        'GTEST_DONT_DEFINE_ASSERT_GT=1',
+        'GTEST_DONT_DEFINE_ASSERT_LE=1',
+        'GTEST_DONT_DEFINE_ASSERT_LT=1',
+        'GTEST_DONT_DEFINE_ASSERT_NE=1',
+        'NODE_WANT_INTERNALS=1',
       ],
       'conditions': [
         [ 'node_engine=="v8"', {
@@ -913,6 +958,17 @@
         ['node_engine=="spidermonkey"', {
           'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
         }],
+        [ 'node_use_v8_platform=="true"', {
+          'dependencies': [
+            'deps/v8/src/v8.gyp:v8_libplatform',
+          ],
+        }],
+        [ 'node_use_bundled_v8=="true"', {
+          'dependencies': [
+            'deps/v8/src/v8.gyp:v8',
+            'deps/v8/src/v8.gyp:v8_libplatform'
+          ],
+        }],
       ],
       'msvs_settings': {
         'VCLinkerTool': {
@@ -940,7 +996,15 @@
       'targets': [
         {
           'target_name': 'node',
-          'type': 'executable',
+          'conditions': [
+            ['node_shared=="true"', {
+              'type': 'shared_library',
+              'ldflags': ['--shared'],
+              'product_extension': '<(shlib_suffix)',
+            }, {
+              'type': 'executable',
+            }],
+          ],
           'dependencies': ['<(node_core_target_name)', 'node_exp'],
 
           'include_dirs': [
