@@ -1,10 +1,10 @@
 'use strict';
 // Test creating and resolving relative junction or symbolic link
 
-var common = require('../common');
-var assert = require('assert');
-var path = require('path');
-var fs = require('fs');
+const common = require('../common');
+const assert = require('assert');
+const path = require('path');
+const fs = require('fs');
 
 var linkPath1 = path.join(common.tmpDir, 'junction1');
 var linkPath2 = path.join(common.tmpDir, 'junction2');
@@ -15,7 +15,7 @@ common.refreshTmpDir();
 
 // Test fs.symlink()
 fs.symlink(linkData, linkPath1, 'junction', common.mustCall(function(err) {
-  if (err) throw err;
+  assert.ifError(err);
   verifyLink(linkPath1);
 }));
 

@@ -1,7 +1,7 @@
 'use strict';
 require('../common');
-var assert = require('assert');
-var http = require('http');
+const assert = require('assert');
+const http = require('http');
 
 var requests_sent = 0;
 var requests_done = 0;
@@ -50,9 +50,8 @@ server.listen(0, options.host, function() {
       this.destroy();
     });
     req.setTimeout(50, function() {
-      var req = this;
       console.log('req#' + this.id + ' timeout');
-      req.abort();
+      this.abort();
       requests_done += 1;
     });
     req.end();

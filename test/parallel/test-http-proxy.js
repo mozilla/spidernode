@@ -1,8 +1,8 @@
 'use strict';
 require('../common');
-var assert = require('assert');
-var http = require('http');
-var url = require('url');
+const assert = require('assert');
+const http = require('http');
+const url = require('url');
 
 var cookies = [
   'session_token=; path=/; expires=Sun, 15-Sep-2030 13:48:52 GMT',
@@ -10,8 +10,8 @@ var cookies = [
 ];
 
 var headers = {'content-type': 'text/plain',
-                'set-cookie': cookies,
-                'hello': 'world' };
+               'set-cookie': cookies,
+               'hello': 'world' };
 
 var backend = http.createServer(function(req, res) {
   console.error('backend request');

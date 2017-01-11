@@ -1,8 +1,8 @@
 'use strict';
-var common = require('../common');
-var assert = require('assert');
-var fs = require('fs');
-var spawn = require('child_process').spawn;
+const common = require('../common');
+const assert = require('assert');
+const fs = require('fs');
+const spawn = require('child_process').spawn;
 
 // Fails with EINVAL on SmartOS, EBUSY on Windows, EBUSY on AIX.
 if (common.isSunOS || common.isWindows || common.isAix) {
@@ -23,6 +23,6 @@ proc.stdin.write('require("path");\n');
 proc.stdin.write('process.exit(42);\n');
 
 proc.once('exit', common.mustCall(function(exitCode, signalCode) {
-  assert.equal(exitCode, 42);
-  assert.equal(signalCode, null);
+  assert.strictEqual(exitCode, 42);
+  assert.strictEqual(signalCode, null);
 }));

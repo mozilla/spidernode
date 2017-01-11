@@ -1,15 +1,15 @@
 'use strict';
 
 const common = require('../common');
-var assert = require('assert');
+const assert = require('assert');
 
 if (!common.hasCrypto) {
   common.skip('missing crypto');
   return;
 }
-var tls = require('tls');
+const tls = require('tls');
 
-var fs = require('fs');
+const fs = require('fs');
 
 var server = tls.createServer({
   key: fs.readFileSync(common.fixturesDir + '/keys/agent1-key.pem'),
@@ -25,7 +25,7 @@ var server = tls.createServer({
   });
 
   c.on('error', common.mustCall(function(err) {
-    assert.notEqual(err.code, 'ECONNRESET');
+    assert.notStrictEqual(err.code, 'ECONNRESET');
   }));
 
   c.on('close', common.mustCall(function(err) {

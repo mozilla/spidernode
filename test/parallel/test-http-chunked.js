@@ -1,7 +1,7 @@
 'use strict';
 require('../common');
-var assert = require('assert');
-var http = require('http');
+const assert = require('assert');
+const http = require('http');
 
 var UTF8_STRING = '南越国是前203年至前111年存在于岭南地区的一个国家，' +
                   '国都位于番禺，疆域包括今天中国的广东、广西两省区的大部份地区，福建省、湖南、' +
@@ -25,7 +25,7 @@ server.listen(0, function() {
     port: this.address().port
   }, function(x) {
     x.setEncoding('utf8');
-    x.on('data', function(c) {data += c;});
+    x.on('data', function(c) { data += c; });
     x.on('error', function(e) {
       throw e;
     });
@@ -37,7 +37,7 @@ server.listen(0, function() {
       server.close();
     });
   });
-  get.on('error', function(e) {throw e;});
+  get.on('error', function(e) { throw e; });
   get.end();
 
 });

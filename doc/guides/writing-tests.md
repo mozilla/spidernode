@@ -2,13 +2,12 @@
 
 ## What is a test?
 
-A test must be a node script that exercises a specific functionality provided
-by node and checks that it behaves as expected. It should exit with code `0` on success,
-otherwise it will fail. A test will fail if:
+Most tests in Node.js core are JavaScript programs that exercise a functionality
+provided by Node.js and check that it behaves as expected. Tests should exit
+with code `0` on success. A test will fail if:
 
 - It exits by setting `process.exitCode` to a non-zero number.
-  - This is most often done by having an assertion throw an uncaught
-    Error.
+  - This is usually done by having an assertion throw an uncaught Error.
   - Occasionally, using `process.exit(code)` may be appropriate.
 - It never exits. In this case, the test runner will terminate the test because
   it sets a maximum time limit.
@@ -30,8 +29,8 @@ Let's analyze this very basic test from the Node.js test suite:
 4   // This test ensures that the http-parser can handle UTF-8 characters
 5   // in the http header.
 6
-7   const http = require('http');
-8   const assert = require('assert');
+7   const assert = require('assert');
+8   const http = require('http');
 9
 10  const server = http.createServer(common.mustCall((req, res) => {
 11    res.end('ok');
@@ -47,7 +46,7 @@ Let's analyze this very basic test from the Node.js test suite:
 21 });
 ```
 
-**Lines 1-2**
+### **Lines 1-2**
 
 ```javascript
 'use strict';
@@ -70,7 +69,7 @@ by `common` are used, it can be included without assigning it to an identifier:
 require('../common');
 ```
 
-**Lines 4-5**
+### **Lines 4-5**
 
 ```javascript
 // This test ensures that the http-parser can handle UTF-8 characters
@@ -80,11 +79,11 @@ require('../common');
 A test should start with a comment containing a brief description of what it is
 designed to test.
 
-**Lines 7-8**
+### **Lines 7-8**
 
 ```javascript
-const http = require('http');
 const assert = require('assert');
+const http = require('http');
 ```
 
 These modules are required for the test to run. Except for special cases, these
@@ -92,7 +91,7 @@ modules should only include core modules.
 The `assert` module is used by most of the tests to check that the assumptions
 for the test are met.
 
-**Lines 10-21**
+### **Lines 10-21**
 
 This is the body of the test. This test is quite simple, it just tests that an
 HTTP server accepts `non-ASCII` characters in the headers of an incoming
@@ -205,3 +204,15 @@ require('../common');
 const assert = require('assert');
 const freelist = require('internal/freelist');
 ```
+
+## Naming Test Files
+
+Test files are named using kebab casing. The first component of the name is
+`test`. The second is the module or subsystem being tested. The third is usually
+the method or event name being tested. Subsequent components of the name add
+more information about what is being tested.
+
+For example, a test for the `beforeExit` event on the `process` object might be
+named `test-process-before-exit.js`. If the test specifically checked that arrow
+functions worked correctly with the `beforeExit` event, then it might be named
+`test-process-before-exit-arrow-functions.js`.

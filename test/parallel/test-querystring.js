@@ -1,9 +1,9 @@
 'use strict';
 require('../common');
-var assert = require('assert');
+const assert = require('assert');
 
 // test using assert
-var qs = require('querystring');
+const qs = require('querystring');
 
 function createWithNoPrototype(properties) {
   const noProto = Object.create(null);
@@ -44,11 +44,11 @@ var qsTestCases = [
   ['foo=%EF%BF%BD', 'foo=%EF%BF%BD', {'foo': '\ufffd' }],
   // See: https://github.com/joyent/node/issues/1707
   ['hasOwnProperty=x&toString=foo&valueOf=bar&__defineGetter__=baz',
-    'hasOwnProperty=x&toString=foo&valueOf=bar&__defineGetter__=baz',
-    { hasOwnProperty: 'x',
-      toString: 'foo',
-      valueOf: 'bar',
-      __defineGetter__: 'baz' }],
+   'hasOwnProperty=x&toString=foo&valueOf=bar&__defineGetter__=baz',
+   { hasOwnProperty: 'x',
+     toString: 'foo',
+     valueOf: 'bar',
+     __defineGetter__: 'baz' }],
   // See: https://github.com/joyent/node/issues/3058
   ['foo&bar=baz', 'foo=&bar=baz', { foo: '', bar: 'baz' }],
   [null, '', {}],
@@ -87,7 +87,7 @@ var qsWeirdObjects = [
 ];
 // }}}
 
-var vm = require('vm');
+const vm = require('vm');
 var foreignObject = vm.runInNewContext('({"foo": ["bar", "baz"]})');
 
 var qsNoMungeTestCases = [

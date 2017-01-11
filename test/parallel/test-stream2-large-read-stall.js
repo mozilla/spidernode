@@ -1,6 +1,6 @@
 'use strict';
 const common = require('../common');
-var assert = require('assert');
+const assert = require('assert');
 
 // If everything aligns so that you do a read(n) of exactly the
 // remaining buffer, then make sure that 'end' still emits.
@@ -10,7 +10,7 @@ var PUSHSIZE = 20;
 var PUSHCOUNT = 1000;
 var HWM = 50;
 
-var Readable = require('stream').Readable;
+const Readable = require('stream').Readable;
 var r = new Readable({
   highWaterMark: HWM
 });
@@ -46,7 +46,7 @@ function push() {
 
   console.error('   push #%d', pushes);
   if (r.push(Buffer.allocUnsafe(PUSHSIZE)))
-    setTimeout(push);
+    setTimeout(push, 1);
 }
 
 process.on('exit', function() {

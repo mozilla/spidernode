@@ -38,6 +38,7 @@
 #include "req-wrap.h"
 #include "req-wrap-inl.h"
 #include "string_bytes.h"
+#include "tracing/agent.h"
 #include "util.h"
 #include "uv.h"
 #if NODE_USE_V8_PLATFORM
@@ -150,6 +151,8 @@ static node_module* modpending;
 static node_module* modlist_builtin;
 static node_module* modlist_linked;
 static node_module* modlist_addon;
+static bool trace_enabled = false;
+static const char* trace_enabled_categories = nullptr;
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
 // Path to ICU data (for i18n / Intl)
@@ -186,6 +189,7 @@ static uv_async_t dispatch_debug_messages_async;
 
 static Mutex node_isolate_mutex;
 static v8::Isolate* node_isolate;
+static tracing::Agent* tracing_agent;
 
 static node::DebugOptions debug_options;
 
@@ -194,6 +198,7 @@ static struct {
   void Initialize(int thread_pool_size) {
     platform_ = v8::platform::CreateDefaultPlatform(thread_pool_size);
     V8::InitializePlatform(platform_);
+    tracing::TraceEventHelper::SetCurrentPlatform(platform_);
   }
 
   void PumpMessageLoop(Isolate* isolate) {
@@ -1263,6 +1268,7 @@ Local<Value> MakeCallback(Environment* env,
 
   if (tick_info->length() == 0) {
     tick_info->set_index(0);
+    return ret;
   }
 
   if (env->tick_callback_function()->Call(process, 0, nullptr).IsEmpty()) {
@@ -2411,7 +2417,7 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
              "\nwas compiled against a different Node.js version using"
              "\nNODE_MODULE_VERSION %d. This version of Node.js requires"
              "\nNODE_MODULE_VERSION %d. Please try re-compiling or "
-             "re-installing\nthe module (for instance, using `npm rebuild` or"
+             "re-installing\nthe module (for instance, using `npm rebuild` or "
              "`npm install`).",
              *filename, mp->nm_version, NODE_MODULE_VERSION);
 
@@ -3373,6 +3379,9 @@ void SetupProcessObject(Environment* env,
 
 void SignalExit(int signo) {
   uv_tty_reset_mode();
+  if (trace_enabled) {
+    tracing_agent->Stop();
+  }
 #ifdef __FreeBSD__
   // FreeBSD has a nasty bug, see RegisterSignalHandler for details
   struct sigaction sa;
@@ -3468,64 +3477,77 @@ static void PrintHelp() {
          "       node debug script.js [arguments] \n"
          "\n"
          "Options:\n"
-         "  -v, --version         print Node.js version\n"
-         "  -e, --eval script     evaluate script\n"
-         "  -p, --print           evaluate script and print result\n"
-         "  -c, --check           syntax check script without executing\n"
-         "  -i, --interactive     always enter the REPL even if stdin\n"
-         "                        does not appear to be a terminal\n"
-         "  -r, --require         module to preload (option can be repeated)\n"
-         "  --no-deprecation      silence deprecation warnings\n"
-         "  --trace-deprecation   show stack traces on deprecations\n"
-         "  --throw-deprecation   throw an exception anytime a deprecated "
-         "function is used\n"
-         "  --no-warnings         silence all process warnings\n"
-         "  --trace-warnings      show stack traces on process warnings\n"
-         "  --trace-sync-io       show stack trace when use of sync IO\n"
-         "                        is detected after the first tick\n"
-         "  --track-heap-objects  track heap object allocations for heap "
+         "  -v, --version            print Node.js version\n"
+         "  -e, --eval script        evaluate script\n"
+         "  -p, --print              evaluate script and print result\n"
+         "  -c, --check              syntax check script without executing\n"
+         "  -i, --interactive        always enter the REPL even if stdin\n"
+         "                           does not appear to be a terminal\n"
+         "  -r, --require            module to preload (option can be "
+         "repeated)\n"
+#if HAVE_INSPECTOR
+         "  --inspect[=host:port] activate inspector on host:port\n"
+         "                        (default: 127.0.0.1:9229)\n"
+         "  --inspect-brk[=host:port]  activate inspector on host:port\n"
+         "                             and break at start of user script\n"
+#endif
+         "  --no-deprecation         silence deprecation warnings\n"
+         "  --trace-deprecation      show stack traces on deprecations\n"
+         "  --throw-deprecation      throw an exception on deprecations\n"
+         "  --no-warnings            silence all process warnings\n"
+         "  --trace-warnings         show stack traces on process warnings\n"
+         "  --trace-sync-io          show stack trace when use of sync IO\n"
+         "                           is detected after the first tick\n"
+         "  --trace-events-enabled   track trace events\n"
+         "  --trace-event-categories comma separated list of trace event\n"
+         "                           categories to record\n"
+         "  --track-heap-objects     track heap object allocations for heap "
          "snapshots\n"
-         "  --prof-process        process v8 profiler output generated\n"
-         "                        using --prof\n"
-         "  --zero-fill-buffers   automatically zero-fill all newly allocated\n"
-         "                        Buffer and SlowBuffer instances\n"
-         "  --v8-options          print v8 command line options\n"
-         "  --v8-pool-size=num    set v8's thread pool size\n"
+         "  --prof-process           process v8 profiler output generated\n"
+         "                           using --prof\n"
+         "  --zero-fill-buffers      automatically zero-fill all newly "
+         "allocated\n"
+         "                           Buffer and SlowBuffer instances\n"
+         "  --v8-options             print v8 command line options\n"
+         "  --v8-pool-size=num       set v8's thread pool size\n"
 #if HAVE_OPENSSL
-         "  --tls-cipher-list=val use an alternative default TLS cipher list\n"
+         "  --tls-cipher-list=val    use an alternative default TLS cipher "
+         "list\n"
 #if NODE_FIPS_MODE
-         "  --enable-fips         enable FIPS crypto at startup\n"
-         "  --force-fips          force FIPS crypto (cannot be disabled)\n"
+         "  --enable-fips            enable FIPS crypto at startup\n"
+         "  --force-fips             force FIPS crypto (cannot be disabled)\n"
 #endif  /* NODE_FIPS_MODE */
-         "  --openssl-config=path load OpenSSL configuration file from the\n"
-         "                        specified path\n"
+         "  --openssl-config=path    load OpenSSL configuration file from the\n"
+         "                           specified path\n"
 #endif /* HAVE_OPENSSL */
 #if defined(NODE_HAVE_I18N_SUPPORT)
-         "  --icu-data-dir=dir    set ICU data load path to dir\n"
-         "                        (overrides NODE_ICU_DATA)\n"
+         "  --icu-data-dir=dir       set ICU data load path to dir\n"
+         "                           (overrides NODE_ICU_DATA)\n"
 #if !defined(NODE_HAVE_SMALL_ICU)
-         "                        note: linked-in ICU data is\n"
-         "                        present.\n"
+         "                           note: linked-in ICU data is present\n"
 #endif
-         "  --preserve-symlinks   preserve symbolic links when resolving\n"
-         "                        and caching modules.\n"
+         "  --preserve-symlinks      preserve symbolic links when resolving\n"
+         "                           and caching modules\n"
 #endif
          "\n"
          "Environment variables:\n"
-#ifdef _WIN32
-         "NODE_PATH                ';'-separated list of directories\n"
-#else
-         "NODE_PATH                ':'-separated list of directories\n"
-#endif
-         "                         prefixed to the module search path.\n"
-         "NODE_DISABLE_COLORS      set to 1 to disable colors in the REPL\n"
+         "NODE_DEBUG                 ','-separated list of core modules that\n"
+         "                           should print debug information\n"
+         "NODE_DISABLE_COLORS        set to 1 to disable colors in the REPL\n"
+         "NODE_EXTRA_CA_CERTS        path to additional CA certificates file\n"
 #if defined(NODE_HAVE_I18N_SUPPORT)
-         "NODE_ICU_DATA            data path for ICU (Intl object) data\n"
+         "NODE_ICU_DATA              data path for ICU (Intl object) data\n"
 #if !defined(NODE_HAVE_SMALL_ICU)
-         "                         (will extend linked-in data)\n"
+         "                           (will extend linked-in data)\n"
 #endif
 #endif
-         "NODE_REPL_HISTORY        path to the persistent REPL history file\n"
+#ifdef _WIN32
+         "NODE_PATH                  ';'-separated list of directories\n"
+#else
+         "NODE_PATH                  ':'-separated list of directories\n"
+#endif
+         "                           prefixed to the module search path\n"
+         "NODE_REPL_HISTORY          path to the persistent REPL history file\n"
          "\n"
          "Documentation can be found at https://nodejs.org/\n");
 }
@@ -3631,6 +3653,16 @@ static void ParseArgs(int* argc,
       trace_deprecation = true;
     } else if (strcmp(arg, "--trace-sync-io") == 0) {
       trace_sync_io = true;
+    } else if (strcmp(arg, "--trace-events-enabled") == 0) {
+      trace_enabled = true;
+    } else if (strcmp(arg, "--trace-event-categories") == 0) {
+      const char* categories = argv[index + 1];
+      if (categories == nullptr) {
+        fprintf(stderr, "%s: %s requires an argument\n", argv[0], arg);
+        exit(9);
+      }
+      args_consumed += 1;
+      trace_enabled_categories = categories;
     } else if (strcmp(arg, "--track-heap-objects") == 0) {
       track_heap_objects = true;
     } else if (strcmp(arg, "--throw-deprecation") == 0) {
@@ -4459,10 +4491,20 @@ int Start(int argc, char** argv) {
 #endif
 
   v8_platform.Initialize(v8_thread_pool_size);
+  // Enable tracing when argv has --trace-events-enabled.
+  if (trace_enabled) {
+    fprintf(stderr, "Warning: Trace event is an experimental feature "
+            "and could change at any time.\n");
+    tracing_agent = new tracing::Agent();
+    tracing_agent->Start(v8_platform.platform_, trace_enabled_categories);
+  }
   V8::Initialize();
   v8_initialized = true;
   const int exit_code =
       Start(uv_default_loop(), argc, argv, exec_argc, exec_argv);
+  if (trace_enabled) {
+    tracing_agent->Stop();
+  }
   v8_initialized = false;
   V8::Dispose();
 

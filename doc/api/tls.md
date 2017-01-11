@@ -98,9 +98,9 @@ openssl dhparam -outform PEM -out dhparam.pem 2048
 ```
 
 If using Perfect Forward Secrecy using `ECDHE`, Diffie-Hellman parameters are
-not required and a default ECDHE curve will be used. The `ecdheCurve` property
-can be used when creating a TLS Server to specify the name of an
-alternative curve to use.
+not required and a default ECDHE curve will be used. The `ecdhCurve` property
+can be used when creating a TLS Server to specify the name of an alternative
+curve to use, see [`tls.createServer()`] for more info.
 
 ### ALPN, NPN and SNI
 
@@ -483,12 +483,8 @@ added: v0.11.4
     will be emitted on the socket before establishing a secure communication
   * `secureContext`: Optional TLS context object created with
     [`tls.createSecureContext()`][]. If a `secureContext` is _not_ provided, one
-    will be created by passing the entire `options` object to
-    `tls.createSecureContext()`. *Note*: In effect, all
-    [`tls.createSecureContext()`][] options can be provided, but they will be
-    _completely ignored_ unless the `secureContext` option is missing.
-  * ...: Optional [`tls.createSecureContext()`][] options can be provided, see
-    the `secureContext` option for more information.
+    will be created by calling [`tls.createSecureContext()`][] with no options.
+
 Construct a new `tls.TLSSocket` object from an existing TCP socket.
 
 ### Event: 'OCSPResponse'
@@ -893,12 +889,13 @@ added: v0.11.13
     individually. PFX is usually encrypted, if it is, `passphrase` will be used
     to decrypt it.
   * `key` {string|string[]|Buffer|Buffer[]|Object[]} Optional private keys in
-    PEM format. Single keys will be decrypted with `passphrase` if necessary.
-    Multiple keys, probably using different algorithms, can be provided either
-    as an array of unencrypted key strings or buffers, or an array of objects in
-    the form `{pem: <string|buffer>, passphrase: <string>}`. The object form can
-    only occur in an array, and it _must_ include a passphrase, even if key is
-    not encrypted.
+    PEM format. PEM allows the option of private keys being encrypted. Encrypted
+    keys will be decrypted with `options.passphrase`.  Multiple keys using
+    different algorithms can be provided either as an array of unencrypted key
+    strings or buffers, or an array of objects in the form `{pem:
+    <string|buffer>[, passphrase: <string>]}`. The object form can only occur in
+    an array. `object.passphrase` is optional. Encrypted keys will be decrypted
+    with `object.passphrase` if provided, or `options.passphrase` if it is not.
   * `passphrase` {string} Optional shared passphrase used for a single private
     key and/or a PFX.
   * `cert` {string|string[]|Buffer|Buffer[]} Optional cert chains in PEM format.
@@ -925,10 +922,10 @@ added: v0.11.13
     *Note*: [`tls.createServer()`][] sets the default value to `true`, other
     APIs that create secure contexts leave it unset.
   * `ecdhCurve` {string} A string describing a named curve to use for ECDH key
-    agreement or `false` to disable ECDH. Defaults to `prime256v1` (NIST P-256).
-    Use [`crypto.getCurves()`][] to obtain a list of available curve names. On
-    recent releases, `openssl ecparam -list_curves` will also display the name
-    and description of each available elliptic curve.
+    agreement or `false` to disable ECDH. Defaults to
+    [`tls.DEFAULT_ECDH_CURVE`].  Use [`crypto.getCurves()`][] to obtain a list
+    of available curve names. On recent releases, `openssl ecparam -list_curves`
+    will also display the name and description of each available elliptic curve.
   * `dhparam` {string|Buffer} Diffie Hellman parameters, required for
     [Perfect Forward Secrecy][]. Use `openssl dhparam` to create the parameters.
     The key length must be greater than or equal to 1024 bits, otherwise an
@@ -1076,6 +1073,13 @@ For example:
 console.log(tls.getCiphers()); // ['AES128-SHA', 'AES256-SHA', ...]
 ```
 
+## tls.DEFAULT_ECDH_CURVE
+
+The default curve name to use for ECDH key agreement in a tls server. The
+default value is `'prime256v1'` (NIST P-256). Consult [RFC 4492] and
+[FIPS.186-4] for more details.
+
+
 ## Deprecated APIs
 
 ### Class: CryptoStream
@@ -1183,32 +1187,35 @@ secure_socket = tls.TLSSocket(socket, options);
 
 where `secure_socket` has the same API as `pair.cleartext`.
 
-[OpenSSL cipher list format documentation]: https://www.openssl.org/docs/man1.0.2/apps/ciphers.html#CIPHER-LIST-FORMAT
 [Chrome's 'modern cryptography' setting]: https://www.chromium.org/Home/chromium-security/education/tls#TOC-Cipher-Suites
-[OpenSSL Options]: crypto.html#crypto_openssl_options
-[modifying the default cipher suite]: #tls_modifying_the_default_tls_cipher_suite
-[specific attacks affecting larger AES key sizes]: https://www.schneier.com/blog/archives/2009/07/another_new_aes.html
-[`crypto.getCurves()`]: crypto.html#crypto_crypto_getcurves
-[`tls.createServer()`]: #tls_tls_createserver_options_secureconnectionlistener
-[`tls.createSecurePair()`]: #tls_tls_createsecurepair_context_isserver_requestcert_rejectunauthorized_options
-[`tls.TLSSocket`]: #tls_class_tls_tlssocket
-[`net.Server`]: net.html#net_class_net_server
-[`net.Socket`]: net.html#net_class_net_socket
-[`net.Server.address()`]: net.html#net_server_address
-[`'secureConnect'`]: #tls_event_secureconnect
-[`'secureConnection'`]: #tls_event_secureconnection
-[Perfect Forward Secrecy]: #tls_perfect_forward_secrecy
-[Stream]: stream.html#stream_stream
-[SSL_METHODS]: https://www.openssl.org/docs/man1.0.2/ssl/ssl.html#DEALING-WITH-PROTOCOL-METHODS
-[tls.Server]: #tls_class_tls_server
-[SSL_CTX_set_timeout]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_timeout.html
-[Forward secrecy]: https://en.wikipedia.org/wiki/Perfect_forward_secrecy
 [DHE]: https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange
 [ECDHE]: https://en.wikipedia.org/wiki/Elliptic_curve_Diffie%E2%80%93Hellman
-[asn1.js]: https://npmjs.org/package/asn1.js
+[FIPS.186-4]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf
+[Forward secrecy]: https://en.wikipedia.org/wiki/Perfect_forward_secrecy
 [OCSP request]: https://en.wikipedia.org/wiki/OCSP_stapling
-[TLS recommendations]: https://wiki.mozilla.org/Security/Server_Side_TLS
+[OpenSSL Options]: crypto.html#crypto_openssl_options
+[OpenSSL cipher list format documentation]: https://www.openssl.org/docs/man1.0.2/apps/ciphers.html#CIPHER-LIST-FORMAT
+[Perfect Forward Secrecy]: #tls_perfect_forward_secrecy
+[RFC 4492]: https://www.rfc-editor.org/rfc/rfc4492.txt
+[SSL_CTX_set_timeout]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_timeout.html
+[SSL_METHODS]: https://www.openssl.org/docs/man1.0.2/ssl/ssl.html#DEALING-WITH-PROTOCOL-METHODS
+[Stream]: stream.html#stream_stream
 [TLS Session Tickets]: https://www.ietf.org/rfc/rfc5077.txt
+[TLS recommendations]: https://wiki.mozilla.org/Security/Server_Side_TLS
+[`'secureConnect'`]: #tls_event_secureconnect
+[`'secureConnection'`]: #tls_event_secureconnection
+[`crypto.getCurves()`]: crypto.html#crypto_crypto_getcurves
+[`net.Server.address()`]: net.html#net_server_address
+[`net.Server`]: net.html#net_class_net_server
+[`net.Socket`]: net.html#net_class_net_socket
+[`tls.DEFAULT_ECDH_CURVE`]: #tls_tls_default_ecdh_curve
 [`tls.TLSSocket.getPeerCertificate()`]: #tls_tlssocket_getpeercertificate_detailed
-[`tls.createSecureContext()`]: #tls_tls_createsecurecontext_options
+[`tls.TLSSocket`]: #tls_class_tls_tlssocket
 [`tls.connect()`]: #tls_tls_connect_options_callback
+[`tls.createSecureContext()`]: #tls_tls_createsecurecontext_options
+[`tls.createSecurePair()`]: #tls_tls_createsecurepair_context_isserver_requestcert_rejectunauthorized_options
+[`tls.createServer()`]: #tls_tls_createserver_options_secureconnectionlistener
+[asn1.js]: https://npmjs.org/package/asn1.js
+[modifying the default cipher suite]: #tls_modifying_the_default_tls_cipher_suite
+[specific attacks affecting larger AES key sizes]: https://www.schneier.com/blog/archives/2009/07/another_new_aes.html
+[tls.Server]: #tls_class_tls_server

@@ -1,8 +1,8 @@
 'use strict';
 require('../common');
-var assert = require('assert');
+const assert = require('assert');
 
-var stream = require('stream');
+const stream = require('stream');
 
 var queue = [];
 for (var decode = 0; decode < 2; decode++) {
@@ -31,8 +31,7 @@ function test(decode, uncork, multi, next) {
     expectCount++;
     var expect = expectCount;
     return function(er) {
-      if (er)
-        throw er;
+      assert.ifError(er);
       counter++;
       assert.equal(counter, expect);
     };

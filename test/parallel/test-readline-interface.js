@@ -62,7 +62,7 @@ function isWarned(emitter) {
   // disable history
   fi = new FakeInput();
   rli = new readline.Interface({ input: fi, output: fi, terminal: terminal,
-                              historySize: 0 });
+                                 historySize: 0 });
   assert.strictEqual(rli.historySize, 0);
 
   fi.emit('data', 'asdf\n');
@@ -463,9 +463,9 @@ function isWarned(emitter) {
   });
 
   {
-    const expected = terminal
-      ? ['\u001b[1G', '\u001b[0J', '$ ', '\u001b[3G']
-      : ['$ '];
+    const expected = terminal ?
+      ['\u001b[1G', '\u001b[0J', '$ ', '\u001b[3G'] :
+      ['$ '];
 
     let counter = 0;
     const output = new Writable({

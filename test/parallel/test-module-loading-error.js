@@ -1,6 +1,6 @@
 'use strict';
 const common = require('../common');
-var assert = require('assert');
+const assert = require('assert');
 
 console.error('load test-module-loading-error.js');
 
@@ -28,11 +28,11 @@ try {
 try {
   require();
 } catch (e) {
-  assert.notEqual(e.toString().indexOf('missing path'), -1);
+  assert.ok(e.toString().includes('missing path'));
 }
 
 try {
   require({});
 } catch (e) {
-  assert.notEqual(e.toString().indexOf('path must be a string'), -1);
+  assert.ok(e.toString().includes('path must be a string'));
 }

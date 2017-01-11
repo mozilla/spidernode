@@ -1,7 +1,7 @@
 'use strict';
 require('../common');
-var assert = require('assert');
-var child_process = require('child_process');
+const assert = require('assert');
+const child_process = require('child_process');
 
 // NOTE: Was crashing on FreeBSD
 var cp = child_process.spawn(process.execPath, [
@@ -10,5 +10,5 @@ var cp = child_process.spawn(process.execPath, [
 ]);
 
 cp.on('exit', function(code) {
-  assert.notEqual(code, 0);
+  assert.notStrictEqual(code, 0);
 });

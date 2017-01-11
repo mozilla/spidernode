@@ -26,7 +26,7 @@ const reply = 'I AM THE WALRUS'; // something recognizable
 let response = '';
 
 process.on('exit', function() {
-  assert.notEqual(response.indexOf(reply), -1);
+  assert.ok(response.includes(reply));
 });
 
 const server = tls.createServer(options, common.mustCall(function(conn) {
@@ -42,7 +42,7 @@ server.listen(0, '127.0.0.1', function() {
     cmd += ' -no_rand_screen';
 
   exec(cmd, function(err, stdout, stderr) {
-    if (err) throw err;
+    assert.ifError(err);
     response = stdout;
     server.close();
   });

@@ -442,7 +442,10 @@ void SecureContext::SetKey(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (len == 2) {
-    THROW_AND_RETURN_IF_NOT_STRING(args[1], "Pass phrase");
+    if (args[1]->IsUndefined() || args[1]->IsNull())
+      len = 1;
+    else
+      THROW_AND_RETURN_IF_NOT_STRING(args[1], "Pass phrase");
   }
 
   BIO *bio = LoadBIO(env, args[0]);
@@ -698,11 +701,8 @@ static X509_STORE* NewRootCertStore() {
       X509 *x509 = PEM_read_bio_X509(bp, nullptr, CryptoPemCallback, nullptr);
       BIO_free(bp);
 
-      if (x509 == nullptr) {
-        // Parse errors from the built-in roots are fatal.
-        ABORT();
-        return nullptr;
-      }
+      // Parse errors from the built-in roots are fatal.
+      CHECK_NE(x509, nullptr);
 
       root_certs_vector->push_back(x509);
     }

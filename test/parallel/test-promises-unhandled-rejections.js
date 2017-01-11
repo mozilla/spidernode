@@ -1,7 +1,7 @@
 'use strict';
-var common = require('../common');
-var assert = require('assert');
-var domain = require('domain');
+const common = require('../common');
+const assert = require('assert');
+const domain = require('domain');
 
 var asyncTest = (function() {
   var asyncTestsEnabled = false;
@@ -11,9 +11,9 @@ var asyncTest = (function() {
   var currentTest = null;
 
   function fail(error) {
-    var stack = currentTest
-          ? error.stack + '\nFrom previous event:\n' + currentTest.stack
-          : error.stack;
+    var stack = currentTest ?
+      error.stack + '\nFrom previous event:\n' + currentTest.stack :
+      error.stack;
 
     if (currentTest)
       process.stderr.write('\'' + currentTest.description + '\' failed\n\n');

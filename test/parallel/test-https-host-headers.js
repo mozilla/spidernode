@@ -1,12 +1,12 @@
 'use strict';
-var common = require('../common');
-var assert = require('assert');
+const common = require('../common');
+const assert = require('assert');
 
 if (!common.hasCrypto) {
   common.skip('missing crypto');
   return;
 }
-var https = require('https');
+const https = require('https');
 
 const fs = require('fs');
 const options = {
@@ -51,9 +51,7 @@ function testHttps() {
 
   httpsServer.listen(0, function(er) {
     console.log(`test https server listening on port ${this.address().port}`);
-
-    if (er) throw er;
-
+    assert.ifError(er);
     https.get({
       method: 'GET',
       path: '/' + (counter++),

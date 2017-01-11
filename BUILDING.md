@@ -24,8 +24,8 @@ On OS X, you will also need:
     this under the menu `Xcode -> Preferences -> Downloads`
   * This step will install `gcc` and the related toolchain containing `make`
 
-* You may want to setup [firewall rules](tools/macosx-firewall.sh) to avoid
-popups asking to accept incoming network connections when running tests:
+* After building, you may want to setup [firewall rules](tools/macosx-firewall.sh)
+to avoid popups asking to accept incoming network connections when running tests:
 
 ```console
 $ sudo ./tools/macosx-firewall.sh
@@ -111,7 +111,8 @@ Prerequisites:
 * One of:
   * [Visual C++ Build Tools](http://landinghub.visualstudio.com/visual-cpp-build-tools)
   * [Visual Studio 2015 Update 3](https://www.visualstudio.com/), all editions
-    including the Community edition.
+    including the Community edition (remember to select
+    "Common Tools for Visual C++ 2015" feature during installation).
 * Basic Unix tools required for some tests,
   [Git for Windows](http://git-scm.com/download/win) includes Git Bash
   and tools which can be included in the global `PATH`.
@@ -123,7 +124,7 @@ Prerequisites:
 To run the tests:
 
 ```console
-> .\vcbuild test
+> .\vcbuild nosign test
 ```
 
 To test if Node.js was built correctly:
@@ -181,7 +182,7 @@ $ ./configure --with-intl=full-icu --download=all
 ##### Windows:
 
 ```console
-> .\vcbuild full-icu download-all
+> .\vcbuild nosign full-icu download-all
 ```
 
 #### Building without Intl support
@@ -198,7 +199,7 @@ $ ./configure --without-intl
 ##### Windows:
 
 ```console
-> .\vcbuild without-intl
+> .\vcbuild nosign without-intl
 ```
 
 #### Use existing installed ICU (Unix / OS X only):
@@ -241,7 +242,7 @@ First unpack latest ICU to `deps/icu`
 as `deps/icu` (You'll have: `deps/icu/source/...`)
 
 ```console
-> .\vcbuild full-icu
+> .\vcbuild nosign full-icu
 ```
 
 ## Building Node.js with FIPS-compliant OpenSSL

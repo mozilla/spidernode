@@ -141,6 +141,10 @@
       ],
 
       'sources': [
+        'src/tracing/agent.cc',
+        'src/tracing/node_trace_buffer.cc',
+        'src/tracing/node_trace_writer.cc',
+        'src/tracing/trace_event.cc',
         'src/debug-agent.cc',
         'src/async-wrap.cc',
         'src/env.cc',
@@ -218,6 +222,7 @@
         'src/stream_base.h',
         'src/stream_base-inl.h',
         'src/stream_wrap.h',
+        'src/tracing/trace_event.h'
         'src/tree.h',
         'src/util.h',
         'src/util-inl.h',
@@ -1004,6 +1009,16 @@
             }, {
               'type': 'executable',
             }],
+            ['target_arch=="ppc64"', {
+              'ldflags': [
+                '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread/ppc64'
+              ],
+            }],
+            ['target_arch=="ppc"', {
+              'ldflags': [
+                '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread'
+              ],
+            }]
           ],
           'dependencies': ['<(node_core_target_name)', 'node_exp'],
 
