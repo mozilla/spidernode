@@ -597,7 +597,7 @@ js::TraceWeakMaps(WeakMapTracer* trc)
 extern JS_FRIEND_API(bool)
 js::AreGCGrayBitsValid(JSContext* cx)
 {
-    return cx->gc.areGrayBitsValid();
+    return cx->areGCGrayBitsValid();
 }
 
 JS_FRIEND_API(bool)
@@ -1438,10 +1438,4 @@ JS_FRIEND_API(bool)
 js::detail::IsWindowSlow(JSObject* obj)
 {
     return obj->as<GlobalObject>().maybeWindowProxy();
-}
-
-JS_FRIEND_API(bool)
-js::AllowGCBarriers(JSContext* cx)
-{
-    return cx->allowGCBarriers();
 }

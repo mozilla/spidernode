@@ -175,6 +175,17 @@ template <> bool ThingIsPermanentAtomOrWellKnownSymbol<JS::Symbol>(JS::Symbol* s
     return sym->isWellKnownSymbol();
 }
 
+template <typename T>
+static inline bool
+IsOwnedByOtherRuntime(JSTracer* trc, T thing)
+{
+    bool other = thing->runtimeFromAnyThread() != trc->runtime();
+    MOZ_ASSERT_IF(other,
+                  ThingIsPermanentAtomOrWellKnownSymbol(thing) ||
+                  thing->zoneFromAnyThread()->isSelfHostingZone());
+    return other;
+}
+
 template<typename T>
 void
 js::CheckTracedThing(JSTracer* trc, T* thing)
@@ -196,10 +207,10 @@ js::CheckTracedThing(JSTracer* trc, T* thing)
     MOZ_ASSERT_IF(!IsMovingTracer(trc) && !trc->isTenuringTracer(), !IsForwarded(thing));
 
     /*
-     * Permanent atoms are not associated with this runtime, but will be
-     * ignored during marking.
+     * Permanent atoms and things in the self-hosting zone are not associated
+     * with this runtime, but will be ignored during marking.
      */
-    if (ThingIsPermanentAtomOrWellKnownSymbol(thing))
+    if (IsOwnedByOtherRuntime(trc, thing))
         return;
 
     Zone* zone = thing->zoneFromAnyThread();
@@ -740,16 +751,24 @@ GCMarker::markImplicitEdges(T* thing)
 
 template <typename T>
 static inline bool
-MustSkipMarking(T thing)
+MustSkipMarking(GCMarker* gcmarker, T thing)
 {
+    // Don't trace things that are owned by another runtime.
+    if (IsOwnedByOtherRuntime(gcmarker, thing))
+        return true;
+
     // Don't mark things outside a zone if we are in a per-zone GC.
     return !thing->zone()->isGCMarking();
 }
 
 template <>
 bool
-MustSkipMarking<JSObject*>(JSObject* obj)
+MustSkipMarking<JSObject*>(GCMarker* gcmarker, JSObject* obj)
 {
+    // Don't trace things that are owned by another runtime.
+    if (IsOwnedByOtherRuntime(gcmarker, obj))
+        return true;
+
     // We may mark a Nursery thing outside the context of the
     // MinorCollectionTracer because of a pre-barrier. The pre-barrier is not
     // needed in this case because we perform a minor collection before each
@@ -763,34 +782,12 @@ MustSkipMarking<JSObject*>(JSObject* obj)
     return !TenuredCell::fromPointer(obj)->zone()->isGCMarking();
 }
 
-template <>
-bool
-MustSkipMarking<JSString*>(JSString* str)
-{
-    // Don't mark permanent atoms, as they may be associated with another
-    // runtime. Note that traverse() also checks this, but we need to not
-    // run the isGCMarking test from off-main-thread, so have to check it here
-    // too.
-    return str->isPermanentAtom() ||
-           !str->zone()->isGCMarking();
-}
-
-template <>
-bool
-MustSkipMarking<JS::Symbol*>(JS::Symbol* sym)
-{
-    // As for JSString, don't touch a globally owned well-known symbol from
-    // off-main-thread.
-    return sym->isWellKnownSymbol() ||
-           !sym->zone()->isGCMarking();
-}
-
 template <typename T>
 void
 DoMarking(GCMarker* gcmarker, T* thing)
 {
     // Do per-type marking precondition checks.
-    if (MustSkipMarking(thing))
+    if (MustSkipMarking(gcmarker, thing))
         return;
 
     CheckTracedThing(gcmarker, thing);
@@ -817,7 +814,7 @@ void
 NoteWeakEdge(GCMarker* gcmarker, T** thingp)
 {
     // Do per-type marking precondition checks.
-    if (MustSkipMarking(*thingp))
+    if (MustSkipMarking(gcmarker, *thingp))
         return;
 
     CheckTracedThing(gcmarker, *thingp);
@@ -1264,6 +1261,12 @@ ModuleScope::Data::trace(JSTracer* trc)
     TraceBindingNames(trc, names, length);
 }
 void
+WasmFunctionScope::Data::trace(JSTracer* trc)
+{
+    TraceNullableEdge(trc, &instance, "wasm function");
+    TraceBindingNames(trc, names, length);
+}
+void
 Scope::traceChildren(JSTracer* trc)
 {
     TraceNullableEdge(trc, &enclosing_, "scope enclosing");
@@ -1295,6 +1298,9 @@ Scope::traceChildren(JSTracer* trc)
         reinterpret_cast<ModuleScope::Data*>(data_)->trace(trc);
         break;
       case ScopeKind::With:
+        break;
+      case ScopeKind::WasmFunction:
+        reinterpret_cast<WasmFunctionScope::Data*>(data_)->trace(trc);
         break;
     }
 }
@@ -1361,6 +1367,14 @@ js::GCMarker::eagerlyMarkChildren(Scope* scope)
 
       case ScopeKind::With:
         break;
+
+      case ScopeKind::WasmFunction: {
+        WasmFunctionScope::Data* data = reinterpret_cast<WasmFunctionScope::Data*>(scope->data_);
+        traverseEdge(scope, static_cast<JSObject*>(data->instance));
+        names = data->names;
+        length = data->length;
+        break;
+      }
     }
     if (scope->kind_ == ScopeKind::Function) {
         for (uint32_t i = 0; i < length; i++) {
@@ -1545,15 +1559,13 @@ GCMarker::drainMarkStack(SliceBudget& budget)
     auto acc = mozilla::MakeScopeExit([&] {strictCompartmentChecking = false;});
 #endif
 
-    JSContext* cx = runtime()->contextFromMainThread();
-
-    if (budget.isOverBudget(cx))
+    if (budget.isOverBudget())
         return false;
 
     for (;;) {
         while (!stack.isEmpty()) {
             processMarkStackTop(budget);
-            if (budget.isOverBudget(cx)) {
+            if (budget.isOverBudget()) {
                 saveValueRanges();
                 return false;
             }
@@ -1628,8 +1640,6 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     uintptr_t tag = addr & StackTagMask;
     addr &= ~StackTagMask;
 
-    JSContext* cx = runtime()->contextFromMainThread();
-
     // Dispatch
     switch (tag) {
       case ValueArrayTag: {
@@ -1683,7 +1693,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
     MOZ_ASSERT(vp <= end);
     while (vp != end) {
         budget.step();
-        if (budget.isOverBudget(cx)) {
+        if (budget.isOverBudget()) {
             pushValueArray(obj, vp, end);
             return;
         }
@@ -1713,7 +1723,7 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
         AssertZoneIsMarking(obj);
 
         budget.step();
-        if (budget.isOverBudget(cx)) {
+        if (budget.isOverBudget()) {
             repush(obj);
             return;
         }
@@ -2161,7 +2171,7 @@ GCMarker::markDelayedChildren(SliceBudget& budget)
         markDelayedChildren(arena);
 
         budget.step(150);
-        if (budget.isOverBudget(runtime()->contextFromMainThread()))
+        if (budget.isOverBudget())
             return false;
     } while (unmarkedArenaStackTop);
     MOZ_ASSERT(!markLaterArenas);
@@ -2917,7 +2927,7 @@ UnmarkGrayTracer::onChild(const JS::GCCellPtr& thing)
          * If we run out of stack, we take a more drastic measure: require that
          * we GC again before the next CC.
          */
-        runtime()->gc.setGrayBitsInvalid();
+        runtime()->setGCGrayBitsValid(false);
         return;
     }
 
