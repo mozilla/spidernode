@@ -67,13 +67,7 @@ class MutableGCListOperations : public GCListOperations<Outer, T> {
 
 namespace js {
 
-template <class T>
-class RootedBase<v8::internal::GCList<T>>
-    : public v8::internal::MutableGCListOperations<
-          JS::Rooted<v8::internal::GCList<T>>, T> {};
-
-template <class T>
-class PersistentRootedBase<v8::internal::GCList<T>>
-    : public v8::internal::MutableGCListOperations<
-          JS::PersistentRooted<v8::internal::GCList<T>>, T> {};
+template <class T, typename Container>
+class RootedBase<v8::internal::GCList<T>, Container>
+    : public v8::internal::MutableGCListOperations<Container, T> {};
 }

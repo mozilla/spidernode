@@ -529,6 +529,12 @@ class MacroAssembler : public MacroAssemblerSpecific
     static void patchNopToNearJump(uint8_t* jump, uint8_t* target) PER_SHARED_ARCH;
     static void patchNearJumpToNop(uint8_t* jump) PER_SHARED_ARCH;
 
+    // Emit a nop that can be patched to and from a nop and a call with int32
+    // relative displacement.
+    CodeOffset nopPatchableToCall(const wasm::CallSiteDesc& desc) PER_SHARED_ARCH;
+    static void patchNopToCall(uint8_t* callsite, uint8_t* target) PER_SHARED_ARCH;
+    static void patchCallToNop(uint8_t* callsite) PER_SHARED_ARCH;
+
   public:
     // ===============================================================
     // ABI function calls.
@@ -1370,6 +1376,42 @@ class MacroAssembler : public MacroAssemblerSpecific
     void wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out) DEFINED_ON(x86, x64);
     void wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr) DEFINED_ON(x86, x64);
     void wasmStoreI64(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr) DEFINED_ON(x86);
+
+    // For all the ARM wasmLoad and wasmStore functions, `ptr` MUST equal
+    // `ptrScratch`, and that register will be updated based on conditions
+    // listed below (where it is only mentioned as `ptr`).
+
+    // `ptr` will be updated if access.offset() != 0 or access.type() == Scalar::Int64.
+    void wasmLoad(const wasm::MemoryAccessDesc& access, Register ptr, Register ptrScratch, AnyRegister output) DEFINED_ON(arm);
+    void wasmLoadI64(const wasm::MemoryAccessDesc& access, Register ptr, Register ptrScratch, Register64 output) DEFINED_ON(arm);
+    void wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Register ptr, Register ptrScratch) DEFINED_ON(arm);
+    void wasmStoreI64(const wasm::MemoryAccessDesc& access, Register64 value, Register ptr, Register ptrScratch) DEFINED_ON(arm);
+
+    // `ptr` will always be updated.
+    void wasmUnalignedLoad(const wasm::MemoryAccessDesc& access, Register ptr, Register ptrScratch,
+                           Register output, Register tmp) DEFINED_ON(arm);
+
+    // `ptr` will always be updated and `tmp1` is always needed.  `tmp2` is
+    // needed for Float32; `tmp2` and `tmp3` are needed for Float64.  Temps must
+    // be Invalid when they are not needed.
+    void wasmUnalignedLoadFP(const wasm::MemoryAccessDesc& access, Register ptr, Register ptrScratch,
+                             FloatRegister output, Register tmp1, Register tmp2, Register tmp3) DEFINED_ON(arm);
+
+    // `ptr` will always be updated.
+    void wasmUnalignedLoadI64(const wasm::MemoryAccessDesc& access, Register ptr, Register ptrScratch,
+                              Register64 output, Register tmp) DEFINED_ON(arm);
+
+    // `ptr` and `value` will always be updated.
+    void wasmUnalignedStore(const wasm::MemoryAccessDesc& access, Register value, Register ptr, Register ptrScratch)
+        DEFINED_ON(arm);
+
+    // `ptr` will always be updated.
+    void wasmUnalignedStoreFP(const wasm::MemoryAccessDesc& access, FloatRegister floatValue, Register ptr,
+                              Register ptrScratch, Register tmp) DEFINED_ON(arm);
+
+    // `ptr` will always be updated.
+    void wasmUnalignedStoreI64(const wasm::MemoryAccessDesc& access, Register64 value, Register ptr, Register ptrScratch,
+                               Register tmp) DEFINED_ON(arm);
 
     // wasm specific methods, used in both the wasm baseline compiler and ion.
     void wasmTruncateDoubleToUInt32(FloatRegister input, Register output, Label* oolEntry) DEFINED_ON(x86, x64, arm);
