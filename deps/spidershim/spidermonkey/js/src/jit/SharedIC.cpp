@@ -193,9 +193,14 @@ ICStub::NonCacheIRStubMakesGCCalls(Kind kind)
 bool
 ICStub::makesGCCalls() const
 {
-    if (isCacheIR_Monitored())
+    switch (kind()) {
+      case CacheIR_Monitored:
         return toCacheIR_Monitored()->stubInfo()->makesGCCalls();
-    return NonCacheIRStubMakesGCCalls(kind());
+      case CacheIR_Updated:
+        return toCacheIR_Updated()->stubInfo()->makesGCCalls();
+      default:
+        return NonCacheIRStubMakesGCCalls(kind());
+    }
 }
 
 void
@@ -351,12 +356,6 @@ ICStub::trace(JSTracer* trc)
         TraceEdge(trc, &constantStub->value(), "baseline-getintrinsic-constant-value");
         break;
       }
-      case ICStub::SetProp_Native: {
-        ICSetProp_Native* propStub = toSetProp_Native();
-        TraceEdge(trc, &propStub->shape(), "baseline-setpropnative-stub-shape");
-        TraceEdge(trc, &propStub->group(), "baseline-setpropnative-stub-group");
-        break;
-      }
       case ICStub::SetProp_NativeAdd: {
         ICSetProp_NativeAdd* propStub = toSetProp_NativeAdd();
         TraceEdge(trc, &propStub->group(), "baseline-setpropnativeadd-stub-group");
@@ -371,17 +370,6 @@ ICStub::trace(JSTracer* trc)
           case 4: propStub->toImpl<4>()->traceShapes(trc); break;
           default: MOZ_CRASH("Invalid proto stub.");
         }
-        break;
-      }
-      case ICStub::SetProp_Unboxed: {
-        ICSetProp_Unboxed* propStub = toSetProp_Unboxed();
-        TraceEdge(trc, &propStub->group(), "baseline-setprop-unboxed-stub-group");
-        break;
-      }
-      case ICStub::SetProp_TypedObject: {
-        ICSetProp_TypedObject* propStub = toSetProp_TypedObject();
-        TraceEdge(trc, &propStub->shape(), "baseline-setprop-typedobject-stub-shape");
-        TraceEdge(trc, &propStub->group(), "baseline-setprop-typedobject-stub-group");
         break;
       }
       case ICStub::SetProp_CallScripted: {
@@ -425,6 +413,13 @@ ICStub::trace(JSTracer* trc)
       case ICStub::CacheIR_Monitored:
         TraceCacheIRStub(trc, this, toCacheIR_Monitored()->stubInfo());
         break;
+      case ICStub::CacheIR_Updated: {
+        ICCacheIR_Updated* stub = toCacheIR_Updated();
+        TraceEdge(trc, &stub->updateStubGroup(), "baseline-update-stub-group");
+        TraceEdge(trc, &stub->updateStubId(), "baseline-update-stub-id");
+        TraceCacheIRStub(trc, this, stub->stubInfo());
+        break;
+      }
       default:
         break;
     }
@@ -731,8 +726,9 @@ ICStubCompiler::PushStubPayload(MacroAssembler& masm, Register scratch)
 }
 
 void
-ICStubCompiler::emitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
-                                         Register scratch, LiveGeneralRegisterSet saveRegs)
+BaselineEmitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
+                                 Register scratch, LiveGeneralRegisterSet saveRegs,
+                                 JSRuntime* rt)
 {
     Label skipBarrier;
     masm.branchPtrInNurseryChunk(Assembler::Equal, obj, scratch, &skipBarrier);
@@ -745,7 +741,7 @@ ICStubCompiler::emitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, Val
     saveRegs.set() = GeneralRegisterSet::Intersect(saveRegs.set(), GeneralRegisterSet::Volatile());
     masm.PushRegsInMask(saveRegs);
     masm.setupUnalignedABICall(scratch);
-    masm.movePtr(ImmPtr(cx->runtime()), scratch);
+    masm.movePtr(ImmPtr(rt), scratch);
     masm.passABIArg(scratch);
     masm.passABIArg(obj);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, PostWriteBarrier));
@@ -1975,7 +1971,7 @@ StripPreliminaryObjectStubs(JSContext* cx, ICFallbackStub* stub)
     for (ICStubIterator iter = stub->beginChain(); !iter.atEnd(); iter++) {
         if (iter->isCacheIR_Monitored() && iter->toCacheIR_Monitored()->hasPreliminaryObject())
             iter.unlink(cx);
-        else if (iter->isSetProp_Native() && iter->toSetProp_Native()->hasPreliminaryObject())
+        else if (iter->isCacheIR_Updated() && iter->toCacheIR_Updated()->hasPreliminaryObject())
             iter.unlink(cx);
     }
 }
@@ -1992,16 +1988,16 @@ GetDOMProxyProto(JSObject* obj)
 // existence of the property on the object.
 bool
 EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId id,
-                           MutableHandleObject holder, MutableHandleShape shape)
+                           MutableHandleObject holder, MutableHandle<PropertyResult> prop)
 {
-    shape.set(nullptr);
+    prop.setNotFound();
     holder.set(nullptr);
 
-    if (LookupPropertyPure(cx, obj, id, holder.address(), shape.address()))
+    if (LookupPropertyPure(cx, obj, id, holder.address(), prop.address()))
         return true;
 
     holder.set(nullptr);
-    shape.set(nullptr);
+    prop.setNotFound();
     return true;
 }
 

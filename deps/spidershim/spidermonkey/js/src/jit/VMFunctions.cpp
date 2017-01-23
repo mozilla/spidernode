@@ -600,11 +600,11 @@ GetDynamicName(JSContext* cx, JSObject* envChain, JSString* str, Value* vp)
         return;
     }
 
-    Shape* shape = nullptr;
+    PropertyResult prop;
     JSObject* scope = nullptr;
     JSObject* pobj = nullptr;
-    if (LookupNameNoGC(cx, atom->asPropertyName(), envChain, &scope, &pobj, &shape)) {
-        if (FetchNameNoGC(pobj, shape, MutableHandleValue::fromMarkedLocation(vp)))
+    if (LookupNameNoGC(cx, atom->asPropertyName(), envChain, &scope, &pobj, &prop)) {
+        if (FetchNameNoGC(pobj, prop, MutableHandleValue::fromMarkedLocation(vp)))
             return;
     }
 
@@ -1318,10 +1318,21 @@ ThrowRuntimeLexicalError(JSContext* cx, unsigned errorNumber)
 }
 
 bool
-ThrowReadOnlyError(JSContext* cx, int32_t index)
+ThrowReadOnlyError(JSContext* cx, HandleObject obj, int32_t index)
 {
-    RootedValue val(cx, Int32Value(index));
-    ReportValueError(cx, JSMSG_READ_ONLY, JSDVG_IGNORE_STACK, val, nullptr);
+    // We have to throw different errors depending on whether |index| is past
+    // the array length, etc. It's simpler to just call SetProperty to ensure
+    // we match the interpreter.
+
+    RootedValue objVal(cx, ObjectValue(*obj));
+    RootedValue indexVal(cx, Int32Value(index));
+    RootedId id(cx);
+    if (!ValueToId<CanGC>(cx, indexVal, &id))
+        return false;
+
+    ObjectOpResult result;
+    MOZ_ALWAYS_FALSE(SetProperty(cx, obj, id, UndefinedHandleValue, objVal, result) &&
+                     result.checkStrictErrorOrWarning(cx, obj, id, /* strict = */ true));
     return false;
 }
 

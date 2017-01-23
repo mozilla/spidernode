@@ -508,7 +508,7 @@ class ICStub
         return (k > INVALID) && (k < LIMIT);
     }
     static bool IsCacheIRKind(Kind k) {
-        return k == CacheIR_Monitored;
+        return k == CacheIR_Monitored || k == CacheIR_Updated;
     }
 
     static const char* KindString(Kind k) {
@@ -956,6 +956,41 @@ class ICUpdatedStub : public ICStub
     }
 };
 
+class ICCacheIR_Updated : public ICUpdatedStub
+{
+    const CacheIRStubInfo* stubInfo_;
+    GCPtrObjectGroup updateStubGroup_;
+    GCPtrId updateStubId_;
+
+  public:
+    ICCacheIR_Updated(JitCode* stubCode, const CacheIRStubInfo* stubInfo)
+      : ICUpdatedStub(ICStub::CacheIR_Updated, stubCode),
+        stubInfo_(stubInfo),
+        updateStubGroup_(nullptr),
+        updateStubId_(JSID_EMPTY)
+    {}
+
+    GCPtrObjectGroup& updateStubGroup() {
+        return updateStubGroup_;
+    }
+    GCPtrId& updateStubId() {
+        return updateStubId_;
+    }
+
+    void notePreliminaryObject() {
+        extra_ = 1;
+    }
+    bool hasPreliminaryObject() const {
+        return extra_;
+    }
+
+    const CacheIRStubInfo* stubInfo() const {
+        return stubInfo_;
+    }
+
+    uint8_t* stubDataStart();
+};
+
 // Base class for stubcode compilers.
 class ICStubCompiler
 {
@@ -1062,9 +1097,6 @@ class ICStubCompiler
     }
 
   protected:
-    void emitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
-                                  Register scratch, LiveGeneralRegisterSet saveRegs);
-
     template <typename T, typename... Args>
     T* newStub(Args&&... args) {
         return ICStub::New<T>(cx, mozilla::Forward<Args>(args)...);
@@ -1085,6 +1117,10 @@ class ICStubCompiler
         return StubSpaceForStub(ICStub::NonCacheIRStubMakesGCCalls(kind), outerScript, engine_);
     }
 };
+
+void BaselineEmitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
+                                      Register scratch, LiveGeneralRegisterSet saveRegs,
+                                      JSRuntime* rt);
 
 class SharedStubInfo
 {
@@ -2219,6 +2255,10 @@ MOZ_MUST_USE bool
 EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId name,
                            MutableHandleObject holder, MutableHandleShape shape);
 
+MOZ_MUST_USE bool
+EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId name,
+                           MutableHandleObject holder, MutableHandle<PropertyResult> prop);
+
 JSObject*
 GetDOMProxyProto(JSObject* obj);
 
@@ -2352,7 +2392,7 @@ class ICGetProp_Generic : public ICMonitoredStub
     };
 };
 
-static uint32_t
+static inline uint32_t
 SimpleTypeDescrKey(SimpleTypeDescr* descr)
 {
     if (descr->is<ScalarTypeDescr>())
