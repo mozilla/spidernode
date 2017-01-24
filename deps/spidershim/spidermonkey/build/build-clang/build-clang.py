@@ -203,7 +203,7 @@ def is_windows():
 def build_one_stage(cc, cxx, ld, ar, ranlib,
                     src_dir, stage_dir, build_libcxx,
                     osx_cross_compile, build_type, assertions,
-                    python_path, gcc_dir):
+                    python_path, gcc_dir, libcxx_include_dir):
     if not os.path.exists(stage_dir):
         os.mkdir(stage_dir)
 
@@ -249,7 +249,7 @@ def build_one_stage(cc, cxx, ld, ar, ranlib,
         cmake_args += ["-DCMAKE_SYSTEM_NAME=Darwin",
                        "-DCMAKE_SYSTEM_VERSION=10.10",
                        "-DLLVM_ENABLE_THREADS=OFF",
-                       "-DLIBCXXABI_LIBCXX_INCLUDES=%s" % slashify_path(os.getenv("LIBCXX_INCLUDE_PATH")),
+                       "-DLIBCXXABI_LIBCXX_INCLUDES=%s" % libcxx_include_dir,
                        "-DCMAKE_OSX_SYSROOT=%s" % slashify_path(os.getenv("CROSS_SYSROOT")),
                        "-DCMAKE_FIND_ROOT_PATH=%s" % slashify_path(os.getenv("CROSS_CCTOOLS_PATH")),
                        "-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER",
@@ -470,32 +470,21 @@ if __name__ == "__main__":
 
     if not os.path.exists(source_dir):
         os.makedirs(source_dir)
-    if os.path.exists(llvm_source_dir):
-        svn_update(llvm_source_dir, llvm_revision)
-    else:
-        svn_co(source_dir, llvm_repo, llvm_source_dir, llvm_revision)
-    if os.path.exists(clang_source_dir):
-        svn_update(clang_source_dir, llvm_revision)
-    else:
-        svn_co(source_dir, clang_repo, clang_source_dir, llvm_revision)
-    if os.path.exists(compiler_rt_source_dir):
-        svn_update(compiler_rt_source_dir, llvm_revision)
-    else:
-        svn_co(source_dir, compiler_repo, compiler_rt_source_dir, llvm_revision)
-    if os.path.exists(libcxx_source_dir):
-        svn_update(libcxx_source_dir, llvm_revision)
-    else:
-        svn_co(source_dir, libcxx_repo, libcxx_source_dir, llvm_revision)
+
+    def checkout_or_update(repo, checkout_dir):
+        if os.path.exists(checkout_dir):
+            svn_update(checkout_dir, llvm_revision)
+        else:
+            svn_co(source_dir, repo, checkout_dir, llvm_revision)
+
+    checkout_or_update(llvm_repo, llvm_source_dir)
+    checkout_or_update(clang_repo, clang_source_dir)
+    checkout_or_update(compiler_repo, compiler_rt_source_dir)
+    checkout_or_update(libcxx_repo, libcxx_source_dir)
     if libcxxabi_repo:
-        if os.path.exists(libcxxabi_source_dir):
-            svn_update(libcxxabi_source_dir, llvm_revision)
-        else:
-            svn_co(source_dir, libcxxabi_repo, libcxxabi_source_dir, llvm_revision)
+        checkout_or_update(libcxxabi_repo, libcxxabi_source_dir)
     if extra_repo:
-        if os.path.exists(extra_source_dir):
-            svn_update(extra_source_dir, llvm_revision)
-        else:
-            svn_co(source_dir, extra_repo, extra_source_dir, llvm_revision)
+        checkout_or_update(extra_repo, extra_source_dir)
     for p in config.get("patches", {}).get(get_platform(), []):
         patch(p, source_dir)
 
@@ -522,6 +511,9 @@ if __name__ == "__main__":
 
     if not os.path.exists(build_dir):
         os.makedirs(build_dir)
+
+    libcxx_include_dir = os.path.join(llvm_source_dir, "projects",
+                                      "libcxx", "include")
 
     stage1_dir = build_dir + '/stage1'
     stage1_inst_dir = stage1_dir + '/clang'
@@ -582,7 +574,7 @@ if __name__ == "__main__":
         [ld] + extra_ldflags,
         ar, ranlib,
         llvm_source_dir, stage1_dir, build_libcxx, osx_cross_compile,
-        build_type, assertions, python_path, gcc_dir)
+        build_type, assertions, python_path, gcc_dir, libcxx_include_dir)
 
     if stages > 1:
         stage2_dir = build_dir + '/stage2'
@@ -596,7 +588,7 @@ if __name__ == "__main__":
             [ld] + extra_ldflags,
             ar, ranlib,
             llvm_source_dir, stage2_dir, build_libcxx, osx_cross_compile,
-            build_type, assertions, python_path, gcc_dir)
+            build_type, assertions, python_path, gcc_dir, libcxx_include_dir)
 
     if stages > 2:
         stage3_dir = build_dir + '/stage3'
@@ -609,7 +601,7 @@ if __name__ == "__main__":
             [ld] + extra_ldflags,
             ar, ranlib,
             llvm_source_dir, stage3_dir, build_libcxx, osx_cross_compile,
-            build_type, assertions, python_path, gcc_dir)
+            build_type, assertions, python_path, gcc_dir, libcxx_include_dir)
 
     package_name = "clang"
     if build_clang_tidy:

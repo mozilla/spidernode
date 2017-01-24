@@ -2199,7 +2199,7 @@ IonCompile(JSContext* cx, JSScript* script,
 
     // Make sure the script's canonical function isn't lazy. We can't de-lazify
     // it in a helper thread.
-    script->ensureNonLazyCanonicalFunction(cx);
+    script->ensureNonLazyCanonicalFunction();
 
     TrackPropertiesForSingletonScopes(cx, script, baselineFrame);
 
@@ -2501,6 +2501,11 @@ Compile(JSContext* cx, HandleScript script, BaselineFrame* osrFrame, jsbytecode*
     OptimizationLevel optimizationLevel = GetOptimizationLevel(script, osrPc);
     if (optimizationLevel == OptimizationLevel::DontCompile)
         return Method_Skipped;
+
+    if (!CanLikelyAllocateMoreExecutableMemory()) {
+        script->resetWarmUpCounter();
+        return Method_Skipped;
+    }
 
     if (script->hasIonScript()) {
         IonScript* scriptIon = script->ionScript();

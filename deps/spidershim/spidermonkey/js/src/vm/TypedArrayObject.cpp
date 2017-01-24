@@ -163,6 +163,11 @@ TypedArrayObject::finalize(FreeOp* fop, JSObject* obj)
     MOZ_ASSERT(!IsInsideNursery(obj));
     TypedArrayObject* curObj = &obj->as<TypedArrayObject>();
 
+    // Template objects or discarded objects (which didn't have enough room
+    // for inner elements). Don't have anything to free.
+    if (!curObj->elementsRaw())
+        return;
+
     curObj->assertZeroLengthArrayData();
 
     // Typed arrays with a buffer object do not need to be free'd
@@ -357,7 +362,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
             return nullptr;
 
         const Class* clasp = TypedArrayObject::protoClassForType(ArrayTypeID());
-        return global->createBlankPrototypeInheriting(cx, clasp, typedArrayProto);
+        return GlobalObject::createBlankPrototypeInheriting(cx, global, clasp, typedArrayProto);
     }
 
     static JSObject*
@@ -1910,7 +1915,7 @@ DataViewObject::constructWrapped(JSContext* cx, HandleObject bufobj, const CallA
 
     Rooted<GlobalObject*> global(cx, cx->compartment()->maybeGlobal());
     if (!proto) {
-        proto = global->getOrCreateDataViewPrototype(cx);
+        proto = GlobalObject::getOrCreateDataViewPrototype(cx, global);
         if (!proto)
             return false;
     }
@@ -2907,12 +2912,13 @@ DataViewObject::initClass(JSContext* cx)
     if (global->isStandardClassResolved(JSProto_DataView))
         return true;
 
-    RootedNativeObject proto(cx, global->createBlankPrototype(cx, &DataViewObject::protoClass));
+    RootedNativeObject proto(cx, GlobalObject::createBlankPrototype(cx, global,
+                                                                    &DataViewObject::protoClass));
     if (!proto)
         return false;
 
-    RootedFunction ctor(cx, global->createConstructor(cx, DataViewObject::class_constructor,
-                                                      cx->names().DataView, 3));
+    RootedFunction ctor(cx, GlobalObject::createConstructor(cx, DataViewObject::class_constructor,
+                                                            cx->names().DataView, 3));
     if (!ctor)
         return false;
 

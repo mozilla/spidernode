@@ -11,6 +11,7 @@
 #include "jsfriendapi.h"
 
 #include "gc/Marking.h"
+#include "vm/Shape.h"
 
 #include "jsgcinlines.h"
 
@@ -63,7 +64,7 @@ WatchpointMap::watch(JSContext* cx, HandleObject obj, HandleId id,
 {
     MOZ_ASSERT(JSID_IS_STRING(id) || JSID_IS_INT(id) || JSID_IS_SYMBOL(id));
 
-    if (!obj->setWatched(cx))
+    if (!JSObject::setWatched(cx, obj))
         return false;
 
     Watchpoint w(handler, closure, false);
