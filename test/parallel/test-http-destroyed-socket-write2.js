@@ -6,14 +6,14 @@ const assert = require('assert');
 // where the server has ended the socket.
 
 const http = require('http');
-var server = http.createServer(function(req, res) {
+const server = http.createServer(function(req, res) {
   setImmediate(function() {
     res.destroy();
   });
 });
 
 server.listen(0, function() {
-  var req = http.request({
+  const req = http.request({
     port: this.address().port,
     path: '/',
     method: 'POST'
@@ -47,8 +47,8 @@ server.listen(0, function() {
         break;
     }
 
-    assert.equal(req.output.length, 0);
-    assert.equal(req.outputEncodings.length, 0);
+    assert.strictEqual(req.output.length, 0);
+    assert.strictEqual(req.outputEncodings.length, 0);
     server.close();
   }));
 

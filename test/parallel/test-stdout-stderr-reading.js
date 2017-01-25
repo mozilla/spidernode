@@ -4,7 +4,7 @@ const assert = require('assert');
 
 // verify that stdout is never read from.
 const net = require('net');
-var read = net.Socket.prototype.read;
+const read = net.Socket.prototype.read;
 
 net.Socket.prototype.read = function() {
   if (this.fd === 1)
@@ -21,10 +21,10 @@ else
 
 function parent() {
   const spawn = require('child_process').spawn;
-  var node = process.execPath;
+  const node = process.execPath;
 
-  var c1 = spawn(node, [__filename, 'child']);
-  var c1out = '';
+  const c1 = spawn(node, [__filename, 'child']);
+  let c1out = '';
   c1.stdout.setEncoding('utf8');
   c1.stdout.on('data', function(chunk) {
     c1out += chunk;
@@ -36,12 +36,12 @@ function parent() {
   c1.on('close', common.mustCall(function(code, signal) {
     assert(!code);
     assert(!signal);
-    assert.equal(c1out, 'ok\n');
+    assert.strictEqual(c1out, 'ok\n');
     console.log('ok');
   }));
 
-  var c2 = spawn(node, ['-e', 'console.log("ok")']);
-  var c2out = '';
+  const c2 = spawn(node, ['-e', 'console.log("ok")']);
+  let c2out = '';
   c2.stdout.setEncoding('utf8');
   c2.stdout.on('data', function(chunk) {
     c2out += chunk;
@@ -53,7 +53,7 @@ function parent() {
   c2.on('close', common.mustCall(function(code, signal) {
     assert(!code);
     assert(!signal);
-    assert.equal(c2out, 'ok\n');
+    assert.strictEqual(c2out, 'ok\n');
     console.log('ok');
   }));
 }

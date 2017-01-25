@@ -14,11 +14,11 @@ setTimeout(common.mustCall(function() {
 
 process.nextTick(common.mustCall(function() {}));
 
-var obj = {};
+const obj = {};
 
 process.nextTick(function(a, b) {
-  assert.equal(a, 42);
-  assert.equal(b, obj);
+  assert.strictEqual(a, 42);
+  assert.strictEqual(b, obj);
 }, 42, obj);
 
 process.on('exit', function() {

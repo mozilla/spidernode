@@ -6,17 +6,17 @@ require('../common');
 function parent() {
   const spawn = require('child_process').spawn;
   const assert = require('assert');
-  var i = 0;
+  let i = 0;
   children.forEach(function(_, c) {
-    var child = spawn(process.execPath, [__filename, '' + c]);
-    var err = '';
+    const child = spawn(process.execPath, [__filename, '' + c]);
+    let err = '';
 
     child.stderr.on('data', function(c) {
       err += c;
     });
 
     child.on('close', function() {
-      assert.equal(err, 'child ' + c + '\nfoo\nbar\nbaz\n');
+      assert.strictEqual(err, 'child ' + c + '\nfoo\nbar\nbaz\n');
       console.log('ok %d child #%d', ++i, c);
       if (i === children.length)
         console.log('1..' + i);
@@ -43,7 +43,7 @@ function child1() {
 // using a net socket
 function child2() {
   const net = require('net');
-  var socket = new net.Socket({
+  const socket = new net.Socket({
     fd: 2,
     readable: false,
     writable: true});
@@ -62,7 +62,7 @@ function child4() {
   process.stderr.write('child 4\nfoo\nbar\nbaz\n');
 }
 
-var children = [ child0, child1, child2, child3, child4 ];
+const children = [ child0, child1, child2, child3, child4 ];
 
 if (!process.argv[2]) {
   parent();

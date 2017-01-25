@@ -20,7 +20,7 @@ if (common.isSunOS) {
 const nodeBinary = process.argv[0];
 
 const preloadOption = function(preloads) {
-  var option = '';
+  let option = '';
   preloads.forEach(function(preload, index) {
     option += '-r ' + preload + ' ';
   });
@@ -81,7 +81,7 @@ const stdinProc = childProcess.spawn(
   {stdio: 'pipe'}
 );
 stdinProc.stdin.end("console.log('hello');");
-var stdinStdout = '';
+let stdinStdout = '';
 stdinProc.stdout.on('data', function(d) {
   stdinStdout += d;
 });
@@ -97,7 +97,7 @@ const replProc = childProcess.spawn(
   {stdio: 'pipe'}
 );
 replProc.stdin.end('.exit\n');
-var replStdout = '';
+let replStdout = '';
 replProc.stdout.on('data', function(d) {
   replStdout += d;
 });
@@ -145,7 +145,7 @@ childProcess.exec(
 // https://github.com/nodejs/node/issues/1691
 process.chdir(common.fixturesDir);
 childProcess.exec(
-  nodeBinary + ' ' + '--expose_debug_as=v8debug ' + '--require ' +
+  nodeBinary + ' ' + '--expose_natives_as=v8natives ' + '--require ' +
     fixture('cluster-preload.js') + ' ' + 'cluster-preload-test.js',
   function(err, stdout, stderr) {
     assert.ifError(err);

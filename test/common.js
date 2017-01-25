@@ -12,7 +12,7 @@ const Timer = process.binding('timer_wrap').Timer;
 const execSync = require('child_process').execSync;
 
 const testRoot = process.env.NODE_TEST_DIR ?
-                   path.resolve(process.env.NODE_TEST_DIR) : __dirname;
+                   fs.realpathSync(process.env.NODE_TEST_DIR) : __dirname;
 
 exports.fixturesDir = path.join(__dirname, 'fixtures');
 exports.tmpDirName = 'tmp';
@@ -213,7 +213,7 @@ exports.hasIPv6 = Object.keys(ifaces).some(function(name) {
  * the process aborts.
  */
 exports.childShouldThrowAndAbort = function() {
-  var testCmd = '';
+  let testCmd = '';
   if (!exports.isWindows) {
     // Do not create core files, as it can take a lot of disk space on
     // continuous testing and developers' machines

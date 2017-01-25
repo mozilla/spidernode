@@ -16,9 +16,10 @@ if (process.argv[2] === 'child') {
   });
 
 } else {
-  var child = fork(__filename, ['child'], {silent: true});
+  const child = fork(__filename, ['child'], {silent: true});
 
-  var ipc = [], stdout = '';
+  const ipc = [];
+  let stdout = '';
 
   child.on('message', function(msg) {
     ipc.push(msg);
@@ -32,6 +33,6 @@ if (process.argv[2] === 'child') {
 
   child.once('exit', function() {
     assert.deepStrictEqual(ipc, ['1', '2']);
-    assert.equal(stdout, '3');
+    assert.strictEqual(stdout, '3');
   });
 }

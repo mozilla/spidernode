@@ -163,6 +163,14 @@ static const char* icu_data_dir = nullptr;
 bool no_deprecation = false;
 
 #if HAVE_OPENSSL
+// use OpenSSL's cert store instead of bundled certs
+bool ssl_openssl_cert_store =
+#if defined(NODE_OPENSSL_CERT_STORE)
+        true;
+#else
+        false;
+#endif
+
 # if NODE_FIPS_MODE
 // used by crypto module
 bool enable_fips_crypto = false;
@@ -2192,7 +2200,7 @@ static void WaitForInspectorDisconnect(Environment* env) {
   if (env->inspector_agent()->IsConnected()) {
     // Restore signal dispositions, the app is done and is no longer
     // capable of handling signals.
-#ifdef __POSIX__
+#if defined(__POSIX__) && !defined(NODE_SHARED_MODE)
     struct sigaction act;
     memset(&act, 0, sizeof(act));
     for (unsigned nr = 1; nr < kMaxSignal; nr += 1) {
@@ -2274,18 +2282,18 @@ void Kill(const FunctionCallbackInfo<Value>& args) {
 
 // Hrtime exposes libuv's uv_hrtime() high-resolution timer.
 // The value returned by uv_hrtime() is a 64-bit int representing nanoseconds,
-// so this function instead returns an Array with 2 entries representing seconds
-// and nanoseconds, to avoid any integer overflow possibility.
-// Pass in an Array from a previous hrtime() call to instead get a time diff.
+// so this function instead fills in an Uint32Array with 3 entries,
+// to avoid any integer overflow possibility.
+// The first two entries contain the second part of the value
+// broken into the upper/lower 32 bits to be converted back in JS,
+// because there is no Uint64Array in JS.
+// The third entry contains the remaining nanosecond part of the value.
 void Hrtime(const FunctionCallbackInfo<Value>& args) {
   uint64_t t = uv_hrtime();
 
   Local<ArrayBuffer> ab = args[0].As<Uint32Array>()->Buffer();
   uint32_t* fields = static_cast<uint32_t*>(ab->GetContents().Data());
 
-  // These three indices will contain the values for the hrtime tuple. The
-  // seconds value is broken into the upper/lower 32 bits and stored in two
-  // uint32 fields to be converted back in JS.
   fields[0] = (t / NANOS_PER_SEC) >> 32;
   fields[1] = (t / NANOS_PER_SEC) & 0xffffffff;
   fields[2] = t % NANOS_PER_SEC;
@@ -3513,6 +3521,16 @@ static void PrintHelp() {
 #if HAVE_OPENSSL
          "  --tls-cipher-list=val    use an alternative default TLS cipher "
          "list\n"
+         "  --use-bundled-ca         use bundled CA store"
+#if !defined(NODE_OPENSSL_CERT_STORE)
+         " (default)"
+#endif
+         "\n"
+         "  --use-openssl-ca         use OpenSSL's default CA store"
+#if defined(NODE_OPENSSL_CERT_STORE)
+         " (default)"
+#endif
+         "\n"
 #if NODE_FIPS_MODE
          "  --enable-fips            enable FIPS crypto at startup\n"
          "  --force-fips             force FIPS crypto (cannot be disabled)\n"
@@ -3541,6 +3559,7 @@ static void PrintHelp() {
          "                           (will extend linked-in data)\n"
 #endif
 #endif
+         "NODE_NO_WARNINGS           set to 1 to silence process warnings\n"
 #ifdef _WIN32
          "NODE_PATH                  ';'-separated list of directories\n"
 #else
@@ -3685,6 +3704,10 @@ static void ParseArgs(int* argc,
 #if HAVE_OPENSSL
     } else if (strncmp(arg, "--tls-cipher-list=", 18) == 0) {
       default_cipher_list = arg + 18;
+    } else if (strncmp(arg, "--use-openssl-ca", 16) == 0) {
+      ssl_openssl_cert_store = true;
+    } else if (strncmp(arg, "--use-bundled-ca", 16) == 0) {
+      ssl_openssl_cert_store = false;
 #if NODE_FIPS_MODE
     } else if (strcmp(arg, "--enable-fips") == 0) {
       enable_fips_crypto = true;
@@ -3701,6 +3724,9 @@ static void ParseArgs(int* argc,
     } else if (strcmp(arg, "--expose-internals") == 0 ||
                strcmp(arg, "--expose_internals") == 0) {
       // consumed in js
+    } else if (strcmp(arg, "--") == 0) {
+      index += 1;
+      break;
     } else {
       // V8 option.  Pass through as-is.
       new_v8_argv[new_v8_argc] = arg;
@@ -4104,6 +4130,7 @@ inline void PlatformInit() {
 
   CHECK_EQ(err, 0);
 
+#ifndef NODE_SHARED_MODE
   // Restore signal dispositions, the parent process may have changed them.
   struct sigaction act;
   memset(&act, 0, sizeof(act));
@@ -4117,6 +4144,7 @@ inline void PlatformInit() {
     act.sa_handler = (nr == SIGPIPE) ? SIG_IGN : SIG_DFL;
     CHECK_EQ(0, sigaction(nr, &act, nullptr));
   }
+#endif  // !NODE_SHARED_MODE
 
   RegisterSignalHandler(SIGINT, SignalExit, true);
   RegisterSignalHandler(SIGTERM, SignalExit, true);
@@ -4365,7 +4393,7 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
   if (debug_enabled) {
     const char* path = argc > 1 ? argv[1] : nullptr;
     StartDebug(&env, path, debug_options);
-    if (debug_options.debugger_enabled() && !debugger_running)
+    if (!debugger_running)
       return 12;  // Signal internal error.
   }
 

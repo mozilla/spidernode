@@ -106,7 +106,7 @@ function testServers(index, servers, clientOptions, cb) {
 
 
 function runTest(testIndex) {
-  var tcase = testCases[testIndex];
+  const tcase = testCases[testIndex];
   if (!tcase) return;
 
   const clientOptions = {
@@ -130,5 +130,5 @@ runTest(0);
 
 process.on('exit', function() {
   console.log('successful tests: %d', successfulTests);
-  assert.equal(successfulTests, testCases.length);
+  assert.strictEqual(successfulTests, testCases.length);
 });

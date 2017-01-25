@@ -33,12 +33,16 @@ class InspectorSocketServer {
  public:
   using ServerCallback = void (*)(InspectorSocketServer*);
   InspectorSocketServer(SocketServerDelegate* delegate,
+                        const std::string& host,
                         int port,
                         FILE* out = stderr);
   bool Start(uv_loop_t* loop);
   void Stop(ServerCallback callback);
   void Send(int session_id, const std::string& message);
   void TerminateConnections(ServerCallback callback);
+  int port() {
+    return port_;
+  }
 
  private:
   static bool HandshakeCallback(InspectorSocket* socket,
@@ -62,7 +66,8 @@ class InspectorSocketServer {
 
   uv_loop_t* loop_;
   SocketServerDelegate* const delegate_;
-  const int port_;
+  const std::string host_;
+  int port_;
   std::string path_;
   uv_tcp_t server_;
   Closer* closer_;

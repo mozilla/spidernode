@@ -5,9 +5,9 @@ const http = require('http');
 const url = require('url');
 const URL = url.URL;
 
-var server = http.createServer(common.mustCall(function(req, res) {
-  assert.equal('GET', req.method);
-  assert.equal('/foo?bar', req.url);
+const server = http.createServer(common.mustCall(function(req, res) {
+  assert.strictEqual('GET', req.method);
+  assert.strictEqual('/foo?bar', req.url);
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.write('hello\n');
   res.end();

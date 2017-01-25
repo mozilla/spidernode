@@ -11,18 +11,16 @@ const tls = require('tls');
 
 const fs = require('fs');
 
-var server = tls.createServer({
+const server = tls.createServer({
   key: fs.readFileSync(common.fixturesDir + '/keys/agent1-key.pem'),
   cert: fs.readFileSync(common.fixturesDir + '/keys/agent1-cert.pem'),
   rejectUnauthorized: true
 }, function(c) {
 }).listen(0, common.mustCall(function() {
-  var c = tls.connect({
+  const c = tls.connect({
     port: this.address().port,
     ciphers: 'RC4'
-  }, function() {
-    assert(false, 'should not be called');
-  });
+  }, common.fail);
 
   c.on('error', common.mustCall(function(err) {
     assert.notStrictEqual(err.code, 'ECONNRESET');

@@ -2,38 +2,38 @@
 require('../common');
 const assert = require('assert');
 const net = require('net');
-var TCPWrap = process.binding('tcp_wrap').TCP;
+const TCPWrap = process.binding('tcp_wrap').TCP;
 
-var echoServer = net.createServer(function(conn) {
+const echoServer = net.createServer(function(conn) {
   conn.end();
 });
 
-var ref = TCPWrap.prototype.ref;
-var unref = TCPWrap.prototype.unref;
+const ref = TCPWrap.prototype.ref;
+const unref = TCPWrap.prototype.unref;
 
-var refCount = 0;
+let refCount = 0;
 
 TCPWrap.prototype.ref = function() {
   ref.call(this);
   refCount++;
-  assert.equal(refCount, 0);
+  assert.strictEqual(refCount, 0);
 };
 
 TCPWrap.prototype.unref = function() {
   unref.call(this);
   refCount--;
-  assert.equal(refCount, -1);
+  assert.strictEqual(refCount, -1);
 };
 
 echoServer.listen(0);
 
 echoServer.on('listening', function() {
-  var sock = new net.Socket();
+  const sock = new net.Socket();
   sock.unref();
   sock.ref();
   sock.connect(this.address().port);
   sock.on('end', function() {
-    assert.equal(refCount, 0);
+    assert.strictEqual(refCount, 0);
     echoServer.close();
   });
 });

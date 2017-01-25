@@ -9,15 +9,15 @@ if (common.isChakraEngine) {
   return;
 }
 
-var debugPort = common.PORT;
-var args = ['--interactive', '--debug-port=' + debugPort];
-var childOptions = { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] };
-var child = spawn(process.execPath, args, childOptions);
+const debugPort = common.PORT;
+const args = ['--interactive', '--debug-port=' + debugPort];
+const childOptions = { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] };
+const child = spawn(process.execPath, args, childOptions);
 
 child.stdin.write("process.send({ msg: 'childready' });\n");
 
 child.stderr.on('data', function(data) {
-  var lines = data.toString().replace(/\r/g, '').trim().split('\n');
+  const lines = data.toString().replace(/\r/g, '').trim().split('\n');
   lines.forEach(processStderrLine);
 });
 
@@ -32,7 +32,7 @@ process.on('exit', function() {
   assertOutputLines();
 });
 
-var outputLines = [];
+const outputLines = [];
 function processStderrLine(line) {
   console.log('> ' + line);
   outputLines.push(line);
@@ -43,12 +43,12 @@ function processStderrLine(line) {
 }
 
 function assertOutputLines() {
-  var expectedLines = [
+  const expectedLines = [
     'Starting debugger agent.',
     'Debugger listening on 127.0.0.1:' + debugPort,
   ];
 
   assert.strictEqual(outputLines.length, expectedLines.length);
-  for (var i = 0; i < expectedLines.length; i++)
+  for (let i = 0; i < expectedLines.length; i++)
     assert(expectedLines[i].includes(outputLines[i]));
 }

@@ -24,7 +24,7 @@ const size = kStringMaxLength / 200;
 const a = Buffer.alloc(
   common.isChakraEngine ? Math.trunc(size) : size).fill('a');
 
-for (var i = 0; i < 201; i++) {
+for (let i = 0; i < 201; i++) {
   stream.write(a);
 }
 

@@ -8,13 +8,13 @@ const assert = require('assert');
 // message is too vague, and doesn't actually tell you what happens.
 
 const net = require('net');
-var serverData = '';
-var gotServerEnd = false;
-var clientData = '';
-var gotClientEnd = false;
-var gotServerError = false;
+let serverData = '';
+let gotServerEnd = false;
+let clientData = '';
+let gotClientEnd = false;
+let gotServerError = false;
 
-var server = net.createServer(function(sock) {
+const server = net.createServer(function(sock) {
   sock.setEncoding('utf8');
   sock.on('error', function(er) {
     console.error(er.code + ': ' + er.message);
@@ -32,7 +32,7 @@ var server = net.createServer(function(sock) {
   server.close();
 });
 server.listen(0, function() {
-  var sock = net.connect(this.address().port);
+  const sock = net.connect(this.address().port);
   sock.setEncoding('utf8');
   sock.on('data', function(c) {
     clientData += c;
@@ -43,12 +43,12 @@ server.listen(0, function() {
   });
 
   process.on('exit', function() {
-    assert.equal(clientData, '');
-    assert.equal(serverData, 'hello1hello2hello3\nTHUNDERMUSCLE!');
+    assert.strictEqual(clientData, '');
+    assert.strictEqual(serverData, 'hello1hello2hello3\nTHUNDERMUSCLE!');
     assert(gotClientEnd);
     assert(gotServerEnd);
     assert(gotServerError);
-    assert.equal(gotServerError.code, 'EPIPE');
+    assert.strictEqual(gotServerError.code, 'EPIPE');
     assert.notStrictEqual(gotServerError.message, 'write after end');
     console.log('ok');
   });
