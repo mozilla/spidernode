@@ -949,12 +949,12 @@
             }]
                 ]
               }],
-              ['node_use_v8_platform=="true" and node_engine=="v8"', {
+              ['node_use_v8_platform=="true"', {
                  'dependencies': [
                     'deps/v8/tools/gyp/v8.gyp:v8_libplatform',
                 ],
               }],
-              ['node_use_bundled_v8=="true" and node_engine=="v8"', {
+              ['node_use_bundled_v8=="true"', {
                 'dependencies': [
                     'deps/v8/tools/gyp/v8.gyp:v8',
                     'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
@@ -970,17 +970,6 @@
         }],
         ['node_engine=="spidermonkey"', {
           'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
-        }],
-        [ 'node_use_v8_platform=="true"', {
-          'dependencies': [
-            'deps/v8/src/v8.gyp:v8_libplatform',
-          ],
-        }],
-        [ 'node_use_bundled_v8=="true"', {
-          'dependencies': [
-            'deps/v8/src/v8.gyp:v8',
-            'deps/v8/src/v8.gyp:v8_libplatform'
-          ],
         }],
       ],
       'msvs_settings': {
