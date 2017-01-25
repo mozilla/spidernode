@@ -84,7 +84,9 @@ enum JSTryNoteKind {
     JSTRY_FINALLY,
     JSTRY_FOR_IN,
     JSTRY_FOR_OF,
-    JSTRY_LOOP
+    JSTRY_LOOP,
+    JSTRY_ITERCLOSE,
+    JSTRY_DESTRUCTURING_ITERCLOSE
 };
 
 /*
@@ -1487,7 +1489,7 @@ class JSScript : public js::gc::TenuredCell
      * De-lazifies the canonical function. Must be called before entering code
      * that expects the function to be non-lazy.
      */
-    inline void ensureNonLazyCanonicalFunction(JSContext* cx);
+    inline void ensureNonLazyCanonicalFunction();
 
     js::ModuleObject* module() const {
         if (bodyScope()->is<js::ModuleScope>())
@@ -1506,7 +1508,7 @@ class JSScript : public js::gc::TenuredCell
     // directly, via lazy arguments or a rest parameter.
     bool mayReadFrameArgsDirectly();
 
-    JSFlatString* sourceData(JSContext* cx);
+    static JSFlatString* sourceData(JSContext* cx, JS::HandleScript script);
 
     static bool loadSource(JSContext* cx, js::ScriptSource* ss, bool* worked);
 
@@ -2015,7 +2017,7 @@ class LazyScript : public gc::TenuredCell
 
     void initRuntimeFields(uint64_t packedFields);
 
-    inline JSFunction* functionDelazifying(JSContext* cx) const;
+    static inline JSFunction* functionDelazifying(JSContext* cx, Handle<LazyScript*>);
     JSFunction* functionNonDelazifying() const {
         return function_;
     }

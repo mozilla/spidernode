@@ -654,6 +654,7 @@ struct JSCompartment
     void sweepDebugEnvironments();
     void sweepNativeIterators();
     void sweepTemplateObjects();
+    void sweepVarNames();
 
     void purge();
     void clearTables();
@@ -705,6 +706,8 @@ struct JSCompartment
     mozilla::non_crypto::XorShift128PlusRNG randomKeyGenerator_;
 
   public:
+    js::HashNumber randomHashCode();
+
     mozilla::HashCodeScrambler randomHashCodeScrambler();
 
     static size_t offsetOfRegExps() {

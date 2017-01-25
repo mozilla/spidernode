@@ -102,7 +102,7 @@ js::ToClampedIndex(JSContext* cx, HandleValue v, uint32_t length, uint32_t* out)
 static JSObject*
 CreateArrayBufferPrototype(JSContext* cx, JSProtoKey key)
 {
-    return cx->global()->createBlankPrototype(cx, &ArrayBufferObject::protoClass_);
+    return GlobalObject::createBlankPrototype(cx, cx->global(), &ArrayBufferObject::protoClass_);
 }
 
 static const ClassOps ArrayBufferObjectClassOps = {
@@ -280,18 +280,21 @@ ArrayBufferObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
     if (!ToIndex(cx, args.get(0), &byteLength))
         return false;
 
-    // Non-standard: Refuse to allocate buffers larger than ~2 GiB.
-    if (byteLength > INT32_MAX) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
-        return false;
-    }
-
-    // Step 3.
+    // Step 3 (Inlined 24.1.1.1 AllocateArrayBuffer).
+    // 24.1.1.1, step 1 (Inlined 9.1.14 OrdinaryCreateFromConstructor).
     RootedObject proto(cx);
     RootedObject newTarget(cx, &args.newTarget().toObject());
     if (!GetPrototypeFromConstructor(cx, newTarget, &proto))
         return false;
 
+    // 24.1.1.1, step 3 (Inlined 6.2.6.1 CreateByteDataBlock, step 2).
+    // Refuse to allocate too large buffers, currently limited to ~2 GiB.
+    if (byteLength > INT32_MAX) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
+        return false;
+    }
+
+    // 24.1.1.1, steps 1 and 4-6.
     JSObject* bufobj = create(cx, uint32_t(byteLength), proto);
     if (!bufobj)
         return false;
@@ -350,7 +353,7 @@ ArrayBufferObject::detach(JSContext* cx, Handle<ArrayBufferObject*> buffer,
     // Update all views of the buffer to account for the buffer having been
     // detached, and clear the buffer's data and list of views.
 
-    auto& innerViews = cx->compartment()->innerViews;
+    auto& innerViews = cx->compartment()->innerViews.get();
     if (InnerViewTable::ViewVector* views = innerViews.maybeViewsUnbarriered(buffer)) {
         for (size_t i = 0; i < views->length(); i++)
             NoteViewBufferWasDetached((*views)[i], newContents, cx);
@@ -425,7 +428,7 @@ ArrayBufferObject::changeContents(JSContext* cx, BufferContents newContents,
     setNewData(cx->runtime()->defaultFreeOp(), newContents, ownsState);
 
     // Update all views.
-    auto& innerViews = cx->compartment()->innerViews;
+    auto& innerViews = cx->compartment()->innerViews.get();
     if (InnerViewTable::ViewVector* views = innerViews.maybeViewsUnbarriered(this)) {
         for (size_t i = 0; i < views->length(); i++)
             changeViewContents(cx, (*views)[i], oldDataPointer, newContents);
@@ -1034,6 +1037,13 @@ ArrayBufferObject::create(JSContext* cx, uint32_t nbytes, BufferContents content
 {
     MOZ_ASSERT_IF(contents.kind() == MAPPED, contents);
 
+    // 24.1.1.1, step 3 (Inlined 6.2.6.1 CreateByteDataBlock, step 2).
+    // Refuse to allocate too large buffers, currently limited to ~2 GiB.
+    if (nbytes > INT32_MAX) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
+        return nullptr;
+    }
+
     // If we need to allocate data, try to use a larger object size class so
     // that the array buffer's data can be allocated inline with the object.
     // The extra space will be left unused by the object's fixed slots and
@@ -1113,42 +1123,6 @@ ArrayBufferObject::createEmpty(JSContext* cx)
 
     obj->initEmpty();
     return obj;
-}
-
-bool
-ArrayBufferObject::createDataViewForThisImpl(JSContext* cx, const CallArgs& args)
-{
-    MOZ_ASSERT(IsArrayBufferMaybeShared(args.thisv()));
-
-    /*
-     * This method is only called for |DataView(alienBuf, ...)| which calls
-     * this as |createDataViewForThis.call(alienBuf, byteOffset, byteLength,
-     *                                     DataView.prototype)|,
-     * ergo there must be exactly 3 arguments.
-     */
-    MOZ_ASSERT(args.length() == 3);
-
-    uint32_t byteOffset = args[0].toPrivateUint32();
-    uint32_t byteLength = args[1].toPrivateUint32();
-    Rooted<ArrayBufferObjectMaybeShared*> buffer(cx);
-    buffer = &args.thisv().toObject().as<ArrayBufferObjectMaybeShared>();
-
-    /*
-     * Pop off the passed-along prototype and delegate to normal DataViewObject
-     * construction.
-     */
-    JSObject* obj = DataViewObject::create(cx, byteOffset, byteLength, buffer, &args[2].toObject());
-    if (!obj)
-        return false;
-    args.rval().setObject(*obj);
-    return true;
-}
-
-bool
-ArrayBufferObject::createDataViewForThis(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<IsArrayBufferMaybeShared, createDataViewForThisImpl>(cx, args);
 }
 
 /* static */ ArrayBufferObject::BufferContents

@@ -29,6 +29,8 @@
 #include "js/RootingAPI.h"
 #include "js/UbiNode.h"
 #include "vm/ObjectGroup.h"
+#include "vm/String.h"
+#include "vm/Symbol.h"
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -561,6 +563,30 @@ struct StackBaseShape : public DefaultHasher<ReadBarriered<UnownedBaseShape*>>
 
     static inline HashNumber hash(const Lookup& lookup);
     static inline bool match(ReadBarriered<UnownedBaseShape*> key, const Lookup& lookup);
+};
+
+static MOZ_ALWAYS_INLINE js::HashNumber
+HashId(jsid id)
+{
+    // HashGeneric alone would work, but bits of atom and symbol addresses
+    // could then be recovered from the hash code. See bug 1330769.
+    if (MOZ_LIKELY(JSID_IS_ATOM(id)))
+        return JSID_TO_ATOM(id)->hash();
+    if (JSID_IS_SYMBOL(id))
+        return JSID_TO_SYMBOL(id)->hash();
+    return mozilla::HashGeneric(JSID_BITS(id));
+}
+
+template <>
+struct DefaultHasher<jsid>
+{
+    typedef jsid Lookup;
+    static HashNumber hash(jsid id) {
+        return HashId(id);
+    }
+    static bool match(jsid id1, jsid id2) {
+        return id1 == id2;
+    }
 };
 
 using BaseShapeSet = JS::GCHashSet<ReadBarriered<UnownedBaseShape*>,
@@ -1242,9 +1268,10 @@ struct InitialShapeEntry
 
     bool needsSweep() {
         Shape* ushape = shape.unbarrieredGet();
-        JSObject* protoObj = proto.proto().raw();
+        TaggedProto uproto = proto.proto().unbarrieredGet();
+        JSObject* protoObj = uproto.raw();
         return (gc::IsAboutToBeFinalizedUnbarriered(&ushape) ||
-                (proto.proto().isObject() && gc::IsAboutToBeFinalizedUnbarriered(&protoObj)));
+                (uproto.isObject() && gc::IsAboutToBeFinalizedUnbarriered(&protoObj)));
     }
 };
 
@@ -1334,9 +1361,10 @@ struct StackShape
     void trace(JSTracer* trc);
 };
 
-template <typename Outer>
-class StackShapeOperations {
-    const StackShape& ss() const { return static_cast<const Outer*>(this)->get(); }
+template <typename Wrapper>
+class WrappedPtrOperations<StackShape, Wrapper>
+{
+    const StackShape& ss() const { return static_cast<const Wrapper*>(this)->get(); }
 
   public:
     bool hasSlot() const { return ss().hasSlot(); }
@@ -1348,9 +1376,11 @@ class StackShapeOperations {
     uint8_t attrs() const { return ss().attrs; }
 };
 
-template <typename Outer>
-class MutableStackShapeOperations : public StackShapeOperations<Outer> {
-    StackShape& ss() { return static_cast<Outer*>(this)->get(); }
+template <typename Wrapper>
+class MutableWrappedPtrOperations<StackShape, Wrapper>
+  : public WrappedPtrOperations<StackShape, Wrapper>
+{
+    StackShape& ss() { return static_cast<Wrapper*>(this)->get(); }
 
   public:
     void updateGetterSetter(GetterOp rawGetter, SetterOp rawSetter) {
@@ -1360,19 +1390,6 @@ class MutableStackShapeOperations : public StackShapeOperations<Outer> {
     void setBase(UnownedBaseShape* base) { ss().base = base; }
     void setAttrs(uint8_t attrs) { ss().attrs = attrs; }
 };
-
-template <>
-class RootedBase<StackShape> : public MutableStackShapeOperations<JS::Rooted<StackShape>>
-{};
-
-template <>
-class HandleBase<StackShape> : public StackShapeOperations<JS::Handle<StackShape>>
-{};
-
-template <>
-class MutableHandleBase<StackShape>
-  : public MutableStackShapeOperations<JS::MutableHandle<StackShape>>
-{};
 
 inline
 Shape::Shape(const StackShape& other, uint32_t nfixed)
@@ -1526,38 +1543,6 @@ Shape::matches(const StackShape& other) const
     return propid_.get() == other.propid &&
            matchesParamsAfterId(other.base, other.slot_, other.attrs, other.flags,
                                 other.rawGetter, other.rawSetter);
-}
-
-// Property lookup hooks on objects are required to return a non-nullptr shape
-// to signify that the property has been found. For cases where the property is
-// not actually represented by a Shape, use a dummy value. This includes all
-// properties of non-native objects, and dense elements for native objects.
-// Use separate APIs for these two cases.
-
-template <AllowGC allowGC>
-static inline void
-MarkNonNativePropertyFound(typename MaybeRooted<Shape*, allowGC>::MutableHandleType propp)
-{
-    propp.set(reinterpret_cast<Shape*>(1));
-}
-
-template <AllowGC allowGC>
-static inline void
-MarkDenseOrTypedArrayElementFound(typename MaybeRooted<Shape*, allowGC>::MutableHandleType propp)
-{
-    propp.set(reinterpret_cast<Shape*>(1));
-}
-
-static inline bool
-IsImplicitDenseOrTypedArrayElement(Shape* prop)
-{
-    return prop == reinterpret_cast<Shape*>(1);
-}
-
-static inline bool
-IsImplicitNonNativeProperty(Shape* prop)
-{
-    return prop == reinterpret_cast<Shape*>(1);
 }
 
 Shape*

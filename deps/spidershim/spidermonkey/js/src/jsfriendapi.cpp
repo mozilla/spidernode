@@ -21,6 +21,7 @@
 
 #include "builtin/Promise.h"
 #include "builtin/TestingFunctions.h"
+#include "gc/GCInternals.h"
 #include "js/Proxy.h"
 #include "proxy/DeadObjectProxy.h"
 #include "vm/ArgumentsObject.h"
@@ -597,7 +598,7 @@ js::TraceWeakMaps(WeakMapTracer* trc)
 extern JS_FRIEND_API(bool)
 js::AreGCGrayBitsValid(JSContext* cx)
 {
-    return cx->gc.areGrayBitsValid();
+    return cx->areGCGrayBitsValid();
 }
 
 JS_FRIEND_API(bool)
@@ -1163,8 +1164,14 @@ js::DumpHeap(JSContext* cx, FILE* fp, js::DumpHeapNurseryBehaviour nurseryBehavi
         cx->gc.evictNursery(JS::gcreason::API);
 
     DumpHeapTracer dtrc(fp, cx);
+
     fprintf(dtrc.output, "# Roots.\n");
-    TraceRuntime(&dtrc);
+    {
+        JSRuntime* rt = cx->runtime();
+        js::gc::AutoPrepareForTracing prep(cx, WithAtoms);
+        gcstats::AutoPhase ap(rt->gc.stats, gcstats::PHASE_TRACE_HEAP);
+        rt->gc.traceRuntime(&dtrc, prep.session().lock);
+    }
 
     fprintf(dtrc.output, "# Weak maps.\n");
     WeakMapBase::traceAllMappings(&dtrc);
@@ -1440,8 +1447,14 @@ js::detail::IsWindowSlow(JSObject* obj)
     return obj->as<GlobalObject>().maybeWindowProxy();
 }
 
-JS_FRIEND_API(bool)
-js::AllowGCBarriers(JSContext* cx)
+AutoAssertNoContentJS::AutoAssertNoContentJS(JSContext* cx)
+  : context_(cx),
+    prevAllowContentJS_(cx->runtime()->allowContentJS_)
 {
-    return cx->allowGCBarriers();
+    cx->runtime()->allowContentJS_ = false;
+}
+
+AutoAssertNoContentJS::~AutoAssertNoContentJS()
+{
+    context_->runtime()->allowContentJS_ = prevAllowContentJS_;
 }

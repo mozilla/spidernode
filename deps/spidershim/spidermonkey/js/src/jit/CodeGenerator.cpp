@@ -257,6 +257,7 @@ CodeGenerator::visitOutOfLineICFallback(OutOfLineICFallback* ool)
         return;
       }
       case CacheKind::GetName:
+      case CacheKind::SetProp:
         MOZ_CRASH("Baseline-specific for now");
     }
     MOZ_CRASH();
@@ -1161,7 +1162,7 @@ PrepareAndExecuteRegExp(JSContext* cx, MacroAssembler& masm, Register regexp, Re
 
     Address pairsVectorAddress(masm.getStackPointer(), pairsVectorStartOffset);
 
-    RegExpStatics* res = cx->global()->getRegExpStatics(cx);
+    RegExpStatics* res = GlobalObject::getRegExpStatics(cx, cx->global());
     if (!res)
         return false;
 #ifdef JS_USE_LINK_REGISTER
@@ -4686,7 +4687,7 @@ CodeGenerator::generateArgumentsChecks(bool bailout)
     MResumePoint* rp = mir.entryResumePoint();
 
     // No registers are allocated yet, so it's safe to grab anything.
-    Register temp = GeneralRegisterSet(EntryTempMask).getAny();
+    Register temp = AllocatableGeneralRegisterSet(EntryTempMask).getAny();
 
     const CompileInfo& info = gen->info();
 
@@ -5185,6 +5186,32 @@ CodeGenerator::emitDebugForceBailing(LInstruction* lir)
 }
 #endif
 
+static void
+DumpTrackedSite(const BytecodeSite* site)
+{
+    if (!JitSpewEnabled(JitSpew_OptimizationTracking))
+        return;
+
+#ifdef JS_JITSPEW
+    unsigned column = 0;
+    unsigned lineNumber = PCToLineNumber(site->script(), site->pc(), &column);
+    JitSpew(JitSpew_OptimizationTracking, "Types for %s at %s:%u:%u",
+            CodeName[JSOp(*site->pc())],
+            site->script()->filename(),
+            lineNumber,
+            column);
+#endif
+}
+
+static void
+DumpTrackedOptimizations(TrackedOptimizations* optimizations)
+{
+    if (!JitSpewEnabled(JitSpew_OptimizationTracking))
+        return;
+
+    optimizations->spew(JitSpew_OptimizationTracking);
+}
+
 bool
 CodeGenerator::generateBody()
 {
@@ -5233,6 +5260,7 @@ CodeGenerator::generateBody()
             if (!blockCounts->init())
                 return false;
         }
+        TrackedOptimizations* last = nullptr;
 
 #if defined(JS_ION_PERF)
         perfSpewer->startBasicBlock(current->mir(), masm);
@@ -5266,6 +5294,11 @@ CodeGenerator::generateBody()
 
                 // Track the start native offset of optimizations.
                 if (iter->mirRaw()->trackedOptimizations()) {
+                    if (last != iter->mirRaw()->trackedOptimizations()) {
+                        DumpTrackedSite(iter->mirRaw()->trackedSite());
+                        DumpTrackedOptimizations(iter->mirRaw()->trackedOptimizations());
+                        last = iter->mirRaw()->trackedOptimizations();
+                    }
                     if (!addTrackedOptimizationsEntry(iter->mirRaw()->trackedOptimizations()))
                         return false;
                 }
@@ -8430,7 +8463,7 @@ CodeGenerator::visitStoreElementHoleV(LStoreElementHoleV* lir)
     emitStoreElementHoleV(lir);
 }
 
-typedef bool (*ThrowReadOnlyFn)(JSContext*, int32_t);
+typedef bool (*ThrowReadOnlyFn)(JSContext*, HandleObject, int32_t);
 static const VMFunction ThrowReadOnlyInfo =
     FunctionInfo<ThrowReadOnlyFn>(ThrowReadOnlyError, "ThrowReadOnlyError");
 
@@ -8445,12 +8478,16 @@ CodeGenerator::visitFallibleStoreElementT(LFallibleStoreElementT* lir)
     if (!lir->mir()->strict()) {
         masm.branchTest32(Assembler::NonZero, flags, Imm32(ObjectElements::FROZEN), &isFrozen);
     } else {
+        Register object = ToRegister(lir->object());
         const LAllocation* index = lir->index();
         OutOfLineCode* ool;
-        if (index->isConstant())
-            ool = oolCallVM(ThrowReadOnlyInfo, lir, ArgList(Imm32(ToInt32(index))), StoreNothing());
-        else
-            ool = oolCallVM(ThrowReadOnlyInfo, lir, ArgList(ToRegister(index)), StoreNothing());
+        if (index->isConstant()) {
+            ool = oolCallVM(ThrowReadOnlyInfo, lir,
+                            ArgList(object, Imm32(ToInt32(index))), StoreNothing());
+        } else {
+            ool = oolCallVM(ThrowReadOnlyInfo, lir,
+                            ArgList(object, ToRegister(index)), StoreNothing());
+        }
         masm.branchTest32(Assembler::NonZero, flags, Imm32(ObjectElements::FROZEN), ool->entry());
         // This OOL code should have thrown an exception, so will never return.
         // So, do not bind ool->rejoin() anywhere, so that it implicitly (and without the cost
@@ -8473,12 +8510,16 @@ CodeGenerator::visitFallibleStoreElementV(LFallibleStoreElementV* lir)
     if (!lir->mir()->strict()) {
         masm.branchTest32(Assembler::NonZero, flags, Imm32(ObjectElements::FROZEN), &isFrozen);
     } else {
+        Register object = ToRegister(lir->object());
         const LAllocation* index = lir->index();
         OutOfLineCode* ool;
-        if (index->isConstant())
-            ool = oolCallVM(ThrowReadOnlyInfo, lir, ArgList(Imm32(ToInt32(index))), StoreNothing());
-        else
-            ool = oolCallVM(ThrowReadOnlyInfo, lir, ArgList(ToRegister(index)), StoreNothing());
+        if (index->isConstant()) {
+            ool = oolCallVM(ThrowReadOnlyInfo, lir,
+                            ArgList(object, Imm32(ToInt32(index))), StoreNothing());
+        } else {
+            ool = oolCallVM(ThrowReadOnlyInfo, lir,
+                            ArgList(object, ToRegister(index)), StoreNothing());
+        }
         masm.branchTest32(Assembler::NonZero, flags, Imm32(ObjectElements::FROZEN), ool->entry());
         // This OOL code should have thrown an exception, so will never return.
         // So, do not bind ool->rejoin() anywhere, so that it implicitly (and without the cost

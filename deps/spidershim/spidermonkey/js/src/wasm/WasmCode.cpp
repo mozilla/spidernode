@@ -67,8 +67,8 @@ AllocateCodeSegment(ExclusiveContext* cx, uint32_t totalLength)
     unsigned permissions =
         ExecutableAllocator::initialProtectionFlags(ExecutableAllocator::Writable);
 
-    void* p = AllocateExecutableMemory(nullptr, totalLength, permissions,
-                                       "wasm-code-segment", gc::SystemPageSize());
+    void* p = AllocateExecutableMemory(totalLength, permissions, "wasm-code-segment",
+                                       gc::SystemPageSize());
     if (!p) {
         ReportOutOfMemory(cx);
         return nullptr;
@@ -177,7 +177,7 @@ SendCodeRangesToProfiler(CodeSegment& cs, const Bytes& bytecode, const Metadata&
             const char* file = metadata.filename.get();
             unsigned line = codeRange.funcLineOrBytecode();
             unsigned column = 0;
-            writePerfSpewerAsmJSFunctionMap(start, size, file, line, column, name.begin());
+            writePerfSpewerWasmFunctionMap(start, size, file, line, column, name.begin());
         }
 #endif
 #ifdef MOZ_VTUNE
@@ -346,7 +346,8 @@ CodeRange::CodeRange(Kind kind, Offsets offsets)
     kind_(kind)
 {
     MOZ_ASSERT(begin_ <= end_);
-    MOZ_ASSERT(kind_ == Entry || kind_ == Inline || kind_ == FarJumpIsland);
+    MOZ_ASSERT(kind_ == Entry || kind_ == Inline ||
+               kind_ == FarJumpIsland || kind_ == DebugTrap);
 }
 
 CodeRange::CodeRange(Kind kind, ProfilingOffsets offsets)
@@ -458,6 +459,7 @@ Metadata::serializedSize() const
 uint8_t*
 Metadata::serialize(uint8_t* cursor) const
 {
+    MOZ_ASSERT(!debugEnabled && debugTrapFarJumpOffsets.empty());
     cursor = WriteBytes(cursor, &pod(), sizeof(pod()));
     cursor = SerializeVector(cursor, funcImports);
     cursor = SerializeVector(cursor, funcExports);
@@ -494,6 +496,8 @@ Metadata::deserialize(const uint8_t* cursor)
     (cursor = DeserializePodVector(cursor, &funcNames)) &&
     (cursor = DeserializePodVector(cursor, &customSections)) &&
     (cursor = filename.deserialize(cursor));
+    debugEnabled = false;
+    debugTrapFarJumpOffsets.clear();
     return cursor;
 }
 
@@ -571,8 +575,11 @@ Code::Code(UniqueCodeSegment segment,
   : segment_(Move(segment)),
     metadata_(&metadata),
     maybeBytecode_(maybeBytecode),
+    enterAndLeaveFrameTrapsCounter_(0),
     profilingEnabled_(false)
-{}
+{
+    MOZ_ASSERT_IF(metadata_->debugEnabled, maybeBytecode);
+}
 
 struct CallSiteRetAddrOffset
 {
@@ -771,10 +778,18 @@ Code::ensureProfilingState(JSRuntime* rt, bool newProfilingEnabled)
             MOZ_ASSERT(bytecodeStr);
 
             UTF8Bytes name;
-            if (!getFuncName(codeRange.funcIndex(), &name) ||
-                !name.append(" (", 2) ||
-                !name.append(metadata_->filename.get(), strlen(metadata_->filename.get())) ||
-                !name.append(':') ||
+            if (!getFuncName(codeRange.funcIndex(), &name) || !name.append(" (", 2))
+                return false;
+
+            if (const char* filename = metadata_->filename.get()) {
+                if (!name.append(filename, strlen(filename)))
+                    return false;
+            } else {
+                if (!name.append('?'))
+                    return false;
+            }
+
+            if (!name.append(':') ||
                 !name.append(bytecodeStr, strlen(bytecodeStr)) ||
                 !name.append(")\0", 2))
             {
@@ -814,6 +829,52 @@ Code::ensureProfilingState(JSRuntime* rt, bool newProfilingEnabled)
     }
 
     return true;
+}
+
+void
+Code::toggleDebugTrap(uint32_t offset, bool enabled)
+{
+    MOZ_ASSERT(offset);
+    uint8_t* trap = segment_->base() + offset;
+    const Uint32Vector& farJumpOffsets = metadata_->debugTrapFarJumpOffsets;
+    if (enabled) {
+        MOZ_ASSERT(farJumpOffsets.length() > 0);
+        size_t i = 0;
+        while (i < farJumpOffsets.length() && offset < farJumpOffsets[i])
+            i++;
+        if (i >= farJumpOffsets.length() ||
+            (i > 0 && offset - farJumpOffsets[i - 1] < farJumpOffsets[i] - offset))
+            i--;
+        uint8_t* farJump = segment_->base() + farJumpOffsets[i];
+        MacroAssembler::patchNopToCall(trap, farJump);
+    } else {
+        MacroAssembler::patchCallToNop(trap);
+    }
+}
+
+void
+Code::adjustEnterAndLeaveFrameTrapsState(JSContext* cx, bool enabled)
+{
+    MOZ_ASSERT(metadata_->debugEnabled);
+    MOZ_ASSERT_IF(!enabled, enterAndLeaveFrameTrapsCounter_ > 0);
+
+    bool wasEnabled = enterAndLeaveFrameTrapsCounter_ > 0;
+    if (enabled)
+        ++enterAndLeaveFrameTrapsCounter_;
+    else
+        --enterAndLeaveFrameTrapsCounter_;
+    bool stillEnabled = enterAndLeaveFrameTrapsCounter_ > 0;
+    if (wasEnabled == stillEnabled)
+        return;
+
+    AutoWritableJitCode awjc(cx->runtime(), segment_->base(), segment_->codeLength());
+    AutoFlushICache afc("Code::adjustEnterAndLeaveFrameTrapsState");
+    AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->codeLength());
+    for (const CallSite& callSite : metadata_->callSites) {
+        if (callSite.kind() != CallSite::EnterFrame && callSite.kind() != CallSite::LeaveFrame)
+            continue;
+        toggleDebugTrap(callSite.returnAddressOffset(), stillEnabled);
+    }
 }
 
 void

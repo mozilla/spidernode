@@ -82,6 +82,9 @@ class CFGBlock : public TempObject
     jsbytecode* startPc() const {
         return start;
     }
+    void setStartPc(jsbytecode* startPc) {
+        start = startPc;
+    }
     jsbytecode* stopPc() const {
         MOZ_ASSERT(stop);
         return stop;
@@ -216,6 +219,12 @@ class CFGTry : public CFGControlInstruction
     CFG_CONTROL_HEADER(Try)
     TRIVIAL_CFG_NEW_WRAPPERS
 
+    static CFGTry* CopyWithNewTargets(TempAllocator& alloc, CFGTry* old,
+                                      CFGBlock* tryBlock, CFGBlock* merge)
+    {
+        return new(alloc) CFGTry(tryBlock, old->catchStartPc(), merge);
+    }
+
     size_t numSuccessors() const final override {
         return mergePoint_ ? 2 : 1;
     }
@@ -309,14 +318,23 @@ class CFGTableSwitch : public CFGControlInstruction
 /**
  * CFGCompare
  *
- * POP
  * PEEK
- * STRICTEQ JUMP succ1
- * STRICTNEQ JUMP succ2
+ * PEEK
+ * STRICTEQ
+ *    POP truePopAmount
+ *    JUMP succ1
+ * STRICTNEQ
+ *    POP falsePopAmount
+ *    JUMP succ2
  */
 class CFGCompare : public CFGAryControlInstruction<2>
 {
-    CFGCompare(CFGBlock* succ1, CFGBlock* succ2)
+    const size_t truePopAmount_;
+    const size_t falsePopAmount_;
+
+    CFGCompare(CFGBlock* succ1, size_t truePopAmount, CFGBlock* succ2, size_t falsePopAmount)
+      : truePopAmount_(truePopAmount),
+        falsePopAmount_(falsePopAmount)
     {
         replaceSuccessor(0, succ1);
         replaceSuccessor(1, succ2);
@@ -324,13 +342,41 @@ class CFGCompare : public CFGAryControlInstruction<2>
 
   public:
     CFG_CONTROL_HEADER(Compare);
-    TRIVIAL_CFG_NEW_WRAPPERS
+
+    static CFGCompare* NewFalseBranchIsDefault(TempAllocator& alloc, CFGBlock* case_,
+                                               CFGBlock* default_)
+    {
+        // True and false branch both go to a body and don't need the lhs and
+        // rhs to the compare. Pop them.
+        return new(alloc) CFGCompare(case_, 2, default_, 2);
+    }
+
+    static CFGCompare* NewFalseBranchIsNextCompare(TempAllocator& alloc, CFGBlock* case_,
+                                                   CFGBlock* nextCompare)
+    {
+        // True branch goes to the body and don't need the lhs and
+        // rhs to the compare anymore. Pop them. The next compare still
+        // needs the lhs.
+        return new(alloc) CFGCompare(case_, 2, nextCompare, 1);
+    }
+
+    static CFGCompare* CopyWithNewTargets(TempAllocator& alloc, CFGCompare* old,
+                                          CFGBlock* succ1, CFGBlock* succ2)
+    {
+        return new(alloc) CFGCompare(succ1, old->truePopAmount(), succ2, old->falsePopAmount());
+    }
 
     CFGBlock* trueBranch() const {
         return getSuccessor(0);
     }
     CFGBlock* falseBranch() const {
         return getSuccessor(1);
+    }
+    size_t truePopAmount() const {
+        return truePopAmount_;
+    }
+    size_t falsePopAmount() const {
+        return falsePopAmount_;
     }
 };
 
@@ -364,6 +410,12 @@ class CFGTest : public CFGAryControlInstruction<2>
   public:
     CFG_CONTROL_HEADER(Test);
     TRIVIAL_CFG_NEW_WRAPPERS
+
+    static CFGTest* CopyWithNewTargets(TempAllocator& alloc, CFGTest* old,
+                                       CFGBlock* succ1, CFGBlock* succ2)
+    {
+        return new(alloc) CFGTest(succ1, succ2, old->mustKeepCondition());
+    }
 
     CFGBlock* trueBranch() const {
         return getSuccessor(0);
@@ -442,7 +494,7 @@ class CFGUnaryControlInstruction : public CFGAryControlInstruction<1>
  */
 class CFGGoto : public CFGUnaryControlInstruction
 {
-    size_t popAmount_;
+    const size_t popAmount_;
 
     explicit CFGGoto(CFGBlock* block)
       : CFGUnaryControlInstruction(block),
@@ -457,6 +509,11 @@ class CFGGoto : public CFGUnaryControlInstruction
   public:
     CFG_CONTROL_HEADER(Goto);
     TRIVIAL_CFG_NEW_WRAPPERS
+
+    static CFGGoto* CopyWithNewTargets(TempAllocator& alloc, CFGGoto* old, CFGBlock* block)
+    {
+        return new(alloc) CFGGoto(block, old->popAmount());
+    }
 
     size_t popAmount() const {
         return popAmount_;
@@ -480,6 +537,11 @@ class CFGBackEdge : public CFGUnaryControlInstruction
   public:
     CFG_CONTROL_HEADER(BackEdge);
     TRIVIAL_CFG_NEW_WRAPPERS
+
+    static CFGBackEdge* CopyWithNewTargets(TempAllocator& alloc, CFGBackEdge* old, CFGBlock* block)
+    {
+        return new(alloc) CFGBackEdge(block);
+    }
 };
 
 /**
@@ -514,6 +576,13 @@ class CFGLoopEntry : public CFGUnaryControlInstruction
   public:
     CFG_CONTROL_HEADER(LoopEntry);
     TRIVIAL_CFG_NEW_WRAPPERS
+
+    static CFGLoopEntry* CopyWithNewTargets(TempAllocator& alloc, CFGLoopEntry* old,
+                                            CFGBlock* loopEntry)
+    {
+        return new(alloc) CFGLoopEntry(loopEntry, old->canOsr(), old->stackPhiCount(),
+                                       old->loopStopPc());
+    }
 
     void setCanOsr() {
         canOsr_ = true;

@@ -866,11 +866,16 @@ IonBuilder::processIterators()
     // Find phis that must directly hold an iterator live.
     Vector<MPhi*, 0, SystemAllocPolicy> worklist;
     for (size_t i = 0; i < iterators_.length(); i++) {
-        MInstruction* ins = iterators_[i];
-        for (MUseDefIterator iter(ins); iter; iter++) {
-            if (iter.def()->isPhi()) {
-                if (!worklist.append(iter.def()->toPhi()))
-                    return abort(AbortReason::Alloc);
+        MDefinition* def = iterators_[i];
+        if (def->isPhi()) {
+            if (!worklist.append(def->toPhi()))
+                return abort(AbortReason::Alloc);
+        } else {
+            for (MUseDefIterator iter(def); iter; iter++) {
+                if (iter.def()->isPhi()) {
+                    if (!worklist.append(iter.def()->toPhi()))
+                        return abort(AbortReason::Alloc);
+                }
             }
         }
     }
@@ -1141,9 +1146,11 @@ IonBuilder::initEnvironmentChain(MDefinition* callee)
         current->add(env);
 
         // This reproduce what is done in CallObject::createForFunction. Skip
-        // this for analyses, as the script might not have a baseline script
-        // with template objects yet.
-        if (fun->needsSomeEnvironmentObject() && !info().isAnalysis()) {
+        // this for the arguments analysis, as the script might not have a
+        // baseline script with template objects yet.
+        if (fun->needsSomeEnvironmentObject() &&
+            info().analysisMode() != Analysis_ArgumentsUsage)
+        {
             if (fun->needsNamedLambdaEnvironment())
                 env = createNamedLambdaObject(callee, env);
 
@@ -1578,6 +1585,11 @@ IonBuilder::blockIsOSREntry(const CFGBlock* block, const CFGBlock* predecessor)
         return false;
     }
 
+    if (block->stopPc() == block->startPc() && block->stopIns()->isBackEdge()) {
+        // An empty block with only a backedge can never be a loop entry.
+        return false;
+    }
+
     MOZ_ASSERT(*info().osrPc() == JSOP_LOOPENTRY);
     // Skip over the LOOPENTRY to match.
     return GetNextPc(info().osrPc()) == entryPc;
@@ -1992,7 +2004,12 @@ IonBuilder::inspectOpcode(JSOp op)
       case JSOP_CALLITER:
       case JSOP_NEW:
       case JSOP_SUPERCALL:
-        return jsop_call(GET_ARGC(pc), (JSOp)*pc == JSOP_NEW || (JSOp)*pc == JSOP_SUPERCALL);
+        MOZ_TRY(jsop_call(GET_ARGC(pc), (JSOp)*pc == JSOP_NEW || (JSOp)*pc == JSOP_SUPERCALL));
+        if (op == JSOP_CALLITER) {
+            if (!outermostBuilder()->iterators_.append(current->peek(-1)))
+                return abort(AbortReason::Alloc);
+        }
+        return Ok();
 
       case JSOP_EVAL:
       case JSOP_STRICTEVAL:
@@ -2807,18 +2824,25 @@ IonBuilder::visitTest(CFGTest* test)
 AbortReasonOr<Ok>
 IonBuilder::visitCompare(CFGCompare* compare)
 {
-    MDefinition* lhs = current->pop();
     MDefinition* rhs = current->peek(-1);
+    MDefinition* lhs = current->peek(-2);
 
-    MOZ_TRY(jsop_compare(JSOP_STRICTEQ, lhs, rhs));
+    // Execute the compare operation.
+    MOZ_TRY(jsop_compare(JSOP_STRICTEQ));
     MInstruction* cmpResult = current->pop()->toInstruction();
     MOZ_ASSERT(!cmpResult->isEffectful());
 
+    // Put the rhs/lhs again on the stack.
+    current->push(lhs);
+    current->push(rhs);
+
     // Create true and false branches.
     MBasicBlock* ifTrue;
-    MOZ_TRY_VAR(ifTrue, newBlock(current, compare->trueBranch()->startPc()));
+    MOZ_TRY_VAR(ifTrue, newBlockPopN(current, compare->trueBranch()->startPc(),
+                                     compare->truePopAmount()));
     MBasicBlock* ifFalse;
-    MOZ_TRY_VAR(ifFalse, newBlock(current, compare->falseBranch()->startPc()));
+    MOZ_TRY_VAR(ifFalse, newBlockPopN(current, compare->falseBranch()->startPc(),
+                                      compare->falsePopAmount()));
 
     blockWorklist[compare->trueBranch()->id()] = ifTrue;
     blockWorklist[compare->falseBranch()->id()] = ifFalse;
@@ -3309,7 +3333,7 @@ IonBuilder::binaryArithTrySpecializedOnBaselineInspector(bool* emitted, JSOp op,
 
     MIRType specialization = inspector->expectedBinaryArithSpecialization(pc);
     if (specialization == MIRType::None) {
-        trackOptimizationOutcome(TrackedOutcome::NoTypeInfo);
+        trackOptimizationOutcome(TrackedOutcome::SpeculationOnInputTypesFailed);
         return Ok();
     }
 
@@ -4722,6 +4746,9 @@ IonBuilder::getSingletonPrototype(JSFunction* target)
 MDefinition*
 IonBuilder::createThisScriptedSingleton(JSFunction* target, MDefinition* callee)
 {
+    if (!target->hasScript())
+        return nullptr;
+
     // Get the singleton prototype (if exists)
     JSObject* proto = getSingletonPrototype(target);
     if (!proto)
@@ -5465,6 +5492,7 @@ AbortReasonOr<Ok>
 IonBuilder::jsop_compare(JSOp op, MDefinition* left, MDefinition* right)
 {
     bool emitted = false;
+    startTrackingOptimizations();
 
     if (!forceInlineCaches()) {
         MOZ_TRY(compareTrySpecialized(&emitted, op, left, right));
@@ -5482,6 +5510,8 @@ IonBuilder::jsop_compare(JSOp op, MDefinition* left, MDefinition* right)
     if (emitted)
         return Ok();
 
+    trackOptimizationAttempt(TrackedStrategy::Compare_Call);
+
     // Not possible to optimize. Do a slow vm call.
     MCompare* ins = MCompare::New(alloc(), left, right, op);
     ins->cacheOperandMightEmulateUndefined(constraints());
@@ -5490,6 +5520,8 @@ IonBuilder::jsop_compare(JSOp op, MDefinition* left, MDefinition* right)
     current->push(ins);
     if (ins->isEffectful())
         MOZ_TRY(resumeAfter(ins));
+
+    trackOptimizationSuccess();
     return Ok();
 }
 
@@ -5510,12 +5542,15 @@ AbortReasonOr<Ok>
 IonBuilder::compareTrySpecialized(bool* emitted, JSOp op, MDefinition* left, MDefinition* right)
 {
     MOZ_ASSERT(*emitted == false);
+    trackOptimizationAttempt(TrackedStrategy::Compare_SpecializedTypes);
 
     // Try to emit an compare based on the input types.
 
     MCompare::CompareType type = MCompare::determineCompareType(op, left, right);
-    if (type == MCompare::Compare_Unknown)
+    if (type == MCompare::Compare_Unknown) {
+        trackOptimizationOutcome(TrackedOutcome::SpeculationOnInputTypesFailed);
         return Ok();
+    }
 
     MCompare* ins = MCompare::New(alloc(), left, right, op);
     ins->setCompareType(type);
@@ -5540,6 +5575,7 @@ IonBuilder::compareTrySpecialized(bool* emitted, JSOp op, MDefinition* left, MDe
     current->push(ins);
 
     MOZ_ASSERT(!ins->isEffectful());
+    trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5548,22 +5584,31 @@ AbortReasonOr<Ok>
 IonBuilder::compareTryBitwise(bool* emitted, JSOp op, MDefinition* left, MDefinition* right)
 {
     MOZ_ASSERT(*emitted == false);
+    trackOptimizationAttempt(TrackedStrategy::Compare_Bitwise);
 
     // Try to emit a bitwise compare. Check if a bitwise compare equals the wanted
     // result for all observed operand types.
 
     // Onlye allow loose and strict equality.
-    if (op != JSOP_EQ && op != JSOP_NE && op != JSOP_STRICTEQ && op != JSOP_STRICTNE)
+    if (op != JSOP_EQ && op != JSOP_NE && op != JSOP_STRICTEQ && op != JSOP_STRICTNE) {
+        trackOptimizationOutcome(TrackedOutcome::RelationalCompare);
         return Ok();
+    }
 
     // Only primitive (not double/string) or objects are supported.
     // I.e. Undefined/Null/Boolean/Int32 and Object
-    if (!ObjectOrSimplePrimitive(left) || !ObjectOrSimplePrimitive(right))
+    if (!ObjectOrSimplePrimitive(left) || !ObjectOrSimplePrimitive(right)) {
+        trackOptimizationOutcome(TrackedOutcome::OperandTypeNotBitwiseComparable);
         return Ok();
+    }
 
     // Objects that emulate undefined are not supported.
-    if (left->maybeEmulatesUndefined(constraints()) || right->maybeEmulatesUndefined(constraints()))
+    if (left->maybeEmulatesUndefined(constraints()) ||
+        right->maybeEmulatesUndefined(constraints()))
+    {
+        trackOptimizationOutcome(TrackedOutcome::OperandMaybeEmulatesUndefined);
         return Ok();
+    }
 
     // In the loose comparison more values could be the same,
     // but value comparison reporting otherwise.
@@ -5574,6 +5619,7 @@ IonBuilder::compareTryBitwise(bool* emitted, JSOp op, MDefinition* left, MDefini
         if ((left->mightBeType(MIRType::Undefined) && right->mightBeType(MIRType::Null)) ||
             (left->mightBeType(MIRType::Null) && right->mightBeType(MIRType::Undefined)))
         {
+            trackOptimizationOutcome(TrackedOutcome::LoosyUndefinedNullCompare);
             return Ok();
         }
 
@@ -5582,6 +5628,7 @@ IonBuilder::compareTryBitwise(bool* emitted, JSOp op, MDefinition* left, MDefini
         if ((left->mightBeType(MIRType::Int32) && right->mightBeType(MIRType::Boolean)) ||
             (left->mightBeType(MIRType::Boolean) && right->mightBeType(MIRType::Int32)))
         {
+            trackOptimizationOutcome(TrackedOutcome::LoosyInt32BooleanCompare);
             return Ok();
         }
 
@@ -5592,6 +5639,7 @@ IonBuilder::compareTryBitwise(bool* emitted, JSOp op, MDefinition* left, MDefini
         if ((left->mightBeType(MIRType::Object) && simpleRHS) ||
             (right->mightBeType(MIRType::Object) && simpleLHS))
         {
+            trackOptimizationOutcome(TrackedOutcome::CallsValueOf);
             return Ok();
         }
     }
@@ -5604,6 +5652,7 @@ IonBuilder::compareTryBitwise(bool* emitted, JSOp op, MDefinition* left, MDefini
     current->push(ins);
 
     MOZ_ASSERT(!ins->isEffectful());
+    trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5613,18 +5662,23 @@ IonBuilder::compareTrySpecializedOnBaselineInspector(bool* emitted, JSOp op, MDe
                                                      MDefinition* right)
 {
     MOZ_ASSERT(*emitted == false);
+    trackOptimizationAttempt(TrackedStrategy::Compare_SpecializedOnBaselineTypes);
 
     // Try to specialize based on any baseline caches that have been generated
     // for the opcode. These will cause the instruction's type policy to insert
     // fallible unboxes to the appropriate input types.
 
     // Strict equality isn't supported.
-    if (op == JSOP_STRICTEQ || op == JSOP_STRICTNE)
+    if (op == JSOP_STRICTEQ || op == JSOP_STRICTNE) {
+        trackOptimizationOutcome(TrackedOutcome::StrictCompare);
         return Ok();
+    }
 
     MCompare::CompareType type = inspector->expectedCompareType(pc);
-    if (type == MCompare::Compare_Unknown)
+    if (type == MCompare::Compare_Unknown) {
+        trackOptimizationOutcome(TrackedOutcome::SpeculationOnInputTypesFailed);
         return Ok();
+    }
 
     MCompare* ins = MCompare::New(alloc(), left, right, op);
     ins->setCompareType(type);
@@ -5634,6 +5688,7 @@ IonBuilder::compareTrySpecializedOnBaselineInspector(bool* emitted, JSOp op, MDe
     current->push(ins);
 
     MOZ_ASSERT(!ins->isEffectful());
+    trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5651,6 +5706,8 @@ IonBuilder::compareTrySharedStub(bool* emitted, JSOp op, MDefinition* left, MDef
     if (JSOp(*pc) == JSOP_CASE)
         return Ok();
 
+    trackOptimizationAttempt(TrackedStrategy::Compare_SharedCache);
+
     MBinarySharedStub* stub = MBinarySharedStub::New(alloc(), left, right);
     current->add(stub);
     current->push(stub);
@@ -5660,8 +5717,18 @@ IonBuilder::compareTrySharedStub(bool* emitted, JSOp op, MDefinition* left, MDef
     current->add(unbox);
     current->push(unbox);
 
+    trackOptimizationSuccess();
     *emitted = true;
     return Ok();
+}
+
+static bool
+IsCallOpcode(JSOp op)
+{
+    // TODO: Support tracking optimizations for inlining a call and regular
+    // optimization tracking at the same time.
+    return op == JSOP_CALL || op == JSOP_CALLITER || op == JSOP_NEW || op == JSOP_SUPERCALL ||
+           op == JSOP_EVAL || op == JSOP_STRICTEVAL;
 }
 
 AbortReasonOr<Ok>
@@ -5669,13 +5736,22 @@ IonBuilder::newArrayTryTemplateObject(bool* emitted, JSObject* templateObject, u
 {
     MOZ_ASSERT(*emitted == false);
 
-    if (!templateObject)
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewArray_TemplateObject);
+
+    if (!templateObject) {
+        if (!IsCallOpcode(JSOp(*pc)))
+            trackOptimizationOutcome(TrackedOutcome::NoTemplateObject);
         return Ok();
+    }
 
     if (templateObject->is<UnboxedArrayObject>()) {
         MOZ_ASSERT(templateObject->as<UnboxedArrayObject>().capacity() >= length);
-        if (!templateObject->as<UnboxedArrayObject>().hasInlineElements())
+        if (!templateObject->as<UnboxedArrayObject>().hasInlineElements()) {
+            if (!IsCallOpcode(JSOp(*pc)))
+                trackOptimizationOutcome(TrackedOutcome::TemplateObjectIsUnboxedWithoutInlineElements);
             return Ok();
+        }
     }
 
     MOZ_ASSERT(length <= NativeObject::MAX_DENSE_ELEMENTS_COUNT);
@@ -5683,8 +5759,11 @@ IonBuilder::newArrayTryTemplateObject(bool* emitted, JSObject* templateObject, u
     size_t arraySlots =
         gc::GetGCKindSlots(templateObject->asTenured().getAllocKind()) - ObjectElements::VALUES_PER_HEADER;
 
-    if (length > arraySlots)
+    if (length > arraySlots) {
+        if (!IsCallOpcode(JSOp(*pc)))
+            trackOptimizationOutcome(TrackedOutcome::LengthTooBig);
         return Ok();
+    }
 
     // Emit fastpath.
 
@@ -5696,6 +5775,8 @@ IonBuilder::newArrayTryTemplateObject(bool* emitted, JSObject* templateObject, u
     current->add(ins);
     current->push(ins);
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5713,6 +5794,9 @@ IonBuilder::newArrayTrySharedStub(bool* emitted)
     if (*pc != JSOP_NEWINIT && *pc != JSOP_NEWARRAY)
         return Ok();
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewArray_SharedCache);
+
     MInstruction* stub = MNullarySharedStub::New(alloc());
     current->add(stub);
     current->push(stub);
@@ -5722,6 +5806,9 @@ IonBuilder::newArrayTrySharedStub(bool* emitted)
     MUnbox* unbox = MUnbox::New(alloc(), current->pop(), MIRType::Object, MUnbox::Infallible);
     current->add(unbox);
     current->push(unbox);
+
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
 
     *emitted = true;
     return Ok();
@@ -5733,6 +5820,8 @@ IonBuilder::newArrayTryVM(bool* emitted, JSObject* templateObject, uint32_t leng
     MOZ_ASSERT(*emitted == false);
 
     // Emit a VM call.
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewArray_Call);
 
     gc::InitialHeap heap = gc::DefaultHeap;
     MConstant* templateConst = MConstant::New(alloc(), NullValue());
@@ -5748,6 +5837,8 @@ IonBuilder::newArrayTryVM(bool* emitted, JSObject* templateObject, uint32_t leng
     current->add(ins);
     current->push(ins);
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5772,6 +5863,8 @@ AbortReasonOr<Ok>
 IonBuilder::jsop_newarray(JSObject* templateObject, uint32_t length)
 {
     bool emitted = false;
+    if (!IsCallOpcode(JSOp(*pc)))
+        startTrackingOptimizations();
 
     if (!forceInlineCaches()) {
         MOZ_TRY(newArrayTryTemplateObject(&emitted, templateObject, length));
@@ -5817,11 +5910,19 @@ IonBuilder::newObjectTryTemplateObject(bool* emitted, JSObject* templateObject)
 {
     MOZ_ASSERT(*emitted == false);
 
-    if (!templateObject)
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewObject_TemplateObject);
+    if (!templateObject) {
+        if (!IsCallOpcode(JSOp(*pc)))
+            trackOptimizationOutcome(TrackedOutcome::NoTemplateObject);
         return Ok();
+    }
 
-    if (templateObject->is<PlainObject>() && templateObject->as<PlainObject>().hasDynamicSlots())
+    if (templateObject->is<PlainObject>() && templateObject->as<PlainObject>().hasDynamicSlots()) {
+        if (!IsCallOpcode(JSOp(*pc)))
+            trackOptimizationOutcome(TrackedOutcome::TemplateObjectIsPlainObjectWithDynamicSlots);
         return Ok();
+    }
 
     // Emit fastpath.
 
@@ -5841,6 +5942,8 @@ IonBuilder::newObjectTryTemplateObject(bool* emitted, JSObject* templateObject)
 
     MOZ_TRY(resumeAfter(ins));
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5855,6 +5958,9 @@ IonBuilder::newObjectTrySharedStub(bool* emitted)
     if (JitOptions.disableSharedStubs)
         return Ok();
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewObject_SharedCache);
+
     MInstruction* stub = MNullarySharedStub::New(alloc());
     current->add(stub);
     current->push(stub);
@@ -5865,6 +5971,8 @@ IonBuilder::newObjectTrySharedStub(bool* emitted)
     current->add(unbox);
     current->push(unbox);
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5874,6 +5982,9 @@ IonBuilder::newObjectTryVM(bool* emitted, JSObject* templateObject)
 {
     // Emit a VM call.
     MOZ_ASSERT(JSOp(*pc) == JSOP_NEWOBJECT || JSOp(*pc) == JSOP_NEWINIT);
+
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationAttempt(TrackedStrategy::NewObject_Call);
 
     gc::InitialHeap heap = gc::DefaultHeap;
     MConstant* templateConst = MConstant::New(alloc(), NullValue());
@@ -5892,6 +6003,8 @@ IonBuilder::newObjectTryVM(bool* emitted, JSObject* templateObject)
 
     MOZ_TRY(resumeAfter(ins));
 
+    if (!IsCallOpcode(JSOp(*pc)))
+        trackOptimizationSuccess();
     *emitted = true;
     return Ok();
 }
@@ -5900,6 +6013,7 @@ AbortReasonOr<Ok>
 IonBuilder::jsop_newobject()
 {
     bool emitted = false;
+    startTrackingOptimizations();
 
     JSObject* templateObject = inspector->getTemplateObject(pc);
 

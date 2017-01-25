@@ -61,6 +61,42 @@ CacheRegisterAllocator::useValueRegister(MacroAssembler& masm, ValOperandId op)
     MOZ_CRASH();
 }
 
+ValueOperand
+CacheRegisterAllocator::useFixedValueRegister(MacroAssembler& masm, ValOperandId valId,
+                                              ValueOperand reg)
+{
+    allocateFixedValueRegister(masm, reg);
+
+    OperandLocation& loc = operandLocations_[valId.id()];
+    switch (loc.kind()) {
+      case OperandLocation::ValueReg:
+        masm.moveValue(loc.valueReg(), reg);
+        MOZ_ASSERT(!currentOpRegs_.aliases(loc.valueReg()), "Register shouldn't be in use");
+        availableRegs_.add(loc.valueReg());
+        break;
+      case OperandLocation::ValueStack:
+        popValue(masm, &loc, reg);
+        break;
+      case OperandLocation::Constant:
+        masm.moveValue(loc.constant(), reg);
+        break;
+      case OperandLocation::PayloadReg:
+        masm.tagValue(loc.payloadType(), loc.payloadReg(), reg);
+        MOZ_ASSERT(!currentOpRegs_.has(loc.payloadReg()), "Register shouldn't be in use");
+        availableRegs_.add(loc.payloadReg());
+        break;
+      case OperandLocation::PayloadStack:
+        popPayload(masm, &loc, reg.scratchReg());
+        masm.tagValue(loc.payloadType(), reg.scratchReg(), reg);
+        break;
+      case OperandLocation::Uninitialized:
+        MOZ_CRASH();
+    }
+
+    loc.setValueReg(reg);
+    return reg;
+}
+
 Register
 CacheRegisterAllocator::useRegister(MacroAssembler& masm, TypedOperandId typedId)
 {
@@ -637,6 +673,7 @@ CacheIRStubInfo::copyStubData(ICStub* src, ICStub* dest) const
                 *reinterpret_cast<uintptr_t*>(srcBytes + offset);
             break;
           case StubField::Type::RawInt64:
+          case StubField::Type::DOMExpandoGeneration:
             *reinterpret_cast<uint64_t*>(destBytes + offset) =
                 *reinterpret_cast<uint64_t*>(srcBytes + offset);
             break;
@@ -732,6 +769,7 @@ CacheIRWriter::copyStubData(uint8_t* dest) const
             InitGCPtr<jsid>(destWords, field.asWord());
             break;
           case StubField::Type::RawInt64:
+          case StubField::Type::DOMExpandoGeneration:
             *reinterpret_cast<uint64_t*>(destWords) = field.asInt64();
             break;
           case StubField::Type::Value:
@@ -755,6 +793,7 @@ jit::TraceCacheIRStub(JSTracer* trc, T* stub, const CacheIRStubInfo* stubInfo)
         switch (fieldType) {
           case StubField::Type::RawWord:
           case StubField::Type::RawInt64:
+          case StubField::Type::DOMExpandoGeneration:
             break;
           case StubField::Type::Shape:
             TraceNullableEdge(trc, &stubInfo->getStubField<T, Shape*>(stub, offset),
@@ -798,11 +837,18 @@ template
 void jit::TraceCacheIRStub(JSTracer* trc, IonICStub* stub, const CacheIRStubInfo* stubInfo);
 
 bool
-CacheIRWriter::stubDataEquals(const uint8_t* stubData) const
+CacheIRWriter::stubDataEqualsMaybeUpdate(uint8_t* stubData) const
 {
     MOZ_ASSERT(!failed());
 
     const uintptr_t* stubDataWords = reinterpret_cast<const uintptr_t*>(stubData);
+
+    // If DOMExpandoGeneration fields are different but all other stub fields
+    // are exactly the same, we overwrite the old stub data instead of attaching
+    // a new stub, as the old stub is never going to succeed. This works because
+    // even Ion stubs read the DOMExpandoGeneration field from the stub instead
+    // of baking it in.
+    bool expandoGenerationIsDifferent = false;
 
     for (const StubField& field : stubFields_) {
         if (field.sizeIsWord()) {
@@ -812,10 +858,16 @@ CacheIRWriter::stubDataEquals(const uint8_t* stubData) const
             continue;
         }
 
-        if (field.asInt64() != *reinterpret_cast<const uint64_t*>(stubDataWords))
-            return false;
+        if (field.asInt64() != *reinterpret_cast<const uint64_t*>(stubDataWords)) {
+            if (field.type() != StubField::Type::DOMExpandoGeneration)
+                return false;
+            expandoGenerationIsDifferent = true;
+        }
         stubDataWords += sizeof(uint64_t) / sizeof(uintptr_t);
     }
+
+    if (expandoGenerationIsDifferent)
+        copyStubData(stubData);
 
     return true;
 }
@@ -1005,6 +1057,26 @@ CacheIRCompiler::emitGuardIsObject()
 }
 
 bool
+CacheIRCompiler::emitGuardIsObjectOrNull()
+{
+    ValOperandId inputId = reader.valOperandId();
+    JSValueType knownType = allocator.knownType(inputId);
+    if (knownType == JSVAL_TYPE_OBJECT || knownType == JSVAL_TYPE_NULL)
+        return true;
+
+    ValueOperand input = allocator.useValueRegister(masm, inputId);
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    Label done;
+    masm.branchTestObject(Assembler::Equal, input, &done);
+    masm.branchTestNull(Assembler::NotEqual, input, failure->label());
+    masm.bind(&done);
+    return true;
+}
+
+bool
 CacheIRCompiler::emitGuardIsString()
 {
     ValOperandId inputId = reader.valOperandId();
@@ -1035,53 +1107,56 @@ CacheIRCompiler::emitGuardIsSymbol()
 }
 
 bool
-CacheIRCompiler::emitGuardIsInt32()
+CacheIRCompiler::emitGuardIsInt32Index()
 {
     ValOperandId inputId = reader.valOperandId();
-    if (allocator.knownType(inputId) == JSVAL_TYPE_INT32)
-        return true;
+    Register output = allocator.defineRegister(masm, reader.int32OperandId());
 
-    ValueOperand input = allocator.useValueRegister(masm, inputId);
-    AutoScratchRegister scratch(allocator, masm);
+    if (allocator.knownType(inputId) == JSVAL_TYPE_INT32) {
+        Register input = allocator.useRegister(masm, Int32OperandId(inputId.id()));
+        masm.move32(input, output);
+        return true;
+    }
 
     FailurePath* failure;
     if (!addFailurePath(&failure))
         return false;
 
+    ValueOperand input = allocator.useValueRegister(masm, inputId);
+
+    Label notInt32, done;
+    masm.branchTestInt32(Assembler::NotEqual, input, &notInt32);
+    masm.unboxInt32(input, output);
+    masm.jump(&done);
+
+    masm.bind(&notInt32);
+
     if (cx_->runtime()->jitSupportsFloatingPoint) {
-        Label done;
-        masm.branchTestInt32(Assembler::Equal, input, &done);
-        {
-            // If the value is a double, try to convert it to int32 in place.
-            // It's fine to modify |input| in this case, as the difference is not
-            // observable.
+        masm.branchTestDouble(Assembler::NotEqual, input, failure->label());
 
-            masm.branchTestDouble(Assembler::NotEqual, input, failure->label());
+        // If we're compiling a Baseline IC, FloatReg0 is always available.
+        Label failurePopReg;
+        if (mode_ != Mode::Baseline)
+            masm.push(FloatReg0);
 
-            // If we're compiling a Baseline IC, FloatReg0 is always available.
-            Label failurePopReg;
-            if (mode_ != Mode::Baseline)
-                masm.push(FloatReg0);
+        masm.unboxDouble(input, FloatReg0);
+        // ToPropertyKey(-0.0) is "0", so we can truncate -0.0 to 0 here.
+        masm.convertDoubleToInt32(FloatReg0, output,
+                                  (mode_ == Mode::Baseline) ? failure->label() : &failurePopReg,
+                                  false);
+        if (mode_ != Mode::Baseline) {
+            masm.pop(FloatReg0);
+            masm.jump(&done);
 
-            masm.unboxDouble(input, FloatReg0);
-            masm.convertDoubleToInt32(FloatReg0, scratch,
-                                      (mode_ == Mode::Baseline) ? failure->label() : &failurePopReg);
-            masm.tagValue(JSVAL_TYPE_INT32, scratch, input);
-
-            if (mode_ != Mode::Baseline) {
-                masm.pop(FloatReg0);
-                masm.jump(&done);
-
-                masm.bind(&failurePopReg);
-                masm.pop(FloatReg0);
-                masm.jump(failure->label());
-            }
+            masm.bind(&failurePopReg);
+            masm.pop(FloatReg0);
+            masm.jump(failure->label());
         }
-        masm.bind(&done);
     } else {
-        masm.branchTestInt32(Assembler::NotEqual, input, failure->label());
+        masm.jump(failure->label());
     }
 
+    masm.bind(&done);
     return true;
 }
 
@@ -1106,6 +1181,9 @@ CacheIRCompiler::emitGuardType()
         break;
       case JSVAL_TYPE_SYMBOL:
         masm.branchTestSymbol(Assembler::NotEqual, input, failure->label());
+        break;
+      case JSVAL_TYPE_INT32:
+        masm.branchTestInt32(Assembler::NotEqual, input, failure->label());
         break;
       case JSVAL_TYPE_DOUBLE:
         masm.branchTestNumber(Assembler::NotEqual, input, failure->label());

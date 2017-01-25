@@ -42,6 +42,7 @@ IonIC::scratchRegisterForEntryJump()
         return output.hasValue() ? output.valueReg().scratchReg() : output.typedReg().gpr();
       }
       case CacheKind::GetName:
+      case CacheKind::SetProp:
         MOZ_CRASH("Baseline-specific for now");
     }
 
@@ -162,6 +163,9 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
         // Do not re-invalidate if the lookup already caused invalidation.
         if (outerScript->hasIonScript())
             Invalidate(cx, outerScript);
+
+        // We will redo the potentially effectful lookup in Baseline.
+        return true;
     }
 
     if (ic->kind() == CacheKind::GetProp) {

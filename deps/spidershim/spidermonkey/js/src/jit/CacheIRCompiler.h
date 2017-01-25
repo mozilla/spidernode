@@ -16,9 +16,10 @@ namespace jit {
 // BaselineCacheIRCompiler and IonCacheIRCompiler.
 #define CACHE_IR_SHARED_OPS(_)            \
     _(GuardIsObject)                      \
+    _(GuardIsObjectOrNull)                \
     _(GuardIsString)                      \
     _(GuardIsSymbol)                      \
-    _(GuardIsInt32)                       \
+    _(GuardIsInt32Index)                  \
     _(GuardType)                          \
     _(GuardClass)                         \
     _(GuardIsProxy)                       \
@@ -339,6 +340,7 @@ class MOZ_RAII CacheRegisterAllocator
     // Returns the register for the given operand. If the operand is currently
     // not in a register, it will load it into one.
     ValueOperand useValueRegister(MacroAssembler& masm, ValOperandId val);
+    ValueOperand useFixedValueRegister(MacroAssembler& masm, ValOperandId valId, ValueOperand reg);
     Register useRegister(MacroAssembler& masm, TypedOperandId typedId);
 
     // Allocates an output register for the given operand.

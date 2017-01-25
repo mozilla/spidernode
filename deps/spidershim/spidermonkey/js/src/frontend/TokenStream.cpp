@@ -219,8 +219,13 @@ TokenStream::SourceCoords::add(uint32_t lineNum, uint32_t lineStartOffset)
         // only if lineStartOffsets_.append succeeds, to keep sentinel.
         // Otherwise return false to tell TokenStream about OOM.
         uint32_t maxPtr = MAX_PTR;
-        if (!lineStartOffsets_.append(maxPtr))
+        if (!lineStartOffsets_.append(maxPtr)) {
+            static_assert(mozilla::IsSame<decltype(lineStartOffsets_.allocPolicy()),
+                                          TempAllocPolicy&>::value,
+                          "this function's caller depends on it reporting an "
+                          "error on failure, as TempAllocPolicy ensures");
             return false;
+        }
 
         lineStartOffsets_[lineIndex] = lineStartOffset;
     } else {
@@ -550,10 +555,8 @@ TokenStream::advance(size_t position)
     MOZ_MAKE_MEM_UNDEFINED(&cur->type, sizeof(cur->type));
     lookahead = 0;
 
-    if (flags.hitOOM) {
-        error(JSMSG_OUT_OF_MEMORY);
+    if (flags.hitOOM)
         return false;
-    }
 
     return true;
 }
@@ -1871,7 +1874,7 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
 
   out:
     if (flags.hitOOM)
-        return reportError(JSMSG_OUT_OF_MEMORY);
+        return false;
 
     flags.isDirtyLine = true;
     tp->pos.end = userbuf.offset();
@@ -1888,7 +1891,7 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
 
   error:
     if (flags.hitOOM)
-        return reportError(JSMSG_OUT_OF_MEMORY);
+        return false;
 
     flags.isDirtyLine = true;
     tp->pos.end = userbuf.offset();
@@ -1903,56 +1906,6 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
 #endif
     MOZ_MAKE_MEM_UNDEFINED(ttp, sizeof(*ttp));
     return false;
-}
-
-bool
-TokenStream::matchBracedUnicode(bool* matched, uint32_t* cp)
-{
-    int32_t c;
-    if (!peekChar(&c))
-        return false;
-    if (c != '{') {
-        *matched = false;
-        return true;
-    }
-
-    consumeKnownChar('{');
-
-    uint32_t start = userbuf.offset();
-
-    bool first = true;
-    uint32_t code = 0;
-    do {
-        int32_t c = getCharIgnoreEOL();
-        if (c == EOF) {
-            error(JSMSG_MALFORMED_ESCAPE, "Unicode");
-            return false;
-        }
-        if (c == '}') {
-            if (first) {
-                error(JSMSG_MALFORMED_ESCAPE, "Unicode");
-                return false;
-            }
-            break;
-        }
-
-        if (!JS7_ISHEX(c)) {
-            error(JSMSG_MALFORMED_ESCAPE, "Unicode");
-            return false;
-        }
-
-        code = (code << 4) | JS7_UNHEX(c);
-        if (code > unicode::NonBMPMax) {
-            errorAt(start, JSMSG_UNICODE_OVERFLOW, "escape sequence");
-            return false;
-        }
-
-        first = false;
-    } while (true);
-
-    *matched = true;
-    *cp = code;
-    return true;
 }
 
 bool
@@ -1977,6 +1930,10 @@ TokenStream::getStringOrTemplateToken(int untilChar, Token** tp)
         }
 
         if (c == '\\') {
+            // When parsing templates, we don't immediately report errors for
+            // invalid escapes; these are handled by the parser.
+            // In those cases we don't append to tokenbuf, since it won't be
+            // read.
             switch (c = getChar()) {
               case 'b': c = '\b'; break;
               case 'f': c = '\f'; break;
@@ -1992,11 +1949,74 @@ TokenStream::getStringOrTemplateToken(int untilChar, Token** tp)
 
               // Unicode character specification.
               case 'u': {
-                bool matched;
-                uint32_t code;
-                if (!matchBracedUnicode(&matched, &code))
+                uint32_t code = 0;
+
+                int32_t c2;
+                if (!peekChar(&c2))
                     return false;
-                if (matched) {
+
+                uint32_t start = userbuf.offset() - 2;
+
+                if (c2 == '{') {
+                    consumeKnownChar('{');
+
+                    bool first = true;
+                    bool valid = true;
+                    do {
+                        int32_t c = getCharIgnoreEOL();
+                        if (c == EOF) {
+                            if (parsingTemplate) {
+                                setInvalidTemplateEscape(start, InvalidEscapeType::Unicode);
+                                valid = false;
+                                break;
+                            }
+                            reportInvalidEscapeError(start, InvalidEscapeType::Unicode);
+                            return false;
+                        }
+                        if (c == '}') {
+                            if (first) {
+                                if (parsingTemplate) {
+                                    setInvalidTemplateEscape(start, InvalidEscapeType::Unicode);
+                                    valid = false;
+                                    break;
+                                }
+                                reportInvalidEscapeError(start, InvalidEscapeType::Unicode);
+                                return false;
+                            }
+                            break;
+                        }
+
+                        if (!JS7_ISHEX(c)) {
+                            if (parsingTemplate) {
+                                // We put the character back so that we read
+                                // it on the next pass, which matters if it
+                                // was '`' or '\'.
+                                ungetCharIgnoreEOL(c);
+                                setInvalidTemplateEscape(start, InvalidEscapeType::Unicode);
+                                valid = false;
+                                break;
+                            }
+                            reportInvalidEscapeError(start, InvalidEscapeType::Unicode);
+                            return false;
+                        }
+
+                        code = (code << 4) | JS7_UNHEX(c);
+                        if (code > unicode::NonBMPMax) {
+                            if (parsingTemplate) {
+                                setInvalidTemplateEscape(start + 3, InvalidEscapeType::UnicodeOverflow);
+                                valid = false;
+                                break;
+                            }
+                            reportInvalidEscapeError(start + 3, InvalidEscapeType::UnicodeOverflow);
+                            return false;
+                        }
+
+                        first = false;
+                    } while (true);
+
+                    if (!valid)
+                        continue;
+
                     MOZ_ASSERT(code <= unicode::NonBMPMax);
                     if (code < unicode::NonBMPMin) {
                         c = code;
@@ -2018,7 +2038,11 @@ TokenStream::getStringOrTemplateToken(int untilChar, Token** tp)
                     c = (c << 4) + JS7_UNHEX(cp[3]);
                     skipChars(4);
                 } else {
-                    error(JSMSG_MALFORMED_ESCAPE, "Unicode");
+                    if (parsingTemplate) {
+                        setInvalidTemplateEscape(start, InvalidEscapeType::Unicode);
+                        continue;
+                    }
+                    reportInvalidEscapeError(start, InvalidEscapeType::Unicode);
                     return false;
                 }
                 break;
@@ -2031,7 +2055,12 @@ TokenStream::getStringOrTemplateToken(int untilChar, Token** tp)
                     c = (JS7_UNHEX(cp[0]) << 4) + JS7_UNHEX(cp[1]);
                     skipChars(2);
                 } else {
-                    error(JSMSG_MALFORMED_ESCAPE, "hexadecimal");
+                    uint32_t start = userbuf.offset() - 2;
+                    if (parsingTemplate) {
+                        setInvalidTemplateEscape(start, InvalidEscapeType::Hexadecimal);
+                        continue;
+                    }
+                    reportInvalidEscapeError(start, InvalidEscapeType::Hexadecimal);
                     return false;
                 }
                 break;
@@ -2048,8 +2077,8 @@ TokenStream::getStringOrTemplateToken(int untilChar, Token** tp)
                     // Strict mode code allows only \0, then a non-digit.
                     if (val != 0 || JS7_ISDEC(c)) {
                         if (parsingTemplate) {
-                            error(JSMSG_DEPRECATED_OCTAL);
-                            return false;
+                            setInvalidTemplateEscape(userbuf.offset() - 2, InvalidEscapeType::Octal);
+                            continue;
                         }
                         if (!reportStrictModeError(JSMSG_DEPRECATED_OCTAL))
                             return false;
