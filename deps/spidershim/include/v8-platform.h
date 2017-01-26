@@ -28,6 +28,9 @@
 #ifndef V8_V8_PLATFORM_H_
 #define V8_V8_PLATFORM_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 namespace v8 {
 
 class Isolate;
