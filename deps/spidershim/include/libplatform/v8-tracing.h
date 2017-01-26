@@ -246,6 +246,20 @@ class TracingController {
   void operator=(const TracingController&) = delete;
 };
 
+class JSONTraceWriter : public TraceWriter {
+ public:
+  explicit JSONTraceWriter(std::ostream& stream);
+  ~JSONTraceWriter();
+  void AppendTraceEvent(TraceObject* trace_event) override;
+  void Flush() override;
+
+ private:
+  void AppendArgValue(uint8_t type, TraceObject::ArgValue value);
+
+  std::ostream& stream_;
+  bool append_comma_ = false;
+};
+
 }  // namespace tracing
 }  // namespace platform
 }  // namespace v8
