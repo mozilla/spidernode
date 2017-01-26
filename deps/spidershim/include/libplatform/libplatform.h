@@ -44,7 +44,8 @@ bool PumpMessageLoop(v8::Platform* platform, v8::Isolate* isolate) {
 
 void SetTracingController(
     v8::Platform* platform,
-    v8::platform::tracing::TracingController* tracing_controller);
+    v8::platform::tracing::TracingController* tracing_controller) {
+};
 
 }  // namespace platform
 }  // namespace v8
