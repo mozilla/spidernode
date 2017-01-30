@@ -364,7 +364,7 @@ IonCacheIRCompiler::init()
 
         MOZ_ASSERT(numInputs == 1 || numInputs == 2);
 
-        allocator.initInputLocation(0, ic->object(), JSVAL_TYPE_OBJECT);
+        allocator.initInputLocation(0, ic->value());
         if (numInputs > 1)
             allocator.initInputLocation(1, ic->id());
     } else {
@@ -380,7 +380,7 @@ JitCode*
 IonCacheIRCompiler::compile()
 {
     masm.setFramePushed(ionScript_->frameSize());
-    if (cx_->spsProfiler.enabled())
+    if (cx_->geckoProfiler.enabled())
         masm.enableProfilingInstrumentation();
 
     do {
@@ -863,6 +863,18 @@ IonCacheIRCompiler::emitStoreTypedObjectReferenceProperty()
 
 bool
 IonCacheIRCompiler::emitStoreTypedObjectScalarProperty()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitCallNativeSetter()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitCallScriptedSetter()
 {
     MOZ_CRASH("Baseline-specific op");
 }

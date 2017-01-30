@@ -493,7 +493,6 @@ class CodeGeneratorShared : public LElementVisitor
     void addCache(LInstruction* lir, size_t cacheIndex);
     void addIC(LInstruction* lir, size_t cacheIndex);
 
-    bool addCacheLocations(const CacheLocationList& locs, size_t* numLocs, size_t* offset);
     ReciprocalMulConstants computeDivisionConstants(uint32_t d, int maxLog);
 
   protected:
@@ -549,8 +548,10 @@ class CodeGeneratorShared : public LElementVisitor
     void emitTracelogScript(bool isStart);
     void emitTracelogTree(bool isStart, uint32_t textId);
     void emitTracelogTree(bool isStart, const char* text, TraceLoggerTextId enabledTextId);
+#endif
 
   public:
+#ifdef JS_TRACE_LOGGING
     void emitTracelogScriptStart() {
         emitTracelogScript(/* isStart =*/ true);
     }
@@ -572,19 +573,24 @@ class CodeGeneratorShared : public LElementVisitor
     void emitTracelogStopEvent(const char* text, TraceLoggerTextId enabledTextId) {
         emitTracelogTree(/* isStart =*/ false, text, enabledTextId);
     }
-#endif
     void emitTracelogIonStart() {
-#ifdef JS_TRACE_LOGGING
         emitTracelogScriptStart();
         emitTracelogStartEvent(TraceLogger_IonMonkey);
-#endif
     }
     void emitTracelogIonStop() {
-#ifdef JS_TRACE_LOGGING
         emitTracelogStopEvent(TraceLogger_IonMonkey);
         emitTracelogScriptStop();
-#endif
     }
+#else
+    void emitTracelogScriptStart() {}
+    void emitTracelogScriptStop() {}
+    void emitTracelogStartEvent(uint32_t textId) {}
+    void emitTracelogStopEvent(uint32_t textId) {}
+    void emitTracelogStartEvent(const char* text, TraceLoggerTextId enabledTextId) {}
+    void emitTracelogStopEvent(const char* text, TraceLoggerTextId enabledTextId) {}
+    void emitTracelogIonStart() {}
+    void emitTracelogIonStop() {}
+#endif
 
   protected:
     inline void verifyHeapAccessDisassembly(uint32_t begin, uint32_t end, bool isLoad,

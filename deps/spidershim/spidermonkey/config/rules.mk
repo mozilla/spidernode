@@ -547,7 +547,7 @@ OBJ_TARGETS = $(OBJS) $(PROGOBJS) $(HOST_OBJS) $(HOST_PROGOBJS)
 
 compile:: host target
 
-host:: $(HOST_LIBRARY) $(HOST_PROGRAM) $(HOST_SIMPLE_PROGRAMS) $(HOST_RUST_PROGRAMS)
+host:: $(HOST_LIBRARY) $(HOST_PROGRAM) $(HOST_SIMPLE_PROGRAMS) $(HOST_RUST_PROGRAMS) $(HOST_RUST_LIBRARY_FILE)
 
 target:: $(LIBRARY) $(SHARED_LIBRARY) $(PROGRAM) $(SIMPLE_PROGRAMS) $(RUST_LIBRARY_FILE) $(RUST_PROGRAMS)
 
@@ -919,7 +919,9 @@ cargo_build_flags += --frozen
 endif
 
 cargo_build_flags += --manifest-path $(CARGO_FILE)
+ifdef BUILD_VERBOSE_LOG
 cargo_build_flags += --verbose
+endif
 
 # Enable color output if original stdout was a TTY and color settings
 # aren't already present. This essentially restores the default behavior
@@ -967,6 +969,19 @@ force-cargo-library-build:
 
 $(RUST_LIBRARY_FILE): force-cargo-library-build
 endif # RUST_LIBRARY_FILE
+
+ifdef HOST_RUST_LIBRARY_FILE
+
+ifdef HOST_RUST_LIBRARY_FEATURES
+host_rust_features_flag := --features "$(HOST_RUST_LIBRARY_FEATURES)"
+endif
+
+force-cargo-host-library-build:
+	$(REPORT_BUILD)
+	$(CARGO_BUILD) --lib $(cargo_host_flag) $(host_rust_features_flag)
+
+$(HOST_RUST_LIBRARY_FILE): force-cargo-host-library-build
+endif # HOST_RUST_LIBRARY_FILE
 
 ifdef RUST_PROGRAMS
 force-cargo-program-build:

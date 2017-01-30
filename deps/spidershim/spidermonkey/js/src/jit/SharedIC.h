@@ -970,6 +970,9 @@ class ICCacheIR_Updated : public ICUpdatedStub
         updateStubId_(JSID_EMPTY)
     {}
 
+    static ICCacheIR_Updated* Clone(JSContext* cx, ICStubSpace* space, ICStub* firstMonitorStub,
+                                    ICCacheIR_Updated& other);
+
     GCPtrObjectGroup& updateStubGroup() {
         return updateStubGroup_;
     }
@@ -1049,7 +1052,7 @@ class ICStubCompiler
     void enterStubFrame(MacroAssembler& masm, Register scratch);
     void leaveStubFrame(MacroAssembler& masm, bool calledIntoIon = false);
 
-    // Some stubs need to emit SPS profiler updates.  This emits the guarding
+    // Some stubs need to emit Gecko Profiler updates.  This emits the guarding
     // jitcode for those stubs.  If profiling is not enabled, jumps to the
     // given label.
     void guardProfilingEnabled(MacroAssembler& masm, Register scratch, Label* skip);
@@ -2251,14 +2254,6 @@ IsPreliminaryObject(JSObject* obj);
 void
 StripPreliminaryObjectStubs(JSContext* cx, ICFallbackStub* stub);
 
-MOZ_MUST_USE bool
-EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId name,
-                           MutableHandleObject holder, MutableHandleShape shape);
-
-MOZ_MUST_USE bool
-EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId name,
-                           MutableHandleObject holder, MutableHandle<PropertyResult> prop);
-
 JSObject*
 GetDOMProxyProto(JSObject* obj);
 
@@ -2284,11 +2279,6 @@ UpdateExistingGetPropCallStubs(ICFallbackStub* fallbackStub,
 MOZ_MUST_USE bool
 CheckHasNoSuchProperty(JSContext* cx, JSObject* obj, jsid id,
                        JSObject** lastProto = nullptr, size_t* protoChainDepthOut = nullptr);
-
-void
-GuardReceiverObject(MacroAssembler& masm, ReceiverGuard guard,
-                    Register object, Register scratch,
-                    size_t receiverGuardOffset, Label* failure);
 
 MOZ_MUST_USE bool
 GetProtoShapes(JSObject* obj, size_t protoChainDepth, MutableHandle<ShapeVector> shapes);

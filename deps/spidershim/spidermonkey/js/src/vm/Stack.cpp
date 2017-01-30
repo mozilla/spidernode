@@ -265,7 +265,7 @@ void
 InterpreterFrame::epilogue(JSContext* cx, jsbytecode* pc)
 {
     RootedScript script(cx, this->script());
-    probes::ExitScript(cx, script, script->functionNonDelazifying(), hasPushedSPSFrame());
+    probes::ExitScript(cx, script, script->functionNonDelazifying(), hasPushedGeckoProfilerFrame());
 
     // Check that the scope matches the environment at the point of leaving
     // the frame.
@@ -1037,6 +1037,22 @@ FrameIter::updatePcQuadratic()
     MOZ_CRASH("Unexpected state");
 }
 
+void
+FrameIter::wasmUpdateBytecodeOffset()
+{
+    MOZ_RELEASE_ASSERT(data_.state_ == WASM, "Unexpected state");
+
+    wasm::DebugFrame* frame = data_.wasmFrames_.debugFrame();
+    WasmActivation* activation = data_.activations_->asWasm();
+
+    // Relookup the current frame, updating the bytecode offset in the process.
+    data_.wasmFrames_ = wasm::FrameIterator(activation);
+    while (data_.wasmFrames_.debugFrame() != frame)
+        ++data_.wasmFrames_;
+
+    MOZ_ASSERT(data_.wasmFrames_.debugFrame() == frame);
+}
+
 JSFunction*
 FrameIter::calleeTemplate() const
 {
@@ -1728,8 +1744,8 @@ JS::ProfilingFrameIterator::ProfilingFrameIterator(JSContext* cx, const Register
     activation_(nullptr),
     savedPrevJitTop_(nullptr)
 {
-    if (!cx->spsProfiler.enabled())
-        MOZ_CRASH("ProfilingFrameIterator called when spsProfiler not enabled for runtime.");
+    if (!cx->geckoProfiler.enabled())
+        MOZ_CRASH("ProfilingFrameIterator called when geckoProfiler not enabled for runtime.");
 
     if (!cx->profilingActivation())
         return;

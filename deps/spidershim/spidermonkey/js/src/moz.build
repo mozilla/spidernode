@@ -159,6 +159,7 @@ EXPORTS.js += [
 
 UNIFIED_SOURCES += [
     'builtin/AtomicsObject.cpp',
+    'builtin/DataViewObject.cpp',
     'builtin/Eval.cpp',
     'builtin/Intl.cpp',
     'builtin/MapObject.cpp',
@@ -322,6 +323,7 @@ UNIFIED_SOURCES += [
     'vm/EnvironmentObject.cpp',
     'vm/ErrorObject.cpp',
     'vm/ForOfIterator.cpp',
+    'vm/GeckoProfiler.cpp',
     'vm/GeneratorObject.cpp',
     'vm/GlobalObject.cpp',
     'vm/HelperThreads.cpp',
@@ -345,7 +347,6 @@ UNIFIED_SOURCES += [
     'vm/Shape.cpp',
     'vm/SharedArrayObject.cpp',
     'vm/SharedImmutableStringsCache.cpp',
-    'vm/SPSProfiler.cpp',
     'vm/Stack.cpp',
     'vm/Stopwatch.cpp',
     'vm/String.cpp',
@@ -587,6 +588,7 @@ if CONFIG['OS_ARCH'] == 'WINNT':
     SOURCES += [
         'jit/ExecutableAllocatorWin.cpp',
         'threading/windows/ConditionVariable.cpp',
+        'threading/windows/CpuCount.cpp',
         'threading/windows/MutexImpl.cpp',
         'threading/windows/Thread.cpp',
     ]
@@ -596,6 +598,7 @@ else:
     SOURCES += [
         'jit/ExecutableAllocatorPosix.cpp',
         'threading/posix/ConditionVariable.cpp',
+        'threading/posix/CpuCount.cpp',
         'threading/posix/MutexImpl.cpp',
         'threading/posix/Thread.cpp',
     ]

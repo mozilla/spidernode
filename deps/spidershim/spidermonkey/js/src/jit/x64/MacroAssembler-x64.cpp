@@ -311,7 +311,7 @@ MacroAssemblerX64::handleFailureWithHandlerTail(void* handler)
     Label return_;
     Label bailout;
 
-    loadPtr(Address(rsp, offsetof(ResumeFromException, kind)), rax);
+    load32(Address(rsp, offsetof(ResumeFromException, kind)), rax);
     asMasm().branch32(Assembler::Equal, rax, Imm32(ResumeFromException::RESUME_ENTRY_FRAME), &entryFrame);
     asMasm().branch32(Assembler::Equal, rax, Imm32(ResumeFromException::RESUME_CATCH), &catch_);
     asMasm().branch32(Assembler::Equal, rax, Imm32(ResumeFromException::RESUME_FINALLY), &finally);
@@ -362,7 +362,7 @@ MacroAssemblerX64::handleFailureWithHandlerTail(void* handler)
     // frame before returning.
     {
         Label skipProfilingInstrumentation;
-        AbsoluteAddress addressOfEnabled(GetJitContext()->runtime->spsProfiler().addressOfEnabled());
+        AbsoluteAddress addressOfEnabled(GetJitContext()->runtime->geckoProfiler().addressOfEnabled());
         asMasm().branch32(Assembler::Equal, addressOfEnabled, Imm32(0), &skipProfilingInstrumentation);
         profilerExitFrame();
         bind(&skipProfilingInstrumentation);

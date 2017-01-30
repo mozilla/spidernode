@@ -373,7 +373,7 @@ class JitRuntime
     }
 
     bool isProfilerInstrumentationEnabled(JSRuntime* rt) {
-        return rt->spsProfiler.enabled();
+        return rt->geckoProfiler.enabled();
     }
 
     bool isOptimizationTrackingEnabled(JSRuntime* rt) {
@@ -701,8 +701,6 @@ class MOZ_STACK_CLASS MaybeAutoWritableJitCode
             awjc_.emplace(code);
     }
 };
-
-static const bool EnableIonCacheIR = true;
 
 } // namespace jit
 } // namespace js

@@ -3622,7 +3622,8 @@ LIRGenerator::visitCallGetIntrinsicValue(MCallGetIntrinsicValue* ins)
 void
 LIRGenerator::visitGetPropertyCache(MGetPropertyCache* ins)
 {
-    MOZ_ASSERT(ins->object()->type() == MIRType::Object);
+    MDefinition* value = ins->value();
+    MOZ_ASSERT(value->type() == MIRType::Object || value->type() == MIRType::Value);
 
     MDefinition* id = ins->idval();
     MOZ_ASSERT(id->type() == MIRType::String ||
@@ -3644,19 +3645,19 @@ LIRGenerator::visitGetPropertyCache(MGetPropertyCache* ins)
     // We need a temp register if we can't use the output register as scratch.
     // See IonIC::scratchRegisterForEntryJump.
     LDefinition maybeTemp = LDefinition::BogusTemp();
-    if (EnableIonCacheIR && ins->type() == MIRType::Double)
+    if (ins->type() == MIRType::Double)
         maybeTemp = temp();
 
     if (ins->type() == MIRType::Value) {
         LGetPropertyCacheV* lir =
-            new(alloc()) LGetPropertyCacheV(useRegister(ins->object()),
+            new(alloc()) LGetPropertyCacheV(useBoxOrTyped(value),
                                             useBoxOrTypedOrConstant(id, useConstId),
                                             maybeTemp);
         defineBox(lir, ins);
         assignSafepoint(lir, ins);
     } else {
         LGetPropertyCacheT* lir =
-            new(alloc()) LGetPropertyCacheT(useRegister(ins->object()),
+            new(alloc()) LGetPropertyCacheT(useBoxOrTyped(value),
                                             useBoxOrTypedOrConstant(id, useConstId),
                                             maybeTemp);
         define(lir, ins);

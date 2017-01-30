@@ -219,7 +219,7 @@ CodeGenerator::visitOutOfLineCache(OutOfLineUpdateCache* ool)
     cache->accept(this, ool);
 }
 
-typedef bool (*IonGetPropertyICFn)(JSContext*, HandleScript, IonGetPropertyIC*, HandleObject, HandleValue,
+typedef bool (*IonGetPropertyICFn)(JSContext*, HandleScript, IonGetPropertyIC*, HandleValue, HandleValue,
                                    MutableHandleValue);
 const VMFunction IonGetPropertyICInfo =
     FunctionInfo<IonGetPropertyICFn>(IonGetPropertyIC::update, "IonGetPropertyIC::update");
@@ -244,7 +244,7 @@ CodeGenerator::visitOutOfLineICFallback(OutOfLineICFallback* ool)
         saveLive(lir);
 
         pushArg(getPropIC->id());
-        pushArg(getPropIC->object());
+        pushArg(getPropIC->value());
         icInfo_[cacheInfoIndex].icOffsetForPush = pushArgWithPatch(ImmWord(-1));
         pushArg(ImmGCPtr(gen->info().script()));
 
@@ -9802,7 +9802,8 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
     ionScript->setMethod(code);
     ionScript->setSkipArgCheckEntryOffset(getSkipArgCheckEntryOffset());
 
-    // If SPS is enabled, mark IonScript as having been instrumented with SPS
+    // If the Gecko Profiler is enabled, mark IonScript as having been
+    // instrumented accordingly.
     if (isProfilerInstrumentationEnabled())
         ionScript->setHasProfilingInstrumentation();
 
@@ -9858,6 +9859,8 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
                                                ImmPtr(logger),
                                                ImmPtr(nullptr));
         }
+    } else {
+        TraceLoggerSilentFail(logger, "OOM when trying to patch ion log events.");
     }
 #endif
 
@@ -10208,28 +10211,22 @@ CodeGenerator::visitNameIC(OutOfLineUpdateCache* ool, DataPtr<NameIC>& ic)
 }
 
 void
-CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
-                                   const ConstantOrRegister& id, TypedOrValueRegister output,
-                                   Register maybeTemp, bool monitoredResult,
-                                   bool allowDoubleResult, jsbytecode* profilerLeavePc)
+CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs,
+                                   TypedOrValueRegister value, const ConstantOrRegister& id,
+                                   TypedOrValueRegister output, Register maybeTemp,
+                                   bool monitoredResult, bool allowDoubleResult,
+                                   jsbytecode* profilerLeavePc)
 {
-    if (EnableIonCacheIR) {
-        CacheKind kind = CacheKind::GetElem;
-        if (id.constant() && id.value().isString()) {
-            JSString* idString = id.value().toString();
-            uint32_t dummy;
-            if (idString->isAtom() && !idString->asAtom().isIndex(&dummy))
-                kind = CacheKind::GetProp;
-        }
-        IonGetPropertyIC cache(kind, liveRegs, objReg, id, output, maybeTemp, monitoredResult,
-                               allowDoubleResult);
-        addIC(ins, allocateIC(cache));
-        return;
+    CacheKind kind = CacheKind::GetElem;
+    if (id.constant() && id.value().isString()) {
+        JSString* idString = id.value().toString();
+        uint32_t dummy;
+        if (idString->isAtom() && !idString->asAtom().isIndex(&dummy))
+            kind = CacheKind::GetProp;
     }
-
-    GetPropertyIC cache(liveRegs, objReg, id, output, monitoredResult, allowDoubleResult);
-    cache.setProfilerLeavePC(profilerLeavePc);
-    addCache(ins, allocateCache(cache));
+    IonGetPropertyIC cache(kind, liveRegs, value, id, output, maybeTemp, monitoredResult,
+                           allowDoubleResult);
+    addIC(ins, allocateIC(cache));
 }
 
 void
@@ -10263,13 +10260,14 @@ void
 CodeGenerator::visitGetPropertyCacheV(LGetPropertyCacheV* ins)
 {
     LiveRegisterSet liveRegs = ins->safepoint()->liveRegs();
-    Register objReg = ToRegister(ins->getOperand(0));
+    TypedOrValueRegister value =
+        toConstantOrRegister(ins, LGetPropertyCacheV::Value, ins->mir()->value()->type()).reg();
     ConstantOrRegister id = toConstantOrRegister(ins, LGetPropertyCacheV::Id, ins->mir()->idval()->type());
     bool monitoredResult = ins->mir()->monitoredResult();
     TypedOrValueRegister output = TypedOrValueRegister(GetValueOutput(ins));
     Register maybeTemp = ins->temp()->isBogusTemp() ? InvalidReg : ToRegister(ins->temp());
 
-    addGetPropertyCache(ins, liveRegs, objReg, id, output, maybeTemp, monitoredResult,
+    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp, monitoredResult,
                         ins->mir()->allowDoubleResult(), ins->mir()->profilerLeavePc());
 }
 
@@ -10277,46 +10275,15 @@ void
 CodeGenerator::visitGetPropertyCacheT(LGetPropertyCacheT* ins)
 {
     LiveRegisterSet liveRegs = ins->safepoint()->liveRegs();
-    Register objReg = ToRegister(ins->getOperand(0));
+    TypedOrValueRegister value =
+        toConstantOrRegister(ins, LGetPropertyCacheV::Value, ins->mir()->value()->type()).reg();
     ConstantOrRegister id = toConstantOrRegister(ins, LGetPropertyCacheT::Id, ins->mir()->idval()->type());
     bool monitoredResult = ins->mir()->monitoredResult();
     TypedOrValueRegister output(ins->mir()->type(), ToAnyRegister(ins->getDef(0)));
     Register maybeTemp = ins->temp()->isBogusTemp() ? InvalidReg : ToRegister(ins->temp());
 
-    addGetPropertyCache(ins, liveRegs, objReg, id, output, maybeTemp, monitoredResult,
+    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp, monitoredResult,
                         ins->mir()->allowDoubleResult(), ins->mir()->profilerLeavePc());
-}
-
-typedef bool (*GetPropertyICFn)(JSContext*, HandleScript, size_t, HandleObject, HandleValue,
-                                MutableHandleValue);
-const VMFunction GetPropertyIC::UpdateInfo =
-    FunctionInfo<GetPropertyICFn>(GetPropertyIC::update, "GetPropertyIC::update");
-
-void
-CodeGenerator::visitGetPropertyIC(OutOfLineUpdateCache* ool, DataPtr<GetPropertyIC>& ic)
-{
-    LInstruction* lir = ool->lir();
-
-    if (ic->idempotent()) {
-        size_t numLocs;
-        CacheLocationList& cacheLocs = lir->mirRaw()->toGetPropertyCache()->location();
-        size_t locationBase;
-        if (!addCacheLocations(cacheLocs, &numLocs, &locationBase))
-            return;
-        ic->setLocationInfo(locationBase, numLocs);
-    }
-
-    saveLive(lir);
-
-    pushArg(ic->id());
-    pushArg(ic->object());
-    pushArg(Imm32(ool->getCacheIndex()));
-    pushArg(ImmGCPtr(gen->info().script()));
-    callVM(GetPropertyIC::UpdateInfo, lir);
-    StoreValueTo(ic->output()).generate(this);
-    restoreLiveIgnore(lir, StoreValueTo(ic->output()).clobbered());
-
-    masm.jump(ool->rejoin());
 }
 
 void
