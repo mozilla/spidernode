@@ -1,7 +1,7 @@
 'use strict';
-var common = require('../common');
-var path = require('path');
-var assert = require('assert');
+const common = require('../common');
+const path = require('path');
+const assert = require('assert');
 
 try {
   require(path.join(common.fixturesDir, 'invalid.json'));
@@ -11,6 +11,6 @@ try {
     chakracore:
     /test[\/\\]fixtures[\/\\]invalid.json: JSON.parse Error: Expected '}'/
   });
-  var i = err.message.match(re);
-  assert(null !== i, 'require() json error should include path');
+  const i = err.message.match(re);
+  assert.notStrictEqual(null, i, 'require() json error should include path');
 }

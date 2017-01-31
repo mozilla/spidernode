@@ -6,6 +6,30 @@
 "use strict";
 
 //------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Checks whether the given token is an opening parenthesis or not.
+ *
+ * @param {Token} token - The token to check.
+ * @returns {boolean} `true` if the token is an opening parenthesis.
+ */
+function isOpeningParen(token) {
+    return token.type === "Punctuator" && token.value === "(";
+}
+
+/**
+ * Checks whether the given token is an closing parenthesis or not.
+ *
+ * @param {Token} token - The token to check.
+ * @returns {boolean} `true` if the token is an closing parenthesis.
+ */
+function isClosingParen(token) {
+    return token.type === "Punctuator" && token.value === ")";
+}
+
+//------------------------------------------------------------------------------
 // Rule Definition
 //------------------------------------------------------------------------------
 
@@ -17,25 +41,32 @@ module.exports = {
             recommended: false
         },
 
-        schema: []
+        schema: [],
+
+        fixable: "code"
     },
 
     create(context) {
         const sourceCode = context.getSourceCode();
 
         return {
-
             NewExpression(node) {
-                const tokens = sourceCode.getTokens(node);
-                const prenticesTokens = tokens.filter(function(token) {
-                    return token.value === "(" || token.value === ")";
-                });
+                if (node.arguments.length !== 0) {
+                    return;  // shortcut: if there are arguments, there have to be parens
+                }
 
-                if (prenticesTokens.length < 2) {
-                    context.report(node, "Missing '()' invoking a constructor.");
+                const lastToken = sourceCode.getLastToken(node);
+                const hasLastParen = lastToken && isClosingParen(lastToken);
+                const hasParens = hasLastParen && isOpeningParen(sourceCode.getTokenBefore(lastToken));
+
+                if (!hasParens) {
+                    context.report({
+                        node,
+                        message: "Missing '()' invoking a constructor.",
+                        fix: fixer => fixer.insertTextAfter(node, "()")
+                    });
                 }
             }
         };
-
     }
 };

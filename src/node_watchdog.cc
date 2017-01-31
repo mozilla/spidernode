@@ -13,7 +13,10 @@ Watchdog::Watchdog(v8::Isolate* isolate, uint64_t ms) : isolate_(isolate),
   loop_ = new uv_loop_t;
   CHECK(loop_);
   rc = uv_loop_init(loop_);
-  CHECK_EQ(0, rc);
+  if (rc != 0) {
+    FatalError("node::Watchdog::Watchdog()",
+               "Failed to initialize uv loop.");
+  }
 
   rc = uv_async_init(loop_, &async_, &Watchdog::Async);
   CHECK_EQ(0, rc);
@@ -147,7 +150,8 @@ void SigintWatchdogHelper::HandleSignal(int signum) {
 // Windows starts a separate thread for executing the handler, so no extra
 // helper thread is required.
 BOOL WINAPI SigintWatchdogHelper::WinCtrlCHandlerRoutine(DWORD dwCtrlType) {
-  if (dwCtrlType == CTRL_C_EVENT || dwCtrlType == CTRL_BREAK_EVENT) {
+  if (!instance.watchdog_disabled_ &&
+      (dwCtrlType == CTRL_C_EVENT || dwCtrlType == CTRL_BREAK_EVENT)) {
     InformWatchdogsAboutSignal();
 
     // Return true because the signal has been handled.
@@ -204,7 +208,11 @@ int SigintWatchdogHelper::Start() {
 
   RegisterSignalHandler(SIGINT, HandleSignal);
 #else
-  SetConsoleCtrlHandler(WinCtrlCHandlerRoutine, TRUE);
+  if (watchdog_disabled_) {
+    watchdog_disabled_ = false;
+  } else {
+    SetConsoleCtrlHandler(WinCtrlCHandlerRoutine, TRUE);
+  }
 #endif
 
   return 0;
@@ -248,7 +256,7 @@ bool SigintWatchdogHelper::Stop() {
 
   RegisterSignalHandler(SIGINT, SignalExit, true);
 #else
-  SetConsoleCtrlHandler(WinCtrlCHandlerRoutine, FALSE);
+  watchdog_disabled_ = true;
 #endif
 
   had_pending_signal = has_pending_signal_;
@@ -289,6 +297,8 @@ SigintWatchdogHelper::SigintWatchdogHelper()
   has_running_thread_ = false;
   stopping_ = false;
   CHECK_EQ(0, uv_sem_init(&sem_, 0));
+#else
+  watchdog_disabled_ = false;
 #endif
 }
 

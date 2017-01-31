@@ -48,7 +48,7 @@ module.exports = {
 
         schema: [
             {
-                enum: [ "prefer-single", "prefer-double" ]
+                enum: ["prefer-single", "prefer-double"]
             }
         ]
     },
@@ -74,7 +74,10 @@ module.exports = {
                 if (attributeValue && astUtils.isStringLiteral(attributeValue) && !usesExpectedQuotes(attributeValue)) {
                     context.report({
                         node: attributeValue,
-                        message: "Unexpected usage of " + setting.description + ".",
+                        message: "Unexpected usage of {{description}}.",
+                        data: {
+                            description: setting.description
+                        },
                         fix(fixer) {
                             return fixer.replaceText(attributeValue, setting.convert(attributeValue.raw));
                         }

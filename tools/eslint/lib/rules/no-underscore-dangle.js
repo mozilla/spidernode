@@ -57,9 +57,7 @@ module.exports = {
          * @private
          */
         function isAllowed(identifier) {
-            return ALLOWED_VARIABLES.some(function(ident) {
-                return ident === identifier;
-            });
+            return ALLOWED_VARIABLES.some(ident => ident === identifier);
         }
 
         /**
@@ -107,7 +105,13 @@ module.exports = {
                 const identifier = node.id.name;
 
                 if (typeof identifier !== "undefined" && hasTrailingUnderscore(identifier) && !isAllowed(identifier)) {
-                    context.report(node, "Unexpected dangling '_' in '" + identifier + "'.");
+                    context.report({
+                        node,
+                        message: "Unexpected dangling '_' in '{{identifier}}'.",
+                        data: {
+                            identifier
+                        }
+                    });
                 }
             }
         }
@@ -123,7 +127,13 @@ module.exports = {
 
             if (typeof identifier !== "undefined" && hasTrailingUnderscore(identifier) &&
                 !isSpecialCaseIdentifierInVariableExpression(identifier) && !isAllowed(identifier)) {
-                context.report(node, "Unexpected dangling '_' in '" + identifier + "'.");
+                context.report({
+                    node,
+                    message: "Unexpected dangling '_' in '{{identifier}}'.",
+                    data: {
+                        identifier
+                    }
+                });
             }
         }
 
@@ -142,7 +152,13 @@ module.exports = {
                 !(isMemberOfThis && allowAfterThis) &&
                 !(isMemberOfSuper && allowAfterSuper) &&
                 !isSpecialCaseIdentifierForMemberExpression(identifier) && !isAllowed(identifier)) {
-                context.report(node, "Unexpected dangling '_' in '" + identifier + "'.");
+                context.report({
+                    node,
+                    message: "Unexpected dangling '_' in '{{identifier}}'.",
+                    data: {
+                        identifier
+                    }
+                });
             }
         }
 

@@ -28,8 +28,8 @@ module.exports = {
                     {
                         type: "object",
                         properties: {
-                            before: {type: "boolean"},
-                            after: {type: "boolean"}
+                            before: { type: "boolean" },
+                            after: { type: "boolean" }
                         },
                         additionalProperties: false
                     }
@@ -68,11 +68,15 @@ module.exports = {
                 const spaceRequired = mode[side];
                 const node = after ? leftToken : rightToken;
                 const type = spaceRequired ? "Missing" : "Unexpected";
-                const message = type + " space " + side + " *.";
+                const message = "{{type}} space {{side}} *.";
 
                 context.report({
                     node,
                     message,
+                    data: {
+                        type,
+                        side
+                    },
                     fix(fixer) {
                         if (spaceRequired) {
                             if (after) {

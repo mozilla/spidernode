@@ -108,7 +108,7 @@ module.exports = {
                 properties: {
                     allow: {
                         type: "array",
-                        items: {enum: ALLOW_OPTIONS},
+                        items: { enum: ALLOW_OPTIONS },
                         uniqueItems: true
                     }
                 },
@@ -146,7 +146,10 @@ module.exports = {
                 context.report({
                     node,
                     loc: node.body.loc.start,
-                    message: "Unexpected empty " + SHOW_KIND[kind] + "."
+                    message: "Unexpected empty {{kind}}.",
+                    data: {
+                        kind: SHOW_KIND[kind]
+                    }
                 });
             }
         }

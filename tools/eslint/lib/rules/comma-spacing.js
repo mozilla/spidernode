@@ -97,8 +97,11 @@ module.exports = {
                     }
                 },
                 message: options[dir] ?
-                  "A space is required " + dir + " ','." :
-                  "There should be no space " + dir + " ','."
+                  "A space is required {{dir}} ','." :
+                  "There should be no space {{dir}} ','.",
+                data: {
+                    dir
+                }
             });
         }
 
@@ -138,7 +141,7 @@ module.exports = {
         function addNullElementsToIgnoreList(node) {
             let previousToken = sourceCode.getFirstToken(node);
 
-            node.elements.forEach(function(element) {
+            node.elements.forEach(element => {
                 let token;
 
                 if (element === null) {
@@ -161,7 +164,7 @@ module.exports = {
 
         return {
             "Program:exit"() {
-                tokensAndComments.forEach(function(token, i) {
+                tokensAndComments.forEach((token, i) => {
 
                     if (!isComma(token)) {
                         return;

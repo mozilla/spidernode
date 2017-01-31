@@ -1,6 +1,6 @@
 /* eslint-disable max-len, strict */
-var common = require('../common');
-var assert = require('assert');
+const common = require('../common');
+const assert = require('assert');
 
 common.globalCheck = false;
 common.refreshTmpDir();
@@ -15,10 +15,11 @@ const prompt_npm = 'npm should be run outside of the ' +
                    'node repl, in your normal shell.\n' +
                    '(Press Control-D to exit.)\n';
 const expect_npm = prompt_npm + prompt_unix;
-var server_tcp, server_unix, client_tcp, client_unix, replServer;
+let server_tcp, server_unix, client_tcp, client_unix, replServer;
+
 
 // absolute path to test/fixtures/a.js
-var moduleFilename = require('path').join(common.fixturesDir, 'a');
+const moduleFilename = require('path').join(common.fixturesDir, 'a');
 
 console.error('repl test');
 
@@ -29,7 +30,7 @@ global.invoke_me = function(arg) {
 
 function send_expect(list) {
   if (list.length > 0) {
-    var cur = list.shift();
+    const cur = list.shift();
 
     console.error('sending ' + JSON.stringify(cur.send));
 
@@ -49,17 +50,14 @@ function clean_up() {
 function strict_mode_error_test() {
   send_expect([
     { client: client_unix, send: 'ref = 1',
-      expect: common.engineSpecificMessage({
-        v8: /^ReferenceError:\sref\sis\snot\sdefined\n\s+at\srepl:1:5/,
-        chakracore: /^ReferenceError: Variable undefined in strict mode/
-      })},
+      expect: /^ReferenceError:\sref\sis\snot\sdefined\n\s+at\srepl:1:5/ },
   ]);
 }
 
 function error_test() {
   // The other stuff is done so reuse unix socket
-  var read_buffer = '';
-  var run_strict_test = true;
+  let read_buffer = '';
+  let run_strict_test = true;
   client_unix.removeAllListeners('data');
 
   client_unix.on('data', function(data) {
@@ -72,9 +70,9 @@ function error_test() {
     if (read_buffer.indexOf(prompt_unix) !== -1) {
       // if it's an exact match, then don't do the regexp
       if (read_buffer !== client_unix.expect) {
-        var expect = client_unix.expect;
+        let expect = client_unix.expect;
         if (expect === prompt_multiline)
-          expect = /[\.]{3} /;
+          expect = /[.]{3} /;
         assert.ok(read_buffer.match(expect));
         console.error('match');
       }
@@ -122,10 +120,7 @@ function error_test() {
       expect: prompt_unix },
     // But passing the same string to eval() should throw
     { client: client_unix, send: 'eval("function test_func() {")',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Unexpected end of input/,
-        chakracore: /^SyntaxError: Expected '}'/})
-    },
+      expect: /\bSyntaxError: Unexpected end of input/ },
     // Can handle multiline template literals
     { client: client_unix, send: '`io.js',
       expect: prompt_multiline },
@@ -154,68 +149,35 @@ function error_test() {
     // invalid input to JSON.parse error is special case of syntax error,
     // should throw
     { client: client_unix, send: 'JSON.parse(\'{invalid: \\\'json\\\'}\');',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Unexpected token i/,
-        chakracore: /^SyntaxError: Invalid character/})
-    },
+      expect: /\bSyntaxError: Unexpected token i/ },
     // end of input to JSON.parse error is special case of syntax error,
     // should throw
     { client: client_unix, send: 'JSON.parse(\'066\');',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Unexpected number/,
-        chakracore:  /^SyntaxError: Invalid number/})
-    },
+      expect: /\bSyntaxError: Unexpected number/ },
     // should throw
     { client: client_unix, send: 'JSON.parse(\'{\');',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Unexpected end of JSON input/,
-        chakracore: /^SyntaxError: Syntax error/})
-    },
+      expect: /\bSyntaxError: Unexpected end of JSON input/ },
     // invalid RegExps are a special case of syntax error,
     // should throw
     { client: client_unix, send: '/(/;',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Invalid regular expression\:/,
-        chakracore: /^SyntaxError: Expected '\)' in regular expression/})
-    },
+      expect: /\bSyntaxError: Invalid regular expression:/ },
     // invalid RegExp modifiers are a special case of syntax error,
     // should throw (GH-4012)
     { client: client_unix, send: 'new RegExp("foo", "wrong modifier");',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Invalid flags supplied to RegExp constructor/,
-        chakracore: /^SyntaxError: Syntax error in regular expression/})
-    },
+      expect: /\bSyntaxError: Invalid flags supplied to RegExp constructor/ },
     // strict mode syntax errors should be caught (GH-5178)
     { client: client_unix, send: '(function() { "use strict"; return 0755; })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Octal literals are not allowed in strict mode/,
-        chakracore: /^SyntaxError: Octal numeric literals and escape characters not allowed in strict mode/})
-    },
+      expect: /\bSyntaxError: Octal literals are not allowed in strict mode/ },
     { client: client_unix, send: '(function(a, a, b) { "use strict"; return a + b + c; })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Duplicate parameter name not allowed in this context/,
-        chakracore: /^SyntaxError: Duplicate formal parameter names not allowed in strict mode/})
-    },
+      expect: /\bSyntaxError: Duplicate parameter name not allowed in this context/ },
     { client: client_unix, send: '(function() { "use strict"; with (this) {} })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Strict mode code may not include a with statement/,
-        chakracore: /^SyntaxError: 'with' statements are not allowed in strict mode/})
-    },
+      expect: /\bSyntaxError: Strict mode code may not include a with statement/ },
     { client: client_unix, send: '(function() { "use strict"; var x; delete x; })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Delete of an unqualified identifier in strict mode/,
-        chakracore: /^SyntaxError: Calling delete on expression not allowed in strict mode/})
-    },
+      expect: /\bSyntaxError: Delete of an unqualified identifier in strict mode/ },
     { client: client_unix, send: '(function() { "use strict"; eval = 17; })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Unexpected eval or arguments in strict mode/,
-        chakracore: /^SyntaxError: Invalid usage of 'eval' in strict mode/})
-    },
+      expect: /\bSyntaxError: Unexpected eval or arguments in strict mode/ },
     { client: client_unix, send: '(function() { "use strict"; if (true) function f() { } })()',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: In strict mode code, functions can only be declared at top level or inside a block./,
-        chakracore: /^SyntaxError: Syntax error/})
-    },
+      expect: /\bSyntaxError: In strict mode code, functions can only be declared at top level or inside a block./ },
     // Named functions can be used:
     { client: client_unix, send: 'function blah() { return 1; }',
       expect: prompt_unix },
@@ -240,14 +202,11 @@ function error_test() {
       expect: '1' },
     // Multiline function call
     { client: client_unix, send: 'function f(){}; f(f(1,',
-      expect: prompt_multiline,
-      chakracore: 'https://github.com/Microsoft/ChakraCore/issues/767' },
+      expect: prompt_multiline },
     { client: client_unix, send: '2)',
-      expect: prompt_multiline,
-      chakracore: 'skip' },
+      expect: prompt_multiline },
     { client: client_unix, send: ')',
-      expect: 'undefined\n' + prompt_unix,
-      chakracore: 'skip' },
+      expect: 'undefined\n' + prompt_unix },
     // npm prompt error message
     { client: client_unix, send: 'npm install foobar',
       expect: expect_npm },
@@ -269,10 +228,7 @@ function error_test() {
       expect: 'Invalid REPL keyword\n' + prompt_unix },
     // fail when we are not inside a String and a line continuation is used
     { client: client_unix, send: '[] \\',
-      expect: common.engineSpecificMessage({
-        v8: /\bSyntaxError: Invalid or unexpected token/,
-        chakracore: /^SyntaxError: Invalid character/})
-    },
+      expect: /\bSyntaxError: Invalid or unexpected token/ },
     // do not fail when a String is created with line continuation
     { client: client_unix, send: '\'the\\\nfourth\\\neye\'',
       expect: prompt_multiline + prompt_multiline +
@@ -357,7 +313,7 @@ function error_test() {
     { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
-    { client: client_unix, send: "function x(s) {\nreturn s.replace(/\'/,'');\n}",
+    { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
     { client: client_unix, send: 'function x(s) {\nreturn s.replace(/"/,"");\n}',
@@ -370,8 +326,7 @@ function error_test() {
       expect: 'undefined\n' + prompt_unix },
     // Illegal token is not recoverable outside string literal, RegExp literal,
     // or block comment. https://github.com/nodejs/node/issues/3611
-    {
-      client: client_unix, send: 'a = 3.5e',
+    { client: client_unix, send: 'a = 3.5e',
       expect: /\bSyntaxError: Invalid or unexpected token/ },
     // Mitigate https://github.com/nodejs/node/issues/548
     { client: client_unix, send: 'function name(){ return "node"; };name()',
@@ -384,7 +339,30 @@ function error_test() {
     // Avoid emitting stack trace
     { client: client_unix, send: 'a = 3.5e',
       expect: /^(?!\s+at\s)/gm },
-  ].filter((v) => !common.engineSpecificMessage(v)));
+
+    // https://github.com/nodejs/node/issues/9850
+    { client: client_unix, send: 'function* foo() {}; foo().next();',
+      expect: '{ value: undefined, done: true }' },
+
+    { client: client_unix, send: 'function *foo() {}; foo().next();',
+      expect: '{ value: undefined, done: true }' },
+
+    { client: client_unix, send: 'function*foo() {}; foo().next();',
+      expect: '{ value: undefined, done: true }' },
+
+    { client: client_unix, send: 'function * foo() {}; foo().next()',
+      expect: '{ value: undefined, done: true }' },
+
+    // https://github.com/nodejs/node/issues/9300
+    { client: client_unix, send: 'function foo() {\nvar bar = 1 / 1; // "/"\n}',
+      expect: prompt_multiline + prompt_multiline + 'undefined\n' + prompt_unix },
+
+    { client: client_unix, send: '(function() {\nreturn /foo/ / /bar/;\n}())',
+      expect: prompt_multiline + prompt_multiline + 'NaN\n' + prompt_unix },
+
+    { client: client_unix, send: '(function() {\nif (false) {} /bar"/;\n}())',
+      expect: prompt_multiline + prompt_multiline + 'undefined\n' + prompt_unix }
+  ]);
 }
 
 function tcp_test() {
@@ -399,13 +377,13 @@ function tcp_test() {
   });
 
   server_tcp.listen(0, function() {
-    var read_buffer = '';
+    let read_buffer = '';
 
     client_tcp = net.createConnection(this.address().port);
 
     client_tcp.on('connect', function() {
-      assert.equal(true, client_tcp.readable);
-      assert.equal(true, client_tcp.writable);
+      assert.strictEqual(true, client_tcp.readable);
+      assert.strictEqual(true, client_tcp.writable);
 
       send_expect([
         { client: client_tcp, send: '',
@@ -468,13 +446,13 @@ function unix_test() {
   });
 
   server_unix.on('listening', function() {
-    var read_buffer = '';
+    let read_buffer = '';
 
     client_unix = net.createConnection(common.PIPE);
 
     client_unix.on('connect', function() {
-      assert.equal(true, client_unix.readable);
-      assert.equal(true, client_unix.writable);
+      assert.strictEqual(true, client_unix.readable);
+      assert.strictEqual(true, client_unix.writable);
 
       send_expect([
         { client: client_unix, send: '',

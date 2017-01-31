@@ -66,18 +66,18 @@ module.exports = {
         };
 
         if (typeof mode === "string") { // simple options configuration with just a string
-            options.var = { uninitialized: mode, initialized: mode};
-            options.let = { uninitialized: mode, initialized: mode};
-            options.const = { uninitialized: mode, initialized: mode};
+            options.var = { uninitialized: mode, initialized: mode };
+            options.let = { uninitialized: mode, initialized: mode };
+            options.const = { uninitialized: mode, initialized: mode };
         } else if (typeof mode === "object") { // options configuration is an object
             if (mode.hasOwnProperty("var") && typeof mode.var === "string") {
-                options.var = { uninitialized: mode.var, initialized: mode.var};
+                options.var = { uninitialized: mode.var, initialized: mode.var };
             }
             if (mode.hasOwnProperty("let") && typeof mode.let === "string") {
-                options.let = { uninitialized: mode.let, initialized: mode.let};
+                options.let = { uninitialized: mode.let, initialized: mode.let };
             }
             if (mode.hasOwnProperty("const") && typeof mode.const === "string") {
-                options.const = { uninitialized: mode.const, initialized: mode.const};
+                options.const = { uninitialized: mode.const, initialized: mode.const };
             }
             if (mode.hasOwnProperty("uninitialized")) {
                 if (!options.var) {
@@ -123,8 +123,8 @@ module.exports = {
          */
         function startBlock() {
             blockStack.push({
-                let: {initialized: false, uninitialized: false},
-                const: {initialized: false, uninitialized: false}
+                let: { initialized: false, uninitialized: false },
+                const: { initialized: false, uninitialized: false }
             });
         }
 
@@ -134,7 +134,7 @@ module.exports = {
          * @private
          */
         function startFunction() {
-            functionStack.push({initialized: false, uninitialized: false});
+            functionStack.push({ initialized: false, uninitialized: false });
             startBlock();
         }
 
@@ -279,16 +279,34 @@ module.exports = {
                 // always
                 if (!hasOnlyOneStatement(type, declarations)) {
                     if (options[type].initialized === MODE_ALWAYS && options[type].uninitialized === MODE_ALWAYS) {
-                        context.report(node, "Combine this with the previous '" + type + "' statement.");
+                        context.report({
+                            node,
+                            message: "Combine this with the previous '{{type}}' statement.",
+                            data: {
+                                type
+                            }
+                        });
                     } else {
                         if (options[type].initialized === MODE_ALWAYS) {
-                            context.report(node, "Combine this with the previous '" + type + "' statement with initialized variables.");
+                            context.report({
+                                node,
+                                message: "Combine this with the previous '{{type}}' statement with initialized variables.",
+                                data: {
+                                    type
+                                }
+                            });
                         }
                         if (options[type].uninitialized === MODE_ALWAYS) {
                             if (node.parent.left === node && (node.parent.type === "ForInStatement" || node.parent.type === "ForOfStatement")) {
                                 return;
                             }
-                            context.report(node, "Combine this with the previous '" + type + "' statement with uninitialized variables.");
+                            context.report({
+                                node,
+                                message: "Combine this with the previous '{{type}}' statement with uninitialized variables.",
+                                data: {
+                                    type
+                                }
+                            });
                         }
                     }
                 }
@@ -302,15 +320,33 @@ module.exports = {
                         if (options[type].initialized === MODE_NEVER && options[type].uninitialized === MODE_NEVER) {
 
                             // both initialized and uninitialized
-                            context.report(node, "Split '" + type + "' declarations into multiple statements.");
+                            context.report({
+                                node,
+                                message: "Split '{{type}}' declarations into multiple statements.",
+                                data: {
+                                    type
+                                }
+                            });
                         } else if (options[type].initialized === MODE_NEVER && declarationCounts.initialized > 0) {
 
                             // initialized
-                            context.report(node, "Split initialized '" + type + "' declarations into multiple statements.");
+                            context.report({
+                                node,
+                                message: "Split initialized '{{type}}' declarations into multiple statements.",
+                                data: {
+                                    type
+                                }
+                            });
                         } else if (options[type].uninitialized === MODE_NEVER && declarationCounts.uninitialized > 0) {
 
                             // uninitialized
-                            context.report(node, "Split uninitialized '" + type + "' declarations into multiple statements.");
+                            context.report({
+                                node,
+                                message: "Split uninitialized '{{type}}' declarations into multiple statements.",
+                                data: {
+                                    type
+                                }
+                            });
                         }
                     }
                 }

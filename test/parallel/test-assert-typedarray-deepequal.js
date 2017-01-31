@@ -1,4 +1,3 @@
-/* eslint no-deepEqual: 0 */
 'use strict';
 
 require('../common');
@@ -6,7 +5,7 @@ const assert = require('assert');
 const a = require('assert');
 
 function makeBlock(f) {
-  var args = Array.prototype.slice.call(arguments, 1);
+  const args = Array.prototype.slice.call(arguments, 1);
   return function() {
     return f.apply(this, args);
   };
@@ -46,6 +45,7 @@ const notEqualArrayPairs = [
 ];
 
 equalArrayPairs.forEach((arrayPair) => {
+  // eslint-disable-next-line no-restricted-properties
   assert.deepEqual(arrayPair[0], arrayPair[1]);
 });
 

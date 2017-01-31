@@ -29,26 +29,33 @@
 #include "spidershim_natives.h"
 #include "utils.h"
 
-namespace {
+namespace spidershim {
 
 bool InitLibraries(JSContext* cx) {
-  for (auto& native : spidershim::natives) {
-    JS::CompileOptions options(cx);
-    options.setVersion(JSVERSION_DEFAULT)
-        .setNoScriptRval(true)
-        .setUTF8(true)
-        .setSourceIsLazy(false)
-        .setFile(native.name)
-        .setLine(1)
-        .setColumn(0)
-        .forceAsync = true;
-    JS::RootedValue value(cx);
-    if (!JS::Evaluate(cx, options,
-                      reinterpret_cast<const char*>(native.source),
-                      native.source_len, &value)) {
-      return false;
-    }
-  }
+#define V(id)                                                                 \
+  do {                                                                        \
+    JS::CompileOptions options(cx);                                           \
+    uint8_t *filename = (uint8_t *)malloc(sizeof(id##_name) + 1);             \
+    memcpy(filename, id##_name, sizeof(id##_name));                           \
+    filename[sizeof(filename)] = '\0';                                        \
+    options.setVersion(JSVERSION_DEFAULT)                                     \
+        .setNoScriptRval(true)                                                \
+        .setUTF8(true)                                                        \
+        .setSourceIsLazy(false)                                               \
+        .setFile(reinterpret_cast<const char*>(filename))                     \
+        .setLine(1)                                                           \
+        .setColumn(0)                                                         \
+        .forceAsync = true;                                                   \
+    JS::RootedValue value(cx);                                                \
+    if (!JS::Evaluate(cx, options,                                            \
+                      reinterpret_cast<const char*>(id##_data),               \
+                      sizeof(id##_data), &value)) {                           \
+      return false;                                                           \
+    }                                                                         \
+    free(filename);                                                           \
+  } while (0);
+  NODE_NATIVES_MAP(V)
+#undef V
   return true;
 }
 }
@@ -145,7 +152,7 @@ bool Context::CreateGlobal(JSContext* cx, Isolate* isolate,
   }
 #endif
 
-  return InitLibraries(cx);
+  return spidershim::InitLibraries(cx);
 }
 
 Local<Object> Context::Global() { return pimpl_->globalObj; }

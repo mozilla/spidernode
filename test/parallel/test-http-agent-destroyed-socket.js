@@ -1,29 +1,29 @@
 'use strict';
 require('../common');
-var assert = require('assert');
-var http = require('http');
+const assert = require('assert');
+const http = require('http');
 
-var server = http.createServer(function(req, res) {
+const server = http.createServer(function(req, res) {
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.end('Hello World\n');
 }).listen(0, function() {
-  var agent = new http.Agent({maxSockets: 1});
+  const agent = new http.Agent({maxSockets: 1});
 
   agent.on('free', function(socket, host, port) {
     console.log('freeing socket. destroyed? ', socket.destroyed);
   });
 
-  var requestOptions = {
+  const requestOptions = {
     agent: agent,
     host: 'localhost',
     port: this.address().port,
     path: '/'
   };
 
-  var request1 = http.get(requestOptions, function(response) {
+  const request1 = http.get(requestOptions, function(response) {
     // assert request2 is queued in the agent
-    var key = agent.getName(requestOptions);
-    assert(agent.requests[key].length === 1);
+    const key = agent.getName(requestOptions);
+    assert.strictEqual(agent.requests[key].length, 1);
     console.log('got response1');
     request1.socket.on('close', function() {
       console.log('request1 socket closed');
@@ -51,21 +51,21 @@ var server = http.createServer(function(req, res) {
         process.nextTick(function() {
           // assert that the same socket was not assigned to request2,
           // since it was destroyed.
-          assert(request1.socket !== request2.socket);
+          assert.notStrictEqual(request1.socket, request2.socket);
           assert(!request2.socket.destroyed, 'the socket is destroyed');
         });
       });
     });
   });
 
-  var request2 = http.get(requestOptions, function(response) {
+  const request2 = http.get(requestOptions, function(response) {
     assert(!request2.socket.destroyed);
     assert(request1.socket.destroyed);
     // assert not reusing the same socket, since it was destroyed.
-    assert(request1.socket !== request2.socket);
+    assert.notStrictEqual(request1.socket, request2.socket);
     console.log('got response2');
-    var gotClose = false;
-    var gotResponseEnd = false;
+    let gotClose = false;
+    let gotResponseEnd = false;
     request2.socket.on('close', function() {
       console.log('request2 socket closed');
       gotClose = true;

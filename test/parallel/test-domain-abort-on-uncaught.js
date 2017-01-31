@@ -15,7 +15,7 @@ if (common.isChakraEngine) {
   return;
 }
 
-var errorHandlerCalled = false;
+let errorHandlerCalled = false;
 
 const tests = [
   function nextTick() {
@@ -96,7 +96,7 @@ const tests = [
     });
 
     d.run(function() {
-      var fs = require('fs');
+      const fs = require('fs');
       fs.exists('/non/existing/file', function onExists(exists) {
         throw new Error('boom!');
       });
@@ -218,7 +218,7 @@ const tests = [
 
     d.run(function() {
       d2.run(function() {
-        var fs = require('fs');
+        const fs = require('fs');
         fs.exists('/non/existing/file', function onExists(exists) {
           throw new Error('boom!');
         });
@@ -233,12 +233,12 @@ if (process.argv[2] === 'child') {
   tests[testIndex]();
 
   process.on('exit', function onExit() {
-    assert.equal(errorHandlerCalled, true);
+    assert.strictEqual(errorHandlerCalled, true);
   });
 } else {
 
   tests.forEach(function(test, testIndex) {
-    var testCmd = '';
+    let testCmd = '';
     if (!common.isWindows) {
       // Do not create core files, as it can take a lot of disk space on
       // continuous testing and developers' machines
@@ -251,10 +251,10 @@ if (process.argv[2] === 'child') {
     testCmd += ' ' + 'child';
     testCmd += ' ' + testIndex;
 
-    var child = child_process.exec(testCmd);
+    const child = child_process.exec(testCmd);
 
     child.on('exit', function onExit(code, signal) {
-      assert.equal(code, 0, 'Test at index ' + testIndex +
+      assert.strictEqual(code, 0, 'Test at index ' + testIndex +
         ' should have exited with exit code 0 but instead exited with code ' +
         code + ' and signal ' + signal);
     });

@@ -1,8 +1,8 @@
 'use strict'
 // npm install <pkg> <pkg> <pkg>
 //
-// See doc/install.md for more description
-
+// See doc/cli/npm-install.md for more description
+//
 // Managing contexts...
 // there's a lot of state associated with an "install" operation, including
 // packages that are already installed, parent packages, current shrinkwrap, and
@@ -208,7 +208,6 @@ function Installer (where, dryrun, args) {
   this.progress = {}
   this.noPackageJsonOk = !!args.length
   this.topLevelLifecycles = !args.length
-  this.npat = npm.config.get('npat')
   this.dev = npm.config.get('dev') || (!/^prod(uction)?$/.test(npm.config.get('only')) && !npm.config.get('production')) || /^dev(elopment)?$/.test(npm.config.get('only'))
   this.prod = !/^dev(elopment)?$/.test(npm.config.get('only'))
   this.rollback = npm.config.get('rollback')
@@ -259,6 +258,9 @@ Installer.prototype.run = function (cb) {
     [this, this.debugActions, 'decomposeActions', 'todo'])
   if (!this.dryrun) {
     installSteps.push(
+      [this.newTracker(log, 'runTopLevelLifecycles', 2)],
+      [this, this.runPreinstallTopLevelLifecycles],
+
       [this.newTracker(log, 'executeActions', 8)],
       [this, this.executeActions],
       [this, this.finishTracker, 'executeActions'])
@@ -269,10 +271,9 @@ Installer.prototype.run = function (cb) {
       [this, this.rollbackFailedOptional, staging, this.todo],
       [this, this.finishTracker, 'rollbackFailedOptional'],
       [this, this.commit, staging, this.todo],
-      [this.newTracker(log, 'runTopLevelLifecycles', 2)],
-      [this, this.runTopLevelLifecycles],
-      [this, this.finishTracker, 'runTopLevelLifecycles'])
 
+      [this, this.runPostinstallTopLevelLifecycles],
+      [this, this.finishTracker, 'runTopLevelLifecycles'])
     if (getSaveType(this.args)) {
       postInstallSteps.push(
         [this, this.saveToDependencies])
@@ -289,8 +290,12 @@ Installer.prototype.run = function (cb) {
         self.idealTree.warnings.forEach(function (warning) {
           if (warning.code === 'EPACKAGEJSON' && self.global) return
           if (warning.code === 'ENOTDIR') return
-          errorMessage(warning).summary.forEach(function (logline) {
+          var output = errorMessage(warning)
+          output.summary.forEach(function (logline) {
             log.warn.apply(log, logline)
+          })
+          output.detail.forEach(function (logline) {
+            log.verbose.apply(log, logline)
           })
         })
       }
@@ -310,7 +315,7 @@ Installer.prototype.run = function (cb) {
 
 Installer.prototype.loadArgMetadata = function (next) {
   var self = this
-  getAllMetadata(this.args, this.currentTree, iferr(next, function (args) {
+  getAllMetadata(this.args, this.currentTree, process.cwd(), iferr(next, function (args) {
     self.args = args
     next()
   }))
@@ -479,10 +484,6 @@ Installer.prototype.executeActions = function (cb) {
     [doParallelActions, 'update-linked', staging, todo, trackLifecycle.newGroup('update-linked')],
     [doSerialActions, 'install', staging, todo, trackLifecycle.newGroup('install')],
     [doSerialActions, 'postinstall', staging, todo, trackLifecycle.newGroup('postinstall')])
-  if (this.npat) {
-    steps.push(
-      [doParallelActions, 'test', staging, todo, trackLifecycle.newGroup('npat')])
-  }
 
   var self = this
   chain(steps, function (er) {
@@ -501,9 +502,10 @@ Installer.prototype.rollbackFailedOptional = function (staging, actionsToRun, cb
   }).filter(function (pkg) {
     return pkg.failed && pkg.rollback
   })
+  var top = this.currentTree.path
   asyncMap(failed, function (pkg, next) {
     asyncMap(pkg.rollback, function (rollback, done) {
-      rollback(staging, pkg, done)
+      rollback(top, staging, pkg, done)
     }, next)
   }, cb)
 }
@@ -520,29 +522,35 @@ Installer.prototype.commit = function (staging, actionsToRun, cb) {
   }, cb)
 }
 
-Installer.prototype.runTopLevelLifecycles = function (cb) {
+Installer.prototype.runPreinstallTopLevelLifecycles = function (cb) {
   validate('F', arguments)
   if (this.failing) return cb()
-  log.silly('install', 'runTopLevelLifecycles')
+  if (!this.topLevelLifecycles) return cb()
+  log.silly('install', 'runPreinstallTopLevelLifecycles')
   var steps = []
   var trackLifecycle = this.progress.runTopLevelLifecycles
-  if (!this.topLevelLifecycles) {
-    trackLifecycle.finish()
-    return cb()
-  }
 
   steps.push(
-    [doOneAction, 'preinstall', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('preinstall:.')],
+    [doOneAction, 'preinstall', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('preinstall:.')]
+  )
+  chain(steps, cb)
+}
+
+Installer.prototype.runPostinstallTopLevelLifecycles = function (cb) {
+  validate('F', arguments)
+  if (this.failing) return cb()
+  if (!this.topLevelLifecycles) return cb()
+  log.silly('install', 'runPostinstallTopLevelLifecycles')
+  var steps = []
+  var trackLifecycle = this.progress.runTopLevelLifecycles
+
+  steps.push(
     [doOneAction, 'build', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('build:.')],
     [doOneAction, 'install', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('install:.')],
     [doOneAction, 'postinstall', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('postinstall:.')])
-  if (this.npat) {
-    steps.push(
-      [doOneAction, 'test', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('npat:.')])
-  }
   if (this.dev) {
     steps.push(
-      [doOneAction, 'prepublish', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('prepublish')])
+      [doOneAction, 'prepare', this.idealTree.path, this.idealTree, trackLifecycle.newGroup('prepare')])
   }
   chain(steps, cb)
 }
@@ -591,18 +599,13 @@ Installer.prototype.readLocalPackageData = function (cb) {
         return cb(er)
       }
       if (!currentTree.package) currentTree.package = {}
-      self.loadArgMetadata(iferr(cb, function () {
-        if (currentTree.package._shrinkwrap) return cb()
-        fs.readFile(path.join(self.where, 'npm-shrinkwrap.json'), function (er, data) {
-          if (er) return cb()
-          try {
-            currentTree.package._shrinkwrap = parseJSON(data)
-          } catch (ex) {
-            return cb(ex)
-          }
-          return cb()
-        })
-      }))
+      readShrinkwrap(currentTree, function (err) {
+        if (err) {
+          cb(err)
+        } else {
+          self.loadArgMetadata(cb)
+        }
+      })
     }))
   }))
 }

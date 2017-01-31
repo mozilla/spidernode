@@ -54,7 +54,7 @@ module.exports = {
          * @returns {RegExp} The term converted to a RegExp
          */
         function convertToRegExp(term) {
-            const escaped = term.replace(/[-\/\\$\^*+?.()|\[\]{}]/g, "\\$&");
+            const escaped = term.replace(/[-/\\$^*+?.()|[\]{}]/g, "\\$&");
             let prefix;
 
             /*
@@ -95,7 +95,7 @@ module.exports = {
         function commentContainsWarningTerm(comment) {
             const matches = [];
 
-            warningRegExps.forEach(function(regex, index) {
+            warningRegExps.forEach((regex, index) => {
                 if (regex.test(comment)) {
                     matches.push(warningTerms[index]);
                 }
@@ -116,8 +116,14 @@ module.exports = {
 
             const matches = commentContainsWarningTerm(node.value);
 
-            matches.forEach(function(matchedTerm) {
-                context.report(node, "Unexpected '" + matchedTerm + "' comment.");
+            matches.forEach(matchedTerm => {
+                context.report({
+                    node,
+                    message: "Unexpected '{{matchedTerm}}' comment.",
+                    data: {
+                        matchedTerm
+                    }
+                });
             });
         }
 
