@@ -44,7 +44,11 @@
           ],
         }],
         [ 'OS=="mac" or OS=="ios"', {
-          'xcode_settings': { 'GCC_TREAT_WARNINGS_AS_ERRORS': 'NO' },
+          'xcode_settings': {
+            'GCC_INLINES_ARE_PRIVATE_EXTERN': 'YES',  # -fvisibility-inlines-hidden
+            'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',      # -fvisibility=hidden
+            'GCC_TREAT_WARNINGS_AS_ERRORS': 'NO',
+          },
         }, {
           'cflags!': ['-Werror'],
         }],
