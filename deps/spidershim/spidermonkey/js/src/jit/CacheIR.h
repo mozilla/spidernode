@@ -175,6 +175,8 @@ enum class CacheKind : uint8_t
     _(StoreTypedObjectReferenceProperty)  \
     _(StoreTypedObjectScalarProperty)     \
     _(StoreUnboxedProperty)               \
+    _(CallNativeSetter)                   \
+    _(CallScriptedSetter)                 \
                                           \
     /* The *Result ops load a value into the cache's result register. */ \
     _(LoadFixedSlotResult)                \
@@ -189,6 +191,7 @@ enum class CacheKind : uint8_t
     _(LoadUnboxedArrayLengthResult)       \
     _(LoadArgumentsObjectArgResult)       \
     _(LoadArgumentsObjectLengthResult)    \
+    _(LoadFunctionLengthResult)           \
     _(LoadStringCharResult)               \
     _(LoadStringLengthResult)             \
     _(LoadFrameCalleeResult)              \
@@ -280,6 +283,7 @@ enum class GuardClassKind : uint8_t
     MappedArguments,
     UnmappedArguments,
     WindowProxy,
+    JSFunction,
 };
 
 // Class to record CacheIR + some additional metadata for code generation.
@@ -596,6 +600,16 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
         addStubField(offset, StubField::Type::RawWord);
         writeOperandId(rhs);
     }
+    void callScriptedSetter(ObjOperandId obj, JSFunction* setter, ValOperandId rhs) {
+        writeOpWithOperandId(CacheOp::CallScriptedSetter, obj);
+        addStubField(uintptr_t(setter), StubField::Type::JSObject);
+        writeOperandId(rhs);
+    }
+    void callNativeSetter(ObjOperandId obj, JSFunction* setter, ValOperandId rhs) {
+        writeOpWithOperandId(CacheOp::CallNativeSetter, obj);
+        addStubField(uintptr_t(setter), StubField::Type::JSObject);
+        writeOperandId(rhs);
+    }
 
     void loadUndefinedResult() {
         writeOp(CacheOp::LoadUndefinedResult);
@@ -628,6 +642,12 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
     void loadUnboxedArrayLengthResult(ObjOperandId obj) {
         writeOpWithOperandId(CacheOp::LoadUnboxedArrayLengthResult, obj);
     }
+    void loadArgumentsObjectLengthResult(ObjOperandId obj) {
+        writeOpWithOperandId(CacheOp::LoadArgumentsObjectLengthResult, obj);
+    }
+    void loadFunctionLengthResult(ObjOperandId obj) {
+        writeOpWithOperandId(CacheOp::LoadFunctionLengthResult, obj);
+    }
     void loadArgumentsObjectArgResult(ObjOperandId obj, Int32OperandId index) {
         writeOpWithOperandId(CacheOp::LoadArgumentsObjectArgResult, obj);
         writeOperandId(index);
@@ -651,9 +671,6 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
         writeOperandId(index);
         buffer_.writeByte(uint32_t(layout));
         buffer_.writeByte(uint32_t(elementType));
-    }
-    void loadArgumentsObjectLengthResult(ObjOperandId obj) {
-        writeOpWithOperandId(CacheOp::LoadArgumentsObjectLengthResult, obj);
     }
     void loadStringLengthResult(StringOperandId str) {
         writeOpWithOperandId(CacheOp::LoadStringLengthResult, str);
@@ -804,6 +821,7 @@ class MOZ_RAII GetPropIRGenerator : public IRGenerator
     bool tryAttachObjectLength(HandleObject obj, ObjOperandId objId, HandleId id);
     bool tryAttachModuleNamespace(HandleObject obj, ObjOperandId objId, HandleId id);
     bool tryAttachWindowProxy(HandleObject obj, ObjOperandId objId, HandleId id);
+    bool tryAttachFunction(HandleObject obj, ObjOperandId objId, HandleId id);
 
     bool tryAttachGenericProxy(HandleObject obj, ObjOperandId objId, HandleId id);
     bool tryAttachDOMProxyExpando(HandleObject obj, ObjOperandId objId, HandleId id);
@@ -909,6 +927,8 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator
                                   ValOperandId rhsId);
     bool tryAttachTypedObjectProperty(HandleObject obj, ObjOperandId objId, HandleId id,
                                       ValOperandId rhsId);
+    bool tryAttachSetter(HandleObject obj, ObjOperandId objId, HandleId id,
+                         ValOperandId rhsId);
 
   public:
     SetPropIRGenerator(JSContext* cx, jsbytecode* pc, CacheKind cacheKind,
@@ -923,6 +943,9 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator
     bool shouldNotePreliminaryObjectStub() const {
         return preliminaryObjectAction_ == PreliminaryObjectAction::NotePreliminary;
     }
+
+    bool needUpdateStub() const { return needUpdateStub_; }
+
     ObjectGroup* updateStubGroup() const {
         MOZ_ASSERT(updateStubGroup_);
         return updateStubGroup_;

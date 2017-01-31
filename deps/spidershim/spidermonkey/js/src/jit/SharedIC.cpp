@@ -176,8 +176,6 @@ ICStub::NonCacheIRStubMakesGCCalls(Kind kind)
       case Call_StringSplit:
       case WarmUpCounter_Fallback:
       case GetProp_Generic:
-      case SetProp_CallScripted:
-      case SetProp_CallNative:
       case RetSub_Fallback:
       // These two fallback stubs don't actually make non-tail calls,
       // but the fallback code for the bailout path needs to pop the stub frame
@@ -372,22 +370,6 @@ ICStub::trace(JSTracer* trc)
         }
         break;
       }
-      case ICStub::SetProp_CallScripted: {
-        ICSetProp_CallScripted* callStub = toSetProp_CallScripted();
-        callStub->receiverGuard().trace(trc);
-        TraceEdge(trc, &callStub->holder(), "baseline-setpropcallscripted-stub-holder");
-        TraceEdge(trc, &callStub->holderShape(), "baseline-setpropcallscripted-stub-holdershape");
-        TraceEdge(trc, &callStub->setter(), "baseline-setpropcallscripted-stub-setter");
-        break;
-      }
-      case ICStub::SetProp_CallNative: {
-        ICSetProp_CallNative* callStub = toSetProp_CallNative();
-        callStub->receiverGuard().trace(trc);
-        TraceEdge(trc, &callStub->holder(), "baseline-setpropcallnative-stub-holder");
-        TraceEdge(trc, &callStub->holderShape(), "baseline-setpropcallnative-stub-holdershape");
-        TraceEdge(trc, &callStub->setter(), "baseline-setpropcallnative-stub-setter");
-        break;
-      }
       case ICStub::InstanceOf_Function: {
         ICInstanceOf_Function* instanceofStub = toInstanceOf_Function();
         TraceEdge(trc, &instanceofStub->shape(), "baseline-instanceof-fun-shape");
@@ -415,7 +397,7 @@ ICStub::trace(JSTracer* trc)
         break;
       case ICStub::CacheIR_Updated: {
         ICCacheIR_Updated* stub = toCacheIR_Updated();
-        TraceEdge(trc, &stub->updateStubGroup(), "baseline-update-stub-group");
+        TraceNullableEdge(trc, &stub->updateStubGroup(), "baseline-update-stub-group");
         TraceEdge(trc, &stub->updateStubId(), "baseline-update-stub-id");
         TraceCacheIRStub(trc, this, stub->stubInfo());
         break;
@@ -1983,24 +1965,6 @@ GetDOMProxyProto(JSObject* obj)
     return obj->staticPrototype();
 }
 
-// Look up a property's shape on an object, being careful never to do any effectful
-// operations.  This procedure not yielding a shape should not be taken as a lack of
-// existence of the property on the object.
-bool
-EffectlesslyLookupProperty(JSContext* cx, HandleObject obj, HandleId id,
-                           MutableHandleObject holder, MutableHandle<PropertyResult> prop)
-{
-    prop.setNotFound();
-    holder.set(nullptr);
-
-    if (LookupPropertyPure(cx, obj, id, holder.address(), prop.address()))
-        return true;
-
-    holder.set(nullptr);
-    prop.setNotFound();
-    return true;
-}
-
 bool
 IsCacheableProtoChain(JSObject* obj, JSObject* holder, bool isDOMProxy)
 {
@@ -2321,44 +2285,6 @@ ICGetProp_Fallback::Compiler::postGenerateStubCode(MacroAssembler& masm, Handle<
     if (engine_ == Engine::Baseline) {
         void* address = code->raw() + returnOffset_;
         cx->compartment()->jitCompartment()->initBaselineGetPropReturnAddr(address);
-    }
-}
-
-void
-GuardReceiverObject(MacroAssembler& masm, ReceiverGuard guard,
-                    Register object, Register scratch,
-                    size_t receiverGuardOffset, Label* failure)
-{
-    Address groupAddress(ICStubReg, receiverGuardOffset + HeapReceiverGuard::offsetOfGroup());
-    Address shapeAddress(ICStubReg, receiverGuardOffset + HeapReceiverGuard::offsetOfShape());
-    Address expandoAddress(object, UnboxedPlainObject::offsetOfExpando());
-
-    if (guard.group) {
-        masm.loadPtr(groupAddress, scratch);
-        masm.branchTestObjGroup(Assembler::NotEqual, object, scratch, failure);
-
-        if (guard.group->clasp() == &UnboxedPlainObject::class_ && !guard.shape) {
-            // Guard the unboxed object has no expando object.
-            masm.branchPtr(Assembler::NotEqual, expandoAddress, ImmWord(0), failure);
-        }
-    }
-
-    if (guard.shape) {
-        masm.loadPtr(shapeAddress, scratch);
-        if (guard.group && guard.group->clasp() == &UnboxedPlainObject::class_) {
-            // Guard the unboxed object has a matching expando object.
-            masm.branchPtr(Assembler::Equal, expandoAddress, ImmWord(0), failure);
-            Label done;
-            masm.push(object);
-            masm.loadPtr(expandoAddress, object);
-            masm.branchTestObjShape(Assembler::Equal, object, scratch, &done);
-            masm.pop(object);
-            masm.jump(failure);
-            masm.bind(&done);
-            masm.pop(object);
-        } else {
-            masm.branchTestObjShape(Assembler::NotEqual, object, scratch, failure);
-        }
     }
 }
 

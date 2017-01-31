@@ -2863,7 +2863,7 @@ JSScript::finalize(FreeOp* fop)
     if (fop->runtime()->lcovOutput.isEnabled())
         compartment()->lcovOutput.collectCodeCoverageInfo(compartment(), sourceObject(), this);
 
-    fop->runtime()->spsProfiler.onScriptFinalized(this);
+    fop->runtime()->geckoProfiler.onScriptFinalized(this);
 
     if (types_)
         types_->destroy();
@@ -3589,7 +3589,7 @@ JSScript::getOrCreateBreakpointSite(JSContext* cx, jsbytecode* pc)
     BreakpointSite*& site = debug->breakpoints[pcToOffset(pc)];
 
     if (!site) {
-        site = cx->runtime()->new_<BreakpointSite>(this, pc);
+        site = cx->runtime()->new_<JSBreakpointSite>(this, pc);
         if (!site) {
             ReportOutOfMemory(cx);
             return nullptr;

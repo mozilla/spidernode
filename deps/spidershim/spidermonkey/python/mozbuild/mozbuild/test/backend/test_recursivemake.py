@@ -519,7 +519,7 @@ class TestRecursiveMakeBackend(BackendTester):
 
         lines = [l.strip() for l in open(x_master, 'rt').readlines()]
         self.assertEqual(lines, [
-            '; THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT MODIFY BY HAND.',
+            '# THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT MODIFY BY HAND.',
             '',
             '[include:dir1/xpcshell.ini]',
             '[include:xpcshell.ini]',
@@ -745,6 +745,35 @@ class TestRecursiveMakeBackend(BackendTester):
         expected = [
             'RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libgkrust.a',
             'CARGO_FILE := $(srcdir)/Cargo.toml',
+        ]
+
+        self.assertEqual(lines, expected)
+
+    def test_host_rust_library(self):
+        """Test that a Rust library is written to backend.mk correctly."""
+        env = self._consume('host-rust-library', RecursiveMakeBackend)
+
+        backend_path = mozpath.join(env.topobjdir, 'backend.mk')
+        lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
+
+        expected = [
+            'HOST_RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libhostrusttool.a',
+            'CARGO_FILE := $(srcdir)/Cargo.toml',
+        ]
+
+        self.assertEqual(lines, expected)
+
+    def test_host_rust_library_with_features(self):
+        """Test that a host Rust library with features is written to backend.mk correctly."""
+        env = self._consume('host-rust-library-features', RecursiveMakeBackend)
+
+        backend_path = mozpath.join(env.topobjdir, 'backend.mk')
+        lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
+
+        expected = [
+            'HOST_RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libhostrusttool.a',
+            'CARGO_FILE := $(srcdir)/Cargo.toml',
+            'HOST_RUST_LIBRARY_FEATURES := musthave cantlivewithout',
         ]
 
         self.assertEqual(lines, expected)

@@ -873,7 +873,7 @@ DecodeTableLimits(Decoder& d, TableDescVector* tables)
     if (!DecodeLimits(d, &limits))
         return false;
 
-    if (limits.initial > MaxTableLength)
+    if (limits.initial > MaxTableInitialLength)
         return d.fail("too many table elements");
 
     if (tables->length())
@@ -914,10 +914,10 @@ DecodeGlobalType(Decoder& d, ValType* type, bool* isMutable)
     if (!d.readVarU32(&flags))
         return d.fail("expected global flags");
 
-    if (flags & ~uint32_t(GlobalFlags::AllowedMask))
+    if (flags & ~uint32_t(GlobalTypeImmediate::AllowedMask))
         return d.fail("unexpected bits set in global flags");
 
-    *isMutable = flags & uint32_t(GlobalFlags::IsMutable);
+    *isMutable = flags & uint32_t(GlobalTypeImmediate::IsMutable);
     return true;
 }
 
@@ -933,7 +933,7 @@ DecodeMemoryLimits(Decoder& d, ModuleEnvironment* env)
 
     CheckedInt<uint32_t> initialBytes = memory.initial;
     initialBytes *= PageSize;
-    if (!initialBytes.isValid() || initialBytes.value() > uint32_t(INT32_MAX))
+    if (!initialBytes.isValid() || initialBytes.value() > MaxMemoryInitialBytes)
         return d.fail("initial memory size too big");
 
     memory.initial = initialBytes.value();
@@ -1418,7 +1418,7 @@ DecodeElemSection(Decoder& d, ModuleEnvironment* env)
         if (!d.readVarU32(&numElems))
             return d.fail("expected segment size");
 
-        if (numElems > MaxTableLength)
+        if (numElems > MaxTableInitialLength)
             return d.fail("too many table elements");
 
         Uint32Vector elemFuncIndices;
@@ -1563,6 +1563,9 @@ DecodeDataSection(Decoder& d, ModuleEnvironment* env)
 
         if (!d.readVarU32(&seg.length))
             return d.fail("expected segment size");
+
+        if (seg.length > MaxMemoryInitialBytes)
+            return d.fail("segment size too big");
 
         seg.bytecodeOffset = d.currentOffset();
 

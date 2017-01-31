@@ -1290,8 +1290,8 @@ CodeGeneratorShared::verifyOsiPointRegs(LSafepoint* safepoint)
     // forces them to have an osi point associated with them.  The
     // FunctionBoundary for inline function entry is added to the caller's
     // graph with a PC from the caller's code, but during codegen it modifies
-    // SPS instrumentation to add the callee as the current top-most script.
-    // When codegen gets to the OSIPoint, and the callWithABI below is
+    // Gecko Profiler instrumentation to add the callee as the current top-most
+    // script. When codegen gets to the OSIPoint, and the callWithABI below is
     // emitted, the codegen thinks that the current frame is the callee, but
     // the PC it's using from the OSIPoint refers to the caller.  This causes
     // the profiler instrumentation of the callWithABI below to ASSERT, since
@@ -1646,26 +1646,6 @@ CodeGeneratorShared::jumpToBlock(MBasicBlock* mir, Assembler::Condition cond)
     }
 }
 #endif
-
-MOZ_MUST_USE bool
-CodeGeneratorShared::addCacheLocations(const CacheLocationList& locs, size_t* numLocs,
-                                       size_t* curIndex)
-{
-    size_t firstIndex = runtimeData_.length();
-    size_t numLocations = 0;
-    for (CacheLocationList::iterator iter = locs.begin(); iter != locs.end(); iter++) {
-        // allocateData() ensures that sizeof(CacheLocation) is word-aligned.
-        // If this changes, we will need to pad to ensure alignment.
-        if (!allocateData(sizeof(CacheLocation), curIndex))
-            return false;
-        new (&runtimeData_[*curIndex]) CacheLocation(iter->pc, iter->script);
-        numLocations++;
-    }
-    MOZ_ASSERT(numLocations != 0);
-    *numLocs = numLocations;
-    *curIndex = firstIndex;
-    return true;
-}
 
 ReciprocalMulConstants
 CodeGeneratorShared::computeDivisionConstants(uint32_t d, int maxLog) {

@@ -2365,6 +2365,9 @@ NonLocalExitControl::prepareForNonLocalJump(BytecodeEmitter::NestableControl* ta
           }
 
           case StatementKind::ForOfLoop:
+            if (!flushPops(bce_))
+                return false;
+
             // The iterator and the current value are on the stack.
             //
             if (emitIteratorClose) {
@@ -2384,6 +2387,9 @@ NonLocalExitControl::prepareForNonLocalJump(BytecodeEmitter::NestableControl* ta
             break;
 
           case StatementKind::ForInLoop:
+            if (!flushPops(bce_))
+                return false;
+
             // The iterator and the current value are on the stack.
             if (!bce_->emit1(JSOP_POP))                   // ... ITER
                 return false;
@@ -2395,6 +2401,9 @@ NonLocalExitControl::prepareForNonLocalJump(BytecodeEmitter::NestableControl* ta
             break;
         }
     }
+
+    if (!flushPops(bce_))
+        return false;
 
     if (target && target->is<ForOfLoopControl>() && emitIteratorCloseAtTarget) {
         hasForOfLoopsWithIteratorClose = true;
@@ -2416,9 +2425,6 @@ NonLocalExitControl::prepareForNonLocalJump(BytecodeEmitter::NestableControl* ta
         if (!leaveScope(es))
             return false;
     }
-
-    if (!flushPops(bce_))
-        return false;
 
     // See comment in ForOfLoopControl.
     if (hasForOfLoopsWithIteratorClose) {

@@ -619,7 +619,7 @@ JitRuntime::Trace(JSTracer* trc, AutoLockForExclusiveAccess& lock)
 /* static */ void
 JitRuntime::TraceJitcodeGlobalTable(JSTracer* trc)
 {
-    if (trc->runtime()->spsProfiler.enabled() &&
+    if (trc->runtime()->geckoProfiler.enabled() &&
         trc->runtime()->hasJitRuntime() &&
         trc->runtime()->jitRuntime()->hasJitcodeGlobalTable())
     {
@@ -673,16 +673,17 @@ JitCompartment::sweep(FreeOp* fop, JSCompartment* compartment)
     if (!stubCodes_->lookup(ICSetProp_Fallback::Compiler::BASELINE_KEY))
         baselineSetPropReturnAddr_ = nullptr;
 
-    if (stringConcatStub_ && !IsMarkedUnbarriered(&stringConcatStub_))
+    JSRuntime* rt = fop->runtime();
+    if (stringConcatStub_ && !IsMarkedUnbarriered(rt, &stringConcatStub_))
         stringConcatStub_ = nullptr;
 
-    if (regExpMatcherStub_ && !IsMarkedUnbarriered(&regExpMatcherStub_))
+    if (regExpMatcherStub_ && !IsMarkedUnbarriered(rt, &regExpMatcherStub_))
         regExpMatcherStub_ = nullptr;
 
-    if (regExpSearcherStub_ && !IsMarkedUnbarriered(&regExpSearcherStub_))
+    if (regExpSearcherStub_ && !IsMarkedUnbarriered(rt, &regExpSearcherStub_))
         regExpSearcherStub_ = nullptr;
 
-    if (regExpTesterStub_ && !IsMarkedUnbarriered(&regExpTesterStub_))
+    if (regExpTesterStub_ && !IsMarkedUnbarriered(rt, &regExpTesterStub_))
         regExpTesterStub_ = nullptr;
 
     for (ReadBarrieredObject& obj : simdTemplateObjects_) {
@@ -3320,7 +3321,7 @@ jit::Invalidate(JSContext* cx, JSScript* script, bool resetUses, bool cancelOffT
 {
     MOZ_ASSERT(script->hasIonScript());
 
-    if (cx->runtime()->spsProfiler.enabled()) {
+    if (cx->runtime()->geckoProfiler.enabled()) {
         // Register invalidation with profiler.
         // Format of event payload string:
         //      "<filename>:<lineno>"
@@ -3335,7 +3336,7 @@ jit::Invalidate(JSContext* cx, JSScript* script, bool resetUses, bool cancelOffT
 
         // Ignore the event on allocation failure.
         if (buf) {
-            cx->runtime()->spsProfiler.markEvent(buf);
+            cx->runtime()->geckoProfiler.markEvent(buf);
             JS_smprintf_free(buf);
         }
     }

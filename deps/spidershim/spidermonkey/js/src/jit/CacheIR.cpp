@@ -149,6 +149,8 @@ GetPropIRGenerator::tryAttachStub()
                 return true;
             if (tryAttachWindowProxy(obj, objId, id))
                 return true;
+            if (tryAttachFunction(obj, objId, id))
+                return true;
             if (tryAttachProxy(obj, objId, id))
                 return true;
             return false;
@@ -912,6 +914,42 @@ GetPropIRGenerator::tryAttachObjectLength(HandleObject obj, ObjOperandId objId, 
 }
 
 bool
+GetPropIRGenerator::tryAttachFunction(HandleObject obj, ObjOperandId objId, HandleId id)
+{
+    // Function properties are lazily resolved so they might not be defined yet.
+    // And we might end up in a situation where we always have a fresh function
+    // object during the IC generation.
+    if (!obj->is<JSFunction>())
+        return false;
+
+    JSObject* holder = nullptr;
+    PropertyResult prop;
+    // This property exists already, don't attach the stub.
+    if (LookupPropertyPure(cx_, obj, id, &holder, &prop))
+        return false;
+
+    JSFunction* fun = &obj->as<JSFunction>();
+
+    if (JSID_IS_ATOM(id, cx_->names().length)) {
+        // length was probably deleted from the function.
+        if (fun->hasResolvedLength())
+            return false;
+
+        // Lazy functions don't store the length.
+        if (fun->isInterpretedLazy())
+            return false;
+
+        maybeEmitIdGuard(id);
+        writer.guardClass(objId, GuardClassKind::JSFunction);
+        writer.loadFunctionLengthResult(objId);
+        writer.returnFromIC();
+        return true;
+    }
+
+    return false;
+}
+
+bool
 GetPropIRGenerator::tryAttachModuleNamespace(HandleObject obj, ObjOperandId objId, HandleId id)
 {
     if (!obj->is<ModuleNamespaceObject>())
@@ -1586,6 +1624,8 @@ SetPropIRGenerator::tryAttachStub()
                 return true;
             if (tryAttachUnboxedProperty(obj, objId, id, rhsValId))
                 return true;
+            if (tryAttachSetter(obj, objId, id, rhsValId))
+                return true;
             if (tryAttachTypedObjectProperty(obj, objId, id, rhsValId))
                 return true;
         }
@@ -1778,5 +1818,59 @@ SetPropIRGenerator::tryAttachTypedObjectProperty(HandleObject obj, ObjOperandId 
 
     writer.storeTypedObjectReferenceProperty(objId, fieldOffset, layout, type, rhsId);
     writer.returnFromIC();
+    return true;
+}
+
+static void
+EmitCallSetterResultNoGuards(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
+                             Shape* shape, ObjOperandId objId, ValOperandId rhsId)
+{
+    if (IsCacheableSetPropCallNative(obj, holder, shape)) {
+        JSFunction* target = &shape->setterValue().toObject().as<JSFunction>();
+        MOZ_ASSERT(target->isNative());
+        writer.callNativeSetter(objId, target, rhsId);
+        writer.returnFromIC();
+        return;
+    }
+
+    MOZ_ASSERT(IsCacheableSetPropCallScripted(obj, holder, shape));
+
+    JSFunction* target = &shape->setterValue().toObject().as<JSFunction>();
+    MOZ_ASSERT(target->hasJITCode());
+    writer.callScriptedSetter(objId, target, rhsId);
+    writer.returnFromIC();
+}
+
+bool
+SetPropIRGenerator::tryAttachSetter(HandleObject obj, ObjOperandId objId, HandleId id,
+                                    ValOperandId rhsId)
+{
+    PropertyResult prop;
+    JSObject* holder;
+    if (!LookupPropertyPure(cx_, obj, id, &holder, &prop))
+        return false;
+
+    if (prop.isNonNativeProperty())
+        return false;
+
+    Shape* shape = prop.maybeShape();
+    if (!IsCacheableSetPropCallScripted(obj, holder, shape, isTemporarilyUnoptimizable_) &&
+        !IsCacheableSetPropCallNative(obj, holder, shape))
+    {
+        return false;
+    }
+
+    Maybe<ObjOperandId> expandoId;
+    TestMatchingReceiver(writer, obj, shape, objId, &expandoId);
+
+    if (obj != holder) {
+        GeneratePrototypeGuards(writer, obj, holder, objId);
+
+        // Guard on the holder's shape.
+        ObjOperandId holderId = writer.loadObject(holder);
+        writer.guardShape(holderId, holder->as<NativeObject>().lastProperty());
+    }
+
+    EmitCallSetterResultNoGuards(writer, obj, holder, shape, objId, rhsId);
     return true;
 }

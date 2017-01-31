@@ -377,13 +377,19 @@ PushArena(GCMarker* gcmarker, Arena* arena);
 
 /*** Liveness ***/
 
+// Report whether a thing has been marked.  Things which are in zones that are
+// not currently being collected or are owned by another runtime are always
+// reported as being marked.
 template <typename T>
 bool
-IsMarkedUnbarriered(T* thingp);
+IsMarkedUnbarriered(JSRuntime* rt, T* thingp);
 
+// Report whether a thing has been marked.  Things which are in zones that are
+// not currently being collected or are owned by another runtime are always
+// reported as being marked.
 template <typename T>
 bool
-IsMarked(WriteBarrieredBase<T>* thingp);
+IsMarked(JSRuntime* rt, WriteBarrieredBase<T>* thingp);
 
 template <typename T>
 bool
@@ -412,14 +418,6 @@ inline Cell*
 ToMarkable(Cell* cell)
 {
     return cell;
-}
-
-// Return true if the pointer is nullptr, or if it is a tagged pointer to
-// nullptr.
-MOZ_ALWAYS_INLINE bool
-IsNullTaggedPointer(void* p)
-{
-    return uintptr_t(p) <= LargestTaggedNullCellPointer;
 }
 
 // Wrap a GC thing pointer into a new Value or jsid. The type system enforces

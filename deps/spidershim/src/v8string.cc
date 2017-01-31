@@ -440,7 +440,7 @@ ExternalStringFinalizer::ExternalStringFinalizer(
     : ExternalStringFinalizerBase(resource) {}
 
 void ExternalStringFinalizer::FinalizeExternalString(
-    const JSStringFinalizer* fin, char16_t* chars) {
+    JS::Zone* zone, const JSStringFinalizer* fin, char16_t* chars) {
   const_cast<internal::ExternalStringFinalizer*>(
       static_cast<const internal::ExternalStringFinalizer*>(fin))
       ->dispose();
@@ -451,7 +451,7 @@ ExternalOneByteStringFinalizer::ExternalOneByteStringFinalizer(
     : ExternalStringFinalizerBase(resource) {}
 
 void ExternalOneByteStringFinalizer::FinalizeExternalString(
-    const JSStringFinalizer* fin, char16_t* chars) {
+    JS::Zone* zone, const JSStringFinalizer* fin, char16_t* chars) {
   const_cast<internal::ExternalStringFinalizer*>(
       static_cast<const internal::ExternalStringFinalizer*>(fin))
       ->dispose();

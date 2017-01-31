@@ -1227,7 +1227,9 @@ AssertValidStringPtr(JSContext* cx, JSString* str)
     } else if (str->isAtom()) {
         MOZ_ASSERT(kind == gc::AllocKind::ATOM);
     } else if (str->isFlat()) {
-        MOZ_ASSERT(kind == gc::AllocKind::STRING || kind == gc::AllocKind::FAT_INLINE_STRING);
+        MOZ_ASSERT(kind == gc::AllocKind::STRING ||
+                   kind == gc::AllocKind::FAT_INLINE_STRING ||
+                   kind == gc::AllocKind::EXTERNAL_STRING);
     } else {
         MOZ_ASSERT(kind == gc::AllocKind::STRING);
     }
@@ -1380,6 +1382,20 @@ CallNativeGetter(JSContext* cx, HandleFunction callee, HandleObject obj,
 
     result.set(vp[0]);
     return true;
+}
+
+bool
+CallNativeSetter(JSContext* cx, HandleFunction callee, HandleObject obj, HandleValue rhs)
+{
+    MOZ_ASSERT(callee->isNative());
+    JSNative natfun = callee->native();
+
+    JS::AutoValueArray<3> vp(cx);
+    vp[0].setObject(*callee.get());
+    vp[1].setObject(*obj.get());
+    vp[2].set(rhs);
+
+    return natfun(cx, 1, vp.begin());
 }
 
 bool
