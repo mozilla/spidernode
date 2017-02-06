@@ -337,7 +337,7 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     if (args.get(0) == BooleanValue(true))
-        cx->runtime()->gc.storeBuffer.setAboutToOverflow();
+        cx->zone()->group()->storeBuffer().setAboutToOverflow();
 
     cx->minorGC(JS::gcreason::API);
     args.rval().setUndefined();
@@ -817,12 +817,11 @@ SelectForGC(JSContext* cx, unsigned argc, Value* vp)
      * start to detect missing pre-barriers. It is invalid for nursery things
      * to be in the set, so evict the nursery before adding items.
      */
-    JSRuntime* rt = cx->runtime();
-    rt->gc.evictNursery();
+    cx->zone()->group()->evictNursery();
 
     for (unsigned i = 0; i < args.length(); i++) {
         if (args[i].isObject()) {
-            if (!rt->gc.selectForMarking(&args[i].toObject()))
+            if (!cx->runtime()->gc.selectForMarking(&args[i].toObject()))
                 return false;
         }
     }
@@ -1425,15 +1424,14 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
         threadEnd = threadOption + 1;
     }
 
-    JSRuntime* rt = cx->runtime();
-    if (rt->runningOOMTest) {
+    if (cx->runningOOMTest) {
         JS_ReportErrorASCII(cx, "Nested call to oomTest() is not allowed.");
         return false;
     }
-    rt->runningOOMTest = true;
+    cx->runningOOMTest = true;
 
     MOZ_ASSERT(!cx->isExceptionPending());
-    rt->hadOutOfMemory = false;
+    cx->runtime()->hadOutOfMemory = false;
 
     JS_SetGCZeal(cx, 0, JS_DEFAULT_ZEAL_FREQ);
 
@@ -1500,7 +1498,7 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
         }
     }
 
-    rt->runningOOMTest = false;
+    cx->runningOOMTest = false;
     args.rval().setUndefined();
     return true;
 }
@@ -1751,7 +1749,7 @@ ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp)
     args.rval().setUndefined();
 
     // Return boolean 'false' if profiler is not enabled.
-    if (!cx->runtime()->geckoProfiler.enabled()) {
+    if (!cx->runtime()->geckoProfiler().enabled()) {
         args.rval().setBoolean(false);
         return true;
     }
@@ -1763,7 +1761,7 @@ ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp)
 
     // If profiler sampling has been suppressed, return an empty
     // stack.
-    if (!cx->runtime()->isProfilerSamplingEnabled()) {
+    if (!cx->isProfilerSamplingEnabled()) {
       args.rval().setObject(*stack);
       return true;
     }
@@ -1893,7 +1891,7 @@ DisplayName(JSContext* cx, unsigned argc, Value* vp)
 
     JSFunction* fun = &args[0].toObject().as<JSFunction>();
     JSString* str = fun->displayAtom();
-    args.rval().setString(str ? str : cx->runtime()->emptyString);
+    args.rval().setString(str ? str : cx->runtime()->emptyString.ref());
     return true;
 }
 
@@ -1999,7 +1997,7 @@ testingFunc_bailAfter(JSContext* cx, unsigned argc, Value* vp)
     }
 
 #ifdef DEBUG
-    cx->runtime()->setIonBailAfter(args[0].toInt32());
+    cx->zone()->group()->setIonBailAfter(args[0].toInt32());
 #endif
 
     args.rval().setUndefined();
@@ -2373,12 +2371,31 @@ const JSPropertySpec CloneBufferObject::props_[] = {
     JS_PS_END
 };
 
+static mozilla::Maybe<JS::StructuredCloneScope>
+ParseCloneScope(JSContext* cx, HandleString str)
+{
+    mozilla::Maybe<JS::StructuredCloneScope> scope;
+
+    JSAutoByteString scopeStr(cx, str);
+    if (!scopeStr)
+        return scope;
+
+    if (strcmp(scopeStr.ptr(), "SameProcessSameThread") == 0)
+        scope.emplace(JS::StructuredCloneScope::SameProcessSameThread);
+    else if (strcmp(scopeStr.ptr(), "SameProcessDifferentThread") == 0)
+        scope.emplace(JS::StructuredCloneScope::SameProcessDifferentThread);
+    else if (strcmp(scopeStr.ptr(), "DifferentProcess") == 0)
+        scope.emplace(JS::StructuredCloneScope::DifferentProcess);
+
+    return scope;
+}
+
 static bool
 Serialize(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    JSAutoStructuredCloneBuffer clonebuf(JS::StructuredCloneScope::SameProcessSameThread, nullptr, nullptr);
+    mozilla::Maybe<JSAutoStructuredCloneBuffer> clonebuf;
     JS::CloneDataPolicy policy;
 
     if (!args.get(2).isUndefined()) {
@@ -2407,12 +2424,30 @@ Serialize(JSContext* cx, unsigned argc, Value* vp)
                 return false;
             }
         }
+
+        if (!JS_GetProperty(cx, opts, "scope", &v))
+            return false;
+
+        if (!v.isUndefined()) {
+            RootedString str(cx, JS::ToString(cx, v));
+            if (!str)
+                return false;
+            auto scope = ParseCloneScope(cx, str);
+            if (!scope) {
+                JS_ReportErrorASCII(cx, "Invalid structured clone scope");
+                return false;
+            }
+            clonebuf.emplace(*scope, nullptr, nullptr);
+        }
     }
 
-    if (!clonebuf.write(cx, args.get(0), args.get(1), policy))
+    if (!clonebuf)
+        clonebuf.emplace(JS::StructuredCloneScope::SameProcessSameThread, nullptr, nullptr);
+
+    if (!clonebuf->write(cx, args.get(0), args.get(1), policy))
         return false;
 
-    RootedObject obj(cx, CloneBufferObject::Create(cx, &clonebuf));
+    RootedObject obj(cx, CloneBufferObject::Create(cx, clonebuf.ptr()));
     if (!obj)
         return false;
 
@@ -2425,14 +2460,33 @@ Deserialize(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    if (args.length() != 1 || !args[0].isObject()) {
-        JS_ReportErrorASCII(cx, "deserialize requires a single clonebuffer argument");
+    if (!args.get(0).isObject() || !args[0].toObject().is<CloneBufferObject>()) {
+        JS_ReportErrorASCII(cx, "deserialize requires a clonebuffer argument");
         return false;
     }
 
-    if (!args[0].toObject().is<CloneBufferObject>()) {
-        JS_ReportErrorASCII(cx, "deserialize requires a clonebuffer");
-        return false;
+    JS::StructuredCloneScope scope = JS::StructuredCloneScope::SameProcessSameThread;
+    if (args.get(1).isObject()) {
+        RootedObject opts(cx, &args[1].toObject());
+        if (!opts)
+            return false;
+
+        RootedValue v(cx);
+        if (!JS_GetProperty(cx, opts, "scope", &v))
+            return false;
+
+        if (!v.isUndefined()) {
+            RootedString str(cx, JS::ToString(cx, v));
+            if (!str)
+                return false;
+            auto maybeScope = ParseCloneScope(cx, str);
+            if (!maybeScope) {
+                JS_ReportErrorASCII(cx, "Invalid structured clone scope");
+                return false;
+            }
+
+            scope = *maybeScope;
+        }
     }
 
     Rooted<CloneBufferObject*> obj(cx, &args[0].toObject().as<CloneBufferObject>());
@@ -2451,8 +2505,9 @@ Deserialize(JSContext* cx, unsigned argc, Value* vp)
     RootedValue deserialized(cx);
     if (!JS_ReadStructuredClone(cx, *obj->data(),
                                 JS_STRUCTURED_CLONE_VERSION,
-                                JS::StructuredCloneScope::SameProcessSameThread,
-                                &deserialized, nullptr, nullptr)) {
+                                scope,
+                                &deserialized, nullptr, nullptr))
+    {
         return false;
     }
     args.rval().set(deserialized);
@@ -3479,7 +3534,8 @@ minorGC(JSContext* cx, JSGCStatus status, void* data)
 
     if (info->active) {
         info->active = false;
-        cx->gc.evictNursery(JS::gcreason::DEBUG_GC);
+        if (cx->zone() && !cx->zone()->isAtomsZone())
+            cx->zone()->group()->evictNursery(JS::gcreason::DEBUG_GC);
         info->active = true;
     }
 }
@@ -4151,6 +4207,17 @@ AflLoop(JSContext* cx, unsigned argc, Value* vp)
 }
 #endif
 
+static bool
+TimeSinceCreation(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    bool ignore;
+    double when = (mozilla::TimeStamp::Now()
+                   - mozilla::TimeStamp::ProcessCreation(ignore)).ToMilliseconds();
+    args.rval().setNumber(when);
+    return true;
+}
+
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
 "gc([obj] | 'zone' [, 'shrinking'])",
@@ -4495,15 +4562,22 @@ gc::ZealModeHelpText),
     JS_FN_HELP("serialize", Serialize, 1, 0,
 "serialize(data, [transferables, [policy]])",
 "  Serialize 'data' using JS_WriteStructuredClone. Returns a structured\n"
-"  clone buffer object. 'policy' must be an object. The following keys'\n"
-"  string values will be used to determine whether the corresponding types\n"
-"  may be serialized (value 'allow', the default) or not (value 'deny').\n"
-"  If denied types are encountered a TypeError will be thrown during cloning.\n"
-"  Valid keys: 'SharedArrayBuffer'."),
+"  clone buffer object. 'policy' may be an options hash. Valid keys:\n"
+"    'SharedArrayBuffer' - either 'allow' (the default) or 'deny'\n"
+"    to specify whether SharedArrayBuffers may be serialized.\n"
+"\n"
+"    'scope' - SameProcessSameThread, SameProcessDifferentThread, or\n"
+"    DifferentProcess. Determines how some values will be serialized.\n"
+"    Clone buffers may only be deserialized with a compatible scope."),
 
     JS_FN_HELP("deserialize", Deserialize, 1, 0,
-"deserialize(clonebuffer)",
-"  Deserialize data generated by serialize."),
+"deserialize(clonebuffer[, opts])",
+"  Deserialize data generated by serialize. 'opts' is an options hash with one\n"
+"  recognized key 'scope', which limits the clone buffers that are considered\n"
+"  valid. Allowed values: 'SameProcessSameThread', 'SameProcessDifferentThread',\n"
+"  and 'DifferentProcess'. So for example, a DifferentProcess clone buffer\n"
+"  may be deserialized in any scope, but a SameProcessSameThread clone buffer\n"
+"  cannot be deserialized in a DifferentProcess scope."),
 
     JS_FN_HELP("detachArrayBuffer", DetachArrayBuffer, 1, 0,
 "detachArrayBuffer(buffer)",
@@ -4688,6 +4762,11 @@ gc::ZealModeHelpText),
 "aflloop(max_cnt)",
 "  Call the __AFL_LOOP() runtime function (see AFL docs)\n"),
 #endif
+
+    JS_FN_HELP("timeSinceCreation", TimeSinceCreation, 0, 0,
+"TimeSinceCreation()",
+"  Returns the time in milliseconds since process creation.\n"
+"  This uses a clock compatible with the profiler.\n"),
 
     JS_FS_HELP_END
 };

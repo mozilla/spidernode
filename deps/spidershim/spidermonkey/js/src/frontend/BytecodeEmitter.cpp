@@ -961,7 +961,7 @@ BytecodeEmitter::EmitterScope::enterLexical(BytecodeEmitter* bce, ScopeKind kind
     updateFrameFixedSlots(bce, bi);
 
     // Create and intern the VM scope.
-    auto createScope = [kind, bindings, firstFrameSlot](ExclusiveContext* cx,
+    auto createScope = [kind, bindings, firstFrameSlot](JSContext* cx,
                                                         HandleScope enclosing)
     {
         return LexicalScope::create(cx, kind, bindings, firstFrameSlot, enclosing);
@@ -1015,7 +1015,7 @@ BytecodeEmitter::EmitterScope::enterNamedLambda(BytecodeEmitter* bce, FunctionBo
     bi++;
     MOZ_ASSERT(!bi, "There should be exactly one binding in a NamedLambda scope");
 
-    auto createScope = [funbox](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [funbox](JSContext* cx, HandleScope enclosing) {
         ScopeKind scopeKind =
             funbox->strict() ? ScopeKind::StrictNamedLambda : ScopeKind::NamedLambda;
         return LexicalScope::create(cx, scopeKind, funbox->namedLambdaBindings(),
@@ -1071,7 +1071,7 @@ BytecodeEmitter::EmitterScope::enterParameterExpressionVar(BytecodeEmitter* bce)
 
     // Create and intern the VM scope.
     uint32_t firstFrameSlot = frameSlotStart();
-    auto createScope = [firstFrameSlot](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [firstFrameSlot](JSContext* cx, HandleScope enclosing) {
         return VarScope::create(cx, ScopeKind::ParameterExpressionVar,
                                 /* data = */ nullptr, firstFrameSlot,
                                 /* needsEnvironment = */ true, enclosing);
@@ -1165,7 +1165,7 @@ BytecodeEmitter::EmitterScope::enterFunction(BytecodeEmitter* bce, FunctionBox* 
     }
 
     // Create and intern the VM scope.
-    auto createScope = [funbox](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [funbox](JSContext* cx, HandleScope enclosing) {
         RootedFunction fun(cx, funbox->function());
         return FunctionScope::create(cx, funbox->functionScopeBindings(),
                                      funbox->hasParameterExprs,
@@ -1219,7 +1219,7 @@ BytecodeEmitter::EmitterScope::enterFunctionExtraBodyVar(BytecodeEmitter* bce, F
         fallbackFreeNameLocation_ = Some(NameLocation::Dynamic());
 
     // Create and intern the VM scope.
-    auto createScope = [funbox, firstFrameSlot](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [funbox, firstFrameSlot](JSContext* cx, HandleScope enclosing) {
         return VarScope::create(cx, ScopeKind::FunctionBodyVar,
                                 funbox->extraVarScopeBindings(), firstFrameSlot,
                                 funbox->needsExtraBodyVarEnvironmentRegardlessOfBindings(),
@@ -1287,7 +1287,7 @@ BytecodeEmitter::EmitterScope::enterGlobal(BytecodeEmitter* bce, GlobalSharedCon
         // lazily upon first access.
         fallbackFreeNameLocation_ = Some(NameLocation::Intrinsic());
 
-        auto createScope = [](ExclusiveContext* cx, HandleScope enclosing) {
+        auto createScope = [](JSContext* cx, HandleScope enclosing) {
             MOZ_ASSERT(!enclosing);
             return &cx->global()->emptyGlobalScope();
         };
@@ -1320,7 +1320,7 @@ BytecodeEmitter::EmitterScope::enterGlobal(BytecodeEmitter* bce, GlobalSharedCon
     else
         fallbackFreeNameLocation_ = Some(NameLocation::Dynamic());
 
-    auto createScope = [globalsc](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [globalsc](JSContext* cx, HandleScope enclosing) {
         MOZ_ASSERT(!enclosing);
         return GlobalScope::create(cx, globalsc->scopeKind(), globalsc->bindings);
     };
@@ -1342,7 +1342,7 @@ BytecodeEmitter::EmitterScope::enterEval(BytecodeEmitter* bce, EvalSharedContext
 
     // Create the `var` scope. Note that there is also a lexical scope, created
     // separately in emitScript().
-    auto createScope = [evalsc](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [evalsc](JSContext* cx, HandleScope enclosing) {
         ScopeKind scopeKind = evalsc->strict() ? ScopeKind::StrictEval : ScopeKind::Eval;
         return EvalScope::create(cx, scopeKind, evalsc->bindings, enclosing);
     };
@@ -1430,7 +1430,7 @@ BytecodeEmitter::EmitterScope::enterModule(BytecodeEmitter* bce, ModuleSharedCon
     }
 
     // Create and intern the VM scope.
-    auto createScope = [modulesc](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [modulesc](JSContext* cx, HandleScope enclosing) {
         return ModuleScope::create(cx, modulesc->bindings, modulesc->module(), enclosing);
     };
     if (!internBodyScope(bce, createScope))
@@ -1450,7 +1450,7 @@ BytecodeEmitter::EmitterScope::enterWith(BytecodeEmitter* bce)
     // 'with' make all accesses dynamic and unanalyzable.
     fallbackFreeNameLocation_ = Some(NameLocation::Dynamic());
 
-    auto createScope = [](ExclusiveContext* cx, HandleScope enclosing) {
+    auto createScope = [](JSContext* cx, HandleScope enclosing) {
         return WithScope::create(cx, enclosing);
     };
     if (!internScope(bce, createScope))
@@ -1568,6 +1568,318 @@ BytecodeEmitter::TDZCheckCache::noteTDZCheck(BytecodeEmitter* bce, JSAtom* name,
 
     return true;
 }
+
+class MOZ_STACK_CLASS TryEmitter
+{
+  public:
+    enum Kind {
+        TryCatch,
+        TryCatchFinally,
+        TryFinally
+    };
+    enum ShouldUseRetVal {
+        UseRetVal,
+        DontUseRetVal
+    };
+    enum ShouldUseControl {
+        UseControl,
+        DontUseControl,
+    };
+
+  private:
+    BytecodeEmitter* bce_;
+    Kind kind_;
+    ShouldUseRetVal retValKind_;
+
+    // Track jumps-over-catches and gosubs-to-finally for later fixup.
+    //
+    // When a finally block is active, non-local jumps (including
+    // jumps-over-catches) result in a GOSUB being written into the bytecode
+    // stream and fixed-up later.
+    //
+    // If ShouldUseControl is DontUseControl, all that handling is skipped.
+    // DontUseControl is used by yield*, that matches to the following:
+    //   * has only one catch block
+    //   * has no catch guard
+    //   * has JSOP_GOTO at the end of catch-block
+    //   * has no non-local-jump
+    //   * doesn't use finally block for normal completion of try-block and
+    //     catch-block
+    Maybe<TryFinallyControl> controlInfo_;
+
+    int depth_;
+    unsigned noteIndex_;
+    ptrdiff_t tryStart_;
+    JumpList catchAndFinallyJump_;
+    JumpTarget tryEnd_;
+    JumpTarget finallyStart_;
+
+    enum State {
+        Start,
+        Try,
+        TryEnd,
+        Catch,
+        CatchEnd,
+        Finally,
+        FinallyEnd,
+        End
+    };
+    State state_;
+
+    bool hasCatch() const {
+        return kind_ == TryCatch || kind_ == TryCatchFinally;
+    }
+    bool hasFinally() const {
+        return kind_ == TryCatchFinally || kind_ == TryFinally;
+    }
+
+  public:
+    TryEmitter(BytecodeEmitter* bce, Kind kind, ShouldUseRetVal retValKind = UseRetVal,
+               ShouldUseControl controlKind = UseControl)
+      : bce_(bce),
+        kind_(kind),
+        retValKind_(retValKind),
+        depth_(0),
+        noteIndex_(0),
+        tryStart_(0),
+        state_(Start)
+    {
+        if (controlKind == UseControl)
+            controlInfo_.emplace(bce_, hasFinally() ? StatementKind::Finally : StatementKind::Try);
+        finallyStart_.offset = 0;
+    }
+
+    bool emitJumpOverCatchAndFinally() {
+        if (!bce_->emitJump(JSOP_GOTO, &catchAndFinallyJump_))
+            return false;
+        return true;
+    }
+
+    bool emitTry() {
+        MOZ_ASSERT(state_ == Start);
+
+        // Since an exception can be thrown at any place inside the try block,
+        // we need to restore the stack and the scope chain before we transfer
+        // the control to the exception handler.
+        //
+        // For that we store in a try note associated with the catch or
+        // finally block the stack depth upon the try entry. The interpreter
+        // uses this depth to properly unwind the stack and the scope chain.
+        depth_ = bce_->stackDepth;
+
+        // Record the try location, then emit the try block.
+        if (!bce_->newSrcNote(SRC_TRY, &noteIndex_))
+            return false;
+        if (!bce_->emit1(JSOP_TRY))
+            return false;
+        tryStart_ = bce_->offset();
+
+        state_ = Try;
+        return true;
+    }
+
+  private:
+    bool emitTryEnd() {
+        MOZ_ASSERT(state_ == Try);
+        MOZ_ASSERT(depth_ == bce_->stackDepth);
+
+        // GOSUB to finally, if present.
+        if (hasFinally() && controlInfo_) {
+            if (!bce_->emitJump(JSOP_GOSUB, &controlInfo_->gosubs))
+                return false;
+        }
+
+        // Source note points to the jump at the end of the try block.
+        if (!bce_->setSrcNoteOffset(noteIndex_, 0, bce_->offset() - tryStart_ + JSOP_TRY_LENGTH))
+            return false;
+
+        // Emit jump over catch and/or finally.
+        if (!bce_->emitJump(JSOP_GOTO, &catchAndFinallyJump_))
+            return false;
+
+        if (!bce_->emitJumpTarget(&tryEnd_))
+            return false;
+
+        return true;
+    }
+
+  public:
+    bool emitCatch() {
+        if (state_ == Try) {
+            if (!emitTryEnd())
+                return false;
+        } else {
+            MOZ_ASSERT(state_ == Catch);
+            if (!emitCatchEnd(true))
+                return false;
+        }
+
+        MOZ_ASSERT(bce_->stackDepth == depth_);
+
+        if (retValKind_ == UseRetVal) {
+            // Clear the frame's return value that might have been set by the
+            // try block:
+            //
+            //   eval("try { 1; throw 2 } catch(e) {}"); // undefined, not 1
+            if (!bce_->emit1(JSOP_UNDEFINED))
+                return false;
+            if (!bce_->emit1(JSOP_SETRVAL))
+                return false;
+        }
+
+        state_ = Catch;
+        return true;
+    }
+
+  private:
+    bool emitCatchEnd(bool hasNext) {
+        MOZ_ASSERT(state_ == Catch);
+
+        if (!controlInfo_)
+            return true;
+
+        // gosub <finally>, if required.
+        if (hasFinally()) {
+            if (!bce_->emitJump(JSOP_GOSUB, &controlInfo_->gosubs))
+                return false;
+            MOZ_ASSERT(bce_->stackDepth == depth_);
+        }
+
+        // Jump over the remaining catch blocks.  This will get fixed
+        // up to jump to after catch/finally.
+        if (!bce_->emitJump(JSOP_GOTO, &catchAndFinallyJump_))
+            return false;
+
+        // If this catch block had a guard clause, patch the guard jump to
+        // come here.
+        if (controlInfo_->guardJump.offset != -1) {
+            if (!bce_->emitJumpTargetAndPatch(controlInfo_->guardJump))
+                return false;
+            controlInfo_->guardJump.offset = -1;
+
+            // If this catch block is the last one, rethrow, delegating
+            // execution of any finally block to the exception handler.
+            if (!hasNext) {
+                if (!bce_->emit1(JSOP_EXCEPTION))
+                    return false;
+                if (!bce_->emit1(JSOP_THROW))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+  public:
+    bool emitFinally(Maybe<uint32_t> finallyPos = Nothing()) {
+        MOZ_ASSERT(hasFinally());
+
+        if (state_ == Try) {
+            if (!emitTryEnd())
+                return false;
+        } else {
+            MOZ_ASSERT(state_ == Catch);
+            if (!emitCatchEnd(false))
+                return false;
+        }
+
+        MOZ_ASSERT(bce_->stackDepth == depth_);
+
+        if (!bce_->emitJumpTarget(&finallyStart_))
+            return false;
+
+        if (controlInfo_) {
+            // Fix up the gosubs that might have been emitted before non-local
+            // jumps to the finally code.
+            bce_->patchJumpsToTarget(controlInfo_->gosubs, finallyStart_);
+
+            // Indicate that we're emitting a subroutine body.
+            controlInfo_->setEmittingSubroutine();
+        }
+        if (finallyPos) {
+            if (!bce_->updateSourceCoordNotes(finallyPos.value()))
+                return false;
+        }
+        if (!bce_->emit1(JSOP_FINALLY))
+            return false;
+
+        if (retValKind_ == UseRetVal) {
+            if (!bce_->emit1(JSOP_GETRVAL))
+                return false;
+
+            // Clear the frame's return value to make break/continue return
+            // correct value even if there's no other statement before them:
+            //
+            //   eval("x: try { 1 } finally { break x; }"); // undefined, not 1
+            if (!bce_->emit1(JSOP_UNDEFINED))
+                return false;
+            if (!bce_->emit1(JSOP_SETRVAL))
+                return false;
+        }
+
+        state_ = Finally;
+        return true;
+    }
+
+  private:
+    bool emitFinallyEnd() {
+        MOZ_ASSERT(state_ == Finally);
+
+        if (retValKind_ == UseRetVal) {
+            if (!bce_->emit1(JSOP_SETRVAL))
+                return false;
+        }
+
+        if (!bce_->emit1(JSOP_RETSUB))
+            return false;
+
+        bce_->hasTryFinally = true;
+        return true;
+    }
+
+  public:
+    bool emitEnd() {
+        if (state_ == Catch) {
+            MOZ_ASSERT(!hasFinally());
+            if (!emitCatchEnd(false))
+                return false;
+        } else {
+            MOZ_ASSERT(state_ == Finally);
+            MOZ_ASSERT(hasFinally());
+            if (!emitFinallyEnd())
+                return false;
+        }
+
+        MOZ_ASSERT(bce_->stackDepth == depth_);
+
+        // ReconstructPCStack needs a NOP here to mark the end of the last
+        // catch block.
+        if (!bce_->emit1(JSOP_NOP))
+            return false;
+
+        // Fix up the end-of-try/catch jumps to come here.
+        if (!bce_->emitJumpTargetAndPatch(catchAndFinallyJump_))
+            return false;
+
+        // Add the try note last, to let post-order give us the right ordering
+        // (first to last for a given nesting level, inner to outer by level).
+        if (hasCatch()) {
+            if (!bce_->tryNoteList.append(JSTRY_CATCH, depth_, tryStart_, tryEnd_.offset))
+                return false;
+        }
+
+        // If we've got a finally, mark try+catch region with additional
+        // trynote to catch exceptions (re)thrown from a catch block or
+        // for the try{}finally{} case.
+        if (hasFinally()) {
+            if (!bce_->tryNoteList.append(JSTRY_FINALLY, depth_, tryStart_, finallyStart_.offset))
+                return false;
+        }
+
+        state_ = End;
+        return true;
+    }
+};
 
 class MOZ_STACK_CLASS IfThenElseEmitter
 {
@@ -3174,18 +3486,17 @@ BytecodeEmitter::maybeSetSourceMap()
 }
 
 void
-BytecodeEmitter::tellDebuggerAboutCompiledScript(ExclusiveContext* cx)
+BytecodeEmitter::tellDebuggerAboutCompiledScript(JSContext* cx)
 {
     // Note: when parsing off thread the resulting scripts need to be handed to
     // the debugger after rejoining to the main thread.
-    if (!cx->isJSContext())
+    if (cx->helperThread())
         return;
 
     // Lazy scripts are never top level (despite always being invoked with a
     // nullptr parent), and so the hook should never be fired.
-    if (emitterMode != LazyFunction && !parent) {
-        Debugger::onNewScript(cx->asJSContext(), script);
-    }
+    if (emitterMode != LazyFunction && !parent)
+        Debugger::onNewScript(cx, script);
 }
 
 inline TokenStream*
@@ -5809,7 +6120,7 @@ BytecodeEmitter::emitAssignment(ParseNode* lhs, JSOp op, ParseNode* rhs)
 }
 
 bool
-ParseNode::getConstantValue(ExclusiveContext* cx, AllowConstantObjects allowObjects,
+ParseNode::getConstantValue(JSContext* cx, AllowConstantObjects allowObjects,
                             MutableHandleValue vp, Value* compare, size_t ncompare,
                             NewObjectKind newKind)
 {
@@ -6085,57 +6396,28 @@ BytecodeEmitter::emitCatch(ParseNode* pn)
 MOZ_NEVER_INLINE bool
 BytecodeEmitter::emitTry(ParseNode* pn)
 {
-    // Track jumps-over-catches and gosubs-to-finally for later fixup.
-    //
-    // When a finally block is active, non-local jumps (including
-    // jumps-over-catches) result in a GOSUB being written into the bytecode
-    // stream and fixed-up later.
-    //
-    TryFinallyControl controlInfo(this, pn->pn_kid3 ? StatementKind::Finally : StatementKind::Try);
+    ParseNode* catchList = pn->pn_kid2;
+    ParseNode* finallyNode = pn->pn_kid3;
 
-    // Since an exception can be thrown at any place inside the try block,
-    // we need to restore the stack and the scope chain before we transfer
-    // the control to the exception handler.
-    //
-    // For that we store in a try note associated with the catch or
-    // finally block the stack depth upon the try entry. The interpreter
-    // uses this depth to properly unwind the stack and the scope chain.
-    //
-    int depth = stackDepth;
-
-    // Record the try location, then emit the try block.
-    unsigned noteIndex;
-    if (!newSrcNote(SRC_TRY, &noteIndex))
-        return false;
-    if (!emit1(JSOP_TRY))
-        return false;
-
-    ptrdiff_t tryStart = offset();
-    if (!emitTree(pn->pn_kid1))
-        return false;
-    MOZ_ASSERT(depth == stackDepth);
-
-    // GOSUB to finally, if present.
-    if (pn->pn_kid3) {
-        if (!emitJump(JSOP_GOSUB, &controlInfo.gosubs))
-            return false;
+    TryEmitter::Kind kind;
+    if (catchList) {
+        if (finallyNode)
+            kind = TryEmitter::TryCatchFinally;
+        else
+            kind = TryEmitter::TryCatch;
+    } else {
+        MOZ_ASSERT(finallyNode);
+        kind = TryEmitter::TryFinally;
     }
+    TryEmitter tryCatch(this, kind);
 
-    // Source note points to the jump at the end of the try block.
-    if (!setSrcNoteOffset(noteIndex, 0, offset() - tryStart + JSOP_TRY_LENGTH))
+    if (!tryCatch.emitTry())
         return false;
 
-    // Emit jump over catch and/or finally.
-    JumpList catchJump;
-    if (!emitJump(JSOP_GOTO, &catchJump))
-        return false;
-
-    JumpTarget tryEnd;
-    if (!emitJumpTarget(&tryEnd))
+    if (!emitTree(pn->pn_kid1))
         return false;
 
     // If this try has a catch block, emit it.
-    ParseNode* catchList = pn->pn_kid2;
     if (catchList) {
         MOZ_ASSERT(catchList->isKind(PNK_CATCHLIST));
 
@@ -6165,110 +6447,26 @@ BytecodeEmitter::emitTry(ParseNode* pn)
         // capturing exceptions thrown from catch{} blocks.
         //
         for (ParseNode* pn3 = catchList->pn_head; pn3; pn3 = pn3->pn_next) {
-            MOZ_ASSERT(this->stackDepth == depth);
-
-            // Clear the frame's return value that might have been set by the
-            // try block:
-            //
-            //   eval("try { 1; throw 2 } catch(e) {}"); // undefined, not 1
-            if (!emit1(JSOP_UNDEFINED))
-                return false;
-            if (!emit1(JSOP_SETRVAL))
+            if (!tryCatch.emitCatch())
                 return false;
 
             // Emit the lexical scope and catch body.
             MOZ_ASSERT(pn3->isKind(PNK_LEXICALSCOPE));
             if (!emitTree(pn3))
                 return false;
-
-            // gosub <finally>, if required.
-            if (pn->pn_kid3) {
-                if (!emitJump(JSOP_GOSUB, &controlInfo.gosubs))
-                    return false;
-                MOZ_ASSERT(this->stackDepth == depth);
-            }
-
-            // Jump over the remaining catch blocks.  This will get fixed
-            // up to jump to after catch/finally.
-            if (!emitJump(JSOP_GOTO, &catchJump))
-                return false;
-
-            // If this catch block had a guard clause, patch the guard jump to
-            // come here.
-            if (controlInfo.guardJump.offset != -1) {
-                if (!emitJumpTargetAndPatch(controlInfo.guardJump))
-                    return false;
-                controlInfo.guardJump.offset = -1;
-
-                // If this catch block is the last one, rethrow, delegating
-                // execution of any finally block to the exception handler.
-                if (!pn3->pn_next) {
-                    if (!emit1(JSOP_EXCEPTION))
-                        return false;
-                    if (!emit1(JSOP_THROW))
-                        return false;
-                }
-            }
         }
     }
 
-    MOZ_ASSERT(this->stackDepth == depth);
-
     // Emit the finally handler, if there is one.
-    JumpTarget finallyStart{ 0 };
-    if (pn->pn_kid3) {
-        if (!emitJumpTarget(&finallyStart))
+    if (finallyNode) {
+        if (!tryCatch.emitFinally(Some(finallyNode->pn_pos.begin)))
             return false;
 
-        // Fix up the gosubs that might have been emitted before non-local
-        // jumps to the finally code.
-        patchJumpsToTarget(controlInfo.gosubs, finallyStart);
-
-        // Indicate that we're emitting a subroutine body.
-        controlInfo.setEmittingSubroutine();
-        if (!updateSourceCoordNotes(pn->pn_kid3->pn_pos.begin))
+        if (!emitTree(finallyNode))
             return false;
-        if (!emit1(JSOP_FINALLY))
-            return false;
-        if (!emit1(JSOP_GETRVAL))
-            return false;
-
-        // Clear the frame's return value to make break/continue return
-        // correct value even if there's no other statement before them:
-        //
-        //   eval("x: try { 1 } finally { break x; }");  // undefined, not 1
-        if (!emit1(JSOP_UNDEFINED))
-            return false;
-        if (!emit1(JSOP_SETRVAL))
-            return false;
-
-        if (!emitTree(pn->pn_kid3))
-            return false;
-        if (!emit1(JSOP_SETRVAL))
-            return false;
-        if (!emit1(JSOP_RETSUB))
-            return false;
-        hasTryFinally = true;
-        MOZ_ASSERT(this->stackDepth == depth);
     }
 
-    // ReconstructPCStack needs a NOP here to mark the end of the last catch block.
-    if (!emit1(JSOP_NOP))
-        return false;
-
-    // Fix up the end-of-try/catch jumps to come here.
-    if (!emitJumpTargetAndPatch(catchJump))
-        return false;
-
-    // Add the try note last, to let post-order give us the right ordering
-    // (first to last for a given nesting level, inner to outer by level).
-    if (catchList && !tryNoteList.append(JSTRY_CATCH, depth, tryStart, tryEnd.offset))
-        return false;
-
-    // If we've got a finally, mark try+catch region with additional
-    // trynote to catch exceptions (re)thrown from a catch block or
-    // for the try{}finally{} case.
-    if (pn->pn_kid3 && !tryNoteList.append(JSTRY_FINALLY, depth, tryStart, finallyStart.offset))
+    if (!tryCatch.emitEnd())
         return false;
 
     return true;
@@ -8052,17 +8250,15 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter, ParseNode* gen)
     int depth = stackDepth;
     MOZ_ASSERT(depth >= 2);
 
-    JumpList send;
-    if (!emitJump(JSOP_GOTO, &send))                             // goto send
+    TryEmitter tryCatch(this, TryEmitter::TryCatchFinally, TryEmitter::DontUseRetVal,
+                        TryEmitter::DontUseControl);
+    if (!tryCatch.emitJumpOverCatchAndFinally())                 // ITER RESULT
         return false;
 
-    // Try prologue.                                             // ITER RESULT
-    unsigned noteIndex;
-    if (!newSrcNote(SRC_TRY, &noteIndex))
-        return false;
     JumpTarget tryStart{ offset() };
-    if (!emit1(JSOP_TRY))                                        // tryStart:
+    if (!tryCatch.emitTry())                                     // ITER RESULT
         return false;
+
     MOZ_ASSERT(this->stackDepth == depth);
 
     // Load the generator object.
@@ -8073,17 +8269,9 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter, ParseNode* gen)
     if (!emitYieldOp(JSOP_YIELD))                                // ITER RECEIVED
         return false;
 
-    // Try epilogue.
-    if (!setSrcNoteOffset(noteIndex, 0, offset() - tryStart.offset))
-        return false;
-    if (!emitJump(JSOP_GOTO, &send))                             // goto send
+    if (!tryCatch.emitCatch())                                   // ITER RESULT
         return false;
 
-    JumpTarget tryEnd;
-    if (!emitJumpTarget(&tryEnd))                                // tryEnd:
-        return false;
-
-    // Catch location.
     stackDepth = uint32_t(depth);                                // ITER RESULT
     if (!emit1(JSOP_EXCEPTION))                                  // ITER RESULT EXCEPTION
         return false;
@@ -8130,36 +8318,19 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter, ParseNode* gen)
     if (!emitJump(JSOP_GOTO, &checkResult))                      // goto checkResult
         return false;
 
-    // The finally block, IteratorClose logic.
+    // IteratorClose logic.
+    if (!tryCatch.emitFinally())
+         return false;
 
-    JumpTarget finallyStart{ 0 };
-    if (!emitJumpTarget(&finallyStart))
-        return false;
-    if (!emit1(JSOP_FINALLY))                                    // ITER RESULT FTYPE FVALUE
-        return false;
     if (!emitDupAt(3))                                           // ITER RESULT FTYPE FVALUE ITER
         return false;
     if (!emitIteratorClose(Some(tryStart)))                      // ITER RESULT FTYPE FVALUE
         return false;
-    if (!emit1(JSOP_RETSUB))                                     // ITER RESULT
-        return false;
 
-    // Catch and finally epilogue.
-
-    // This is a peace offering to ReconstructPCStack.  See the note in EmitTry.
-    if (!emit1(JSOP_NOP))
-        return false;
-    size_t tryStartOffset = tryStart.offset + JSOP_TRY_LENGTH;
-    if (!tryNoteList.append(JSTRY_CATCH, depth, tryStartOffset, tryEnd.offset))
-        return false;
-    if (!tryNoteList.append(JSTRY_FINALLY, depth, tryStartOffset, finallyStart.offset))
+    if (!tryCatch.emitEnd())
         return false;
 
     // After the try-catch-finally block: send the received value to the iterator.
-    if (!emitJumpTargetAndPatch(send))                           // send:
-        return false;
-
-    // Send location.
     // result = iter.next(received)                              // ITER RECEIVED
     if (!emit1(JSOP_SWAP))                                       // RECEIVED ITER
         return false;
@@ -8396,7 +8567,7 @@ BytecodeEmitter::emitDeleteExpression(ParseNode* node)
 }
 
 static const char *
-SelfHostedCallFunctionName(JSAtom* name, ExclusiveContext* cx)
+SelfHostedCallFunctionName(JSAtom* name, JSContext* cx)
 {
     if (name == cx->names().callFunction)
         return "callFunction";
@@ -10281,7 +10452,7 @@ BytecodeEmitter::emitTreeInBranch(ParseNode* pn)
 }
 
 static bool
-AllocSrcNote(ExclusiveContext* cx, SrcNotesVector& notes, unsigned* index)
+AllocSrcNote(JSContext* cx, SrcNotesVector& notes, unsigned* index)
 {
     // Start it off moderately large to avoid repeated resizings early on.
     // ~99% of cases fit within 256 bytes.

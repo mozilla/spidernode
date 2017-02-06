@@ -34,19 +34,19 @@ JSCompartment::unsafeUnbarrieredMaybeGlobal() const
     return *global_.unsafeGet();
 }
 
-js::AutoCompartment::AutoCompartment(ExclusiveContext* cx, JSObject* target,
+js::AutoCompartment::AutoCompartment(JSContext* cx, JSObject* target,
                                      js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
   : cx_(cx),
-    origin_(cx->compartment_),
+    origin_(cx->compartment()),
     maybeLock_(maybeLock)
 {
     cx_->enterCompartment(target->compartment(), maybeLock);
 }
 
-js::AutoCompartment::AutoCompartment(ExclusiveContext* cx, JSCompartment* target,
+js::AutoCompartment::AutoCompartment(JSContext* cx, JSCompartment* target,
                                      js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
   : cx_(cx),
-    origin_(cx_->compartment_),
+    origin_(cx_->compartment()),
     maybeLock_(maybeLock)
 {
     cx_->enterCompartment(target, maybeLock);
@@ -66,10 +66,13 @@ JSCompartment::wrap(JSContext* cx, JS::MutableHandleValue vp)
 
     /*
      * Symbols are GC things, but never need to be wrapped or copied because
-     * they are always allocated in the atoms compartment.
+     * they are always allocated in the atoms compartment. They still need to
+     * be marked in the new compartment's zone, however.
      */
-    if (vp.isSymbol())
+    if (vp.isSymbol()) {
+        cx->markAtomValue(vp);
         return true;
+    }
 
     /* Handle strings. */
     if (vp.isString()) {

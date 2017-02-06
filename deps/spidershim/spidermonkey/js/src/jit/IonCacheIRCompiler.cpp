@@ -315,7 +315,7 @@ IonCacheIRCompiler::callVM(MacroAssembler& masm, const VMFunction& fun)
 {
     MOZ_ASSERT(calledPrepareVMCall_);
 
-    JitCode* code = cx_->jitRuntime()->getVMWrapper(fun);
+    JitCode* code = cx_->runtime()->jitRuntime()->getVMWrapper(fun);
     if (!code)
         return false;
 
@@ -380,7 +380,7 @@ JitCode*
 IonCacheIRCompiler::compile()
 {
     masm.setFramePushed(ionScript_->frameSize());
-    if (cx_->geckoProfiler.enabled())
+    if (cx_->runtime()->geckoProfiler().enabled())
         masm.enableProfilingInstrumentation();
 
     do {
@@ -850,6 +850,24 @@ IonCacheIRCompiler::emitStoreDynamicSlot()
 }
 
 bool
+IonCacheIRCompiler::emitAddAndStoreFixedSlot()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitAddAndStoreDynamicSlot()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitAllocateAndStoreDynamicSlot()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
 IonCacheIRCompiler::emitStoreUnboxedProperty()
 {
     MOZ_CRASH("Baseline-specific op");
@@ -875,6 +893,12 @@ IonCacheIRCompiler::emitCallNativeSetter()
 
 bool
 IonCacheIRCompiler::emitCallScriptedSetter()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitCallSetArrayLength()
 {
     MOZ_CRASH("Baseline-specific op");
 }

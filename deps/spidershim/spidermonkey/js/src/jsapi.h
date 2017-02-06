@@ -53,7 +53,6 @@ class JS_PUBLIC_API(AutoCheckRequestDepth)
     JSContext* cx;
   public:
     explicit AutoCheckRequestDepth(JSContext* cx);
-    explicit AutoCheckRequestDepth(js::ContextFriendFields* cx);
     ~AutoCheckRequestDepth();
 };
 
@@ -108,13 +107,6 @@ class MOZ_RAII AutoVectorRooterBase : protected AutoGCRooter
 
   public:
     explicit AutoVectorRooterBase(JSContext* cx, ptrdiff_t tag
-                              MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : AutoGCRooter(cx, tag), vector(cx)
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
-    explicit AutoVectorRooterBase(js::ContextFriendFields* cx, ptrdiff_t tag
                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
       : AutoGCRooter(cx, tag), vector(cx)
     {
@@ -208,13 +200,6 @@ class MOZ_RAII AutoVectorRooter : public AutoVectorRooterBase<T>
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
-    explicit AutoVectorRooter(js::ContextFriendFields* cx
-                             MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-        : AutoVectorRooterBase<T>(cx, this->GetTag(T()))
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
@@ -223,7 +208,6 @@ class AutoValueVector : public Rooted<GCVector<Value, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoValueVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoValueVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
@@ -231,7 +215,6 @@ class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoIdVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoIdVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 
     bool appendAll(const AutoIdVector& other) { return this->Base::appendAll(other.get()); }
 };
@@ -241,7 +224,6 @@ class AutoObjectVector : public Rooted<GCVector<JSObject*, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoObjectVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoObjectVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 using ValueVector = JS::GCVector<JS::Value>;
@@ -1004,25 +986,6 @@ JS_NewContext(uint32_t maxbytes,
 extern JS_PUBLIC_API(void)
 JS_DestroyContext(JSContext* cx);
 
-typedef double (*JS_CurrentEmbedderTimeFunction)();
-
-/**
- * The embedding can specify a time function that will be used in some
- * situations.  The function can return the time however it likes; but
- * the norm is to return times in units of milliseconds since an
- * arbitrary, but consistent, epoch.  If the time function is not set,
- * a built-in default will be used.
- */
-JS_PUBLIC_API(void)
-JS_SetCurrentEmbedderTimeFunction(JS_CurrentEmbedderTimeFunction timeFn);
-
-/**
- * Return the time as computed using the current time function, or a
- * suitable default if one has not been set.
- */
-JS_PUBLIC_API(double)
-JS_GetCurrentEmbedderTime();
-
 JS_PUBLIC_API(void*)
 JS_GetContextPrivate(JSContext* cx);
 
@@ -1044,7 +1007,7 @@ JS_SetFutexCanWait(JSContext* cx);
 namespace js {
 
 void
-AssertHeapIsIdle(JSRuntime* rt);
+AssertHeapIsIdle();
 
 } /* namespace js */
 
@@ -1423,6 +1386,22 @@ typedef void (*JSIterateCompartmentCallback)(JSContext* cx, void* data, JSCompar
 extern JS_PUBLIC_API(void)
 JS_IterateCompartments(JSContext* cx, void* data,
                        JSIterateCompartmentCallback compartmentCallback);
+
+/**
+ * Mark a jsid after entering a new compartment. Different zones separately
+ * mark the ids in a runtime, and this must be used any time an id is obtained
+ * from one compartment and then used in another compartment, unless the two
+ * compartments are guaranteed to be in the same zone.
+ */
+extern JS_PUBLIC_API(void)
+JS_MarkCrossZoneId(JSContext* cx, jsid id);
+
+/**
+ * If value stores a jsid (an atomized string or symbol), mark that id as for
+ * JS_MarkCrossZoneId.
+ */
+extern JS_PUBLIC_API(void)
+JS_MarkCrossZoneIdValue(JSContext* cx, const JS::Value& value);
 
 /**
  * Initialize standard JS class constructors, prototypes, and any top-level
@@ -3756,7 +3735,7 @@ namespace JS {
  * addrefs/copies/tracing/etc.
  *
  * Furthermore, in some cases compile options are propagated from one entity to
- * another (e.g. from a scriipt to a function defined in that script).  This
+ * another (e.g. from a script to a function defined in that script).  This
  * involves copying over some, but not all, of the options.
  *
  * So, we have a class hierarchy that reflects these four use cases:
@@ -4027,7 +4006,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
 
   public:
     explicit CompileOptions(JSContext* cx, JSVersion version = JSVERSION_UNKNOWN);
-    CompileOptions(js::ContextFriendFields* cx, const ReadOnlyCompileOptions& rhs)
+    CompileOptions(JSContext* cx, const ReadOnlyCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4041,7 +4020,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
         introductionScriptRoot = rhs.introductionScript();
     }
 
-    CompileOptions(js::ContextFriendFields* cx, const TransitiveCompileOptions& rhs)
+    CompileOptions(JSContext* cx, const TransitiveCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4195,6 +4174,17 @@ FinishOffThreadModule(JSContext* cx, void* token);
 
 extern JS_PUBLIC_API(void)
 CancelOffThreadModule(JSContext* cx, void* token);
+
+extern JS_PUBLIC_API(bool)
+DecodeOffThreadScript(JSContext* cx, const ReadOnlyCompileOptions& options,
+                      mozilla::Vector<uint8_t>& buffer /* TranscodeBuffer& */, size_t cursor,
+                      OffThreadCompileCallback callback, void* callbackData);
+
+extern JS_PUBLIC_API(JSScript*)
+FinishOffThreadScriptDecoder(JSContext* cx, void* token);
+
+extern JS_PUBLIC_API(void)
+CancelOffThreadScriptDecoder(JSContext* cx, void* token);
 
 /**
  * Compile a function with envChain plus the global as its scope chain.
@@ -4571,7 +4561,7 @@ CallOriginalPromiseReject(JSContext* cx, JS::HandleValue rejectionValue);
  * the Promise was created.
  */
 extern JS_PUBLIC_API(bool)
-ResolvePromise(JSContext* cx, JS::HandleObject promise, JS::HandleValue resolutionValue);
+ResolvePromise(JSContext* cx, JS::HandleObject promiseObj, JS::HandleValue resolutionValue);
 
 /**
  * Rejects the given `promise` with the given `rejectionValue`.
@@ -4580,7 +4570,7 @@ ResolvePromise(JSContext* cx, JS::HandleObject promise, JS::HandleValue resoluti
  * the Promise was created.
  */
 extern JS_PUBLIC_API(bool)
-RejectPromise(JSContext* cx, JS::HandleObject promise, JS::HandleValue rejectionValue);
+RejectPromise(JSContext* cx, JS::HandleObject promiseObj, JS::HandleValue rejectionValue);
 
 /**
  * Calls the current compartment's original Promise.prototype.then on the
@@ -5004,8 +4994,6 @@ class MOZ_RAII JSAutoByteString
         mBytes = JS_EncodeString(cx, str);
         return mBytes;
     }
-
-    char* encodeLatin1(js::ExclusiveContext* cx, JSString* str);
 
     char* encodeUtf8(JSContext* cx, JS::HandleString str) {
         MOZ_ASSERT(!mBytes);
@@ -5820,6 +5808,7 @@ JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
     Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis")         \
     Register(BASELINE_ENABLE, "baseline.enable")                           \
     Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable") \
+    Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                   \
     Register(JUMP_THRESHOLD, "jump-threshold")                             \
     Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                 \
     Register(WASM_TEST_MODE, "wasm.test-mode")                             \
@@ -5971,8 +5960,10 @@ enum TranscodeResult
     TranscodeResult_Failure_RunOnceNotSupported = TranscodeResult_Failure | 0x2,
     TranscodeResult_Failure_AsmJSNotSupported =   TranscodeResult_Failure | 0x3,
     TranscodeResult_Failure_UnknownClassKind =    TranscodeResult_Failure | 0x4,
+    TranscodeResult_Failure_WrongCompileOption =  TranscodeResult_Failure | 0x5,
+    TranscodeResult_Failure_NotInterpretedFun =   TranscodeResult_Failure | 0x6,
 
-    // A error, the JSContext has a pending exception.
+    // There is a pending exception on the context.
     TranscodeResult_Throw = 0x200
 };
 
@@ -5989,6 +5980,25 @@ DecodeScript(JSContext* cx, TranscodeBuffer& buffer, JS::MutableHandleScript scr
 extern JS_PUBLIC_API(TranscodeResult)
 DecodeInterpretedFunction(JSContext* cx, TranscodeBuffer& buffer, JS::MutableHandleFunction funp,
                           size_t cursorIndex = 0);
+
+// Register an encoder on the given script source, such that all functions can
+// be encoded as they are parsed. This strategy is used to avoid blocking the
+// main thread in a non-interruptible way.
+//
+// The |script| argument of |StartIncrementalEncoding| and
+// |FinishIncrementalEncoding| should be the top-level script returned either as
+// an out-param of any of the |Compile| functions, or the result of
+// |FinishOffThreadScript|.
+//
+// The |buffer| argument should not be used before until
+// |FinishIncrementalEncoding| is called on the same script, and returns
+// successfully. If any of these functions failed, the |buffer| content is
+// undefined.
+extern JS_PUBLIC_API(bool)
+StartIncrementalEncoding(JSContext* cx, TranscodeBuffer& buffer, JS::HandleScript script);
+
+extern JS_PUBLIC_API(bool)
+FinishIncrementalEncoding(JSContext* cx, JS::HandleScript script);
 
 } /* namespace JS */
 

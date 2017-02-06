@@ -549,7 +549,7 @@ fun_resolve(JSContext* cx, HandleObject obj, HandleId id, bool* resolvedp)
 template<XDRMode mode>
 bool
 js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
-                           HandleScript enclosingScript, MutableHandleFunction objp)
+                           HandleScriptSource sourceObject, MutableHandleFunction objp)
 {
     enum FirstWordFlag {
         HasAtom             = 0x1,
@@ -570,14 +570,8 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
 
     if (mode == XDR_ENCODE) {
         fun = objp;
-        if (!fun->isInterpreted()) {
-            JSAutoByteString funNameBytes;
-            if (const char* name = GetFunctionNameBytes(cx, fun, &funNameBytes)) {
-                JS_ReportErrorNumberLatin1(cx, GetErrorMessage, nullptr,
-                                           JSMSG_NOT_SCRIPTED_FUNCTION, name);
-            }
-            return false;
-        }
+        if (!fun->isInterpreted())
+            return xdr->fail(JS::TranscodeResult_Failure_NotInterpretedFun);
 
         if (fun->explicitName() || fun->hasCompileTimeName() || fun->hasGuessedAtom())
             firstword |= HasAtom;
@@ -609,6 +603,10 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
                       fun->environment() == nullptr);
     }
 
+    // Everything added below can substituted by the non-lazy-script version of
+    // this function later.
+    js::AutoXDRTree funTree(xdr, xdr->getTreeKey(fun));
+
     if (!xdr->codeUint32(&firstword))
         return false;
 
@@ -620,7 +618,11 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
     if (mode == XDR_DECODE) {
         RootedObject proto(cx);
         if (firstword & IsStarGenerator) {
-            proto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(cx, cx->global());
+            // If we are off the main thread, the generator meta-objects have
+            // already been created by js::StartOffThreadParseTask, so
+            // JSContext* will not be necessary.
+            JSContext* context = cx->helperThread() ? nullptr : cx;
+            proto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(context, cx->global());
             if (!proto)
                 return false;
         }
@@ -637,10 +639,10 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
     }
 
     if (firstword & IsLazy) {
-        if (!XDRLazyScript(xdr, enclosingScope, enclosingScript, fun, &lazy))
+        if (!XDRLazyScript(xdr, enclosingScope, sourceObject, fun, &lazy))
             return false;
     } else {
-        if (!XDRScript(xdr, enclosingScope, enclosingScript, fun, &script))
+        if (!XDRScript(xdr, enclosingScope, sourceObject, fun, &script))
             return false;
     }
 
@@ -665,10 +667,12 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
 }
 
 template bool
-js::XDRInterpretedFunction(XDRState<XDR_ENCODE>*, HandleScope, HandleScript, MutableHandleFunction);
+js::XDRInterpretedFunction(XDRState<XDR_ENCODE>*, HandleScope, HandleScriptSource,
+                           MutableHandleFunction);
 
 template bool
-js::XDRInterpretedFunction(XDRState<XDR_DECODE>*, HandleScope, HandleScript, MutableHandleFunction);
+js::XDRInterpretedFunction(XDRState<XDR_DECODE>*, HandleScope, HandleScriptSource,
+                           MutableHandleFunction);
 
 /* ES6 (04-25-16) 19.2.3.6 Function.prototype [ @@hasInstance ] */
 bool
@@ -984,11 +988,6 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
         }
     }
 
-    if (fun->isAsync()) {
-        if (!out.append("async "))
-            return nullptr;
-    }
-
     bool funIsMethodOrNonArrowLambda = (fun->isLambda() && !fun->isArrow()) || fun->isMethod() ||
                                         fun->isGetter() || fun->isSetter();
     bool haveSource = fun->isInterpreted() && !fun->isSelfHostedBuiltin();
@@ -996,6 +995,10 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
     // If we're not in pretty mode, put parentheses around lambda functions and methods.
     if (haveSource && !prettyPrint && funIsMethodOrNonArrowLambda) {
         if (!out.append("("))
+            return nullptr;
+    }
+    if (fun->isAsync()) {
+        if (!out.append("async "))
             return nullptr;
     }
     if (!fun->isArrow()) {
@@ -1427,7 +1430,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
         // has started.
         if (canRelazify && !JS::IsIncrementalGCInProgress(cx)) {
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches.lazyScriptCache.lookup(lookup, script.address());
+            cx->zone()->group()->caches().lazyScriptCache.lookup(lookup, script.address());
         }
 
         if (script) {
@@ -1479,7 +1482,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             script->setColumn(lazy->column());
 
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches.lazyScriptCache.insert(lookup, script);
+            cx->zone()->group()->caches().lazyScriptCache.insert(lookup, script);
 
             // Remember the lazy script on the compiled script, so it can be
             // stored on the function again in case of re-lazification.
@@ -1826,7 +1829,7 @@ JSFunction::needsNamedLambdaEnvironment() const
 }
 
 JSFunction*
-js::NewNativeFunction(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeFunction(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
                       gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                       NewObjectKind newKind /* = SingletonObject */)
 {
@@ -1836,7 +1839,7 @@ js::NewNativeFunction(ExclusiveContext* cx, Native native, unsigned nargs, Handl
 }
 
 JSFunction*
-js::NewNativeConstructor(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeConstructor(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                          NewObjectKind newKind /* = SingletonObject */,
                          JSFunction::Flags flags /* = JSFunction::NATIVE_CTOR */)
@@ -1848,7 +1851,7 @@ js::NewNativeConstructor(ExclusiveContext* cx, Native native, unsigned nargs, Ha
 }
 
 JSFunction*
-js::NewScriptedFunction(ExclusiveContext* cx, unsigned nargs,
+js::NewScriptedFunction(JSContext* cx, unsigned nargs,
                         JSFunction::Flags flags, HandleAtom atom,
                         HandleObject proto /* = nullptr */,
                         gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -1864,7 +1867,7 @@ js::NewScriptedFunction(ExclusiveContext* cx, unsigned nargs,
 
 #ifdef DEBUG
 static bool
-NewFunctionEnvironmentIsWellFormed(ExclusiveContext* cx, HandleObject env)
+NewFunctionEnvironmentIsWellFormed(JSContext* cx, HandleObject env)
 {
     // Assert that the terminating environment is null, global, or a debug
     // scope proxy. All other cases of polluting global scope behavior are
@@ -1877,7 +1880,7 @@ NewFunctionEnvironmentIsWellFormed(ExclusiveContext* cx, HandleObject env)
 #endif
 
 JSFunction*
-js::NewFunctionWithProto(ExclusiveContext* cx, Native native,
+js::NewFunctionWithProto(JSContext* cx, Native native,
                          unsigned nargs, JSFunction::Flags flags, HandleObject enclosingEnv,
                          HandleAtom atom, HandleObject proto,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -2143,7 +2146,7 @@ js::IdToFunctionName(JSContext* cx, HandleId id,
 }
 
 JSAtom*
-js::NameToFunctionName(ExclusiveContext* cx, HandleAtom name,
+js::NameToFunctionName(JSContext* cx, HandleAtom name,
                        FunctionPrefixKind prefixKind /* = FunctionPrefixKind::None */)
 {
     if (prefixKind == FunctionPrefixKind::None)

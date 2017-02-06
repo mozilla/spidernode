@@ -82,7 +82,7 @@ js::ScopeKindString(ScopeKind kind)
 }
 
 static Shape*
-EmptyEnvironmentShape(ExclusiveContext* cx, const Class* cls, uint32_t numSlots,
+EmptyEnvironmentShape(JSContext* cx, const Class* cls, uint32_t numSlots,
                       uint32_t baseShapeFlags)
 {
     // Put as many slots into the object header as possible.
@@ -92,7 +92,7 @@ EmptyEnvironmentShape(ExclusiveContext* cx, const Class* cls, uint32_t numSlots,
 }
 
 static Shape*
-NextEnvironmentShape(ExclusiveContext* cx, HandleAtom name, BindingKind bindKind, uint32_t slot,
+NextEnvironmentShape(JSContext* cx, HandleAtom name, BindingKind bindKind, uint32_t slot,
                      StackBaseShape& stackBase, HandleShape shape)
 {
     UnownedBaseShape* base = BaseShape::getUnowned(cx, stackBase);
@@ -111,11 +111,11 @@ NextEnvironmentShape(ExclusiveContext* cx, HandleAtom name, BindingKind bindKind
 
     jsid id = NameToId(name->asPropertyName());
     Rooted<StackShape> child(cx, StackShape(base, id, slot, attrs, 0));
-    return cx->zone()->propertyTree.getChild(cx, shape, child);
+    return cx->zone()->propertyTree().getChild(cx, shape, child);
 }
 
 static Shape*
-CreateEnvironmentShape(ExclusiveContext* cx, BindingIter& bi, const Class* cls,
+CreateEnvironmentShape(JSContext* cx, BindingIter& bi, const Class* cls,
                        uint32_t numSlots, uint32_t baseShapeFlags)
 {
     RootedShape shape(cx, EmptyEnvironmentShape(cx, cls, numSlots, baseShapeFlags));
@@ -128,6 +128,7 @@ CreateEnvironmentShape(ExclusiveContext* cx, BindingIter& bi, const Class* cls,
         BindingLocation loc = bi.location();
         if (loc.kind() == BindingLocation::Kind::Environment) {
             name = bi.name();
+            cx->markAtom(name);
             shape = NextEnvironmentShape(cx, name, bi.kind(), loc.slot(), stackBase, shape);
             if (!shape)
                 return nullptr;
@@ -139,8 +140,18 @@ CreateEnvironmentShape(ExclusiveContext* cx, BindingIter& bi, const Class* cls,
 
 template <typename ConcreteScope>
 static UniquePtr<typename ConcreteScope::Data>
-CopyScopeData(ExclusiveContext* cx, Handle<typename ConcreteScope::Data*> data)
+CopyScopeData(JSContext* cx, Handle<typename ConcreteScope::Data*> data)
 {
+    // Make sure the binding names are marked in the context's zone, if we are
+    // copying data from another zone.
+    BindingName* names = nullptr;
+    uint32_t length = 0;
+    ConcreteScope::getDataNamesAndLength(data, &names, &length);
+    for (size_t i = 0; i < length; i++) {
+        if (JSAtom* name = names[i].name())
+            cx->markAtom(name);
+    }
+
     size_t dataSize = ConcreteScope::sizeOfData(data->length);
     uint8_t* copyBytes = cx->zone()->pod_malloc<uint8_t>(dataSize);
     if (!copyBytes) {
@@ -155,7 +166,7 @@ CopyScopeData(ExclusiveContext* cx, Handle<typename ConcreteScope::Data*> data)
 
 template <typename ConcreteScope>
 static UniquePtr<typename ConcreteScope::Data>
-CopyScopeData(ExclusiveContext* cx, BindingIter& bi, Handle<typename ConcreteScope::Data*> data,
+CopyScopeData(JSContext* cx, BindingIter& bi, Handle<typename ConcreteScope::Data*> data,
               const Class* cls, uint32_t baseShapeFlags, MutableHandleShape envShape)
 {
     // Copy a fresh BindingIter for use below.
@@ -182,7 +193,7 @@ CopyScopeData(ExclusiveContext* cx, BindingIter& bi, Handle<typename ConcreteSco
 
 template <typename ConcreteScope>
 static UniquePtr<typename ConcreteScope::Data>
-NewEmptyScopeData(ExclusiveContext* cx, uint32_t length = 0)
+NewEmptyScopeData(JSContext* cx, uint32_t length = 0)
 {
     uint8_t* bytes = cx->zone()->pod_calloc<uint8_t>(ConcreteScope::sizeOfData(length));
     if (!bytes)
@@ -269,7 +280,7 @@ Scope::XDRSizedBindingNames(XDRState<mode>* xdr, Handle<ConcreteScope*> scope,
 }
 
 /* static */ Scope*
-Scope::create(ExclusiveContext* cx, ScopeKind kind, HandleScope enclosing, HandleShape envShape)
+Scope::create(JSContext* cx, ScopeKind kind, HandleScope enclosing, HandleShape envShape)
 {
     Scope* scope = Allocate<Scope>(cx);
     if (scope)
@@ -279,7 +290,7 @@ Scope::create(ExclusiveContext* cx, ScopeKind kind, HandleScope enclosing, Handl
 
 template <typename T, typename D>
 /* static */ Scope*
-Scope::create(ExclusiveContext* cx, ScopeKind kind, HandleScope enclosing,
+Scope::create(JSContext* cx, ScopeKind kind, HandleScope enclosing,
               HandleShape envShape, mozilla::UniquePtr<T, D> data)
 {
     Scope* scope = create(cx, kind, enclosing, envShape);
@@ -479,7 +490,7 @@ LexicalScope::nextFrameSlot(Scope* scope)
 }
 
 /* static */ LexicalScope*
-LexicalScope::create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
+LexicalScope::create(JSContext* cx, ScopeKind kind, Handle<Data*> data,
                      uint32_t firstFrameSlot, HandleScope enclosing)
 {
     bool isNamedLambda = kind == ScopeKind::NamedLambda || kind == ScopeKind::StrictNamedLambda;
@@ -509,7 +520,7 @@ LexicalScope::create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
 }
 
 /* static */ Shape*
-LexicalScope::getEmptyExtensibleEnvironmentShape(ExclusiveContext* cx)
+LexicalScope::getEmptyExtensibleEnvironmentShape(JSContext* cx)
 {
     const Class* cls = &LexicalEnvironmentObject::class_;
     return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), BaseShape::DELEGATE);
@@ -578,7 +589,7 @@ FunctionScopeEnvShapeFlags(bool hasParameterExprs)
 }
 
 /* static */ UniquePtr<FunctionScope::Data>
-FunctionScope::copyData(ExclusiveContext* cx, Handle<Data*> data,
+FunctionScope::copyData(JSContext* cx, Handle<Data*> data,
                         bool hasParameterExprs, MutableHandleShape envShape)
 {
     if (data) {
@@ -592,7 +603,7 @@ FunctionScope::copyData(ExclusiveContext* cx, Handle<Data*> data,
 }
 
 /* static */ FunctionScope*
-FunctionScope::create(ExclusiveContext* cx, Handle<Data*> data,
+FunctionScope::create(JSContext* cx, Handle<Data*> data,
                       bool hasParameterExprs, bool needsEnvironment,
                       HandleFunction fun, HandleScope enclosing)
 {
@@ -644,7 +655,7 @@ FunctionScope::script() const
 }
 
 /* static */ Shape*
-FunctionScope::getEmptyEnvironmentShape(ExclusiveContext* cx, bool hasParameterExprs)
+FunctionScope::getEmptyEnvironmentShape(JSContext* cx, bool hasParameterExprs)
 {
     const Class* cls = &CallObject::class_;
     uint32_t shapeFlags = FunctionScopeEnvShapeFlags(hasParameterExprs);
@@ -757,7 +768,7 @@ static const uint32_t VarScopeEnvShapeFlags =
     BaseShape::QUALIFIED_VAROBJ | BaseShape::DELEGATE;
 
 /* static */ UniquePtr<VarScope::Data>
-VarScope::copyData(ExclusiveContext* cx, Handle<Data*> data, uint32_t firstFrameSlot,
+VarScope::copyData(JSContext* cx, Handle<Data*> data, uint32_t firstFrameSlot,
                    MutableHandleShape envShape)
 {
     if (data) {
@@ -774,7 +785,7 @@ VarScope::copyData(ExclusiveContext* cx, Handle<Data*> data, uint32_t firstFrame
 }
 
 /* static */ VarScope*
-VarScope::create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
+VarScope::create(JSContext* cx, ScopeKind kind, Handle<Data*> data,
                  uint32_t firstFrameSlot, bool needsEnvironment, HandleScope enclosing)
 {
     // The data that's passed in may be from the frontend and LifoAlloc'd.
@@ -801,7 +812,7 @@ VarScope::create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
 }
 
 /* static */ Shape*
-VarScope::getEmptyEnvironmentShape(ExclusiveContext* cx)
+VarScope::getEmptyEnvironmentShape(JSContext* cx)
 {
     const Class* cls = &VarEnvironmentObject::class_;
     return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), VarScopeEnvShapeFlags);
@@ -876,7 +887,7 @@ VarScope::XDR(XDRState<XDR_DECODE>* xdr, ScopeKind kind, HandleScope enclosing,
               MutableHandleScope scope);
 
 /* static */ UniquePtr<GlobalScope::Data>
-GlobalScope::copyData(ExclusiveContext *cx, Handle<Data*> data)
+GlobalScope::copyData(JSContext *cx, Handle<Data*> data)
 {
     if (data) {
         // The global scope has no environment shape. Its environment is the
@@ -889,7 +900,7 @@ GlobalScope::copyData(ExclusiveContext *cx, Handle<Data*> data)
 }
 
 /* static */ GlobalScope*
-GlobalScope::create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data)
+GlobalScope::create(JSContext* cx, ScopeKind kind, Handle<Data*> data)
 {
     // The data that's passed in may be from the frontend and LifoAlloc'd.
     // Copy it now that we're creating a permanent VM scope.
@@ -968,7 +979,7 @@ template
 GlobalScope::XDR(XDRState<XDR_DECODE>* xdr, ScopeKind kind, MutableHandleScope scope);
 
 /* static */ WithScope*
-WithScope::create(ExclusiveContext* cx, HandleScope enclosing)
+WithScope::create(JSContext* cx, HandleScope enclosing)
 {
     Scope* scope = Scope::create(cx, ScopeKind::With, enclosing, nullptr);
     return static_cast<WithScope*>(scope);
@@ -978,7 +989,7 @@ static const uint32_t EvalScopeEnvShapeFlags =
     BaseShape::QUALIFIED_VAROBJ | BaseShape::DELEGATE;
 
 /* static */ UniquePtr<EvalScope::Data>
-EvalScope::copyData(ExclusiveContext* cx, ScopeKind scopeKind, Handle<Data*> data,
+EvalScope::copyData(JSContext* cx, ScopeKind scopeKind, Handle<Data*> data,
                     MutableHandleShape envShape)
 {
     if (data) {
@@ -994,7 +1005,7 @@ EvalScope::copyData(ExclusiveContext* cx, ScopeKind scopeKind, Handle<Data*> dat
 }
 
 /* static */ EvalScope*
-EvalScope::create(ExclusiveContext* cx, ScopeKind scopeKind, Handle<Data*> data,
+EvalScope::create(JSContext* cx, ScopeKind scopeKind, Handle<Data*> data,
                   HandleScope enclosing)
 {
     // The data that's passed in may be from the frontend and LifoAlloc'd.
@@ -1037,7 +1048,7 @@ EvalScope::nearestVarScopeForDirectEval(Scope* scope)
 }
 
 /* static */ Shape*
-EvalScope::getEmptyEnvironmentShape(ExclusiveContext* cx)
+EvalScope::getEmptyEnvironmentShape(JSContext* cx)
 {
     const Class* cls = &VarEnvironmentObject::class_;
     return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), EvalScopeEnvShapeFlags);
@@ -1090,7 +1101,7 @@ static const uint32_t ModuleScopeEnvShapeFlags =
     BaseShape::NOT_EXTENSIBLE | BaseShape::QUALIFIED_VAROBJ | BaseShape::DELEGATE;
 
 /* static */ UniquePtr<ModuleScope::Data>
-ModuleScope::copyData(ExclusiveContext* cx, Handle<Data*> data, MutableHandleShape envShape)
+ModuleScope::copyData(JSContext* cx, Handle<Data*> data, MutableHandleShape envShape)
 {
     if (data) {
         BindingIter bi(*data);
@@ -1102,7 +1113,7 @@ ModuleScope::copyData(ExclusiveContext* cx, Handle<Data*> data, MutableHandleSha
 }
 
 /* static */ ModuleScope*
-ModuleScope::create(ExclusiveContext* cx, Handle<Data*> data,
+ModuleScope::create(JSContext* cx, Handle<Data*> data,
                     HandleModuleObject module, HandleScope enclosing)
 {
     MOZ_ASSERT(enclosing->is<GlobalScope>());
@@ -1140,7 +1151,7 @@ ModuleScope::create(ExclusiveContext* cx, Handle<Data*> data,
 }
 
 /* static */ Shape*
-ModuleScope::getEmptyEnvironmentShape(ExclusiveContext* cx)
+ModuleScope::getEmptyEnvironmentShape(JSContext* cx)
 {
     const Class* cls = &ModuleEnvironmentObject::class_;
     return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), ModuleScopeEnvShapeFlags);
@@ -1188,7 +1199,7 @@ WasmFunctionScope::create(JSContext* cx, WasmInstanceObject* instance, uint32_t 
 }
 
 /* static */ Shape*
-WasmFunctionScope::getEmptyEnvironmentShape(ExclusiveContext* cx)
+WasmFunctionScope::getEmptyEnvironmentShape(JSContext* cx)
 {
     const Class* cls = &WasmFunctionCallObject::class_;
     return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), WasmFunctionEnvShapeFlags);

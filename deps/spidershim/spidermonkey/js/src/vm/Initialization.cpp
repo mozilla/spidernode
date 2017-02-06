@@ -33,7 +33,7 @@
 
 using JS::detail::InitState;
 using JS::detail::libraryInitState;
-using js::FutexRuntime;
+using js::FutexThread;
 
 InitState JS::detail::libraryInitState;
 
@@ -92,8 +92,7 @@ JS::detail::InitWithFailureDiagnostic(bool isDebugBuild)
     CheckMessageParameterCounts();
 #endif
 
-    using js::TlsPerThreadData;
-    RETURN_IF_FAIL(TlsPerThreadData.init());
+    RETURN_IF_FAIL(js::TlsContext.init());
 
 #if defined(DEBUG) || defined(JS_OOM_BREAKPOINT)
     RETURN_IF_FAIL(js::oom::InitThreadType());
@@ -104,7 +103,8 @@ JS::detail::InitWithFailureDiagnostic(bool isDebugBuild)
 
     RETURN_IF_FAIL(js::wasm::InitInstanceStaticData());
 
-    js::jit::ExecutableAllocator::initStatic();
+    js::gc::InitMemorySubsystem(); // Ensure gc::SystemPageSize() works.
+    RETURN_IF_FAIL(js::jit::InitProcessExecutableMemory());
 
     MOZ_ALWAYS_TRUE(js::MemoryProtectionExceptionHandler::install());
 
@@ -120,7 +120,7 @@ JS::detail::InitWithFailureDiagnostic(bool isDebugBuild)
 #endif // EXPOSE_INTL_API
 
     RETURN_IF_FAIL(js::CreateHelperThreadsState());
-    RETURN_IF_FAIL(FutexRuntime::initialize());
+    RETURN_IF_FAIL(FutexThread::initialize());
     RETURN_IF_FAIL(js::gcstats::Statistics::initialize());
 
     libraryInitState = InitState::Running;
@@ -144,7 +144,7 @@ JS_ShutDown(void)
     }
 #endif
 
-    FutexRuntime::destroy();
+    FutexThread::destroy();
 
     js::DestroyHelperThreadsState();
 
@@ -177,7 +177,7 @@ JS_ShutDown(void)
     js::FinishDateTimeState();
 
     if (!JSRuntime::hasLiveRuntimes())
-        js::jit::AssertAllocatedExecutableBytesIsZero();
+        js::jit::ReleaseProcessExecutableMemory();
 
     libraryInitState = InitState::ShutDown;
 }

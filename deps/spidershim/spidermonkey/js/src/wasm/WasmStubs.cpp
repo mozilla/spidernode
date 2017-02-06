@@ -487,6 +487,9 @@ wasm::GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, Si
     masm.loadWasmPinnedRegsFromTls();
 
     GenerateFunctionEpilogue(masm, framePushed, &offsets);
+
+    masm.wasmEmitTrapOutOfLineCode();
+
     offsets.end = masm.currentOffset();
     return offsets;
 }
@@ -610,10 +613,6 @@ wasm::GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint3
     defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
     defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
     MOZ_ASSERT(NonVolatileRegs.has(HeapReg));
-#endif
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
-    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    MOZ_ASSERT(NonVolatileRegs.has(GlobalReg));
 #endif
 
     GenerateExitEpilogue(masm, framePushed, ExitReason::ImportInterp, &offsets);

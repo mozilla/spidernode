@@ -893,15 +893,15 @@ jit::IonCompilationCanUseNurseryPointers()
 {
     // If we are doing backend compilation, which could occur on a helper
     // thread but might actually be on the main thread, check the flag set on
-    // the PerThreadData by AutoEnterIonCompilation.
+    // the JSContext by AutoEnterIonCompilation.
     if (CurrentThreadIsIonCompiling())
         return !CurrentThreadIsIonCompilingSafeForMinorGC();
 
     // Otherwise, we must be on the main thread during MIR construction. The
     // store buffer must have been notified that minor GCs must cancel pending
     // or in progress Ion compilations.
-    JSRuntime* rt = TlsPerThreadData.get()->runtimeFromMainThread();
-    return rt->gc.storeBuffer.cancelIonCompilations();
+    JSContext* cx = TlsContext.get();
+    return cx->zone()->group()->storeBuffer().cancelIonCompilations();
 }
 
 #endif // DEBUG
@@ -5998,7 +5998,7 @@ jit::ElementAccessMightBeFrozen(CompilerConstraintList* constraints, MDefinition
     return !types || types->hasObjectFlags(constraints, OBJECT_FLAG_FROZEN);
 }
 
-bool
+AbortReasonOr<bool>
 jit::ElementAccessHasExtraIndexedProperty(IonBuilder* builder, MDefinition* obj)
 {
     TemporaryTypeSet* types = obj->resultTypeSet();
@@ -6335,7 +6335,7 @@ jit::AddObjectsForPropertyRead(MDefinition* obj, PropertyName* name,
     }
 }
 
-static bool
+AbortReasonOr<bool>
 PrototypeHasIndexedProperty(IonBuilder* builder, JSObject* obj)
 {
     do {
@@ -6348,13 +6348,15 @@ PrototypeHasIndexedProperty(IonBuilder* builder, JSObject* obj)
         if (index.nonData(builder->constraints()) || index.isOwnProperty(builder->constraints()))
             return true;
         obj = obj->staticPrototype();
+        if (!builder->alloc().ensureBallast())
+            return builder->abort(AbortReason::Alloc);
     } while (obj);
 
     return false;
 }
 
 // Whether Array.prototype, or an object on its proto chain, has an indexed property.
-bool
+AbortReasonOr<bool>
 jit::ArrayPrototypeHasIndexedProperty(IonBuilder* builder, JSScript* script)
 {
     if (JSObject* proto = script->global().maybeGetArrayPrototype())
@@ -6363,7 +6365,7 @@ jit::ArrayPrototypeHasIndexedProperty(IonBuilder* builder, JSScript* script)
 }
 
 // Whether obj or any of its prototypes have an indexed property.
-bool
+AbortReasonOr<bool>
 jit::TypeCanHaveExtraIndexedProperties(IonBuilder* builder, TemporaryTypeSet* types)
 {
     const Class* clasp = types->getKnownClass(builder->constraints());

@@ -28,7 +28,7 @@ namespace js {
  * The lifetime of the result matches the lifetime of bytes.
  */
 extern const char*
-AtomToPrintableString(ExclusiveContext* cx, JSAtom* atom, JSAutoByteString* bytes);
+AtomToPrintableString(JSContext* cx, JSAtom* atom, JSAutoByteString* bytes);
 
 class AtomStateEntry
 {
@@ -57,7 +57,7 @@ class AtomStateEntry
         const_cast<AtomStateEntry*>(this)->bits |= uintptr_t(pinned);
     }
 
-    JSAtom* asPtr(ExclusiveContext* cx) const;
+    JSAtom* asPtr(JSContext* cx) const;
     JSAtom* asPtrUnbarriered() const;
 
     bool needsSweep() {
@@ -132,6 +132,14 @@ class PropertyName;
 extern bool
 AtomIsPinned(JSContext* cx, JSAtom* atom);
 
+#ifdef DEBUG
+
+// This may be called either with or without the atoms lock held.
+extern bool
+AtomIsPinnedInRuntime(JSRuntime* rt, JSAtom* atom);
+
+#endif // DEBUG
+
 /* Well-known predefined C strings. */
 #define DECLARE_PROTO_STR(name,code,init,clasp) extern const char js_##name##_str[];
 JS_FOR_EACH_PROTOTYPE(DECLARE_PROTO_STR)
@@ -205,23 +213,23 @@ enum PinningBehavior
 };
 
 extern JSAtom*
-Atomize(ExclusiveContext* cx, const char* bytes, size_t length,
+Atomize(JSContext* cx, const char* bytes, size_t length,
         js::PinningBehavior pin = js::DoNotPinAtom);
 
 template <typename CharT>
 extern JSAtom*
-AtomizeChars(ExclusiveContext* cx, const CharT* chars, size_t length,
+AtomizeChars(JSContext* cx, const CharT* chars, size_t length,
              js::PinningBehavior pin = js::DoNotPinAtom);
 
 extern JSAtom*
 AtomizeUTF8Chars(JSContext* cx, const char* utf8Chars, size_t utf8ByteLength);
 
 extern JSAtom*
-AtomizeString(ExclusiveContext* cx, JSString* str, js::PinningBehavior pin = js::DoNotPinAtom);
+AtomizeString(JSContext* cx, JSString* str, js::PinningBehavior pin = js::DoNotPinAtom);
 
 template <AllowGC allowGC>
 extern JSAtom*
-ToAtom(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v);
+ToAtom(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v);
 
 enum XDRMode {
     XDR_ENCODE,
@@ -234,6 +242,14 @@ class XDRState;
 template<XDRMode mode>
 bool
 XDRAtom(XDRState<mode>* xdr, js::MutableHandleAtom atomp);
+
+#ifdef DEBUG
+
+bool AtomIsMarked(Zone* zone, JSAtom* atom);
+bool AtomIsMarked(Zone* zone, jsid id);
+bool AtomIsMarked(Zone* zone, const Value& value);
+
+#endif // DEBUG
 
 } /* namespace js */
 

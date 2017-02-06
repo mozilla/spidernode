@@ -2821,7 +2821,7 @@ void
 js::SharedIntlData::trace(JSTracer* trc)
 {
     // Atoms are always tenured.
-    if (!trc->runtime()->isHeapMinorCollecting()) {
+    if (!JS::CurrentThreadIsHeapMinorCollecting()) {
         availableTimeZones.trace(trc);
         ianaZonesTreatedAsLinksByICU.trace(trc);
         ianaLinksCanonicalizedDifferentlyByICU.trace(trc);
@@ -2843,17 +2843,19 @@ js::intl_IsValidTimeZoneName(JSContext* cx, unsigned argc, Value* vp)
     MOZ_ASSERT(args.length() == 1);
     MOZ_ASSERT(args[0].isString());
 
-    SharedIntlData& sharedIntlData = cx->sharedIntlData;
+    SharedIntlData& sharedIntlData = cx->runtime()->sharedIntlData.ref();
 
     RootedString timeZone(cx, args[0].toString());
     RootedString validatedTimeZone(cx);
     if (!sharedIntlData.validateTimeZoneName(cx, timeZone, &validatedTimeZone))
         return false;
 
-    if (validatedTimeZone)
+    if (validatedTimeZone) {
+        cx->markAtom(validatedTimeZone);
         args.rval().setString(validatedTimeZone);
-    else
+    } else {
         args.rval().setNull();
+    }
 
     return true;
 }
@@ -2865,7 +2867,7 @@ js::intl_canonicalizeTimeZone(JSContext* cx, unsigned argc, Value* vp)
     MOZ_ASSERT(args.length() == 1);
     MOZ_ASSERT(args[0].isString());
 
-    SharedIntlData& sharedIntlData = cx->sharedIntlData;
+    SharedIntlData& sharedIntlData = cx->runtime()->sharedIntlData.ref();
 
     // Some time zone names are canonicalized differently by ICU -- handle
     // those first:
@@ -3501,7 +3503,6 @@ js::GlobalObject::addPluralRulesConstructor(JSContext* cx, HandleObject intl)
         const HeapSlot& slot = global->getReservedSlotRef(PLURAL_RULES_PROTO);
         if (!slot.isUndefined()) {
             MOZ_ASSERT(slot.isObject());
-            MOZ_ASSERT(slot.toObject().is<PluralRulesObject>());
             JS_ReportErrorASCII(cx,
                                 "the PluralRules constructor can't be added "
                                 "multiple times in the same global");

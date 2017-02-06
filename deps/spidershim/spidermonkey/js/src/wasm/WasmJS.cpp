@@ -50,7 +50,7 @@ using mozilla::Nothing;
 using mozilla::RangedPtr;
 
 bool
-wasm::HasCompilerSupport(ExclusiveContext* cx)
+wasm::HasCompilerSupport(JSContext* cx)
 {
     if (gc::SystemPageSize() > wasm::PageSize)
         return false;
@@ -79,7 +79,7 @@ wasm::HasCompilerSupport(ExclusiveContext* cx)
 }
 
 bool
-wasm::HasSupport(ExclusiveContext* cx)
+wasm::HasSupport(JSContext* cx)
 {
     return cx->options().wasm() && HasCompilerSupport(cx);
 }
@@ -754,7 +754,7 @@ WasmModuleObject::customSections(JSContext* cx, unsigned argc, Value* vp)
 }
 
 /* static */ WasmModuleObject*
-WasmModuleObject::create(ExclusiveContext* cx, Module& module, HandleObject proto)
+WasmModuleObject::create(JSContext* cx, Module& module, HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
     auto* obj = NewObjectWithGivenProto<WasmModuleObject>(cx, proto);
@@ -925,6 +925,7 @@ WasmInstanceObject::trace(JSTracer* trc, JSObject* obj)
 /* static */ WasmInstanceObject*
 WasmInstanceObject::create(JSContext* cx,
                            UniqueCode code,
+                           UniqueGlobalSegment globals,
                            HandleWasmMemoryObject memory,
                            SharedTableVector&& tables,
                            Handle<FunctionVector> funcImports,
@@ -958,6 +959,7 @@ WasmInstanceObject::create(JSContext* cx,
     auto* instance = cx->new_<Instance>(cx,
                                         obj,
                                         Move(code),
+                                        Move(globals),
                                         memory,
                                         Move(tables),
                                         funcImports,
@@ -1213,7 +1215,7 @@ WasmMemoryObject::finalize(FreeOp* fop, JSObject* obj)
 }
 
 /* static */ WasmMemoryObject*
-WasmMemoryObject::create(ExclusiveContext* cx, HandleArrayBufferObjectMaybeShared buffer,
+WasmMemoryObject::create(JSContext* cx, HandleArrayBufferObjectMaybeShared buffer,
                          HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
@@ -1752,7 +1754,7 @@ Reject(JSContext* cx, const CompileArgs& args, UniqueChars error, Handle<Promise
         if (!cx->getPendingException(&rejectionValue))
             return false;
 
-        return promise->reject(cx, rejectionValue);
+        return PromiseObject::reject(cx, promise, rejectionValue);
     }
 
     RootedObject stack(cx, promise->allocationSite());
@@ -1780,7 +1782,7 @@ Reject(JSContext* cx, const CompileArgs& args, UniqueChars error, Handle<Promise
         return false;
 
     RootedValue rejectionValue(cx, ObjectValue(*errorObj));
-    return promise->reject(cx, rejectionValue);
+    return PromiseObject::reject(cx, promise, rejectionValue);
 }
 
 static bool
@@ -1792,7 +1794,7 @@ ResolveCompilation(JSContext* cx, Module& module, Handle<PromiseObject*> promise
         return false;
 
     RootedValue resolutionValue(cx, ObjectValue(*moduleObj));
-    return promise->resolve(cx, resolutionValue);
+    return PromiseObject::resolve(cx, promise, resolutionValue);
 }
 
 struct CompilePromiseTask : PromiseTask
@@ -1827,7 +1829,7 @@ RejectWithPendingException(JSContext* cx, Handle<PromiseObject*> promise)
     if (!GetAndClearException(cx, &rejectionValue))
         return false;
 
-    return promise->reject(cx, rejectionValue);
+    return PromiseObject::reject(cx, promise, rejectionValue);
 }
 
 static bool
@@ -1857,7 +1859,7 @@ GetBufferSource(JSContext* cx, CallArgs callArgs, const char* name, MutableBytes
 static bool
 WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
+    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.compile not supported in this runtime.");
         return false;
     }
@@ -1915,7 +1917,7 @@ ResolveInstantiation(JSContext* cx, Module& module, HandleObject importObj,
         return false;
 
     val = ObjectValue(*resultObj);
-    return promise->resolve(cx, val);
+    return PromiseObject::resolve(cx, promise, val);
 }
 
 struct InstantiatePromiseTask : CompilePromiseTask
@@ -1954,7 +1956,7 @@ GetInstantiateArgs(JSContext* cx, CallArgs callArgs, MutableHandleObject firstAr
 static bool
 WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
+    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.instantiate not supported in this runtime.");
         return false;
     }
@@ -1981,7 +1983,7 @@ WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
             return RejectWithPendingException(cx, promise, callArgs);
 
         RootedValue resolutionValue(cx, ObjectValue(*instanceObj));
-        if (!promise->resolve(cx, resolutionValue))
+        if (!PromiseObject::resolve(cx, promise, resolutionValue))
             return false;
     } else {
         auto task = cx->make_unique<InstantiatePromiseTask>(cx, promise, importObj);

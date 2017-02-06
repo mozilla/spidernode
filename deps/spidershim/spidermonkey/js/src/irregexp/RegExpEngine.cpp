@@ -1780,14 +1780,15 @@ irregexp::CompilePattern(JSContext* cx, RegExpShared* shared, RegExpCompileData*
     RegExpMacroAssembler* assembler;
     if (IsNativeRegExpEnabled(cx) &&
         !force_bytecode &&
-        jit::CanLikelyAllocateMoreExecutableMemory())
+        jit::CanLikelyAllocateMoreExecutableMemory() &&
+        shared->getSource()->length() < 32 * 1024)
     {
         NativeRegExpMacroAssembler::Mode mode =
             is_ascii ? NativeRegExpMacroAssembler::ASCII
                      : NativeRegExpMacroAssembler::CHAR16;
 
         ctx.emplace(cx, (jit::TempAllocator*) nullptr);
-        native_assembler.emplace(&alloc, shared, cx->runtime(), mode, (data->capture_count + 1) * 2);
+        native_assembler.emplace(cx, &alloc, shared, mode, (data->capture_count + 1) * 2);
         assembler = native_assembler.ptr();
     } else {
         interpreted_assembler.emplace(&alloc, shared, (data->capture_count + 1) * 2);

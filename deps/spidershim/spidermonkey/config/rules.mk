@@ -116,8 +116,8 @@ else
 LIBRARY			:= $(REAL_LIBRARY).$(LIBS_DESC_SUFFIX)
 endif
 else
-# Only build actual library if it is installed in DIST/lib or SDK
-ifeq (,$(SDK_LIBRARY)$(DIST_INSTALL)$(NO_EXPAND_LIBS))
+# Only build actual library if it is installed in DIST/lib
+ifeq (,$(DIST_INSTALL)$(NO_EXPAND_LIBS))
 LIBRARY			:= $(REAL_LIBRARY).$(LIBS_DESC_SUFFIX)
 else
 ifdef NO_EXPAND_LIBS
@@ -206,8 +206,11 @@ HOST_CFLAGS += $(HOST_PDB_FLAG)
 HOST_CXXFLAGS += $(HOST_PDB_FLAG)
 endif
 
-# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass
+# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass, and do not
+# attempt to install them
 ifdef MOZ_PROFILE_GENERATE
+$(foreach category,$(INSTALL_TARGETS),\
+  $(eval $(category)_FILES := $(foreach file,$($(category)_FILES),$(if $(filter $(SIMPLE_PROGRAMS),$(notdir $(file))),,$(file)))))
 SIMPLE_PROGRAMS :=
 endif
 
@@ -249,7 +252,6 @@ SIMPLE_PROGRAMS :=
 HOST_LIBRARY :=
 HOST_PROGRAM :=
 HOST_SIMPLE_PROGRAMS :=
-SDK_LIBRARY :=
 endif
 
 ALL_TRASH = \
@@ -941,7 +943,13 @@ endif
 # optimization level here, if necessary.  (The Cargo.toml files already
 # specify debug-assertions appropriately for --{disable,enable}-debug.)
 ifndef MOZ_OPTIMIZE
-rustflags_override = RUSTFLAGS='-C opt-level=0'
+rustflags = -C opt-level=0
+# Unfortunately, -C opt-level=0 implies -C debug-assertions, so we need
+# to explicitly disable them when MOZ_DEBUG is not set.
+ifndef MOZ_DEBUG
+rustflags += -C debug-assertions=no
+endif
+rustflags_override = RUSTFLAGS='$(rustflags)'
 endif
 
 CARGO_BUILD = env $(rustflags_override) \
@@ -1197,18 +1205,6 @@ PREF_DIR = defaults/pref
 ifneq (,$(DIST_SUBDIR)$(XPI_NAME))
 PREF_DIR = defaults/preferences
 endif
-
-################################################################################
-# SDK
-
-ifneq (,$(SDK_LIBRARY))
-ifndef NO_DIST_INSTALL
-SDK_LIBRARY_FILES := $(SDK_LIBRARY)
-SDK_LIBRARY_DEST := $(SDK_LIB_DIR)
-SDK_LIBRARY_TARGET := target
-INSTALL_TARGETS += SDK_LIBRARY
-endif
-endif # SDK_LIBRARY
 
 ################################################################################
 # CHROME PACKAGING

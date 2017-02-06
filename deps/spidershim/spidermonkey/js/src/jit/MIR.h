@@ -359,7 +359,7 @@ class MNode : public TempObject
 
   protected:
     // Need visibility on getUseFor to avoid O(n^2) complexity.
-    friend void AssertBasicGraphCoherency(MIRGraph& graph);
+    friend void AssertBasicGraphCoherency(MIRGraph& graph, bool force);
 
     // Gets the MUse corresponding to given operand.
     virtual MUse* getUseFor(size_t index) = 0;
@@ -1047,10 +1047,7 @@ class CompilerGCPointer
       : ptr_(ptr)
     {
         MOZ_ASSERT_IF(IsInsideNursery(ptr), IonCompilationCanUseNurseryPointers());
-#ifdef DEBUG
-        PerThreadData* pt = TlsPerThreadData.get();
-        MOZ_ASSERT_IF(pt->runtimeIfOnOwnerThread(), pt->suppressGC);
-#endif
+        MOZ_ASSERT_IF(!CurrentThreadIsIonCompiling(), TlsContext.get()->suppressGC);
     }
 
     operator T() const { return static_cast<T>(ptr_); }
@@ -12923,7 +12920,7 @@ class MResumePoint final :
 
   private:
     friend class MBasicBlock;
-    friend void AssertBasicGraphCoherency(MIRGraph& graph);
+    friend void AssertBasicGraphCoherency(MIRGraph& graph, bool force);
 
     // List of stack slots needed to reconstruct the frame corresponding to the
     // function which is compiled by IonBuilder.
@@ -13793,14 +13790,17 @@ class MAsmJSAtomicBinopHeap
     }
 };
 
-class MWasmLoadGlobalVar : public MNullaryInstruction
+class MWasmLoadGlobalVar
+  : public MAryInstruction<1>,
+    public NoTypePolicy::Data
 {
-    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant)
+    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant, MDefinition* tlsPtr)
       : globalDataOffset_(globalDataOffset), isConstant_(isConstant)
     {
         MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
         setResultType(type);
         setMovable();
+        initOperand(0, tlsPtr);
     }
 
     unsigned globalDataOffset_;
@@ -13809,6 +13809,7 @@ class MWasmLoadGlobalVar : public MNullaryInstruction
   public:
     INSTRUCTION_HEADER(WasmLoadGlobalVar)
     TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, tlsPtr))
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
 
@@ -13824,21 +13825,24 @@ class MWasmLoadGlobalVar : public MNullaryInstruction
 };
 
 class MWasmStoreGlobalVar
-  : public MUnaryInstruction,
+  : public MAryInstruction<2>,
     public NoTypePolicy::Data
 {
-    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* v)
-      : MUnaryInstruction(v), globalDataOffset_(globalDataOffset)
-    {}
+    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* value, MDefinition* tlsPtr)
+      : globalDataOffset_(globalDataOffset)
+    {
+        initOperand(0, value);
+        initOperand(1, tlsPtr);
+    }
 
     unsigned globalDataOffset_;
 
   public:
     INSTRUCTION_HEADER(WasmStoreGlobalVar)
     TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, value), (1, tlsPtr))
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
-    MDefinition* value() const { return getOperand(0); }
 
     AliasSet getAliasSet() const override {
         return AliasSet::Store(AliasSet::WasmGlobalVar);
@@ -14199,7 +14203,8 @@ bool ElementAccessIsTypedArray(CompilerConstraintList* constraints,
 bool ElementAccessIsPacked(CompilerConstraintList* constraints, MDefinition* obj);
 bool ElementAccessMightBeCopyOnWrite(CompilerConstraintList* constraints, MDefinition* obj);
 bool ElementAccessMightBeFrozen(CompilerConstraintList* constraints, MDefinition* obj);
-bool ElementAccessHasExtraIndexedProperty(IonBuilder* builder, MDefinition* obj);
+AbortReasonOr<bool>
+ElementAccessHasExtraIndexedProperty(IonBuilder* builder, MDefinition* obj);
 MIRType DenseNativeElementType(CompilerConstraintList* constraints, MDefinition* obj);
 BarrierKind PropertyReadNeedsTypeBarrier(JSContext* propertycx,
                                          CompilerConstraintList* constraints,
@@ -14224,8 +14229,10 @@ bool PropertyWriteNeedsTypeBarrier(TempAllocator& alloc, CompilerConstraintList*
                                    MBasicBlock* current, MDefinition** pobj,
                                    PropertyName* name, MDefinition** pvalue,
                                    bool canModify, MIRType implicitType = MIRType::None);
-bool ArrayPrototypeHasIndexedProperty(IonBuilder* builder, JSScript* script);
-bool TypeCanHaveExtraIndexedProperties(IonBuilder* builder, TemporaryTypeSet* types);
+AbortReasonOr<bool>
+ArrayPrototypeHasIndexedProperty(IonBuilder* builder, JSScript* script);
+AbortReasonOr<bool>
+TypeCanHaveExtraIndexedProperties(IonBuilder* builder, TemporaryTypeSet* types);
 
 } // namespace jit
 } // namespace js
