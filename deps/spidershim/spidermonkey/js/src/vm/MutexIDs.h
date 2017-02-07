@@ -26,7 +26,7 @@
   _(GCLock,                      400) \
                                       \
   _(SharedImmutableStringsCache, 500) \
-  _(FutexRuntime,                500) \
+  _(FutexThread,                 500) \
   _(PromiseTaskPtrVector,        500) \
   _(GeckoProfilerStrings,        500) \
   _(ProtectedRegionTree,         500) \
@@ -39,6 +39,7 @@
   _(TraceLoggerThreadState,      500) \
   _(DateTimeInfoMutex,           500) \
   _(IcuTimeZoneStateMutex,       500) \
+  _(ProcessExecutableRegion,     500) \
                                       \
   _(TraceLoggerGraphState,       600)
 

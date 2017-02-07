@@ -11,6 +11,8 @@
 #include "jit/SharedICHelpers.h"
 #include "proxy/Proxy.h"
 
+#include "jscntxtinlines.h"
+
 #include "jit/MacroAssembler-inl.h"
 
 using namespace js;
@@ -38,6 +40,7 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler
                                        Register scratch, LiveGeneralRegisterSet saveRegs);
 
     MOZ_MUST_USE bool emitStoreSlotShared(bool isFixed);
+    MOZ_MUST_USE bool emitAddAndStoreSlotShared(CacheOp op);
 
   public:
     friend class AutoStubFrame;
@@ -147,7 +150,7 @@ BaselineCacheIRCompiler::callVM(MacroAssembler& masm, const VMFunction& fun)
 {
     MOZ_ASSERT(inStubFrame_);
 
-    JitCode* code = cx_->jitRuntime()->getVMWrapper(fun);
+    JitCode* code = cx_->runtime()->jitRuntime()->getVMWrapper(fun);
     if (!code)
         return false;
 
@@ -752,7 +755,7 @@ BaselineCacheIRCompiler::emitStoreSlotShared(bool isFixed)
         masm.storeValue(val, slot);
     }
 
-    if (cx_->gc.nursery.exists())
+    if (cx_->nursery().exists())
         BaselineEmitPostWriteBarrierSlot(masm, obj, val, scratch, LiveGeneralRegisterSet(), cx_);
     return true;
 }
@@ -767,6 +770,132 @@ bool
 BaselineCacheIRCompiler::emitStoreDynamicSlot()
 {
     return emitStoreSlotShared(false);
+}
+
+bool
+BaselineCacheIRCompiler::emitAddAndStoreSlotShared(CacheOp op)
+{
+    ObjOperandId objId = reader.objOperandId();
+    Address offsetAddr = stubAddress(reader.stubOffset());
+
+    // Allocate the fixed registers first. These need to be fixed for
+    // callTypeUpdateIC.
+    AutoStubFrame stubFrame(*this);
+    AutoScratchRegister scratch(allocator, masm, R1.scratchReg());
+    ValueOperand val = allocator.useFixedValueRegister(masm, reader.valOperandId(), R0);
+
+    Register obj = allocator.useRegister(masm, objId);
+    bool changeGroup = reader.readBool();
+    Address newGroupAddr = stubAddress(reader.stubOffset());
+    Address newShapeAddr = stubAddress(reader.stubOffset());
+
+    if (op == CacheOp::AllocateAndStoreDynamicSlot) {
+        // We have to (re)allocate dynamic slots. Do this first, as it's the
+        // only fallible operation here. This simplifies the callTypeUpdateIC
+        // call below: it does not have to worry about saving registers used by
+        // failure paths.
+        Address numNewSlotsAddr = stubAddress(reader.stubOffset());
+
+        FailurePath* failure;
+        if (!addFailurePath(&failure))
+            return false;
+
+        AllocatableRegisterSet regs(RegisterSet::Volatile());
+        LiveRegisterSet save(regs.asLiveSet());
+
+        // Use ICStubReg as second scratch.
+        if (!save.has(ICStubReg))
+            save.add(ICStubReg);
+
+        masm.PushRegsInMask(save);
+
+        masm.setupUnalignedABICall(scratch);
+        masm.loadJSContext(scratch);
+        masm.passABIArg(scratch);
+        masm.passABIArg(obj);
+        masm.load32(numNewSlotsAddr, ICStubReg);
+        masm.passABIArg(ICStubReg);
+        masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, NativeObject::growSlotsDontReportOOM));
+        masm.mov(ReturnReg, scratch);
+
+        LiveRegisterSet ignore;
+        ignore.add(scratch);
+        masm.PopRegsInMaskIgnore(save, ignore);
+
+        masm.branchIfFalseBool(scratch, failure->label());
+    }
+
+    LiveGeneralRegisterSet saveRegs;
+    saveRegs.add(obj);
+    saveRegs.add(val);
+    if (!callTypeUpdateIC(stubFrame, obj, val, scratch, saveRegs))
+        return false;
+
+    if (changeGroup) {
+        // Changing object's group from a partially to fully initialized group,
+        // per the acquired properties analysis. Only change the group if the
+        // old group still has a newScript. This only applies to PlainObjects.
+        Label noGroupChange;
+        masm.loadPtr(Address(obj, JSObject::offsetOfGroup()), scratch);
+        masm.branchPtr(Assembler::Equal,
+                       Address(scratch, ObjectGroup::offsetOfAddendum()),
+                       ImmWord(0),
+                       &noGroupChange);
+
+        // Reload the new group from the cache.
+        masm.loadPtr(newGroupAddr, scratch);
+
+        Address groupAddr(obj, JSObject::offsetOfGroup());
+        EmitPreBarrier(masm, groupAddr, MIRType::ObjectGroup);
+        masm.storePtr(scratch, groupAddr);
+
+        masm.bind(&noGroupChange);
+    }
+
+    // Update the object's shape.
+    Address shapeAddr(obj, ShapedObject::offsetOfShape());
+    masm.loadPtr(newShapeAddr, scratch);
+    EmitPreBarrier(masm, shapeAddr, MIRType::Shape);
+    masm.storePtr(scratch, shapeAddr);
+
+    // Perform the store. No pre-barrier required since this is a new
+    // initialization.
+    masm.load32(offsetAddr, scratch);
+    if (op == CacheOp::AddAndStoreFixedSlot) {
+        BaseIndex slot(obj, scratch, TimesOne);
+        masm.storeValue(val, slot);
+    } else {
+        MOZ_ASSERT(op == CacheOp::AddAndStoreDynamicSlot ||
+                   op == CacheOp::AllocateAndStoreDynamicSlot);
+        // To avoid running out of registers on x86, use ICStubReg as scratch.
+        // We don't need it anymore.
+        Register slots = ICStubReg;
+        masm.loadPtr(Address(obj, NativeObject::offsetOfSlots()), slots);
+        BaseIndex slot(slots, scratch, TimesOne);
+        masm.storeValue(val, slot);
+    }
+
+    if (cx_->nursery().exists())
+        BaselineEmitPostWriteBarrierSlot(masm, obj, val, scratch, LiveGeneralRegisterSet(), cx_);
+    return true;
+}
+
+bool
+BaselineCacheIRCompiler::emitAddAndStoreFixedSlot()
+{
+    return emitAddAndStoreSlotShared(CacheOp::AddAndStoreFixedSlot);
+}
+
+bool
+BaselineCacheIRCompiler::emitAddAndStoreDynamicSlot()
+{
+    return emitAddAndStoreSlotShared(CacheOp::AddAndStoreDynamicSlot);
+}
+
+bool
+BaselineCacheIRCompiler::emitAllocateAndStoreDynamicSlot()
+{
+    return emitAddAndStoreSlotShared(CacheOp::AllocateAndStoreDynamicSlot);
 }
 
 bool
@@ -1006,6 +1135,36 @@ BaselineCacheIRCompiler::emitCallScriptedSetter()
     masm.callJit(scratch);
 
     stubFrame.leave(masm, true);
+    return true;
+}
+
+typedef bool (*SetArrayLengthFn)(JSContext*, HandleObject, HandleValue, bool);
+static const VMFunction SetArrayLengthInfo =
+    FunctionInfo<SetArrayLengthFn>(SetArrayLength, "SetArrayLength");
+
+bool
+BaselineCacheIRCompiler::emitCallSetArrayLength()
+{
+    AutoStubFrame stubFrame(*this);
+
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    bool strict = reader.readBool();
+    ValueOperand val = allocator.useValueRegister(masm, reader.valOperandId());
+
+    AutoScratchRegister scratch(allocator, masm);
+
+    allocator.discardStack(masm);
+
+    stubFrame.enter(masm, scratch);
+
+    masm.Push(Imm32(strict));
+    masm.Push(val);
+    masm.Push(obj);
+
+    if (!callVM(masm, SetArrayLengthInfo))
+        return false;
+
+    stubFrame.leave(masm);
     return true;
 }
 

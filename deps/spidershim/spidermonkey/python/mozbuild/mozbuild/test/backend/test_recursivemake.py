@@ -495,18 +495,6 @@ class TestRecursiveMakeBackend(BackendTester):
         self.assertIn('quux.png', m)
         self.assertIn('icons/foo.ico', m)
 
-    def test_sdk_files(self):
-        """Ensure SDK_FILES is handled properly."""
-        env = self._consume('sdk-files', RecursiveMakeBackend)
-
-        #SDK_FILES should appear in the dist_sdk install manifest.
-        m = InstallManifest(path=os.path.join(env.topobjdir,
-            '_build_manifests', 'install', 'dist_sdk'))
-        self.assertEqual(len(m), 3)
-        self.assertIn('bar.ico', m)
-        self.assertIn('quux.png', m)
-        self.assertIn('icons/foo.ico', m)
-
     def test_test_manifests_files_written(self):
         """Ensure test manifests get turned into files."""
         env = self._consume('test-manifests-written', RecursiveMakeBackend)
@@ -617,6 +605,16 @@ class TestRecursiveMakeBackend(BackendTester):
         self.assertTrue(os.path.isdir(p))
 
         self.assertTrue(os.path.isfile(mozpath.join(p, 'Makefile')))
+
+    def test_test_support_files_tracked(self):
+        env = self._consume('test-support-binaries-tracked', RecursiveMakeBackend)
+        m = InstallManifest(path=mozpath.join(env.topobjdir,
+            '_build_manifests', 'install', '_tests'))
+        self.assertEqual(len(m), 4)
+        self.assertIn('xpcshell/tests/mozbuildtest/test-library.dll', m)
+        self.assertIn('xpcshell/tests/mozbuildtest/test-one.exe', m)
+        self.assertIn('xpcshell/tests/mozbuildtest/test-two.exe', m)
+        self.assertIn('xpcshell/tests/mozbuildtest/host-test-library.dll', m)
 
     def test_old_install_manifest_deleted(self):
         # Simulate an install manifest from a previous backend version. Ensure

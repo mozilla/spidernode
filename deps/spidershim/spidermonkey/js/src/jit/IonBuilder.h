@@ -386,7 +386,7 @@ class IonBuilder
                                                        const LinearSum& byteOffset,
                                                        ReferenceTypeDescr::Type type,
                                                        PropertyName* name);
-    JSObject* getStaticTypedArrayObject(MDefinition* obj, MDefinition* index);
+    AbortReasonOr<JSObject*> getStaticTypedArrayObject(MDefinition* obj, MDefinition* index);
 
     // jsop_setelem() helpers.
     AbortReasonOr<Ok> setElemTryTypedArray(bool* emitted, MDefinition* object,
@@ -945,7 +945,7 @@ class IonBuilder
 
     TraceLoggerThread *traceLogger() {
         // Currently ionbuilder only runs on the main thread.
-        return TraceLoggerForMainThread(compartment->runtime()->mainThread()->runtimeFromMainThread());
+        return TraceLoggerForMainThread(compartment->runtime());
     }
 
     void actionableAbortLocationAndMessage(JSScript** abortScript, jsbytecode** abortPc,

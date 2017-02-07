@@ -303,7 +303,7 @@ class MOZ_RAII js::EnterDebuggeeNoExecute
         unlocked_(nullptr),
         reported_(false)
     {
-        stack_ = &cx->runtime()->noExecuteDebuggerTop;
+        stack_ = &cx->noExecuteDebuggerTop.ref();
         prev_ = *stack_;
         *stack_ = this;
     }
@@ -319,8 +319,7 @@ class MOZ_RAII js::EnterDebuggeeNoExecute
 
 #ifdef DEBUG
     static bool isLockedInStack(JSContext* cx, Debugger& dbg) {
-        JSRuntime* rt = cx->runtime();
-        for (EnterDebuggeeNoExecute* it = rt->noExecuteDebuggerTop; it; it = it->prev_) {
+        for (EnterDebuggeeNoExecute* it = cx->noExecuteDebuggerTop; it; it = it->prev_) {
             if (&it->debugger() == &dbg)
                 return !it->unlocked_;
         }
@@ -331,9 +330,8 @@ class MOZ_RAII js::EnterDebuggeeNoExecute
     // Given a JSContext entered into a debuggee compartment, find the lock
     // that locks it. Returns nullptr if not found.
     static EnterDebuggeeNoExecute* findInStack(JSContext* cx) {
-        JSRuntime* rt = cx->runtime();
         JSCompartment* debuggee = cx->compartment();
-        for (EnterDebuggeeNoExecute* it = rt->noExecuteDebuggerTop; it; it = it->prev_) {
+        for (EnterDebuggeeNoExecute* it = cx->noExecuteDebuggerTop; it; it = it->prev_) {
             Debugger& dbg = it->debugger();
             if (!it->unlocked_ && dbg.isEnabled() && dbg.observesGlobal(debuggee->maybeGlobal()))
                 return it;
@@ -399,7 +397,7 @@ class MOZ_RAII js::LeaveDebuggeeNoExecute
 Debugger::slowPathCheckNoExecute(JSContext* cx, HandleScript script)
 {
     MOZ_ASSERT(cx->compartment()->isDebuggee());
-    MOZ_ASSERT(cx->runtime()->noExecuteDebuggerTop);
+    MOZ_ASSERT(cx->noExecuteDebuggerTop);
     return EnterDebuggeeNoExecute::reportIfFoundInStack(cx, script);
 }
 
@@ -734,7 +732,7 @@ Debugger::init(JSContext* cx)
         return false;
     }
 
-    cx->runtime()->debuggerList.insertBack(this);
+    cx->zone()->group()->debuggerList().insertBack(this);
     return true;
 }
 
@@ -1375,7 +1373,7 @@ private:
 JSTrapStatus
 Debugger::reportUncaughtException(Maybe<AutoCompartment>& ac)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     // Uncaught exceptions arise from Debugger code, and so we must already be
     // in an NX section.
@@ -1419,7 +1417,7 @@ Debugger::handleUncaughtExceptionHelper(Maybe<AutoCompartment>& ac, MutableHandl
                                         const Maybe<HandleValue>& thisVForCheck,
                                         AbstractFramePtr frame)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     // Uncaught exceptions arise from Debugger code, and so we must already be
     // in an NX section.
@@ -1533,7 +1531,7 @@ Debugger::receiveCompletionValue(Maybe<AutoCompartment>& ac, bool ok,
                                  HandleValue val,
                                  MutableHandleValue vp)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     JSTrapStatus status;
     RootedValue value(cx);
@@ -1660,7 +1658,7 @@ Debugger::processResumptionValue(Maybe<AutoCompartment>& ac, AbstractFramePtr fr
                                  const Maybe<HandleValue>& maybeThisv, HandleValue rval,
                                  JSTrapStatus& statusp, MutableHandleValue vp)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     if (!ParseResumptionValue(cx, rval, statusp, vp) ||
         !unwrapDebuggeeValue(cx, vp) ||
@@ -1686,7 +1684,7 @@ Debugger::processParsedHandlerResultHelper(Maybe<AutoCompartment>& ac, AbstractF
     if (!success)
         return handleUncaughtException(ac, vp, maybeThisv, frame);
 
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     if (!unwrapDebuggeeValue(cx, vp) ||
         !CheckResumptionValue(cx, frame, maybeThisv, status, vp))
@@ -1708,7 +1706,7 @@ Debugger::processParsedHandlerResult(Maybe<AutoCompartment>& ac, AbstractFramePt
                                      jsbytecode* pc, bool success, JSTrapStatus status,
                                      MutableHandleValue vp)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     RootedValue thisv(cx);
     Maybe<HandleValue> maybeThisv;
@@ -1724,7 +1722,7 @@ JSTrapStatus
 Debugger::processHandlerResult(Maybe<AutoCompartment>& ac, bool success, const Value& rv,
                                AbstractFramePtr frame, jsbytecode* pc, MutableHandleValue vp)
 {
-    JSContext* cx = ac->context()->asJSContext();
+    JSContext* cx = ac->context();
 
     RootedValue thisv(cx);
     Maybe<HandleValue> maybeThisv;
@@ -2196,7 +2194,7 @@ Debugger::fireNewGlobalObject(JSContext* cx, Handle<GlobalObject*> global, Mutab
 void
 Debugger::slowPathOnNewGlobalObject(JSContext* cx, Handle<GlobalObject*> global)
 {
-    MOZ_ASSERT(!JS_CLIST_IS_EMPTY(&cx->runtime()->onNewGlobalObjectWatchers));
+    MOZ_ASSERT(!JS_CLIST_IS_EMPTY(&cx->runtime()->onNewGlobalObjectWatchers()));
     if (global->compartment()->creationOptions().invisibleToDebugger())
         return;
 
@@ -2206,8 +2204,8 @@ Debugger::slowPathOnNewGlobalObject(JSContext* cx, Handle<GlobalObject*> global)
      * can be mutated while we're walking it.
      */
     AutoObjectVector watchers(cx);
-    for (JSCList* link = JS_LIST_HEAD(&cx->runtime()->onNewGlobalObjectWatchers);
-         link != &cx->runtime()->onNewGlobalObjectWatchers;
+    for (JSCList* link = JS_LIST_HEAD(&cx->runtime()->onNewGlobalObjectWatchers());
+         link != &cx->runtime()->onNewGlobalObjectWatchers();
          link = JS_NEXT_LINK(link))
     {
         Debugger* dbg = fromOnNewGlobalObjectWatchersLink(link);
@@ -2247,7 +2245,7 @@ Debugger::slowPathOnNewGlobalObject(JSContext* cx, Handle<GlobalObject*> global)
 
 /* static */ bool
 Debugger::slowPathOnLogAllocationSite(JSContext* cx, HandleObject obj, HandleSavedFrame frame,
-                                      double when, GlobalObject::DebuggerVector& dbgs)
+                                      mozilla::TimeStamp when, GlobalObject::DebuggerVector& dbgs)
 {
     MOZ_ASSERT(!dbgs.empty());
     mozilla::DebugOnly<ReadBarriered<Debugger*>*> begin = dbgs.begin();
@@ -2290,7 +2288,7 @@ Debugger::isDebuggeeUnbarriered(const JSCompartment* compartment) const
 
 bool
 Debugger::appendAllocationSite(JSContext* cx, HandleObject obj, HandleSavedFrame frame,
-                               double when)
+                               mozilla::TimeStamp when)
 {
     MOZ_ASSERT(trackingAllocationSites && enabled);
 
@@ -2305,6 +2303,7 @@ Debugger::appendAllocationSite(JSContext* cx, HandleObject obj, HandleSavedFrame
         if (!JSObject::constructorDisplayAtom(cx, obj, &ctorName))
             return false;
     }
+    cx->markAtom(ctorName);
 
     auto className = obj->getClass()->name;
     auto size = JS::ubi::Node(obj.get()).size(cx->runtime()->debuggerMallocSizeOf);
@@ -2662,7 +2661,7 @@ UpdateExecutionObservabilityOfScriptsInZone(JSContext* cx, Zone* zone,
     }
 
     // Iterate through all wasm instances to find ones that need to be updated.
-    for (JSCompartment* c : zone->compartments) {
+    for (JSCompartment* c : zone->compartments()) {
         for (wasm::Instance* instance : c->wasm.instances()) {
             if (!instance->debugEnabled())
                 continue;
@@ -3028,7 +3027,7 @@ Debugger::traceCrossCompartmentEdges(JSTracer* trc)
  * all the edges being reported here are strong references.
  *
  * This method is also used during compacting GC to update cross compartment
- * pointers in zones that are not currently being compacted.
+ * pointers into zones that are being compacted.
  */
 /* static */ void
 Debugger::traceIncomingCrossCompartmentEdges(JSTracer* trc)
@@ -3037,13 +3036,10 @@ Debugger::traceIncomingCrossCompartmentEdges(JSTracer* trc)
     gc::State state = rt->gc.state();
     MOZ_ASSERT(state == gc::State::MarkRoots || state == gc::State::Compact);
 
-    for (Debugger* dbg : rt->debuggerList) {
+    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
         Zone* zone = MaybeForwarded(dbg->object.get())->zone();
-        if ((state == gc::State::MarkRoots && !zone->isCollecting()) ||
-            (state == gc::State::Compact && !zone->isGCCompacting()))
-        {
+        if (!zone->isCollecting() || state == gc::State::Compact)
             dbg->traceCrossCompartmentEdges(trc);
-        }
     }
 }
 
@@ -3141,15 +3137,15 @@ Debugger::markIteratively(GCMarker* marker)
 }
 
 /*
- * Trace all debugger-owned GC things unconditionally. This is used by the minor
- * GC: the minor GC cannot apply the weak constraints of the full GC because it
- * visits only part of the heap.
+ * Trace all debugger-owned GC things unconditionally. This is used during
+ * compacting GC and in minor GC: the minor GC cannot apply the weak constraints
+ * of the full GC because it visits only part of the heap.
  */
 /* static */ void
 Debugger::traceAll(JSTracer* trc)
 {
     JSRuntime* rt = trc->runtime();
-    for (Debugger* dbg : rt->debuggerList) {
+    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
         for (WeakGlobalObjectSet::Enum e(dbg->debuggees); !e.empty(); e.popFront())
             TraceManuallyBarrieredEdge(trc, e.mutableFront().unsafeGet(), "Global Object");
 
@@ -3230,7 +3226,7 @@ Debugger::sweepAll(FreeOp* fop)
 {
     JSRuntime* rt = fop->runtime();
 
-    for (Debugger* dbg : rt->debuggerList) {
+    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
         if (IsAboutToBeFinalized(&dbg->object)) {
             /*
              * dbg is being GC'd. Detach it from its debuggees. The debuggee
@@ -3261,7 +3257,7 @@ Debugger::findZoneEdges(Zone* zone, js::gc::ZoneComponentFinder& finder)
      * This ensure that debuggers and their debuggees are finalized in the same
      * group.
      */
-    for (Debugger* dbg : zone->runtimeFromMainThread()->debuggerList) {
+    for (Debugger* dbg : zone->runtimeFromMainThread()->zoneGroupFromMainThread()->debuggerList()) {
         Zone* w = dbg->object->zone();
         if (w == zone || !w->isGCMarking())
             continue;
@@ -3389,7 +3385,7 @@ Debugger::setEnabled(JSContext* cx, unsigned argc, Value* vp)
                 /* If we were not enabled, the link should be a singleton list. */
                 MOZ_ASSERT(JS_CLIST_IS_EMPTY(&dbg->onNewGlobalObjectWatchersLink));
                 JS_APPEND_LINK(&dbg->onNewGlobalObjectWatchersLink,
-                               &cx->runtime()->onNewGlobalObjectWatchers);
+                               &cx->runtime()->onNewGlobalObjectWatchers());
             } else {
                 /* If we were enabled, the link should be inserted in the list. */
                 MOZ_ASSERT(!JS_CLIST_IS_EMPTY(&dbg->onNewGlobalObjectWatchersLink));
@@ -3556,7 +3552,7 @@ Debugger::setOnNewGlobalObject(JSContext* cx, unsigned argc, Value* vp)
             /* If we didn't have a hook, the link should be a singleton list. */
             MOZ_ASSERT(JS_CLIST_IS_EMPTY(&dbg->onNewGlobalObjectWatchersLink));
             JS_APPEND_LINK(&dbg->onNewGlobalObjectWatchersLink,
-                           &cx->runtime()->onNewGlobalObjectWatchers);
+                           &cx->runtime()->onNewGlobalObjectWatchers());
         } else if (oldHook && !newHook) {
             /* If we did have a hook, the link should be inserted in the list. */
             MOZ_ASSERT(!JS_CLIST_IS_EMPTY(&dbg->onNewGlobalObjectWatchersLink));
@@ -5676,7 +5672,7 @@ struct DebuggerScriptGetLineCountMatcher
     }
     ReturnType match(Handle<WasmInstanceObject*> wasmInstance) {
         uint32_t result;
-        if (wasmInstance->instance().code().totalSourceLines(cx_, &result))
+        if (!wasmInstance->instance().code().totalSourceLines(cx_, &result))
             return false;
         totalLines = double(result);
         return true;
@@ -7489,7 +7485,9 @@ DebuggerSource_setSourceMapURL(JSContext* cx, unsigned argc, Value* vp)
     if (!stableChars.initTwoByte(cx, str))
         return false;
 
-    ss->setSourceMapURL(cx, stableChars.twoByteChars());
+    if (!ss->setSourceMapURL(cx, stableChars.twoByteChars()))
+        return false;
+
     args.rval().setUndefined();
     return true;
 }
@@ -8073,6 +8071,7 @@ DebuggerGenericEval(JSContext* cx, const mozilla::Range<const char16_t> chars,
         RootedId id(cx);
         for (size_t i = 0; i < keys.length(); i++) {
             id = keys[i];
+            cx->markId(id);
             MutableHandleValue val = values[i];
             if (!cx->compartment()->wrap(cx, val) ||
                 !NativeDefineProperty(cx, nenv, id, val, nullptr, nullptr, 0))
@@ -9025,7 +9024,7 @@ DebuggerObject::nameGetter(JSContext* cx, unsigned argc, Value* vp)
         return true;
     }
 
-    RootedString result(cx, object->name());
+    RootedString result(cx, object->name(cx));
     if (result)
         args.rval().setString(result);
     else
@@ -9043,7 +9042,7 @@ DebuggerObject::displayNameGetter(JSContext* cx, unsigned argc, Value* vp)
         return true;
     }
 
-    RootedString result(cx, object->displayName());
+    RootedString result(cx, object->displayName(cx));
     if (result)
         args.rval().setString(result);
     else
@@ -10076,19 +10075,23 @@ DebuggerObject::getGlobal(JSContext* cx, HandleDebuggerObject object,
 }
 
 JSAtom*
-DebuggerObject::name() const
+DebuggerObject::name(JSContext* cx) const
 {
     MOZ_ASSERT(isFunction());
 
-    return referent()->as<JSFunction>().explicitName();
+    JSAtom* atom = referent()->as<JSFunction>().explicitName();
+    cx->markAtom(atom);
+    return atom;
 }
 
 JSAtom*
-DebuggerObject::displayName() const
+DebuggerObject::displayName(JSContext* cx) const
 {
     MOZ_ASSERT(isFunction());
 
-    return referent()->as<JSFunction>().displayAtom();
+    JSAtom* atom = referent()->as<JSFunction>().displayAtom();
+    cx->markAtom(atom);
+    return atom;
 }
 
 JS::PromiseState
@@ -10132,7 +10135,9 @@ DebuggerObject::getParameterNames(JSContext* cx, HandleDebuggerObject object,
             PositionalFormalParameterIter fi(script);
             for (size_t i = 0; i < referent->nargs(); i++, fi++) {
                 MOZ_ASSERT(fi.argumentSlot() == i);
-                result[i].set(fi.name());
+                JSAtom* atom = fi.name();
+                cx->markAtom(atom);
+                result[i].set(atom);
             }
         }
     } else {
@@ -10394,6 +10399,9 @@ DebuggerObject::getOwnPropertyNames(JSContext* cx, HandleDebuggerObject object,
             return false;
     }
 
+    for (size_t i = 0; i < ids.length(); i++)
+        cx->markId(ids[i]);
+
     return result.append(ids.begin(), ids.end());
 }
 
@@ -10415,6 +10423,9 @@ DebuggerObject::getOwnPropertySymbols(JSContext* cx, HandleDebuggerObject object
             return false;
     }
 
+    for (size_t i = 0; i < ids.length(); i++)
+        cx->markId(ids[i]);
+
     return result.append(ids.begin(), ids.end());
 }
 
@@ -10429,6 +10440,7 @@ DebuggerObject::getOwnPropertyDescriptor(JSContext* cx, HandleDebuggerObject obj
     {
         Maybe<AutoCompartment> ac;
         ac.emplace(cx, referent);
+        cx->markId(id);
 
         ErrorCopier ec(ac);
         if (!GetOwnPropertyDescriptor(cx, referent, id, desc))
@@ -10512,6 +10524,7 @@ DebuggerObject::defineProperty(JSContext* cx, HandleDebuggerObject object, Handl
     ac.emplace(cx, referent);
     if (!cx->compartment()->wrap(cx, &desc))
         return false;
+    cx->markId(id);
 
     ErrorCopier ec(ac);
     if (!DefineProperty(cx, referent, id, desc))
@@ -10542,6 +10555,7 @@ DebuggerObject::defineProperties(JSContext* cx, HandleDebuggerObject object,
     for (size_t i = 0; i < descs.length(); i++) {
         if (!cx->compartment()->wrap(cx, descs[i]))
             return false;
+        cx->markId(ids[i]);
     }
 
     ErrorCopier ec(ac);
@@ -10561,6 +10575,8 @@ DebuggerObject::deleteProperty(JSContext* cx, HandleDebuggerObject object, Handl
 
     Maybe<AutoCompartment> ac;
     ac.emplace(cx, referent);
+
+    cx->markId(id);
 
     ErrorCopier ec(ac);
     return DeleteProperty(cx, referent, id, result);
@@ -11272,6 +11288,7 @@ DebuggerEnvironment::getNames(JSContext* cx, HandleDebuggerEnvironment environme
     for (size_t i = 0; i < ids.length(); ++i) {
         jsid id = ids[i];
         if (JSID_IS_ATOM(id) && IsIdentifier(JSID_TO_ATOM(id))) {
+            cx->markId(id);
             if (!result.append(id))
                 return false;
         }
@@ -11292,6 +11309,8 @@ DebuggerEnvironment::find(JSContext* cx, HandleDebuggerEnvironment environment, 
     {
         Maybe<AutoCompartment> ac;
         ac.emplace(cx, env);
+
+        cx->markId(id);
 
         /* This can trigger resolve hooks. */
         ErrorCopier ec(ac);
@@ -11324,6 +11343,8 @@ DebuggerEnvironment::getVariable(JSContext* cx, HandleDebuggerEnvironment enviro
     {
         Maybe<AutoCompartment> ac;
         ac.emplace(cx, referent);
+
+        cx->markId(id);
 
         /* This can trigger getters. */
         ErrorCopier ec(ac);
@@ -11381,6 +11402,7 @@ DebuggerEnvironment::setVariable(JSContext* cx, HandleDebuggerEnvironment enviro
         ac.emplace(cx, referent);
         if (!cx->compartment()->wrap(cx, &value))
             return false;
+        cx->markId(id);
 
         /* This can trigger setters. */
         ErrorCopier ec(ac);
@@ -11481,15 +11503,15 @@ Builder::newObject(JSContext* cx)
 /*** JS::dbg::AutoEntryMonitor ******************************************************************/
 
 AutoEntryMonitor::AutoEntryMonitor(JSContext* cx)
-  : runtime_(cx->runtime()),
-    savedMonitor_(cx->runtime()->entryMonitor)
+  : cx_(cx),
+    savedMonitor_(cx->entryMonitor)
 {
-    runtime_->entryMonitor = this;
+    cx->entryMonitor = this;
 }
 
 AutoEntryMonitor::~AutoEntryMonitor()
 {
-    runtime_->entryMonitor = savedMonitor_;
+    cx_->entryMonitor = savedMonitor_;
 }
 
 
@@ -11733,7 +11755,7 @@ FireOnGarbageCollectionHook(JSContext* cx, JS::dbg::GarbageCollectionEvent::Ptr&
         // participated in this GC.
         AutoCheckCannotGC noGC;
 
-        for (Debugger* dbg : cx->runtime()->debuggerList) {
+        for (Debugger* dbg : cx->runtime()->zoneGroupFromMainThread()->debuggerList()) {
             if (dbg->enabled &&
                 dbg->observedGC(data->majorGCNumber()) &&
                 dbg->getHook(Debugger::OnGarbageCollection))

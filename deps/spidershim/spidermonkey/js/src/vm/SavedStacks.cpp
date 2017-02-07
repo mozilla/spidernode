@@ -489,8 +489,19 @@ SavedFrame::initParent(SavedFrame* maybeParent)
 }
 
 void
-SavedFrame::initFromLookup(SavedFrame::HandleLookup lookup)
+SavedFrame::initFromLookup(JSContext* cx, SavedFrame::HandleLookup lookup)
 {
+    // Make sure any atoms used in the lookup are marked in the current zone.
+    // Normally we would try to keep these mark bits up to date around the
+    // points where the context moves between compartments, but Lookups live on
+    // the stack (where the atoms are kept alive regardless) and this is a
+    // more convenient pinchpoint.
+    cx->markAtom(lookup->source);
+    if (lookup->functionDisplayName)
+        cx->markAtom(lookup->functionDisplayName);
+    if (lookup->asyncCause)
+        cx->markAtom(lookup->asyncCause);
+
     initSource(lookup->source);
     initLine(lookup->line);
     initColumn(lookup->column);
@@ -725,18 +736,21 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameSource(JSContext* cx, HandleObject savedFrame, MutableHandleString sourcep,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
-    AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
-    bool skippedAsync;
-    js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, selfHosted, skippedAsync));
-    if (!frame) {
-        sourcep.set(cx->runtime()->emptyString);
-        return SavedFrameResult::AccessDenied;
+    {
+        AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
+        bool skippedAsync;
+        js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, selfHosted, skippedAsync));
+        if (!frame) {
+            sourcep.set(cx->runtime()->emptyString);
+            return SavedFrameResult::AccessDenied;
+        }
+        sourcep.set(frame->getSource());
     }
-    sourcep.set(frame->getSource());
+    cx->markAtom(sourcep);
     return SavedFrameResult::Ok;
 }
 
@@ -744,7 +758,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameLine(JSContext* cx, HandleObject savedFrame, uint32_t* linep,
                   SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
     MOZ_ASSERT(linep);
@@ -764,7 +778,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameColumn(JSContext* cx, HandleObject savedFrame, uint32_t* columnp,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
     MOZ_ASSERT(columnp);
@@ -784,18 +798,22 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameFunctionDisplayName(JSContext* cx, HandleObject savedFrame, MutableHandleString namep,
                                  SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
-    AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
-    bool skippedAsync;
-    js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, selfHosted, skippedAsync));
-    if (!frame) {
-        namep.set(nullptr);
-        return SavedFrameResult::AccessDenied;
+    {
+        AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
+        bool skippedAsync;
+        js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, selfHosted, skippedAsync));
+        if (!frame) {
+            namep.set(nullptr);
+            return SavedFrameResult::AccessDenied;
+        }
+        namep.set(frame->getFunctionDisplayName());
     }
-    namep.set(frame->getFunctionDisplayName());
+    if (namep)
+        cx->markAtom(namep);
     return SavedFrameResult::Ok;
 }
 
@@ -803,26 +821,30 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameAsyncCause(JSContext* cx, HandleObject savedFrame, MutableHandleString asyncCausep,
                         SavedFrameSelfHosted unused_ /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
-    AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
-    bool skippedAsync;
-    // This function is always called with self-hosted frames excluded by
-    // GetValueIfNotCached in dom/bindings/Exceptions.cpp. However, we want
-    // to include them because our Promise implementation causes us to have
-    // the async cause on a self-hosted frame. So we just ignore the
-    // parameter and always include self-hosted frames.
-    js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, SavedFrameSelfHosted::Include,
-                                                    skippedAsync));
-    if (!frame) {
-        asyncCausep.set(nullptr);
-        return SavedFrameResult::AccessDenied;
+    {
+        AutoMaybeEnterFrameCompartment ac(cx, savedFrame);
+        bool skippedAsync;
+        // This function is always called with self-hosted frames excluded by
+        // GetValueIfNotCached in dom/bindings/Exceptions.cpp. However, we want
+        // to include them because our Promise implementation causes us to have
+        // the async cause on a self-hosted frame. So we just ignore the
+        // parameter and always include self-hosted frames.
+        js::RootedSavedFrame frame(cx, UnwrapSavedFrame(cx, savedFrame, SavedFrameSelfHosted::Include,
+                                                        skippedAsync));
+        if (!frame) {
+            asyncCausep.set(nullptr);
+            return SavedFrameResult::AccessDenied;
+        }
+        asyncCausep.set(frame->getAsyncCause());
+        if (!asyncCausep && skippedAsync)
+            asyncCausep.set(cx->names().Async);
     }
-    asyncCausep.set(frame->getAsyncCause());
-    if (!asyncCausep && skippedAsync)
-        asyncCausep.set(cx->names().Async);
+    if (asyncCausep)
+        cx->markAtom(asyncCausep);
     return SavedFrameResult::Ok;
 }
 
@@ -830,7 +852,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameAsyncParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject asyncParentp,
                          SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -863,7 +885,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject parentp,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -939,14 +961,14 @@ JS_PUBLIC_API(bool)
 BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp,
                  size_t indent, js::StackFormat format)
 {
-    AssertHeapIsIdle(cx);
+    js::AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
     js::StringBuffer sb(cx);
 
     if (format == js::StackFormat::Default)
-        format = cx->stackFormat();
+        format = cx->runtime()->stackFormat();
     MOZ_ASSERT(format != js::StackFormat::Default);
 
     // Enter a new block to constrain the scope of possibly entering the stack's
@@ -1492,7 +1514,7 @@ SavedStacks::createFrameFromLookup(JSContext* cx, SavedFrame::HandleLookup looku
     RootedSavedFrame frame(cx, SavedFrame::create(cx));
     if (!frame)
         return nullptr;
-    frame->initFromLookup(lookup);
+    frame->initFromLookup(cx, lookup);
 
     if (!FreezeObject(cx, frame))
         return nullptr;
@@ -1618,7 +1640,7 @@ SavedStacks::MetadataBuilder::build(JSContext* cx, HandleObject target,
     if (!stacks.saveCurrentStack(cx, &frame))
         oomUnsafe.crash("SavedStacksMetadataBuilder");
 
-    if (!Debugger::onLogAllocationSite(cx, obj, frame, JS_GetCurrentEmbedderTime()))
+    if (!Debugger::onLogAllocationSite(cx, obj, frame, mozilla::TimeStamp::Now()))
         oomUnsafe.crash("SavedStacksMetadataBuilder");
 
     MOZ_ASSERT_IF(frame, !frame->is<WrapperObject>());

@@ -34,6 +34,8 @@ from ..frontend.data import (
     AndroidExtraResDirs,
     AndroidExtraPackages,
     AndroidEclipseProjectData,
+    BaseLibrary,
+    BaseProgram,
     ChromeManifestEntry,
     ConfigFileSubstitution,
     ContextDerived,
@@ -55,6 +57,7 @@ from ..frontend.data import (
     JARManifest,
     JavaJarData,
     Library,
+    Linkable,
     LocalInclude,
     ObjdirFiles,
     ObjdirPreprocessedFiles,
@@ -125,8 +128,6 @@ MOZBUILD_VARIABLES = [
     b'PREF_JS_EXPORTS',
     b'PROGRAM',
     b'RESOURCE_FILES',
-    b'SDK_HEADERS',
-    b'SDK_LIBRARY',
     b'SHARED_LIBRARY_LIBS',
     b'SHARED_LIBRARY_NAME',
     b'SIMPLE_PROGRAMS',
@@ -395,7 +396,6 @@ class RecursiveMakeBackend(CommonBackend):
         # used for a "magic" rm -rf.
         self._install_manifests['dist_public']
         self._install_manifests['dist_private']
-        self._install_manifests['dist_sdk']
 
         self._traversal = RecursiveMakeTraversal()
         self._compile_graph = OrderedDefaultDict(set)
@@ -446,6 +446,9 @@ class RecursiveMakeBackend(CommonBackend):
 
         if not isinstance(obj, Defines):
             self.consume_object(obj.defines)
+
+        if isinstance(obj, Linkable):
+            self._process_test_support_file(obj)
 
         if isinstance(obj, DirectoryTraversal):
             self._process_directory_traversal(obj, backend_file)
@@ -1076,6 +1079,24 @@ class RecursiveMakeBackend(CommonBackend):
     def _process_host_simple_program(self, program, backend_file):
         backend_file.write('HOST_SIMPLE_PROGRAMS += %s\n' % program)
 
+    def _process_test_support_file(self, obj):
+        # Ensure test support programs and libraries are tracked by an
+        # install manifest for the benefit of the test packager.
+        if not obj.install_target.startswith('_tests'):
+            return
+
+        dest_basename = None
+        if isinstance(obj, BaseLibrary):
+            dest_basename = obj.lib_name
+        elif isinstance(obj, BaseProgram):
+            dest_basename = obj.program
+        if dest_basename is None:
+            return
+
+        self._install_manifests['_tests'].add_optional_exists(
+            mozpath.join(obj.install_target[len('_tests') + 1:],
+                         dest_basename))
+
     def _process_test_manifest(self, obj, backend_file):
         # Much of the logic in this function could be moved to CommonBackend.
         for source in obj.source_relpaths:
@@ -1189,8 +1210,6 @@ class RecursiveMakeBackend(CommonBackend):
             backend_file.write('IS_COMPONENT := 1\n')
         if libdef.soname:
             backend_file.write('DSO_SONAME := %s\n' % libdef.soname)
-        if libdef.is_sdk:
-            backend_file.write('SDK_LIBRARY := %s\n' % libdef.import_name)
         if libdef.symbols_file:
             backend_file.write('SYMBOLS_FILE := %s\n' % libdef.symbols_file)
         if not libdef.cxx_link:
@@ -1200,8 +1219,6 @@ class RecursiveMakeBackend(CommonBackend):
         backend_file.write_once('LIBRARY_NAME := %s\n' % libdef.basename)
         backend_file.write('FORCE_STATIC_LIB := 1\n')
         backend_file.write('REAL_LIBRARY := %s\n' % libdef.lib_name)
-        if libdef.is_sdk:
-            backend_file.write('SDK_LIBRARY := %s\n' % libdef.import_name)
         if libdef.no_expand_lib:
             backend_file.write('NO_EXPAND_LIBS := 1\n')
 
@@ -1315,7 +1332,6 @@ class RecursiveMakeBackend(CommonBackend):
             '_tests',
             'dist/include',
             'dist/branding',
-            'dist/sdk',
         ))
         if not path:
             raise Exception("Cannot install to " + target)
