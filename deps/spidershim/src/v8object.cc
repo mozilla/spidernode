@@ -193,6 +193,21 @@ Maybe<bool> Object::DefineOwnProperty(Local<Context> context, Local<Name> key,
   return Set(context, key, value, attributes, /* force = */ true);
 }
 
+Maybe<bool> Object::DefineProperty(Local<Context> context, Local<Name> key,
+                                   PropertyDescriptor& descriptor) {
+  uint32_t attributes = None;
+  if (!descriptor.writable()) {
+    attributes |= ReadOnly;
+  }
+  if (!descriptor.enumerable()) {
+    attributes |= DontEnum;
+  }
+  if (!descriptor.configurable()) {
+    attributes |= DontDelete;
+  }
+  return Set(context, key, descriptor.value(), static_cast<PropertyAttribute>(attributes), /* force = */ true);
+}
+
 Maybe<bool> Object::ForceSet(Local<Context> context, Local<Value> key,
                              Local<Value> value, PropertyAttribute attributes) {
   return Set(context, key, value, attributes, /* force = */ true);

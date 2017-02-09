@@ -3627,3 +3627,143 @@ TEST(SpiderShim, Vector) {
                    ->Int32Value(context)
                    .FromJust());
 }
+
+TEST(SpiderShim, PropertyDescriptor) {
+  // This test is based on V8's PropertyDescriptor test.
+  V8Engine engine;
+
+  Isolate::Scope isolate_scope(engine.isolate());
+  HandleScope handle_scope(engine.isolate());
+  Local<Context> context = Context::New(engine.isolate());
+  Context::Scope context_scope(context);
+  Isolate* isolate = engine.isolate();
+
+  {  // empty descriptor
+    v8::PropertyDescriptor desc;
+    EXPECT_TRUE(!desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_configurable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // data descriptor
+    v8::PropertyDescriptor desc(v8_num(42));
+    desc.set_enumerable(false);
+    EXPECT_TRUE(desc.value() == v8_num(42));
+    EXPECT_TRUE(desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(desc.has_enumerable());
+    EXPECT_TRUE(!desc.enumerable());
+    EXPECT_TRUE(!desc.has_configurable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // data descriptor
+    v8::PropertyDescriptor desc(v8_num(42));
+    desc.set_configurable(true);
+    EXPECT_TRUE(desc.value() == v8_num(42));
+    EXPECT_TRUE(desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(desc.has_configurable());
+    EXPECT_TRUE(desc.configurable());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // data descriptor
+    v8::PropertyDescriptor desc(v8_num(42));
+    desc.set_configurable(false);
+    EXPECT_TRUE(desc.value() == v8_num(42));
+    EXPECT_TRUE(desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(desc.has_configurable());
+    EXPECT_TRUE(!desc.configurable());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // data descriptor
+    v8::PropertyDescriptor desc(v8_num(42), false);
+    EXPECT_TRUE(desc.value() == v8_num(42));
+    EXPECT_TRUE(desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_configurable());
+    EXPECT_TRUE(desc.has_writable());
+    EXPECT_TRUE(!desc.writable());
+  }
+  {
+    // data descriptor
+    v8::PropertyDescriptor desc(v8::Local<v8::Value>(), true);
+    EXPECT_TRUE(!desc.has_value());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_configurable());
+    EXPECT_TRUE(desc.has_writable());
+    EXPECT_TRUE(desc.writable());
+  }
+  {
+    // accessor descriptor
+    CompileRun("var set = function() {return 43;};");
+
+    v8::Local<v8::Function> set =
+        v8::Local<v8::Function>::Cast(context->Global()
+                                          ->Get(context, v8_str("set"))
+                                          .ToLocalChecked());
+    v8::PropertyDescriptor desc(v8::Undefined(isolate), set);
+    desc.set_configurable(false);
+    EXPECT_TRUE(!desc.has_value());
+    EXPECT_TRUE(desc.has_get());
+    EXPECT_TRUE(desc.get() == v8::Undefined(isolate));
+    EXPECT_TRUE(desc.has_set());
+    EXPECT_TRUE(desc.set() == set);
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(desc.has_configurable());
+    EXPECT_TRUE(!desc.configurable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // accessor descriptor with Proxy
+    CompileRun(
+        "var set = new Proxy(function() {}, {});"
+        "var get = undefined;");
+
+    v8::Local<v8::Value> get =
+        v8::Local<v8::Value>::Cast(context->Global()
+                                       ->Get(context, v8_str("get"))
+                                       .ToLocalChecked());
+    v8::Local<v8::Function> set =
+        v8::Local<v8::Function>::Cast(context->Global()
+                                          ->Get(context, v8_str("set"))
+                                          .ToLocalChecked());
+    v8::PropertyDescriptor desc(get, set);
+    desc.set_configurable(false);
+    EXPECT_TRUE(!desc.has_value());
+    EXPECT_TRUE(desc.get() == v8::Undefined(isolate));
+    EXPECT_TRUE(desc.has_get());
+    EXPECT_TRUE(desc.set() == set);
+    EXPECT_TRUE(desc.has_set());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(desc.has_configurable());
+    EXPECT_TRUE(!desc.configurable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+  {
+    // accessor descriptor with empty function handle
+    v8::Local<v8::Function> get = v8::Local<v8::Function>();
+    v8::PropertyDescriptor desc(get, get);
+    EXPECT_TRUE(!desc.has_value());
+    EXPECT_TRUE(!desc.has_get());
+    EXPECT_TRUE(!desc.has_set());
+    EXPECT_TRUE(!desc.has_enumerable());
+    EXPECT_TRUE(!desc.has_configurable());
+    EXPECT_TRUE(!desc.has_writable());
+  }
+}

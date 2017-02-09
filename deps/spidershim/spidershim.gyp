@@ -87,6 +87,7 @@
         'src/v8numberobject.cc',
         'src/v8object.cc',
         'src/v8objecttemplate.cc',
+        'src/v8propertydescriptor.cc',
         'src/v8private.cc',
         'src/v8proxy.cc',
         'src/v8script.cc',
