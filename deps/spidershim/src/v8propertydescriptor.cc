@@ -122,21 +122,21 @@ struct PropertyDescriptor::Impl {
 };
 
 PropertyDescriptor::PropertyDescriptor()
-  : pimpl_(new Impl()) {}
+    : pimpl_(new Impl()) {}
 
 PropertyDescriptor::PropertyDescriptor(Local<Value> value)
-  : pimpl_(new Impl()) {
+    : pimpl_(new Impl()) {
   pimpl_->SetValue(value);
 }
 
 PropertyDescriptor::PropertyDescriptor(Local<Value> value, bool writable)
-  : pimpl_(new Impl()) {
+    : pimpl_(new Impl()) {
   pimpl_->SetValue(value);
   pimpl_->SetWritable(writable);
 }
 
 PropertyDescriptor::PropertyDescriptor(Local<Value> get, Local<Value> set)
-  : pimpl_(new Impl()) {
+    : pimpl_(new Impl()) {
   assert(get.IsEmpty() || get->IsUndefined() || get->IsFunction());
   assert(set.IsEmpty() || set->IsUndefined() || set->IsFunction());
   pimpl_->SetGetter(get);
