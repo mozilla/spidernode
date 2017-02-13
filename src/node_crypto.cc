@@ -3598,9 +3598,13 @@ bool CipherBase::SetAutoPadding(bool auto_padding) {
 
 
 void CipherBase::SetAutoPadding(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+
   CipherBase* cipher;
   ASSIGN_OR_RETURN_UNWRAP(&cipher, args.Holder());
-  cipher->SetAutoPadding(args.Length() < 1 || args[0]->BooleanValue());
+
+  if (!cipher->SetAutoPadding(args.Length() < 1 || args[0]->BooleanValue()))
+    env->ThrowError("Attempting to set auto padding in unsupported state");
 }
 
 
@@ -5889,14 +5893,14 @@ void InitCryptoOnce() {
   OPENSSL_no_config();
 
   // --openssl-config=...
-  if (openssl_config != nullptr) {
+  if (!openssl_config.empty()) {
     OPENSSL_load_builtin_modules();
 #ifndef OPENSSL_NO_ENGINE
     ENGINE_load_builtin_engines();
 #endif
     ERR_clear_error();
     CONF_modules_load_file(
-        openssl_config,
+        openssl_config.c_str(),
         nullptr,
         CONF_MFLAGS_DEFAULT_SECTION);
     int err = ERR_get_error();

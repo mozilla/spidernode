@@ -2,6 +2,7 @@
 const common = require('../common');
 const assert = require('assert');
 const spawn = require('child_process').spawn;
+const os = require('os');
 
 if (common.isChakraEngine) {
   console.log('1..0 # Skipped: This test is disabled for chakra engine ' +
@@ -13,6 +14,12 @@ const debugPort = common.PORT;
 const args = ['--interactive', '--debug-port=' + debugPort];
 const childOptions = { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] };
 const child = spawn(process.execPath, args, childOptions);
+
+const reDeprecationWarning = new RegExp(
+  /^\(node:\d+\) \[DEP0062\] DeprecationWarning: /.source +
+  /node --debug is deprecated. /.source +
+  /Please use node --inspect instead.$/.source
+);
 
 child.stdin.write("process.send({ msg: 'childready' });\n");
 
@@ -43,12 +50,20 @@ function processStderrLine(line) {
 }
 
 function assertOutputLines() {
-  const expectedLines = [
-    'Starting debugger agent.',
-    'Debugger listening on 127.0.0.1:' + debugPort,
+  // need a var so can swap the first two lines in following
+  // eslint-disable-next-line no-var
+  var expectedLines = [
+    /^Starting debugger agent.$/,
+    reDeprecationWarning,
+    new RegExp(`^Debugger listening on 127.0.0.1:${debugPort}$`)
   ];
+
+  if (os.platform() === 'win32') {
+    expectedLines[1] = expectedLines[0];
+    expectedLines[0] = reDeprecationWarning;
+  }
 
   assert.strictEqual(outputLines.length, expectedLines.length);
   for (let i = 0; i < expectedLines.length; i++)
-    assert(expectedLines[i].includes(outputLines[i]));
+    assert(expectedLines[i].test(outputLines[i]));
 }

@@ -156,7 +156,7 @@ static const char* trace_enabled_categories = nullptr;
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
 // Path to ICU data (for i18n / Intl)
-static const char* icu_data_dir = nullptr;
+std::string icu_data_dir;  // NOLINT(runtime/string)
 #endif
 
 // used by C++ modules as well
@@ -176,7 +176,7 @@ bool ssl_openssl_cert_store =
 bool enable_fips_crypto = false;
 bool force_fips_crypto = false;
 # endif  // NODE_FIPS_MODE
-const char* openssl_config = nullptr;
+std::string openssl_config;  // NOLINT(runtime/string)
 #endif  // HAVE_OPENSSL
 
 // true if process warnings should be suppressed
@@ -189,7 +189,7 @@ bool trace_warnings = false;
 bool config_preserve_symlinks = false;
 
 // Set in node.cc by ParseArgs when --redirect-warnings= is used.
-const char* config_warning_file;
+std::string config_warning_file;  // NOLINT(runtime/string)
 
 bool v8_initialized = false;
 
@@ -924,12 +924,21 @@ Local<Value> UVException(Isolate* isolate,
 
 
 // Look up environment variable unless running as setuid root.
-inline const char* secure_getenv(const char* key) {
+bool SafeGetenv(const char* key, std::string* text) {
 #ifndef _WIN32
-  if (getuid() != geteuid() || getgid() != getegid())
-    return nullptr;
+  // TODO(bnoordhuis) Should perhaps also check whether getauxval(AT_SECURE)
+  // is non-zero on Linux.
+  if (getuid() != geteuid() || getgid() != getegid()) {
+    text->clear();
+    return false;
+  }
 #endif
-  return getenv(key);
+  if (const char* value = getenv(key)) {
+    *text = value;
+    return true;
+  }
+  text->clear();
+  return false;
 }
 
 
@@ -3091,17 +3100,6 @@ void SetupProcessObject(Environment* env,
                     "ares",
                     FIXED_ONE_BYTE_STRING(env->isolate(), ARES_VERSION_STR));
 
-#if defined(NODE_HAVE_I18N_SUPPORT) && defined(U_ICU_VERSION)
-  // ICU-related versions are now handled on the js side, see bootstrap_node.js
-
-  if (icu_data_dir != nullptr) {
-    // Did the user attempt (via env var or parameter) to set an ICU path?
-    READONLY_PROPERTY(process,
-                      "icu_data_dir",
-                      OneByteString(env->isolate(), icu_data_dir));
-  }
-#endif
-
   const char node_modules_version[] = NODE_STRINGIFY(NODE_MODULE_VERSION);
   READONLY_PROPERTY(
       versions,
@@ -3557,8 +3555,9 @@ static void PrintHelp() {
          "  --enable-fips              enable FIPS crypto at startup\n"
          "  --force-fips               force FIPS crypto (cannot be disabled)\n"
 #endif  /* NODE_FIPS_MODE */
-         "  --openssl-config=path      load OpenSSL configuration file from\n"
-         "                             the specified path\n"
+         "  --openssl-config=file      load OpenSSL configuration from the\n"
+         "                             specified file (overrides\n"
+         "                             OPENSSL_CONF)\n"
 #endif /* HAVE_OPENSSL */
 #if defined(NODE_HAVE_I18N_SUPPORT)
          "  --icu-data-dir=dir         set ICU data load path to dir\n"
@@ -3593,6 +3592,8 @@ static void PrintHelp() {
          "                             file\n"
          "NODE_REDIRECT_WARNINGS       write warnings to path instead of\n"
          "                             stderr\n"
+         "OPENSSL_CONF                 load OpenSSL configuration from file\n"
+         "\n"
          "Documentation can be found at https://nodejs.org/\n");
 }
 
@@ -3742,11 +3743,11 @@ static void ParseArgs(int* argc,
       force_fips_crypto = true;
 #endif /* NODE_FIPS_MODE */
     } else if (strncmp(arg, "--openssl-config=", 17) == 0) {
-      openssl_config = arg + 17;
+      openssl_config.assign(arg + 17);
 #endif /* HAVE_OPENSSL */
 #if defined(NODE_HAVE_I18N_SUPPORT)
     } else if (strncmp(arg, "--icu-data-dir=", 15) == 0) {
-      icu_data_dir = arg + 15;
+      icu_data_dir.assign(arg + 15);
 #endif
     } else if (strcmp(arg, "--expose-internals") == 0 ||
                strcmp(arg, "--expose_internals") == 0) {
@@ -4233,13 +4234,17 @@ void Init(int* argc,
 #endif
 
   // Allow for environment set preserving symlinks.
-  if (auto preserve_symlinks = secure_getenv("NODE_PRESERVE_SYMLINKS")) {
-    config_preserve_symlinks = (*preserve_symlinks == '1');
+  {
+    std::string text;
+    config_preserve_symlinks =
+        SafeGetenv("NODE_PRESERVE_SYMLINKS", &text) && text[0] == '1';
   }
 
-  if (auto redirect_warnings = secure_getenv("NODE_REDIRECT_WARNINGS")) {
-    config_warning_file = redirect_warnings;
-  }
+  if (config_warning_file.empty())
+    SafeGetenv("NODE_REDIRECT_WARNINGS", &config_warning_file);
+
+  if (openssl_config.empty())
+    SafeGetenv("OPENSSL_CONF", &openssl_config);
 
   // Parse a few arguments which are specific to Node.
   int v8_argc;
@@ -4267,12 +4272,11 @@ void Init(int* argc,
 #endif
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
-  if (icu_data_dir == nullptr) {
-    // if the parameter isn't given, use the env variable.
-    icu_data_dir = secure_getenv("NODE_ICU_DATA");
-  }
+  // If the parameter isn't given, use the env variable.
+  if (icu_data_dir.empty())
+    SafeGetenv("NODE_ICU_DATA", &icu_data_dir);
   // Initialize ICU.
-  // If icu_data_dir is nullptr here, it will load the 'minimal' data.
+  // If icu_data_dir is empty here, it will load the 'minimal' data.
   if (!i18n::InitializeICUDirectory(icu_data_dir)) {
     FatalError(nullptr, "Could not initialize ICU "
                      "(check NODE_ICU_DATA or --icu-data-dir parameters)");
@@ -4537,8 +4541,11 @@ int Start(int argc, char** argv) {
   Init(&argc, const_cast<const char**>(argv), &exec_argc, &exec_argv);
 
 #if HAVE_OPENSSL
-  if (const char* extra = secure_getenv("NODE_EXTRA_CA_CERTS"))
-    crypto::UseExtraCaCerts(extra);
+  {
+    std::string extra_ca_certs;
+    if (SafeGetenv("NODE_EXTRA_CA_CERTS", &extra_ca_certs))
+      crypto::UseExtraCaCerts(extra_ca_certs);
+  }
 #ifdef NODE_FIPS_MODE
   // In the case of FIPS builds we should make sure
   // the random source is properly initialized first.
@@ -4547,7 +4554,7 @@ int Start(int argc, char** argv) {
   // V8 on Windows doesn't have a good source of entropy. Seed it from
   // OpenSSL's pool.
   V8::SetEntropySource(crypto::EntropySource);
-#endif
+#endif  // HAVE_OPENSSL
 
   v8_platform.Initialize(v8_thread_pool_size);
   // Enable tracing when argv has --trace-events-enabled.
