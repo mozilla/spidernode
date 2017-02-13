@@ -191,9 +191,9 @@ class CheckThreadLocal
 template <typename T>
 using ThreadLocalData = ProtectedDataNoCheckArgs<CheckThreadLocal, T>;
 
-// Enum describing which background threads (GC tasks or Ion compilations) may
+// Enum describing which helper threads (GC tasks or Ion compilations) may
 // access data even though they do not have exclusive access to any zone group.
-enum class AllowedBackgroundThread
+enum class AllowedHelperThread
 {
     None,
     GCTask,
@@ -201,7 +201,29 @@ enum class AllowedBackgroundThread
     GCTaskOrIonCompile
 };
 
-template <AllowedBackgroundThread Background>
+template <AllowedHelperThread Helper>
+class CheckActiveThread
+{
+  public:
+    void check() const;
+};
+
+// Data which may only be accessed by the runtime's cooperatively scheduled
+// active thread.
+template <typename T>
+using ActiveThreadData =
+    ProtectedDataNoCheckArgs<CheckActiveThread<AllowedHelperThread::None>, T>;
+
+// Data which may only be accessed by the runtime's cooperatively scheduled
+// active thread, or by various helper thread tasks.
+template <typename T>
+using ActiveThreadOrGCTaskData =
+    ProtectedDataNoCheckArgs<CheckActiveThread<AllowedHelperThread::GCTask>, T>;
+template <typename T>
+using ActiveThreadOrIonCompileData =
+    ProtectedDataNoCheckArgs<CheckActiveThread<AllowedHelperThread::IonCompile>, T>;
+
+template <AllowedHelperThread Helper>
 class CheckZoneGroup
 {
 #ifdef DEBUG
@@ -220,25 +242,19 @@ class CheckZoneGroup
 // associated zone group.
 template <typename T>
 using ZoneGroupData =
-    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedBackgroundThread::None>, T>;
+    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedHelperThread::None>, T>;
 
 // Data which may only be accessed by threads with exclusive access to the
-// associated zone group, or by GC helper thread tasks.
+// associated zone group, or by various helper thread tasks.
 template <typename T>
 using ZoneGroupOrGCTaskData =
-    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedBackgroundThread::GCTask>, T>;
-
-// Data which may only be accessed by threads with exclusive access to the
-// associated zone group, or by Ion compilation helper thread tasks.
+    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedHelperThread::GCTask>, T>;
 template <typename T>
 using ZoneGroupOrIonCompileData =
-    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedBackgroundThread::IonCompile>, T>;
-
-// Data which may only be accessed by threads with exclusive access to the
-// associated zone group, or by either GC helper or Ion compilation tasks.
+    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedHelperThread::IonCompile>, T>;
 template <typename T>
 using ZoneGroupOrGCTaskOrIonCompileData =
-    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedBackgroundThread::GCTaskOrIonCompile>, T>;
+    ProtectedDataZoneGroupArg<CheckZoneGroup<AllowedHelperThread::GCTaskOrIonCompile>, T>;
 
 // Runtime wide locks which might protect some data.
 enum class GlobalLock
@@ -248,7 +264,7 @@ enum class GlobalLock
     HelperThreadLock
 };
 
-template <GlobalLock Lock, AllowedBackgroundThread Background>
+template <GlobalLock Lock, AllowedHelperThread Helper>
 class CheckGlobalLock
 {
 #ifdef DEBUG
@@ -260,24 +276,24 @@ class CheckGlobalLock
 // Data which may only be accessed while holding the GC lock.
 template <typename T>
 using GCLockData =
-    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::GCLock, AllowedBackgroundThread::None>, T>;
+    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::GCLock, AllowedHelperThread::None>, T>;
 
 // Data which may only be accessed while holding the exclusive access lock.
 template <typename T>
 using ExclusiveAccessLockData =
-    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedBackgroundThread::None>, T>;
+    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedHelperThread::None>, T>;
 
 // Data which may only be accessed while holding the exclusive access lock or
 // by GC helper thread tasks (at which point a foreground thread should be
 // holding the exclusive access lock, though we do not check this).
 template <typename T>
 using ExclusiveAccessLockOrGCTaskData =
-    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedBackgroundThread::GCTask>, T>;
+    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedHelperThread::GCTask>, T>;
 
 // Data which may only be accessed while holding the helper thread lock.
 template <typename T>
 using HelperThreadLockData =
-    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::HelperThreadLock, AllowedBackgroundThread::None>, T>;
+    ProtectedDataNoCheckArgs<CheckGlobalLock<GlobalLock::HelperThreadLock, AllowedHelperThread::None>, T>;
 
 // Class for protected data that is only written to once. 'const' may sometimes
 // be usable instead of this class, but in cases where the data cannot be set
@@ -305,7 +321,11 @@ class ProtectedDataWriteOnce
     const T& operator->() const { return ref(); }
 
     template <typename U>
-    ThisType& operator=(const U& p) { this->writeRef() = p; return *this; }
+    ThisType& operator=(const U& p) {
+        if (ref() != p)
+            this->writeRef() = p;
+        return *this;
+    }
 
     const T& ref() const { return value; }
 
@@ -336,7 +356,7 @@ using WriteOnceData = ProtectedDataWriteOnce<CheckUnprotected, T>;
 // Data that is written once, and only while holding the exclusive access lock.
 template <typename T>
 using ExclusiveAccessLockWriteOnceData =
-    ProtectedDataWriteOnce<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedBackgroundThread::None>, T>;
+    ProtectedDataWriteOnce<CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedHelperThread::None>, T>;
 
 #undef DECLARE_ASSIGNMENT_OPERATOR
 #undef DECLARE_ONE_BOOL_OPERATOR

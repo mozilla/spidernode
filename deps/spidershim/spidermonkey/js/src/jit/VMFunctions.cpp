@@ -57,7 +57,7 @@ bool
 InvokeFunction(JSContext* cx, HandleObject obj, bool constructing, uint32_t argc, Value* argv,
                MutableHandleValue rval)
 {
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     TraceLogStartEvent(logger, TraceLogger_Call);
 
     AutoArrayRooter argvRoot(cx, argc + 1 + constructing, argv);
@@ -401,8 +401,25 @@ SetArrayLength(JSContext* cx, HandleObject obj, HandleValue value, bool strict)
 
     RootedId id(cx, NameToId(cx->names().length));
     ObjectOpResult result;
-    return ArraySetLength(cx, array, id, JSPROP_PERMANENT, value, result) &&
-           result.checkStrictErrorOrWarning(cx, obj, id, strict);
+
+    // SetArrayLength is called by IC stubs for SetProp and SetElem on arrays'
+    // "length" property.
+    //
+    // ArraySetLength below coerces |value| before checking for length being
+    // writable, and in the case of illegal values, will throw RangeError even
+    // when "length" is not writable. This is incorrect observable behavior,
+    // as a regular [[Set]] operation will check for "length" being
+    // writable before attempting any assignment.
+    //
+    // So, perform ArraySetLength if and only if "length" is writable.
+    if (array->lengthIsWritable()) {
+        if (!ArraySetLength(cx, array, id, JSPROP_PERMANENT, value, result))
+            return false;
+    } else {
+        MOZ_ALWAYS_TRUE(result.fail(JSMSG_READ_ONLY));
+    }
+
+    return result.checkStrictErrorOrWarning(cx, obj, id, strict);
 }
 
 bool
@@ -708,7 +725,7 @@ DebugEpilogueOnBaselineReturn(JSContext* cx, BaselineFrame* frame, jsbytecode* p
     if (!DebugEpilogue(cx, frame, pc, true)) {
         // DebugEpilogue popped the frame by updating jitTop, so run the stop event
         // here before we enter the exception handler.
-        TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+        TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
         TraceLogStopEvent(logger, TraceLogger_Baseline);
         TraceLogStopEvent(logger, TraceLogger_Scripts);
         return false;
@@ -793,7 +810,7 @@ FinalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame, jsbytecode* 
 
     if (!GeneratorObject::finalSuspend(cx, obj)) {
 
-        TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+        TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
         TraceLogStopEvent(logger, TraceLogger_Engine);
         TraceLogStopEvent(logger, TraceLogger_Scripts);
 
@@ -1128,7 +1145,7 @@ bool
 RecompileImpl(JSContext* cx, bool force)
 {
     MOZ_ASSERT(cx->currentlyRunningInJit());
-    JitActivationIterator activations(cx->runtime());
+    JitActivationIterator activations(cx);
     JitFrameIterator iter(activations);
 
     MOZ_ASSERT(iter.type() == JitFrame_Exit);
@@ -1190,7 +1207,7 @@ AssertValidObjectPtr(JSContext* cx, JSObject* obj)
     // Check what we can, so that we'll hopefully assert/crash if we get a
     // bogus object (pointer).
     MOZ_ASSERT(obj->compartment() == cx->compartment());
-    MOZ_ASSERT(obj->runtimeFromMainThread() == cx->runtime());
+    MOZ_ASSERT(obj->runtimeFromActiveCooperatingThread() == cx->runtime());
 
     MOZ_ASSERT_IF(!obj->hasLazyGroup() && obj->maybeShape(),
                   obj->group()->clasp() == obj->maybeShape()->getObjectClass());

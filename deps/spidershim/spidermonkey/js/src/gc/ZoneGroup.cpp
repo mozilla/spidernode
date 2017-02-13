@@ -14,10 +14,10 @@ namespace js {
 
 ZoneGroup::ZoneGroup(JSRuntime* runtime)
   : runtime(runtime),
-    context(TlsContext.get()),
+    ownerContext_(TlsContext.get()),
     enterCount(this, 1),
     zones_(),
-    nursery_(this),
+    nursery_(this, this),
     storeBuffer_(this, runtime, nursery()),
     blocksToFreeAfterMinorGC((size_t) JSContext::TEMP_LIFO_ALLOC_PRIMARY_CHUNK_SIZE),
     caches_(this),
@@ -25,9 +25,7 @@ ZoneGroup::ZoneGroup(JSRuntime* runtime)
     ionBailAfter_(this, 0),
 #endif
     jitZoneGroup(this, nullptr),
-    debuggerList_(this),
-    profilingScripts(this, false),
-    scriptAndCountsVector(this, nullptr)
+    debuggerList_(this)
 {}
 
 bool
@@ -50,18 +48,23 @@ ZoneGroup::init(size_t maxNurseryBytes)
 ZoneGroup::~ZoneGroup()
 {
     js_delete(jitZoneGroup.ref());
+
+    if (this == runtime->gc.systemZoneGroup)
+        runtime->gc.systemZoneGroup = nullptr;
 }
 
 void
 ZoneGroup::enter()
 {
     JSContext* cx = TlsContext.get();
-    if (context == cx) {
+    if (ownerContext().context() == cx) {
         MOZ_ASSERT(enterCount);
     } else {
-        JSContext* old = context.exchange(cx);
-        MOZ_RELEASE_ASSERT(old == nullptr);
+        MOZ_ASSERT(ownerContext().context() == nullptr);
         MOZ_ASSERT(enterCount == 0);
+        ownerContext_ = CooperatingContext(cx);
+        if (cx->generationalDisabled)
+            nursery().disable();
     }
     enterCount++;
 }
@@ -72,13 +75,14 @@ ZoneGroup::leave()
     MOZ_ASSERT(ownedByCurrentThread());
     MOZ_ASSERT(enterCount);
     if (--enterCount == 0)
-        context = nullptr;
+        ownerContext_ = CooperatingContext(nullptr);
 }
 
 bool
 ZoneGroup::ownedByCurrentThread()
 {
-    return context == TlsContext.get();
+    MOZ_ASSERT(TlsContext.get());
+    return ownerContext().context() == TlsContext.get();
 }
 
 } // namespace js

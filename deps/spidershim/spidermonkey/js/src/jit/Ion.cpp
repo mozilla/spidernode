@@ -51,6 +51,9 @@
 #include "vm/Debugger.h"
 #include "vm/HelperThreads.h"
 #include "vm/TraceLogging.h"
+#ifdef MOZ_VTUNE
+# include "vtune/VTuneWrapper.h"
+#endif
 
 #include "jscompartmentinlines.h"
 #include "jsobjinlines.h"
@@ -371,7 +374,7 @@ void
 JitZoneGroup::patchIonBackedges(JSContext* cx, BackedgeTarget target)
 {
     if (target == BackedgeLoopHeader) {
-        // We must be on the main thread. The caller must use
+        // We must be on the active thread. The caller must use
         // AutoPreventBackedgePatching to ensure we don't reenter.
         MOZ_ASSERT(cx->runtime()->jitRuntime()->preventBackedgePatching());
         MOZ_ASSERT(CurrentThreadCanAccessRuntime(cx->runtime()));
@@ -510,8 +513,8 @@ static bool
 LinkCodeGen(JSContext* cx, IonBuilder* builder, CodeGenerator *codegen)
 {
     RootedScript script(cx, builder->script());
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
-    TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, script);
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerEvent event(TraceLogger_AnnotateScripts, script);
     AutoTraceLog logScript(logger, event);
     AutoTraceLog logLink(logger, TraceLogger_IonLinking);
 
@@ -575,9 +578,10 @@ jit::LinkIonScript(JSContext* cx, HandleScript calleeScript)
 }
 
 uint8_t*
-jit::LazyLinkTopActivation(JSContext* cx)
+jit::LazyLinkTopActivation()
 {
     // First frame should be an exit frame.
+    JSContext* cx = TlsContext.get();
     JitFrameIterator it(cx);
     LazyLinkExitFrameLayout* ll = it.exitFrame()->as<LazyLinkExitFrameLayout>();
     RootedScript calleeScript(cx, ScriptFromCalleeToken(ll->jsFrame()->calleeToken()));
@@ -634,13 +638,6 @@ JitRuntime::SweepJitcodeGlobalTable(JSRuntime* rt)
 {
     if (rt->hasJitRuntime() && rt->jitRuntime()->hasJitcodeGlobalTable())
         rt->jitRuntime()->getJitcodeGlobalTable()->sweep(rt);
-}
-
-void
-JitCompartment::trace(JSTracer* trc, JSCompartment* compartment)
-{
-    // Free temporary OSR buffer.
-    trc->runtime()->contextFromMainThread()->freeOsrTempData();
 }
 
 void
@@ -816,6 +813,10 @@ JitCode::finalize(FreeOp* fop)
     }
 #endif
 
+#ifdef MOZ_VTUNE
+    vtune::UnmarkCode(this);
+#endif
+
     MOZ_ASSERT(pool_);
 
     // With W^X JIT code, reprotecting memory for each JitCode instance is
@@ -834,6 +835,7 @@ JitCode::finalize(FreeOp* fop)
     // memory instead.
     if (!PerfEnabled())
         pool_->release(headerSize_ + bufferSize_, CodeKind(kind_));
+
     pool_ = nullptr;
 }
 
@@ -1260,7 +1262,7 @@ IonScript::Destroy(FreeOp* fop, IonScript* script)
      *
      * Defer freeing any allocated blocks until after the next minor GC.
      */
-    script->fallbackStubSpace_.freeAllAfterMinorGC(fop->runtime());
+    script->fallbackStubSpace_.freeAllAfterMinorGC(script->method()->zone());
 
     fop->delete_(script);
 }
@@ -1385,7 +1387,7 @@ IonScript::unlinkFromRuntime(FreeOp* fop)
 void
 jit::ToggleBarriers(JS::Zone* zone, bool needs)
 {
-    JSRuntime* rt = zone->runtimeFromMainThread();
+    JSRuntime* rt = zone->runtimeFromActiveCooperatingThread();
     if (!rt->hasJitRuntime())
         return;
 
@@ -1515,11 +1517,7 @@ OptimizeMIR(MIRGenerator* mir)
 {
     MIRGraph& graph = mir->graph();
     GraphSpewer& gs = mir->graphSpewer();
-    TraceLoggerThread* logger;
-    if (GetJitContext()->onMainThread())
-        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
-    else
-        logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
 
     if (mir->shouldCancel("Start"))
         return false;
@@ -1954,11 +1952,7 @@ GenerateLIR(MIRGenerator* mir)
     MIRGraph& graph = mir->graph();
     GraphSpewer& gs = mir->graphSpewer();
 
-    TraceLoggerThread* logger;
-    if (GetJitContext()->onMainThread())
-        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
-    else
-        logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
 
     LIRGraph* lir = mir->alloc().lifoAlloc()->new_<LIRGraph>(&graph);
     if (!lir || !lir->init())
@@ -2037,11 +2031,7 @@ GenerateLIR(MIRGenerator* mir)
 CodeGenerator*
 GenerateCode(MIRGenerator* mir, LIRGraph* lir)
 {
-    TraceLoggerThread* logger;
-    if (GetJitContext()->onMainThread())
-        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
-    else
-        logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
     AutoTraceLog log(logger, TraceLogger_GenerateCode);
 
     CodeGenerator* codegen = js_new<CodeGenerator>(mir, lir);
@@ -2191,8 +2181,8 @@ IonCompile(JSContext* cx, JSScript* script,
            BaselineFrame* baselineFrame, jsbytecode* osrPc,
            bool recompile, OptimizationLevel optimizationLevel)
 {
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
-    TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, script);
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerEvent event(TraceLogger_AnnotateScripts, script);
     AutoTraceLog logScript(logger, event);
     AutoTraceLog logCompile(logger, TraceLogger_IonCompilation);
 
@@ -2440,8 +2430,8 @@ CheckScriptSize(JSContext* cx, JSScript* script)
 
     uint32_t numLocalsAndArgs = NumLocalsAndArgs(script);
 
-    if (script->length() > MAX_MAIN_THREAD_SCRIPT_SIZE ||
-        numLocalsAndArgs > MAX_MAIN_THREAD_LOCALS_AND_ARGS)
+    if (script->length() > MAX_ACTIVE_THREAD_SCRIPT_SIZE ||
+        numLocalsAndArgs > MAX_ACTIVE_THREAD_LOCALS_AND_ARGS)
     {
         if (!OffThreadCompilationAvailable(cx)) {
             JitSpew(JitSpew_IonAbort, "Script too large (%" PRIuSIZE " bytes) (%u locals/args)",
@@ -2559,9 +2549,9 @@ bool
 jit::OffThreadCompilationAvailable(JSContext* cx)
 {
     // Even if off thread compilation is enabled, compilation must still occur
-    // on the main thread in some cases.
+    // on the active thread in some cases.
     //
-    // Require cpuCount > 1 so that Ion compilation jobs and main-thread
+    // Require cpuCount > 1 so that Ion compilation jobs and active-thread
     // execution are not competing for the same resources.
     return cx->runtime()->canUseOffthreadIonCompilation()
         && HelperThreadState().cpuCount > 1
@@ -3212,8 +3202,10 @@ jit::InvalidateAll(FreeOp* fop, Zone* zone)
     for (CompartmentsInZoneIter comp(zone); !comp.done(); comp.next())
         MOZ_ASSERT(!HasOffThreadIonCompile(comp));
 #endif
-
-    for (JitActivationIterator iter(fop->runtime()); !iter.done(); ++iter) {
+    if (zone->isAtomsZone())
+        return;
+    JSContext* cx = TlsContext.get();
+    for (JitActivationIterator iter(cx, zone->group()->ownerContext()); !iter.done(); ++iter) {
         if (iter->compartment()->zone() == zone) {
             JitSpew(JitSpew_IonInvalidate, "Invalidating all frames for GC");
             InvalidateActivation(fop, iter, true);
@@ -3259,7 +3251,15 @@ jit::Invalidate(TypeZone& types, FreeOp* fop,
         return;
     }
 
-    for (JitActivationIterator iter(fop->runtime()); !iter.done(); ++iter)
+    // This method can be called both during GC and during the course of normal
+    // script execution. In the former case this class will already be on the
+    // stack, and in the latter case the invalidations will all be on the
+    // current thread's stack, but the assertion under ActivationIterator can't
+    // tell that this is a thread local use of the iterator.
+    JSRuntime::AutoProhibitActiveContextChange apacc(fop->runtime());
+
+    JSContext* cx = TlsContext.get();
+    for (JitActivationIterator iter(cx, types.zone()->group()->ownerContext()); !iter.done(); ++iter)
         InvalidateActivation(fop, iter, false);
 
     // Drop the references added above. If a script was never active, its

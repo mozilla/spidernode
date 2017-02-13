@@ -485,7 +485,7 @@ JSContext::setCompartment(JSCompartment* comp,
                   comp->zone()->usedByExclusiveThread);
 
     // Normal JSContexts cannot enter exclusive zones.
-    MOZ_ASSERT_IF(this == runtime()->unsafeContextFromAnyThread() && comp,
+    MOZ_ASSERT_IF(this == runtime()->activeContext() && comp,
                   !comp->zone()->usedByExclusiveThread);
 
     // Only one thread can be in the atoms compartment at a time.
@@ -503,7 +503,7 @@ JSContext::setCompartment(JSCompartment* comp,
     // This context must have exclusive access to the zone's group. There is an
     // exception, for now, for zones used by exclusive threads.
     MOZ_ASSERT_IF(comp && !comp->zone()->isAtomsZone() && !comp->zone()->usedByExclusiveThread,
-                  comp->zone()->group()->context == this);
+                  comp->zone()->group()->ownedByCurrentThread());
 
     compartment_ = comp;
     zone_ = comp ? comp->zone() : nullptr;

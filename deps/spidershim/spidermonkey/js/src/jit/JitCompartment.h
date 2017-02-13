@@ -87,10 +87,10 @@ class JitRuntime
 
     // Executable allocator for all code except wasm code and Ion code with
     // patchable backedges (see below).
-    UnprotectedData<ExecutableAllocator> execAlloc_;
+    ActiveThreadData<ExecutableAllocator> execAlloc_;
 
     // Executable allocator for Ion scripts with patchable backedges.
-    UnprotectedData<ExecutableAllocator> backedgeExecAlloc_;
+    ActiveThreadData<ExecutableAllocator> backedgeExecAlloc_;
 
     // Shared exception-handler tail.
     ExclusiveAccessLockWriteOnceData<JitCode*> exceptionTail_;
@@ -330,7 +330,7 @@ class JitZoneGroup
     ZoneGroupData<BackedgeTarget> backedgeTarget_;
 
     // List of all backedges in all Ion code. The backedge edge list is accessed
-    // asynchronously when the main thread is paused and preventBackedgePatching_
+    // asynchronously when the active thread is paused and preventBackedgePatching_
     // is false. Thus, the list must only be mutated while preventBackedgePatching_
     // is true.
     ZoneGroupData<InlineList<PatchableBackedge>> backedgeList_;
@@ -501,7 +501,7 @@ class JitCompartment
     }
 
     // This function is used to call the read barrier, to mark the SIMD template
-    // type as used. This function can only be called from the main thread.
+    // type as used. This function can only be called from the active thread.
     void registerSimdTemplateObjectFor(SimdType type) {
         ReadBarrieredObject& tpl = simdTemplateObjects_[type];
         MOZ_ASSERT(tpl.unbarrieredGet());
@@ -574,7 +574,6 @@ class JitCompartment
     // Initialize code stubs only used by Ion, not Baseline.
     MOZ_MUST_USE bool ensureIonStubsExist(JSContext* cx);
 
-    void trace(JSTracer* trc, JSCompartment* compartment);
     void sweep(FreeOp* fop, JSCompartment* compartment);
 
     JitCode* stringConcatStubNoBarrier() const {
@@ -651,7 +650,7 @@ class MOZ_STACK_CLASS AutoWritableJitCode
       : AutoWritableJitCode(TlsContext.get()->runtime(), addr, size)
     {}
     explicit AutoWritableJitCode(JitCode* code)
-      : AutoWritableJitCode(code->runtimeFromMainThread(), code->raw(), code->bufferSize())
+      : AutoWritableJitCode(code->runtimeFromActiveCooperatingThread(), code->raw(), code->bufferSize())
     {}
     ~AutoWritableJitCode() {
         if (!ExecutableAllocator::makeExecutable(addr_, size_))

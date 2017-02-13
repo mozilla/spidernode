@@ -19,6 +19,7 @@
 
 #include "jsprf.h"
 
+#include "jit/CacheIRSpewer.h"
 #include "jit/Ion.h"
 #include "jit/MIR.h"
 #include "jit/MIRGenerator.h"
@@ -210,7 +211,7 @@ IonSpewer::beginFunction()
 {
     // If we are doing a synchronous logging then we spew everything as we go,
     // as this is useful in case of failure during the compilation. On the other
-    // hand, it is recommended to disabled off main thread compilation.
+    // hand, it is recommended to disable off thread compilation.
     if (!getAsyncLogging() && !firstFunction_) {
         LockGuard<Mutex> guard(outputLock_);
         jsonOutput_.put(","); // separate functions
@@ -516,8 +517,10 @@ jit::CheckLogging()
         EnableIonDebugSyncLogging();
     if (ContainsFlag(env, "profiling"))
         EnableChannel(JitSpew_Profiling);
-    if (ContainsFlag(env, "trackopts"))
+    if (ContainsFlag(env, "trackopts")) {
+        JitOptions.disableOptimizationTracking = false;
         EnableChannel(JitSpew_OptimizationTracking);
+    }
     if (ContainsFlag(env, "trackopts-ext"))
         EnableChannel(JitSpew_OptimizationTrackingExtended);
     if (ContainsFlag(env, "dump-mir-expr"))
@@ -553,6 +556,9 @@ jit::CheckLogging()
         EnableChannel(JitSpew_BaselineBailouts);
         EnableChannel(JitSpew_BaselineDebugModeOSR);
     }
+
+    if (ContainsFlag(env, "cacheir-logs"))
+        GetCacheIRSpewerSingleton().init();
 
     JitSpewPrinter().init(stderr);
 }
