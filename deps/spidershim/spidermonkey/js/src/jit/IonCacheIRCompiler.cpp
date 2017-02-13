@@ -683,7 +683,7 @@ IonCacheIRCompiler::emitCallNativeGetterResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(IonOOLNativeExitFrameLayoutToken);
+    masm.enterFakeExitFrame(scratch, IonOOLNativeExitFrameLayoutToken);
 
     // Construct and execute call.
     masm.setupUnalignedABICall(scratch);
@@ -740,7 +740,7 @@ IonCacheIRCompiler::emitCallProxyGetResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(IonOOLProxyExitFrameLayoutToken);
+    masm.enterFakeExitFrame(scratch, IonOOLProxyExitFrameLayoutToken);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
@@ -881,6 +881,18 @@ IonCacheIRCompiler::emitStoreTypedObjectReferenceProperty()
 
 bool
 IonCacheIRCompiler::emitStoreTypedObjectScalarProperty()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitStoreDenseElement()
+{
+    MOZ_CRASH("Baseline-specific op");
+}
+
+bool
+IonCacheIRCompiler::emitStoreUnboxedArrayElement()
 {
     MOZ_CRASH("Baseline-specific op");
 }

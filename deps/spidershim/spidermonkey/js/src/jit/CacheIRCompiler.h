@@ -35,6 +35,7 @@ namespace jit {
     _(LoadDOMExpandoValue)                \
     _(LoadDOMExpandoValueIgnoreGeneration)\
     _(LoadUndefinedResult)                \
+    _(LoadBooleanResult)                  \
     _(LoadInt32ArrayLengthResult)         \
     _(LoadUnboxedArrayLengthResult)       \
     _(LoadArgumentsObjectLengthResult)    \
@@ -44,8 +45,24 @@ namespace jit {
     _(LoadArgumentsObjectArgResult)       \
     _(LoadDenseElementResult)             \
     _(LoadDenseElementHoleResult)         \
+    _(LoadDenseElementExistsResult)       \
     _(LoadUnboxedArrayElementResult)      \
     _(LoadTypedElementResult)
+
+// Represents a Value on the Baseline frame's expression stack. Slot 0 is the
+// value on top of the stack (the most recently pushed value), slot 1 is the
+// value pushed before that, etc.
+class BaselineFrameSlot
+{
+    uint32_t slot_;
+
+  public:
+    explicit BaselineFrameSlot(uint32_t slot) : slot_(slot) {}
+    uint32_t slot() const { return slot_; }
+
+    bool operator==(const BaselineFrameSlot& other) const { return slot_ == other.slot_; }
+    bool operator!=(const BaselineFrameSlot& other) const { return slot_ != other.slot_; }
+};
 
 // OperandLocation represents the location of an OperandId. The operand is
 // either in a register or on the stack, and is either boxed or unboxed.
@@ -58,6 +75,7 @@ class OperandLocation
         ValueReg,
         PayloadStack,
         ValueStack,
+        BaselineFrame,
         Constant,
     };
 
@@ -75,6 +93,7 @@ class OperandLocation
             JSValueType type;
         } payloadStack;
         uint32_t valueStackPushed;
+        BaselineFrameSlot baselineFrameSlot;
         Value constant;
 
         Data() : valueStackPushed(0) {}
@@ -116,6 +135,10 @@ class OperandLocation
         MOZ_ASSERT(kind_ == Constant);
         return data_.constant;
     }
+    BaselineFrameSlot baselineFrameSlot() const {
+        MOZ_ASSERT(kind_ == BaselineFrame);
+        return data_.baselineFrameSlot;
+    }
 
     void setPayloadReg(Register reg, JSValueType type) {
         kind_ = PayloadReg;
@@ -138,6 +161,10 @@ class OperandLocation
     void setConstant(const Value& v) {
         kind_ = Constant;
         data_.constant = v;
+    }
+    void setBaselineFrame(BaselineFrameSlot slot) {
+        kind_ = BaselineFrame;
+        data_.baselineFrameSlot = slot;
     }
 
     bool isInRegister() const { return kind_ == PayloadReg || kind_ == ValueReg; }
@@ -286,6 +313,10 @@ class MOZ_RAII CacheRegisterAllocator
         origInputLocations_[i].setConstant(v);
         operandLocations_[i].setConstant(v);
     }
+    void initInputLocation(size_t i, BaselineFrameSlot slot) {
+        origInputLocations_[i].setBaselineFrame(slot);
+        operandLocations_[i].setBaselineFrame(slot);
+    }
 
     void initInputLocation(size_t i, const TypedOrValueRegister& reg);
     void initInputLocation(size_t i, const ConstantOrRegister& value);
@@ -324,6 +355,7 @@ class MOZ_RAII CacheRegisterAllocator
     void releaseRegister(Register reg) {
         MOZ_ASSERT(currentOpRegs_.has(reg));
         availableRegs_.add(reg);
+        currentOpRegs_.take(reg);
     }
     void releaseValueRegister(ValueOperand reg) {
 #ifdef JS_NUNBOX32
@@ -337,6 +369,8 @@ class MOZ_RAII CacheRegisterAllocator
     // Removes spilled values from the native stack. This should only be
     // called after all registers have been allocated.
     void discardStack(MacroAssembler& masm);
+
+    Address addressOf(MacroAssembler& masm, BaselineFrameSlot slot) const;
 
     // Returns the register for the given operand. If the operand is currently
     // not in a register, it will load it into one.

@@ -22,8 +22,8 @@
 # include <valgrind/memcheck.h>
 #endif
 
+#include "jit/AtomicOperations.h"
 #include "vm/SharedMem.h"
-#include "vm/TypedArrayCommon.h"
 #include "wasm/AsmJS.h"
 #include "wasm/WasmTypes.h"
 
@@ -299,7 +299,7 @@ SharedArrayBufferObject::rawBufferObject() const
 void
 SharedArrayBufferObject::Finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOffMainThread());
+    MOZ_ASSERT(fop->maybeOnHelperThread());
 
     SharedArrayBufferObject& buf = obj->as<SharedArrayBufferObject>();
 

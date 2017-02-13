@@ -14,7 +14,7 @@
 #include "gc/Marking.h"
 #include "js/Value.h"
 #include "vm/Debugger.h"
-#include "vm/TypedArrayCommon.h"
+#include "vm/TypedArrayObject.h"
 
 #include "jsobjinlines.h"
 
@@ -268,8 +268,8 @@ js::NativeObject::numFixedSlotsForCompilation() const
 {
     // This is an alternative method for getting the number of fixed slots in an
     // object. It requires more logic and memory accesses than numFixedSlots()
-    // but is safe to be called from the compilation thread, even if the main
-    // thread is actively mutating the VM.
+    // but is safe to be called from the compilation thread, even if the active
+    // thread is mutating the VM.
 
     // The compiler does not have access to nursery things.
     MOZ_ASSERT(!IsInsideNursery(this));
@@ -1145,7 +1145,7 @@ PurgeProtoChain(JSContext* cx, JSObject* objArg, HandleId id)
 
         shape = obj->as<NativeObject>().lookup(cx, id);
         if (shape)
-            return obj->as<NativeObject>().shadowingShapeChange(cx, *shape);
+            return NativeObject::shadowingShapeChange(cx, obj.as<NativeObject>(), *shape);
 
         obj = obj->staticPrototype();
     }
@@ -1656,7 +1656,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
     if (!NativeDefineProperty(cx, obj, id, value, getter, setter, attrs, result))
         return false;
     if (!result) {
-        // Off-main-thread callers should not get here: they must call this
+        // Off-thread callers should not get here: they must call this
         // function only with known-valid arguments. Populating a new
         // PlainObject with configurable properties is fine.
         MOZ_ASSERT(!cx->helperThread());

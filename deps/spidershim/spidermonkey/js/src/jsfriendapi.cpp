@@ -169,7 +169,7 @@ JS_SetCompartmentPrincipals(JSCompartment* compartment, JSPrincipals* principals
 
     // Any compartment with the trusted principals -- and there can be
     // multiple -- is a system compartment.
-    const JSPrincipals* trusted = compartment->runtimeFromMainThread()->trustedPrincipals();
+    const JSPrincipals* trusted = compartment->runtimeFromActiveCooperatingThread()->trustedPrincipals();
     bool isSystem = principals && principals == trusted;
 
     // Clear out the old principals, if any.
@@ -390,7 +390,7 @@ js::NotifyAnimationActivity(JSObject* obj)
 {
     int64_t timeNow = PRMJ_Now();
     obj->compartment()->lastAnimationTime = timeNow;
-    obj->runtimeFromMainThread()->lastAnimationTime = timeNow;
+    obj->runtimeFromActiveCooperatingThread()->lastAnimationTime = timeNow;
 }
 
 JS_FRIEND_API(uint32_t)
@@ -1164,8 +1164,10 @@ DumpHeapTracer::onChild(const JS::GCCellPtr& thing)
 void
 js::DumpHeap(JSContext* cx, FILE* fp, js::DumpHeapNurseryBehaviour nurseryBehaviour)
 {
-    if (nurseryBehaviour == js::CollectNurseryBeforeDump)
-        cx->runtime()->zoneGroupFromMainThread()->evictNursery(JS::gcreason::API);
+    if (nurseryBehaviour == js::CollectNurseryBeforeDump) {
+        for (ZoneGroupsIter group(cx->runtime()); !group.done(); group.next())
+            group->evictNursery(JS::gcreason::API);
+    }
 
     DumpHeapTracer dtrc(fp, cx);
 
@@ -1222,7 +1224,7 @@ js::GetAnyCompartmentInZone(JS::Zone* zone)
 void
 JS::ObjectPtr::finalize(JSRuntime* rt)
 {
-    if (IsIncrementalBarrierNeeded(rt->contextFromMainThread()))
+    if (IsIncrementalBarrierNeeded(rt->activeContextFromOwnThread()))
         IncrementalObjectBarrier(value);
     value = nullptr;
 }

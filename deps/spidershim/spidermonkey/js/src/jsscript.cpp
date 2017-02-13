@@ -51,6 +51,9 @@
 #include "vm/Shape.h"
 #include "vm/SharedImmutableStringsCache.h"
 #include "vm/Xdr.h"
+#ifdef MOZ_VTUNE
+# include "vtune/VTuneWrapper.h"
+#endif
 
 #include "jsfuninlines.h"
 #include "jsobjinlines.h"
@@ -1106,7 +1109,7 @@ JSScript::initScriptCounts(JSContext* cx)
 
     // Enable interrupts in any interpreter frames running on this script. This
     // is used to let the interpreter increment the PCCounts, if present.
-    for (ActivationIterator iter(cx->runtime()); !iter.done(); ++iter) {
+    for (ActivationIterator iter(cx); !iter.done(); ++iter) {
         if (iter->isInterpreter())
             iter->asInterpreter()->enableInterruptsIfRunning(this);
     }
@@ -1329,7 +1332,7 @@ ScriptSourceObject::trace(JSTracer* trc, JSObject* obj)
 void
 ScriptSourceObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onMainThread());
+    MOZ_ASSERT(fop->onActiveCooperatingThread());
     ScriptSourceObject* sso = &obj->as<ScriptSourceObject>();
 
     // If code coverage is enabled, record the filename associated with this
@@ -1804,8 +1807,8 @@ ScriptSource::setSourceCopy(JSContext* cx, SourceBufferHolder& srcBuf,
     // helper threads:
     //  - If we are on a helper thread, there must be another helper thread to
     //    execute our compression task.
-    //  - If we are on the main thread, there must be at least two helper
-    //    threads since at most one helper thread can be blocking on the main
+    //  - If we are on the active thread, there must be at least two helper
+    //    threads since at most one helper thread can be blocking on the active
     //    thread (see HelperThreadState::canStartParseTask) which would cause a
     //    deadlock if there wasn't a second helper thread that could make
     //    progress on our compression task.
@@ -2531,6 +2534,10 @@ JSScript::Create(JSContext* cx, const ReadOnlyCompileOptions& options,
     script->setSourceObject(sourceObject);
     script->sourceStart_ = bufStart;
     script->sourceEnd_ = bufEnd;
+
+#ifdef MOZ_VTUNE
+    script->vtuneMethodId_ = vtune::GenerateUniqueMethodID();
+#endif
 
     return script;
 }
@@ -3623,7 +3630,7 @@ JSScript::ensureHasDebugScript(JSContext* cx)
      * interrupts enabled. The interrupts must stay enabled until the
      * debug state is destroyed.
      */
-    for (ActivationIterator iter(cx->runtime()); !iter.done(); ++iter) {
+    for (ActivationIterator iter(cx); !iter.done(); ++iter) {
         if (iter->isInterpreter())
             iter->asInterpreter()->enableInterruptsIfRunning(this);
     }

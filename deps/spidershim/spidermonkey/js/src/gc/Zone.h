@@ -190,7 +190,7 @@ struct Zone : public JS::shadow::Zone,
                                                void* reallocPtr = nullptr) {
         if (!js::CurrentThreadCanAccessRuntime(runtime_))
             return nullptr;
-        return runtimeFromMainThread()->onOutOfMemory(allocFunc, nbytes, reallocPtr);
+        return runtimeFromActiveCooperatingThread()->onOutOfMemory(allocFunc, nbytes, reallocPtr);
     }
     void reportAllocationOverflow() { js::ReportAllocationOverflow(nullptr); }
 
@@ -226,7 +226,7 @@ struct Zone : public JS::shadow::Zone,
     }
 
     bool isCollecting() const {
-        MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtimeFromMainThread()));
+        MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtimeFromActiveCooperatingThread()));
         return isCollectingFromAnyThread();
     }
 
@@ -267,7 +267,7 @@ struct Zone : public JS::shadow::Zone,
     bool compileBarriers() const { return compileBarriers(needsIncrementalBarrier()); }
     bool compileBarriers(bool needsIncrementalBarrier) const {
         return needsIncrementalBarrier ||
-               runtimeFromMainThread()->hasZealMode(js::gc::ZealMode::VerifierPre);
+               runtimeFromActiveCooperatingThread()->hasZealMode(js::gc::ZealMode::VerifierPre);
     }
 
     enum ShouldUpdateJit { DontUpdateJit, UpdateJit };
@@ -341,7 +341,7 @@ struct Zone : public JS::shadow::Zone,
 
   private:
     // The set of compartments in this zone.
-    js::UnprotectedData<CompartmentVector> compartments_;
+    js::ActiveThreadOrGCTaskData<CompartmentVector> compartments_;
   public:
     CompartmentVector& compartments() { return compartments_.ref(); }
 
@@ -410,7 +410,7 @@ struct Zone : public JS::shadow::Zone,
     mozilla::Atomic<ptrdiff_t, mozilla::ReleaseAcquire> gcMallocBytes;
 
     // GC trigger threshold for allocations on the C heap.
-    js::UnprotectedData<size_t> gcMaxMallocBytes;
+    js::ActiveThreadData<size_t> gcMaxMallocBytes;
 
     // Whether a GC has been triggered as a result of gcMallocBytes falling
     // below zero.
@@ -539,7 +539,7 @@ struct Zone : public JS::shadow::Zone,
     void transferUniqueId(js::gc::Cell* tgt, js::gc::Cell* src) {
         MOZ_ASSERT(src != tgt);
         MOZ_ASSERT(!IsInsideNursery(tgt));
-        MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtimeFromMainThread()));
+        MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtimeFromActiveCooperatingThread()));
         MOZ_ASSERT(js::CurrentThreadCanAccessZone(this));
         uniqueIds().rekeyIfMoved(src, tgt);
     }
@@ -557,13 +557,9 @@ struct Zone : public JS::shadow::Zone,
         for (js::gc::UniqueIdMap::Enum e(source->uniqueIds()); !e.empty(); e.popFront()) {
             MOZ_ASSERT(!uniqueIds().has(e.front().key()));
             if (!uniqueIds().put(e.front().key(), e.front().value()))
-                oomUnsafe.crash("failed to transfer unique ids from off-main-thread");
+                oomUnsafe.crash("failed to transfer unique ids from off-thread");
         }
         source->uniqueIds().clear();
-    }
-
-    JSContext* contextFromMainThread() {
-        return runtime_->contextFromMainThread();
     }
 
 #ifdef JSGC_HASH_TABLE_CHECKS
@@ -582,7 +578,7 @@ struct Zone : public JS::shadow::Zone,
     js::ZoneGroupData<js::jit::JitZone*> jitZone_;
 
     js::UnprotectedData<GCState> gcState_;
-    js::UnprotectedData<bool> gcScheduled_;
+    js::ActiveThreadData<bool> gcScheduled_;
     js::ZoneGroupData<bool> gcPreserveCode_;
     js::ZoneGroupData<bool> jitUsingBarriers_;
     js::ZoneGroupData<bool> keepShapeTables_;
@@ -602,6 +598,39 @@ struct Zone : public JS::shadow::Zone,
 
 namespace js {
 
+// Iterate over all zone groups except those which may be in use by parse
+// threads. Pretty soon this will exclude zone groups in use by parse threads
+// (as for ZonesIter), i.e. the zone groups in use by cooperating threads,
+// except that right now parse threads use zones in the same zone group as
+// cooperating threads (bug 1323066).
+class ZoneGroupsIter
+{
+    gc::AutoEnterIteration iterMarker;
+    ZoneGroup** it;
+    ZoneGroup** end;
+
+  public:
+    explicit ZoneGroupsIter(JSRuntime* rt) : iterMarker(&rt->gc) {
+        it = rt->gc.groups.ref().begin();
+        end = rt->gc.groups.ref().end();
+    }
+
+    bool done() const { return it == end; }
+
+    void next() {
+        MOZ_ASSERT(!done());
+        it++;
+    }
+
+    ZoneGroup* get() const {
+        MOZ_ASSERT(!done());
+        return *it;
+    }
+
+    operator ZoneGroup*() const { return get(); }
+    ZoneGroup* operator->() const { return get(); }
+};
+
 // Using the atoms zone without holding the exclusive access lock is dangerous
 // because worker threads may be using it simultaneously. Therefore, it's
 // better to skip the atoms zone when iterating over zones. If you need to
@@ -611,39 +640,78 @@ enum ZoneSelector {
     SkipAtoms
 };
 
-class ZonesIter
+// Iterate over all zones in one zone group.
+class ZonesInGroupIter
 {
     gc::AutoEnterIteration iterMarker;
-    JSRuntime* rt;
     JS::Zone** it;
     JS::Zone** end;
 
   public:
-    ZonesIter(JSRuntime* rt, ZoneSelector selector) : iterMarker(&rt->gc), rt(rt) {
-        if (selector == WithAtoms && rt->gc.atomsZone)
-            it = const_cast<JS::Zone**>(&rt->gc.atomsZone.ref());
-        else
-            it = rt->zoneGroupFromAnyThread()->zones().begin();
-        end = rt->zoneGroupFromAnyThread()->zones().end();
+    explicit ZonesInGroupIter(ZoneGroup* group) : iterMarker(&group->runtime->gc) {
+        it = group->zones().begin();
+        end = group->zones().end();
     }
-
-    bool atAtomsZone(JSRuntime* rt);
 
     bool done() const { return it == end; }
 
     void next() {
         MOZ_ASSERT(!done());
-        do {
-            if (it == &rt->gc.atomsZone.ref())
-                it = rt->zoneGroupFromAnyThread()->zones().begin();
-            else
-                it++;
-        } while (!done() && (*it)->usedByExclusiveThread);
+        it++;
     }
 
     JS::Zone* get() const {
         MOZ_ASSERT(!done());
         return *it;
+    }
+
+    operator JS::Zone*() const { return get(); }
+    JS::Zone* operator->() const { return get(); }
+};
+
+// Iterate over all zones in the runtime, except those which may be in use by
+// parse threads.
+class ZonesIter
+{
+    ZoneGroupsIter group;
+    Maybe<ZonesInGroupIter> zone;
+    JS::Zone* atomsZone;
+
+  public:
+    ZonesIter(JSRuntime* rt, ZoneSelector selector)
+      : group(rt), atomsZone(selector == WithAtoms ? rt->gc.atomsZone.ref() : nullptr)
+    {
+        if (!atomsZone && !done())
+            next();
+    }
+
+    bool atAtomsZone(JSRuntime* rt) const {
+        return !!atomsZone;
+    }
+
+    bool done() const { return !atomsZone && group.done(); }
+
+    void next() {
+        MOZ_ASSERT(!done());
+        if (atomsZone)
+            atomsZone = nullptr;
+        while (!group.done()) {
+            if (zone.isSome())
+                zone.ref().next();
+            else
+                zone.emplace(group);
+            if (zone.ref().done()) {
+                zone.reset();
+                group.next();
+            } else if (!zone.ref().get()->usedByExclusiveThread) {
+                break;
+            }
+        }
+    }
+
+    JS::Zone* get() const {
+        MOZ_ASSERT(!done());
+        return atomsZone ? atomsZone : zone.ref().get();
     }
 
     operator JS::Zone*() const { return get(); }
@@ -810,11 +878,11 @@ struct GCManagedDeletePolicy
 {
     void operator()(const T* ptr) {
         if (ptr) {
-            JSContext* cx = TlsContext.get();
-            if (cx->runtime()->zoneGroupFromMainThread()->nursery().isEnabled()) {
+            Zone* zone = ptr->zone();
+            if (zone && zone->group()->nursery().isEnabled()) {
                 // The object may contain nursery pointers and must only be
                 // destroyed after a minor GC.
-                cx->runtime()->zoneGroupFromMainThread()->callAfterMinorGC(deletePtr, const_cast<T*>(ptr));
+                zone->group()->callAfterMinorGC(deletePtr, const_cast<T*>(ptr));
             } else {
                 // The object cannot contain nursery pointers so can be
                 // destroyed immediately.
@@ -833,10 +901,6 @@ struct GCManagedDeletePolicy
 } // namespace js
 
 namespace JS {
-
-template <typename T>
-struct DeletePolicy<js::GCPtr<T>> : public js::GCManagedDeletePolicy<js::GCPtr<T>>
-{};
 
 // Scope data that contain GCPtrs must use the correct DeletePolicy.
 //

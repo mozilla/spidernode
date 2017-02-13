@@ -1584,7 +1584,7 @@ var collatorInternalProperties = {
     sortLocaleData: collatorSortLocaleData,
     searchLocaleData: collatorSearchLocaleData,
     _availableLocales: null,
-    availableLocales: function()
+    availableLocales: function() // eslint-disable-line object-shorthand
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1707,7 +1707,7 @@ function Intl_Collator_resolvedOptions() {
 var numberFormatInternalProperties = {
     localeData: numberFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function()
+    availableLocales: function() // eslint-disable-line object-shorthand
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1743,8 +1743,8 @@ function resolveNumberFormatInternals(lazyNumberFormatData) {
 
     // Step 10.
     var r = ResolveLocale(callFunction(NumberFormat.availableLocales, NumberFormat),
-                          lazyNumberFormatData.requestedLocales,
-                          lazyNumberFormatData.opt,
+                          requestedLocales,
+                          opt,
                           NumberFormat.relevantExtensionKeys,
                           localeData);
 
@@ -2404,6 +2404,7 @@ function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options) {
     var formatMatcher =
         GetOption(options, "formatMatcher", "string", ["basic", "best fit"],
                   "best fit");
+    void formatMatcher;
 
     // Steps 23-25 provided by ICU, more or less - see comment after this function.
 
@@ -2697,7 +2698,7 @@ function Intl_DateTimeFormat_supportedLocalesOf(locales /*, options*/) {
 var dateTimeFormatInternalProperties = {
     localeData: dateTimeFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function()
+    availableLocales: function() // eslint-disable-line object-shorthand
     {
         var locales = this._availableLocales;
         if (locales)
@@ -2911,7 +2912,7 @@ function resolveICUPattern(pattern, result) {
  */
 var pluralRulesInternalProperties = {
     _availableLocales: null,
-    availableLocales: function()
+    availableLocales: function() // eslint-disable-line object-shorthand
     {
         var locales = this._availableLocales;
         if (locales)
@@ -2930,8 +2931,6 @@ function resolvePluralRulesInternals(lazyPluralRulesData) {
     assert(IsObject(lazyPluralRulesData), "lazy data not an object?");
 
     var internalProps = std_Object_create(null);
-
-    var requestedLocales = lazyPluralRulesData.requestedLocales;
 
     var PluralRules = pluralRulesInternalProperties;
 
@@ -3305,7 +3304,7 @@ function Intl_getDisplayNames(locales, options) {
     for (let i = 0; i < len; i++) {
         // a. Let processedKey be ? ToString(? Get(keys, i)).
         // b. Perform ? CreateDataPropertyOrThrow(processedKeys, i, processedKey).
-        callFunction(std_Array_push, processedKeys, ToString(keys[i]));
+        _DefineDataProperty(processedKeys, i, ToString(keys[i]));
     }
 
     // 16. Let names be ? ComputeDisplayNames(r.[[locale]], style, processedKeys).

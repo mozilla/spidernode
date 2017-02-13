@@ -111,9 +111,8 @@ class MOZ_STACK_CLASS BytecodeCompiler
 
 AutoCompilationTraceLogger::AutoCompilationTraceLogger(JSContext* cx,
         const TraceLoggerTextId id, const ReadOnlyCompileOptions& options)
-  : logger(!cx->helperThread() ? TraceLoggerForMainThread(cx->runtime())
-                               : TraceLoggerForCurrentThread()),
-    event(logger, TraceLogger_AnnotateScripts, options),
+  : logger(TraceLoggerForCurrentThread(cx)),
+    event(TraceLogger_AnnotateScripts, options),
     scriptLogger(logger, event),
     typeLogger(logger, id)
 {}
@@ -519,12 +518,12 @@ frontend::CreateScriptSourceObject(JSContext* cx, const ReadOnlyCompileOptions& 
 }
 
 // CompileScript independently returns the ScriptSourceObject (SSO) for the
-// compile.  This is used by off-main-thread script compilation (OMT-SC).
+// compile.  This is used by off-thread script compilation (OT-SC).
 //
-// OMT-SC cannot initialize the SSO when it is first constructed because the
+// OT-SC cannot initialize the SSO when it is first constructed because the
 // SSO is allocated initially in a separate compartment.
 //
-// After OMT-SC, the separate compartment is merged with the main compartment,
+// After OT-SC, the separate compartment is merged with the main compartment,
 // at which point the JSScripts created become observable by the debugger via
 // memory-space scanning.
 //
@@ -611,7 +610,7 @@ frontend::CompileModule(JSContext* cx, const ReadOnlyCompileOptions& options,
         return nullptr;
 
     // This happens in GlobalHelperThreadState::finishModuleParseTask() when a
-    // module is compiled off main thread.
+    // module is compiled off thread.
     if (!ModuleObject::Freeze(cx, module))
         return nullptr;
 

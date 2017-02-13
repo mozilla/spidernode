@@ -50,7 +50,7 @@ def rust_compiler(rustc, rustc_info):
         or by directly running the installer from https://rustup.rs/
         '''))
     version = rustc_info.version
-    min_version = Version('1.13')
+    min_version = Version('1.15.1')
     if version < min_version:
         die(dedent('''\
         Rust compiler {} is too old.
@@ -109,6 +109,7 @@ def rust_triple_alias(host_or_target):
             # NetBSD
             ('x86_64', 'NetBSD'): 'x86_64-unknown-netbsd',
             # OpenBSD
+            ('x86', 'OpenBSD'): 'i686-unknown-openbsd',
             ('x86_64', 'OpenBSD'): 'x86_64-unknown-openbsd',
             # Linux
             ('x86', 'Linux'): 'i686-unknown-linux-gnu',

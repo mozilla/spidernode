@@ -95,6 +95,8 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
 #ifdef DEBUG
     updateChildRuntimeCount(parentRuntime),
 #endif
+    activeContext_(nullptr),
+    activeContextChangeProhibited_(0),
     profilerSampleBufferGen_(0),
     profilerSampleBufferLapCount_(1),
     telemetryCallback(nullptr),
@@ -129,18 +131,18 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     windowProxyClass_(nullptr),
     exclusiveAccessLock(mutexid::RuntimeExclusiveAccess),
 #ifdef DEBUG
-    mainThreadHasExclusiveAccess(false),
+    activeThreadHasExclusiveAccess(false),
 #endif
     numExclusiveThreads(0),
     numCompartments(0),
     localeCallbacks(nullptr),
     defaultLocale(nullptr),
     defaultVersion_(JSVERSION_DEFAULT),
+    profilingScripts(false),
+    scriptAndCountsVector(nullptr),
     lcovOutput_(),
     jitRuntime_(nullptr),
     selfHostingGlobal_(nullptr),
-    singletonContext(nullptr),
-    singletonZoneGroup(nullptr),
     gc(thisFromCtor()),
     gcInitialized(false),
     NaNValue(DoubleNaNValue()),
@@ -191,23 +193,16 @@ JSRuntime::init(JSContext* cx, uint32_t maxbytes, uint32_t maxNurseryBytes)
     if (CanUseExtraThreads() && !EnsureHelperThreadsInitialized())
         return false;
 
-    singletonContext = cx;
+    activeContext_ = cx;
+    if (!cooperatingContexts().append(cx))
+        return false;
 
     defaultFreeOp_ = js_new<js::FreeOp>(this);
     if (!defaultFreeOp_)
         return false;
 
-    ScopedJSDeletePtr<ZoneGroup> zoneGroup(js_new<ZoneGroup>(this));
-    if (!zoneGroup)
-        return false;
-    singletonZoneGroup = zoneGroup;
-
     if (!gc.init(maxbytes, maxNurseryBytes))
         return false;
-
-    if (!zoneGroup->init(maxNurseryBytes))
-        return false;
-    zoneGroup.forget();
 
     ScopedJSDeletePtr<Zone> atomsZone(new_<Zone>(this, nullptr));
     if (!atomsZone || !atomsZone->init(true))
@@ -246,9 +241,6 @@ JSRuntime::init(JSContext* cx, uint32_t maxbytes, uint32_t maxNurseryBytes)
     jitSupportsUnalignedAccesses = js::jit::JitSupportsUnalignedAccesses();
     jitSupportsSimd = js::jit::JitSupportsSimd();
 
-    if (!wasm::EnsureSignalHandlers(this))
-        return false;
-
     if (!geckoProfiler().init())
         return false;
 
@@ -284,7 +276,7 @@ JSRuntime::destroyRuntime()
         /*
          * Cancel any pending, in progress or completed Ion compilations and
          * parse tasks. Waiting for wasm and compression tasks is done
-         * synchronously (on the main thread or during parse tasks), so no
+         * synchronously (on the active thread or during parse tasks), so no
          * explicit canceling is needed for these.
          */
         CancelOffThreadIonCompile(this);
@@ -300,7 +292,7 @@ JSRuntime::destroyRuntime()
         beingDestroyed_ = true;
 
         /* Allow the GC to release scripts that were being profiled. */
-        zoneGroupFromMainThread()->profilingScripts = false;
+        profilingScripts = false;
 
         /* Set the profiler sampler buffer generation to invalid. */
         profilerSampleBufferGen_ = UINT32_MAX;
@@ -337,12 +329,16 @@ JSRuntime::destroyRuntime()
 
     DebugOnly<size_t> oldCount = liveRuntimesCount--;
     MOZ_ASSERT(oldCount > 0);
+}
 
-#ifdef JS_TRACE_LOGGING
-    DestroyTraceLoggerMainThread(this);
-#endif
+void
+JSRuntime::setActiveContext(JSContext* cx)
+{
+    MOZ_ASSERT_IF(cx, isCooperatingContext(cx));
+    MOZ_RELEASE_ASSERT(!activeContextChangeProhibited());
+    MOZ_RELEASE_ASSERT(gc.canChangeActiveContext(cx));
 
-    js_delete(zoneGroupFromMainThread());
+    activeContext_ = cx;
 }
 
 void
@@ -364,12 +360,7 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
     // Several tables in the runtime enumerated below can be used off thread.
     AutoLockForExclusiveAccess lock(this);
 
-    // For now, measure the size of the derived class (JSContext).
-    // TODO (bug 1281529): make memory reporting reflect the new
-    // JSContext/JSRuntime world better.
-    JSContext* cx = unsafeContextFromAnyThread();
-    rtSizes->object += mallocSizeOf(cx);
-
+    rtSizes->object += mallocSizeOf(this);
     rtSizes->atomsTable += atoms(lock).sizeOfIncludingThis(mallocSizeOf);
 
     if (!parentRuntime) {
@@ -378,16 +369,27 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
         rtSizes->atomsTable += permanentAtoms->sizeOfIncludingThis(mallocSizeOf);
     }
 
-    rtSizes->contexts += cx->sizeOfExcludingThis(mallocSizeOf);
+    for (const CooperatingContext& target : cooperatingContexts()) {
+        JSContext* cx = target.context();
+        rtSizes->contexts += mallocSizeOf(cx);
+        rtSizes->contexts += cx->sizeOfExcludingThis(mallocSizeOf);
+        rtSizes->temporary += cx->tempLifoAlloc().sizeOfExcludingThis(mallocSizeOf);
+        rtSizes->interpreterStack += cx->interpreterStack().sizeOfExcludingThis(mallocSizeOf);
+    }
 
-    rtSizes->temporary += cx->tempLifoAlloc().sizeOfExcludingThis(mallocSizeOf);
+    for (ZoneGroupsIter group(this); !group.done(); group.next()) {
+        ZoneGroupCaches& caches = group->caches();
 
-    rtSizes->interpreterStack += cx->interpreterStack().sizeOfExcludingThis(mallocSizeOf);
+        if (MathCache* cache = caches.maybeGetMathCache())
+            rtSizes->mathCache += cache->sizeOfIncludingThis(mallocSizeOf);
 
-    ZoneGroupCaches& caches = zoneGroupFromAnyThread()->caches();
+        rtSizes->uncompressedSourceCache +=
+            caches.uncompressedSourceCache.sizeOfExcludingThis(mallocSizeOf);
 
-    if (MathCache* cache = caches.maybeGetMathCache())
-        rtSizes->mathCache += cache->sizeOfIncludingThis(mallocSizeOf);
+        rtSizes->gc.nurseryCommitted += group->nursery().sizeOfHeapCommitted();
+        rtSizes->gc.nurseryMallocedBuffers += group->nursery().sizeOfMallocedBuffers(mallocSizeOf);
+        group->storeBuffer().addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
+    }
 
     if (sharedImmutableStrings_) {
         rtSizes->sharedImmutableStringsCache +=
@@ -395,9 +397,6 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
     }
 
     rtSizes->sharedIntlData += sharedIntlData.ref().sizeOfExcludingThis(mallocSizeOf);
-
-    rtSizes->uncompressedSourceCache +=
-        caches.uncompressedSourceCache.sizeOfExcludingThis(mallocSizeOf);
 
     rtSizes->scriptData += scriptDataTable(lock).sizeOfExcludingThis(mallocSizeOf);
     for (ScriptDataTable::Range r = scriptDataTable(lock).all(); !r.empty(); r.popFront())
@@ -409,9 +408,6 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
     }
 
     rtSizes->gc.marker += gc.marker.sizeOfExcludingThis(mallocSizeOf);
-    rtSizes->gc.nurseryCommitted += zoneGroupFromAnyThread()->nursery().sizeOfHeapCommitted();
-    rtSizes->gc.nurseryMallocedBuffers += zoneGroupFromAnyThread()->nursery().sizeOfMallocedBuffers(mallocSizeOf);
-    zoneGroupFromAnyThread()->storeBuffer().addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
 }
 
 static bool
@@ -500,7 +496,7 @@ JSContext::requestInterrupt(InterruptMode mode)
         if (fx.isWaiting())
             fx.wake(FutexThread::WakeForJSInterrupt);
         fx.unlock();
-        InterruptRunningJitCode(runtime());
+        InterruptRunningJitCode(this);
     }
 }
 
@@ -522,7 +518,7 @@ JSRuntime::setDefaultLocale(const char* locale)
     if (!locale)
         return false;
     resetDefaultLocale();
-    defaultLocale = JS_strdup(contextFromMainThread(), locale);
+    defaultLocale = JS_strdup(activeContextFromOwnThread(), locale);
     return defaultLocale != nullptr;
 }
 
@@ -549,7 +545,7 @@ JSRuntime::getDefaultLocale()
     if (!locale || !strcmp(locale, "C"))
         locale = "und";
 
-    char* lang = JS_strdup(contextFromMainThread(), locale);
+    char* lang = JS_strdup(activeContextFromOwnThread(), locale);
     if (!lang)
         return nullptr;
 
@@ -777,7 +773,7 @@ JSRuntime::clearUsedByExclusiveThread(Zone* zone)
 bool
 js::CurrentThreadCanAccessRuntime(const JSRuntime* rt)
 {
-    return rt->unsafeContextFromAnyThread() == TlsContext.get();
+    return rt->activeContext() == TlsContext.get();
 }
 
 bool
@@ -786,7 +782,7 @@ js::CurrentThreadCanAccessZone(Zone* zone)
     if (CurrentThreadCanAccessRuntime(zone->runtime_))
         return true;
 
-    // Only zones in use by an exclusive thread can be used off the main thread.
+    // Only zones in use by an exclusive thread can be used off thread.
     // We don't keep track of which thread owns such zones though, so this check
     // is imperfect.
     return zone->usedByExclusiveThread;
@@ -819,7 +815,7 @@ JSRuntime::IonBuilderList&
 JSRuntime::ionLazyLinkList()
 {
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(this),
-               "Should only be mutated by the main thread.");
+               "Should only be mutated by the active thread.");
     return ionLazyLinkList_.ref();
 }
 
@@ -827,7 +823,7 @@ void
 JSRuntime::ionLazyLinkListRemove(jit::IonBuilder* builder)
 {
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(this),
-               "Should only be mutated by the main thread.");
+               "Should only be mutated by the active thread.");
     MOZ_ASSERT(ionLazyLinkListSize_ > 0);
 
     builder->removeFrom(ionLazyLinkList());
@@ -840,7 +836,7 @@ void
 JSRuntime::ionLazyLinkListAdd(jit::IonBuilder* builder)
 {
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(this),
-               "Should only be mutated by the main thread.");
+               "Should only be mutated by the active thread.");
     ionLazyLinkList().insertFront(builder);
     ionLazyLinkListSize_++;
 }

@@ -629,8 +629,6 @@ BarriersAreAllowedOnCurrentThread();
 static MOZ_ALWAYS_INLINE void
 ExposeGCThingToActiveJS(JS::GCCellPtr thing)
 {
-    MOZ_ASSERT(thing.kind() != JS::TraceKind::Shape);
-
     // GC things residing in the nursery cannot be gray: they have no mark bits.
     // All live objects in the nursery are moved to tenured at the beginning of
     // each GC slice, so the gray marker never sees nursery things.
@@ -699,7 +697,7 @@ ExposeScriptToActiveJS(JSScript* script)
 static MOZ_ALWAYS_INLINE void
 MarkStringAsLive(Zone* zone, JSString* string)
 {
-    JSRuntime* rt = JS::shadow::Zone::asShadowZone(zone)->runtimeFromMainThread();
+    JSRuntime* rt = JS::shadow::Zone::asShadowZone(zone)->runtimeFromActiveCooperatingThread();
     js::gc::MarkGCThingAsLive(rt, GCCellPtr(string));
 }
 

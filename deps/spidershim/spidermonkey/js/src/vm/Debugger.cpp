@@ -45,6 +45,7 @@
 #include "jsopcodeinlines.h"
 #include "jsscriptinlines.h"
 
+#include "vm/GeckoProfiler-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/Stack-inl.h"
 
@@ -688,7 +689,7 @@ Debugger::Debugger(JSContext* cx, NativeObject* dbg)
     JS_INIT_CLIST(&onNewGlobalObjectWatchersLink);
 
 #ifdef JS_TRACE_LOGGING
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     if (logger) {
 #ifdef NIGHTLY_BUILD
         logger->getIterationAndSize(&traceLoggerLastDrainedIteration, &traceLoggerLastDrainedSize);
@@ -2403,7 +2404,12 @@ class MOZ_RAII ExecutionObservableCompartments : public Debugger::ExecutionObser
     }
 
     bool init() { return compartments_.init() && zones_.init(); }
-    bool add(JSCompartment* comp) { return compartments_.put(comp) && zones_.put(comp->zone()); }
+    bool add(JSCompartment* comp) {
+        // The current cx should have exclusive access to observed content,
+        // since debuggees must be in the same zone group as ther debugger.
+        MOZ_ASSERT(comp->zone()->group() == TlsContext.get()->zone()->group());
+        return compartments_.put(comp) && zones_.put(comp->zone());
+    }
 
     typedef HashSet<JSCompartment*>::Range CompartmentRange;
     const HashSet<JSCompartment*>* compartments() const { return &compartments_; }
@@ -2497,6 +2503,9 @@ class MOZ_RAII ExecutionObservableScript : public Debugger::ExecutionObservableS
                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
       : script_(cx, script)
     {
+        // The current cx should have exclusive access to observed content,
+        // since debuggees must be in the same zone group as ther debugger.
+        MOZ_ASSERT(singleZone()->group() == cx->zone()->group());
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
@@ -2601,7 +2610,6 @@ UpdateExecutionObservabilityOfScriptsInZone(JSContext* cx, Zone* zone,
 
     AutoSuppressProfilerSampling suppressProfilerSampling(cx);
 
-    JSRuntime* rt = cx->runtime();
     FreeOp* fop = cx->runtime()->defaultFreeOp();
 
     Vector<JSScript*> scripts(cx);
@@ -2633,7 +2641,7 @@ UpdateExecutionObservabilityOfScriptsInZone(JSContext* cx, Zone* zone,
     //
     // Mark active baseline scripts in the observable set so that they don't
     // get discarded. They will be recompiled.
-    for (JitActivationIterator actIter(rt); !actIter.done(); ++actIter) {
+    for (JitActivationIterator actIter(cx, zone->group()->ownerContext()); !actIter.done(); ++actIter) {
         if (actIter->compartment()->zone() != zone)
             continue;
 
@@ -2644,7 +2652,7 @@ UpdateExecutionObservabilityOfScriptsInZone(JSContext* cx, Zone* zone,
                 break;
               case JitFrame_IonJS:
                 MarkBaselineScriptActiveIfObservable(iter.script(), obs);
-                for (InlineFrameIterator inlineIter(rt, &iter); inlineIter.more(); ++inlineIter)
+                for (InlineFrameIterator inlineIter(cx, &iter); inlineIter.more(); ++inlineIter)
                     MarkBaselineScriptActiveIfObservable(inlineIter.script(), obs);
                 break;
               default:;
@@ -3036,10 +3044,12 @@ Debugger::traceIncomingCrossCompartmentEdges(JSTracer* trc)
     gc::State state = rt->gc.state();
     MOZ_ASSERT(state == gc::State::MarkRoots || state == gc::State::Compact);
 
-    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
-        Zone* zone = MaybeForwarded(dbg->object.get())->zone();
-        if (!zone->isCollecting() || state == gc::State::Compact)
-            dbg->traceCrossCompartmentEdges(trc);
+    for (ZoneGroupsIter group(rt); !group.done(); group.next()) {
+        for (Debugger* dbg : group->debuggerList()) {
+            Zone* zone = MaybeForwarded(dbg->object.get())->zone();
+            if (!zone->isCollecting() || state == gc::State::Compact)
+                dbg->traceCrossCompartmentEdges(trc);
+        }
     }
 }
 
@@ -3136,41 +3146,48 @@ Debugger::markIteratively(GCMarker* marker)
     return markedAny;
 }
 
+/* static */ void
+Debugger::traceAllForMovingGC(JSTracer* trc)
+{
+    JSRuntime* rt = trc->runtime();
+    for (ZoneGroupsIter group(rt); !group.done(); group.next()) {
+        for (Debugger* dbg : group->debuggerList())
+            dbg->traceForMovingGC(trc);
+    }
+}
+
 /*
  * Trace all debugger-owned GC things unconditionally. This is used during
  * compacting GC and in minor GC: the minor GC cannot apply the weak constraints
  * of the full GC because it visits only part of the heap.
  */
-/* static */ void
-Debugger::traceAll(JSTracer* trc)
+void
+Debugger::traceForMovingGC(JSTracer* trc)
 {
-    JSRuntime* rt = trc->runtime();
-    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
-        for (WeakGlobalObjectSet::Enum e(dbg->debuggees); !e.empty(); e.popFront())
-            TraceManuallyBarrieredEdge(trc, e.mutableFront().unsafeGet(), "Global Object");
+    for (WeakGlobalObjectSet::Enum e(debuggees); !e.empty(); e.popFront())
+        TraceManuallyBarrieredEdge(trc, e.mutableFront().unsafeGet(), "Global Object");
 
-        GCPtrNativeObject& dbgobj = dbg->toJSObjectRef();
-        TraceEdge(trc, &dbgobj, "Debugger Object");
+    GCPtrNativeObject& dbgobj = toJSObjectRef();
+    TraceEdge(trc, &dbgobj, "Debugger Object");
 
-        dbg->scripts.trace(trc);
-        dbg->sources.trace(trc);
-        dbg->objects.trace(trc);
-        dbg->environments.trace(trc);
-        dbg->wasmInstanceScripts.trace(trc);
-        dbg->wasmInstanceSources.trace(trc);
+    scripts.trace(trc);
+    sources.trace(trc);
+    objects.trace(trc);
+    environments.trace(trc);
+    wasmInstanceScripts.trace(trc);
+    wasmInstanceSources.trace(trc);
 
-        for (Breakpoint* bp = dbg->firstBreakpoint(); bp; bp = bp->nextInDebugger()) {
-            switch (bp->site->type()) {
-              case BreakpointSite::Type::JS:
-                TraceManuallyBarrieredEdge(trc, &bp->site->asJS()->script,
-                                           "breakpoint script");
-                break;
-              case BreakpointSite::Type::Wasm:
-                TraceManuallyBarrieredEdge(trc, &bp->asWasm()->wasmInstance, "breakpoint wasm instance");
-                break;
-            }
-            TraceEdge(trc, &bp->getHandlerRef(), "breakpoint handler");
+    for (Breakpoint* bp = firstBreakpoint(); bp; bp = bp->nextInDebugger()) {
+        switch (bp->site->type()) {
+          case BreakpointSite::Type::JS:
+            TraceManuallyBarrieredEdge(trc, &bp->site->asJS()->script,
+                                       "breakpoint script");
+            break;
+          case BreakpointSite::Type::Wasm:
+            TraceManuallyBarrieredEdge(trc, &bp->asWasm()->wasmInstance, "breakpoint wasm instance");
+            break;
         }
+        TraceEdge(trc, &bp->getHandlerRef(), "breakpoint handler");
     }
 }
 
@@ -3226,15 +3243,17 @@ Debugger::sweepAll(FreeOp* fop)
 {
     JSRuntime* rt = fop->runtime();
 
-    for (Debugger* dbg : rt->zoneGroupFromMainThread()->debuggerList()) {
-        if (IsAboutToBeFinalized(&dbg->object)) {
-            /*
-             * dbg is being GC'd. Detach it from its debuggees. The debuggee
-             * might be GC'd too. Since detaching requires access to both
-             * objects, this must be done before finalize time.
-             */
-            for (WeakGlobalObjectSet::Enum e(dbg->debuggees); !e.empty(); e.popFront())
-                dbg->removeDebuggeeGlobal(fop, e.front().unbarrieredGet(), &e);
+    for (ZoneGroupsIter group(rt); !group.done(); group.next()) {
+        for (Debugger* dbg : group->debuggerList()) {
+            if (IsAboutToBeFinalized(&dbg->object)) {
+                /*
+                 * dbg is being GC'd. Detach it from its debuggees. The debuggee
+                 * might be GC'd too. Since detaching requires access to both
+                 * objects, this must be done before finalize time.
+                 */
+                for (WeakGlobalObjectSet::Enum e(dbg->debuggees); !e.empty(); e.popFront())
+                    dbg->removeDebuggeeGlobal(fop, e.front().unbarrieredGet(), &e);
+            }
         }
     }
 }
@@ -3255,9 +3274,12 @@ Debugger::findZoneEdges(Zone* zone, js::gc::ZoneComponentFinder& finder)
      * For debugger cross compartment wrappers, add edges in the opposite
      * direction to those already added by JSCompartment::findOutgoingEdges.
      * This ensure that debuggers and their debuggees are finalized in the same
-     * group.
+     * group. We only need to look at the zone's ZoneGroup, as debuggers and
+     * debuggees are always in the same ZoneGroup.
      */
-    for (Debugger* dbg : zone->runtimeFromMainThread()->zoneGroupFromMainThread()->debuggerList()) {
+    if (zone->isAtomsZone())
+        return;
+    for (Debugger* dbg : zone->group()->debuggerList()) {
         Zone* w = dbg->object->zone();
         if (w == zone || !w->isGCMarking())
             continue;
@@ -3277,7 +3299,7 @@ Debugger::findZoneEdges(Zone* zone, js::gc::ZoneComponentFinder& finder)
 /* static */ void
 Debugger::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onMainThread());
+    MOZ_ASSERT(fop->onActiveCooperatingThread());
 
     Debugger* dbg = fromJSObject(obj);
     if (!dbg)
@@ -3940,6 +3962,13 @@ Debugger::construct(JSContext* cx, unsigned argc, Value* vp)
 bool
 Debugger::addDebuggeeGlobal(JSContext* cx, Handle<GlobalObject*> global)
 {
+    // Debuggers are required to be in the same zone group as their debuggees.
+    // The debugger must be able to observe all activity in the debuggee
+    // compartment, which requires that its thread have exclusive access to
+    // that compartment's contents.
+    MOZ_ASSERT(cx->zone() == object->zone());
+    MOZ_RELEASE_ASSERT(global->zone()->group() == cx->zone()->group());
+
     if (debuggees.has(global))
         return true;
 
@@ -5088,7 +5117,7 @@ Debugger::drainTraceLogger(JSContext* cx, unsigned argc, Value* vp)
 {
     THIS_DEBUGGER(cx, argc, vp, "drainTraceLogger", args, dbg);
 
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     bool lostEvents = logger->lostEvents(dbg->traceLoggerLastDrainedIteration,
                                          dbg->traceLoggerLastDrainedSize);
 
@@ -5157,7 +5186,7 @@ Debugger::startTraceLogger(JSContext* cx, unsigned argc, Value* vp)
     if (!args.requireAtLeast(cx, "Debugger.startTraceLogger", 0))
         return false;
 
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     if (!TraceLoggerEnable(logger, cx))
         return false;
 
@@ -5173,7 +5202,7 @@ Debugger::endTraceLogger(JSContext* cx, unsigned argc, Value* vp)
     if (!args.requireAtLeast(cx, "Debugger.endTraceLogger", 0))
         return false;
 
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     TraceLoggerDisable(logger);
 
     args.rval().setUndefined();
@@ -5186,7 +5215,7 @@ Debugger::drainTraceLoggerScriptCalls(JSContext* cx, unsigned argc, Value* vp)
 {
     THIS_DEBUGGER(cx, argc, vp, "drainTraceLoggerScriptCalls", args, dbg);
 
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     bool lostEvents = logger->lostEvents(dbg->traceLoggerScriptedCallsLastDrainedIteration,
                                          dbg->traceLoggerScriptedCallsLastDrainedSize);
 
@@ -7711,7 +7740,10 @@ UpdateFrameIterPc(FrameIter& iter)
         jit::JitFrameLayout* jsFrame = (jit::JitFrameLayout*)frame->top();
         jit::JitActivation* activation = iter.activation()->asJit();
 
-        ActivationIterator activationIter(activation->cx()->runtime());
+        JSContext* cx = TlsContext.get();
+        MOZ_ASSERT(cx == activation->cx());
+
+        ActivationIterator activationIter(cx);
         while (activationIter.activation() != activation)
             ++activationIter;
 
@@ -7719,7 +7751,7 @@ UpdateFrameIterPc(FrameIter& iter)
         while (!jitIter.isIonJS() || jitIter.jsFrame() != jsFrame)
             ++jitIter;
 
-        jit::InlineFrameIterator ionInlineIter(activation->cx(), &jitIter);
+        jit::InlineFrameIterator ionInlineIter(cx, &jitIter);
         while (ionInlineIter.frameNo() != frame->frameNo())
             ++ionInlineIter;
 
@@ -8244,7 +8276,7 @@ DebuggerFrame_maybeDecrementFrameScriptStepModeCount(FreeOp* fop, AbstractFrameP
 static void
 DebuggerFrame_finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOffMainThread());
+    MOZ_ASSERT(fop->maybeOnHelperThread());
     DebuggerFrame_freeScriptFrameIterData(fop, obj);
     OnStepHandler* onStepHandler = obj->as<DebuggerFrame>().onStepHandler();
     if (onStepHandler)
@@ -11755,14 +11787,16 @@ FireOnGarbageCollectionHook(JSContext* cx, JS::dbg::GarbageCollectionEvent::Ptr&
         // participated in this GC.
         AutoCheckCannotGC noGC;
 
-        for (Debugger* dbg : cx->runtime()->zoneGroupFromMainThread()->debuggerList()) {
-            if (dbg->enabled &&
-                dbg->observedGC(data->majorGCNumber()) &&
-                dbg->getHook(Debugger::OnGarbageCollection))
-            {
-                if (!triggered.append(dbg->object)) {
-                    JS_ReportOutOfMemory(cx);
-                    return false;
+        for (ZoneGroupsIter group(cx->runtime()); !group.done(); group.next()) {
+            for (Debugger* dbg : group->debuggerList()) {
+                if (dbg->enabled &&
+                    dbg->observedGC(data->majorGCNumber()) &&
+                    dbg->getHook(Debugger::OnGarbageCollection))
+                {
+                    if (!triggered.append(dbg->object)) {
+                        JS_ReportOutOfMemory(cx);
+                        return false;
+                    }
                 }
             }
         }
