@@ -32,9 +32,7 @@
 #endif
 #include "vm/Debugger.h"
 #include "vm/StringBuffer.h"
-#ifdef MOZ_VTUNE
-# include "vtune/VTuneWrapper.h"
-#endif
+#include "vtune/VTuneWrapper.h"
 #include "wasm/WasmBinaryToText.h"
 #include "wasm/WasmModule.h"
 #include "wasm/WasmSerialize.h"
@@ -73,10 +71,24 @@ AllocateCodeSegment(JSContext* cx, uint32_t codeLength)
     codeLength = JS_ROUNDUP(codeLength, ExecutableCodePageSize);
 
     void* p = AllocateExecutableMemory(codeLength, ProtectionSetting::Writable);
+
+    // If the allocation failed and the embedding gives us a last-ditch attempt
+    // to purge all memory (which, in gecko, does a purging GC/CC/GC), do that
+    // then retry the allocation.
+    if (!p) {
+        JSRuntime* rt = cx->runtime();
+        if (rt->largeAllocationFailureCallback) {
+            rt->largeAllocationFailureCallback(rt->largeAllocationFailureCallbackData);
+            p = AllocateExecutableMemory(codeLength, ProtectionSetting::Writable);
+        }
+    }
+
     if (!p) {
         ReportOutOfMemory(cx);
         return nullptr;
     }
+
+    cx->zone()->updateJitCodeMallocBytes(codeLength);
 
     wasmCodeAllocations++;
     return (uint8_t*)p;
@@ -249,7 +261,6 @@ CodeSegment::~CodeSegment()
     if (!bytes_)
         return;
 
-
     MOZ_ASSERT(wasmCodeAllocations > 0);
     wasmCodeAllocations--;
 
@@ -261,7 +272,6 @@ CodeSegment::~CodeSegment()
     vtune::UnmarkBytes(bytes_, size);
 #endif
     DeallocateExecutableMemory(bytes_, size);
-
 }
 
 void

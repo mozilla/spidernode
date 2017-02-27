@@ -77,6 +77,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     nonSyntacticLexicalEnvironments_(nullptr),
     gcIncomingGrayPointers(nullptr),
     debugModeBits(0),
+    validAccessPtr(nullptr),
     randomKeyGenerator_(runtime_->forkRandomKeyGenerator()),
     watchpointMap(nullptr),
     scriptCountsMap(nullptr),
@@ -400,7 +401,8 @@ JSCompartment::getNonWrapperObjectForCurrentCompartment(JSContext* cx, MutableHa
     // We're a bit worried about infinite recursion here, so we do a check -
     // see bug 809295.
     auto preWrap = cx->runtime()->wrapObjectCallbacks->preWrap;
-    JS_CHECK_SYSTEM_RECURSION(cx, return false);
+    if (!CheckSystemRecursionLimit(cx))
+        return false;
     if (preWrap) {
         preWrap(cx, cx->global(), obj, objectPassedToWrap, obj);
         if (!obj)
@@ -957,6 +959,7 @@ void
 JSCompartment::purge()
 {
     dtoaCache.purge();
+    newProxyCache.purge();
     lastCachedNativeIterator = nullptr;
 }
 
@@ -1109,7 +1112,7 @@ CreateLazyScriptsForCompartment(JSContext* cx)
 bool
 JSCompartment::ensureDelazifyScriptsForDebugger(JSContext* cx)
 {
-    MOZ_ASSERT(cx->compartment() == this);
+    AutoCompartmentUnchecked ac(cx, this);
     if (needsDelazificationForDebugger() && !CreateLazyScriptsForCompartment(cx))
         return false;
     debugModeBits &= ~DebuggerNeedsDelazification;

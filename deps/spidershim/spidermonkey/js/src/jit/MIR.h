@@ -1568,7 +1568,6 @@ class MConstant : public MNullaryInstruction
     MConstant(const Value& v, CompilerConstraintList* constraints);
     explicit MConstant(JSObject* obj);
     explicit MConstant(float f);
-    explicit MConstant(double d);
     explicit MConstant(int64_t i);
 
   public:
@@ -1578,8 +1577,6 @@ class MConstant : public MNullaryInstruction
     static MConstant* New(TempAllocator::Fallible alloc, const Value& v,
                           CompilerConstraintList* constraints = nullptr);
     static MConstant* New(TempAllocator& alloc, const Value& v, MIRType type);
-    static MConstant* NewRawFloat32(TempAllocator& alloc, float f);
-    static MConstant* NewRawDouble(TempAllocator& alloc, double d);
     static MConstant* NewFloat32(TempAllocator& alloc, double d);
     static MConstant* NewInt64(TempAllocator& alloc, int64_t i);
     static MConstant* NewConstraintlessObject(TempAllocator& alloc, JSObject* v);
@@ -1692,6 +1689,52 @@ class MConstant : public MNullaryInstruction
     Value toJSValue() const;
 
     bool appendRoots(MRootList& roots) const override;
+};
+
+// Floating-point value as created by wasm. Just a constant value, used to
+// effectively inhibite all the MIR optimizations. This uses the same LIR nodes
+// as a MConstant of the same type would.
+class MWasmFloatConstant : public MNullaryInstruction
+{
+    union {
+        float f32_;
+        double f64_;
+        uint64_t bits_;
+    } u;
+
+    explicit MWasmFloatConstant(MIRType type)
+    {
+        u.bits_ = 0;
+        setResultType(type);
+    }
+
+  public:
+    INSTRUCTION_HEADER(WasmFloatConstant)
+
+    static MWasmFloatConstant* NewDouble(TempAllocator& alloc, double d) {
+        auto* ret = new(alloc) MWasmFloatConstant(MIRType::Double);
+        ret->u.f64_ = d;
+        return ret;
+    }
+
+    static MWasmFloatConstant* NewFloat32(TempAllocator& alloc, float f) {
+        auto* ret = new(alloc) MWasmFloatConstant(MIRType::Float32);
+        ret->u.f32_ = f;
+        return ret;
+    }
+
+    HashNumber valueHash() const override;
+    bool congruentTo(const MDefinition* ins) const override;
+    AliasSet getAliasSet() const override { return AliasSet::None(); }
+
+    const double& toDouble() const {
+        MOZ_ASSERT(type() == MIRType::Double);
+        return u.f64_;
+    }
+    const float& toFloat32() const {
+        MOZ_ASSERT(type() == MIRType::Float32);
+        return u.f32_;
+    }
 };
 
 // Generic constructor of SIMD valuesX4.
@@ -4501,6 +4544,9 @@ class MCompare
 
         // String compared to String
         Compare_String,
+
+        // Symbol compared to Symbol
+        Compare_Symbol,
 
         // Undefined compared to String
         // Null      compared to String
@@ -11484,6 +11530,63 @@ class MFunctionEnvironment
     }
 };
 
+// Allocate a new LexicalEnvironmentObject.
+class MNewLexicalEnvironmentObject
+  : public MUnaryInstruction,
+    public SingleObjectPolicy::Data
+{
+    CompilerGCPointer<LexicalScope*> scope_;
+
+    MNewLexicalEnvironmentObject(MDefinition* enclosing, LexicalScope* scope)
+      : MUnaryInstruction(enclosing),
+        scope_(scope)
+    {
+        setResultType(MIRType::Object);
+    }
+
+  public:
+    INSTRUCTION_HEADER(NewLexicalEnvironmentObject)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, enclosing))
+
+    LexicalScope* scope() const {
+        return scope_;
+    }
+    bool possiblyCalls() const override {
+        return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(scope_);
+    }
+};
+
+// Allocate a new LexicalEnvironmentObject from existing one
+class MCopyLexicalEnvironmentObject
+  : public MUnaryInstruction,
+    public SingleObjectPolicy::Data
+{
+    bool copySlots_;
+
+    MCopyLexicalEnvironmentObject(MDefinition* env, bool copySlots)
+      : MUnaryInstruction(env),
+        copySlots_(copySlots)
+    {
+        setResultType(MIRType::Object);
+    }
+
+  public:
+    INSTRUCTION_HEADER(CopyLexicalEnvironmentObject)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, env))
+
+    bool copySlots() const {
+        return copySlots_;
+    }
+    bool possiblyCalls() const override {
+        return true;
+    }
+};
+
 // Store to vp[slot] (slots that are not inline in an object).
 class MStoreSlot
   : public MBinaryInstruction,
@@ -13413,8 +13516,9 @@ class MCheckIsObj
 {
     uint8_t checkKind_;
 
-    explicit MCheckIsObj(MDefinition* toCheck, uint8_t checkKind)
-      : MUnaryInstruction(toCheck), checkKind_(checkKind)
+    MCheckIsObj(MDefinition* toCheck, uint8_t checkKind)
+      : MUnaryInstruction(toCheck),
+        checkKind_(checkKind)
     {
         setResultType(MIRType::Value);
         setResultTypeSet(toCheck->resultTypeSet());
@@ -13423,6 +13527,33 @@ class MCheckIsObj
 
   public:
     INSTRUCTION_HEADER(CheckIsObj)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, checkValue))
+
+    uint8_t checkKind() const { return checkKind_; }
+
+    AliasSet getAliasSet() const override {
+        return AliasSet::None();
+    }
+};
+
+class MCheckIsCallable
+  : public MUnaryInstruction,
+    public BoxInputsPolicy::Data
+{
+    uint8_t checkKind_;
+
+    MCheckIsCallable(MDefinition* toCheck, uint8_t checkKind)
+      : MUnaryInstruction(toCheck),
+        checkKind_(checkKind)
+    {
+        setResultType(MIRType::Value);
+        setResultTypeSet(toCheck->resultTypeSet());
+        setGuard();
+    }
+
+  public:
+    INSTRUCTION_HEADER(CheckIsCallable)
     TRIVIAL_NEW_WRAPPERS
     NAMED_OPERANDS((0, checkValue))
 

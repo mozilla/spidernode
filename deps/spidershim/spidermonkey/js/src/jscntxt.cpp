@@ -68,67 +68,74 @@ using mozilla::PointerRangeSize;
 bool
 js::AutoCycleDetector::init()
 {
-    AutoCycleDetector::Set& set = cx->cycleDetectorSet();
-    hashsetAddPointer = set.lookupForAdd(obj);
-    if (!hashsetAddPointer) {
-        if (!set.add(hashsetAddPointer, obj)) {
-            ReportOutOfMemory(cx);
-            return false;
-        }
-        cyclic = false;
-        hashsetGenerationAtInit = set.generation();
+    MOZ_ASSERT(cyclic);
+
+    AutoCycleDetector::Vector& vector = cx->cycleDetectorVector();
+
+    for (JSObject* obj2 : vector) {
+        if (MOZ_UNLIKELY(obj == obj2))
+            return true;
     }
+
+    if (!vector.append(obj))
+        return false;
+
+    cyclic = false;
     return true;
 }
 
 js::AutoCycleDetector::~AutoCycleDetector()
 {
-    if (!cyclic) {
-        if (hashsetGenerationAtInit == cx->cycleDetectorSet().generation())
-            cx->cycleDetectorSet().remove(hashsetAddPointer);
-        else
-            cx->cycleDetectorSet().remove(obj);
+    if (MOZ_LIKELY(!cyclic)) {
+        AutoCycleDetector::Vector& vec = cx->cycleDetectorVector();
+        MOZ_ASSERT(vec.back() == obj);
+        if (vec.length() > 1) {
+            vec.popBack();
+        } else {
+            // Avoid holding on to unused heap allocations.
+            vec.clearAndFree();
+        }
     }
 }
 
-void
-js::TraceCycleDetectionSet(JSTracer* trc, AutoCycleDetector::Set& set)
-{
-    for (AutoCycleDetector::Set::Enum e(set); !e.empty(); e.popFront())
-        TraceRoot(trc, &e.mutableFront(), "cycle detector table entry");
-}
-
 bool
-JSContext::init()
+JSContext::init(ContextKind kind)
 {
-    // Get a platform-native handle for this thread, used by js::InterruptRunningJitCode.
+    // Skip most of the initialization if this thread will not be running JS.
+    if (kind == ContextKind::Cooperative) {
+        // Get a platform-native handle for this thread, used by js::InterruptRunningJitCode.
 #ifdef XP_WIN
-    size_t openFlags = THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME |
-                       THREAD_QUERY_INFORMATION;
-    HANDLE self = OpenThread(openFlags, false, GetCurrentThreadId());
-    if (!self)
+        size_t openFlags = THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME |
+                           THREAD_QUERY_INFORMATION;
+        HANDLE self = OpenThread(openFlags, false, GetCurrentThreadId());
+        if (!self)
         return false;
-    static_assert(sizeof(HANDLE) <= sizeof(threadNative_), "need bigger field");
-    threadNative_ = (size_t)self;
+        static_assert(sizeof(HANDLE) <= sizeof(threadNative_), "need bigger field");
+        threadNative_ = (size_t)self;
 #else
-    static_assert(sizeof(pthread_t) <= sizeof(threadNative_), "need bigger field");
-    threadNative_ = (size_t)pthread_self();
+        static_assert(sizeof(pthread_t) <= sizeof(threadNative_), "need bigger field");
+        threadNative_ = (size_t)pthread_self();
 #endif
 
-    if (!regexpStack.ref().init())
-        return false;
+        if (!regexpStack.ref().init())
+            return false;
 
-    if (!fx.initInstance())
-        return false;
+        if (!fx.initInstance())
+            return false;
 
 #ifdef JS_SIMULATOR
-    simulator_ = js::jit::Simulator::Create(this);
-    if (!simulator_)
-        return false;
+        simulator_ = js::jit::Simulator::Create(this);
+        if (!simulator_)
+            return false;
 #endif
 
-    if (!wasm::EnsureSignalHandlers(this))
-        return false;
+        if (!wasm::EnsureSignalHandlers(this))
+            return false;
+    }
+
+    // Set the ContextKind last, so that ProtectedData checks will allow us to
+    // initialize this context before it becomes the runtime's active context.
+    kind_ = kind;
 
     return true;
 }
@@ -156,14 +163,46 @@ js::NewContext(uint32_t maxBytes, uint32_t maxNurseryBytes, JSRuntime* parentRun
         return nullptr;
     }
 
-
-    if (!cx->init()) {
+    if (!cx->init(ContextKind::Cooperative)) {
         js_delete(cx);
         js_delete(runtime);
         return nullptr;
     }
 
     return cx;
+}
+
+JSContext*
+js::NewCooperativeContext(JSContext* siblingContext)
+{
+    MOZ_RELEASE_ASSERT(!TlsContext.get());
+
+    JSRuntime* runtime = siblingContext->runtime();
+
+    JSContext* cx = js_new<JSContext>(runtime, JS::ContextOptions());
+    if (!cx || !cx->init(ContextKind::Cooperative)) {
+        js_delete(cx);
+        return nullptr;
+    }
+
+    runtime->setNewbornActiveContext(cx);
+    return cx;
+}
+
+void
+js::YieldCooperativeContext(JSContext* cx)
+{
+    MOZ_ASSERT(cx == TlsContext.get());
+    MOZ_ASSERT(cx->runtime()->activeContext() == cx);
+    cx->runtime()->setActiveContext(nullptr);
+}
+
+void
+js::ResumeCooperativeContext(JSContext* cx)
+{
+    MOZ_ASSERT(cx == TlsContext.get());
+    MOZ_ASSERT(cx->runtime()->activeContext() == nullptr);
+    cx->runtime()->setActiveContext(cx);
 }
 
 void
@@ -186,6 +225,8 @@ js::DestroyContext(JSContext* cx)
         // Destroy the runtime along with its last context.
         cx->runtime()->destroyRuntime();
         js_delete(cx->runtime());
+
+        js_delete_poison(cx);
     } else {
         DebugOnly<bool> found = false;
         for (size_t i = 0; i < cx->runtime()->cooperatingContexts().length(); i++) {
@@ -197,9 +238,9 @@ js::DestroyContext(JSContext* cx)
             }
         }
         MOZ_ASSERT(found);
-    }
 
-    js_delete_poison(cx);
+        cx->runtime()->deleteActiveContext(cx);
+    }
 }
 
 void
@@ -446,49 +487,16 @@ js::ReportUsageErrorASCII(JSContext* cx, HandleObject callee, const char* msg)
     }
 }
 
-bool
-js::PrintError(JSContext* cx, FILE* file, JS::ConstUTF8CharsZ toStringResult,
-               JSErrorReport* report, bool reportWarnings)
+enum class PrintErrorKind {
+    Error,
+    Warning,
+    StrictWarning,
+    Note
+};
+
+static void
+PrintErrorLine(JSContext* cx, FILE* file, const char* prefix, JSErrorReport* report)
 {
-    MOZ_ASSERT(report);
-
-    /* Conditionally ignore reported warnings. */
-    if (JSREPORT_IS_WARNING(report->flags) && !reportWarnings)
-        return false;
-
-    char* prefix = nullptr;
-    if (report->filename)
-        prefix = JS_smprintf("%s:", report->filename);
-    if (report->lineno) {
-        char* tmp = prefix;
-        prefix = JS_smprintf("%s%u:%u ", tmp ? tmp : "", report->lineno, report->column);
-        JS_free(cx, tmp);
-    }
-    if (JSREPORT_IS_WARNING(report->flags)) {
-        char* tmp = prefix;
-        prefix = JS_smprintf("%s%swarning: ",
-                             tmp ? tmp : "",
-                             JSREPORT_IS_STRICT(report->flags) ? "strict " : "");
-        JS_free(cx, tmp);
-    }
-
-    const char* message = toStringResult ? toStringResult.c_str() : report->message().c_str();
-
-    /* embedded newlines -- argh! */
-    const char* ctmp;
-    while ((ctmp = strchr(message, '\n')) != 0) {
-        ctmp++;
-        if (prefix)
-            fputs(prefix, file);
-        fwrite(message, 1, ctmp - message, file);
-        message = ctmp;
-    }
-
-    /* If there were no filename or lineno, the prefix might be empty */
-    if (prefix)
-        fputs(prefix, file);
-    fputs(message, file);
-
     if (const char16_t* linebuf = report->linebuf()) {
         size_t n = report->linebufLength();
 
@@ -518,9 +526,96 @@ js::PrintError(JSContext* cx, FILE* file, JS::ConstUTF8CharsZ toStringResult,
         }
         fputc('^', file);
     }
+}
+
+static void
+PrintErrorLine(JSContext* cx, FILE* file, const char* prefix, JSErrorNotes::Note* note)
+{
+}
+
+template <typename T>
+static bool
+PrintSingleError(JSContext* cx, FILE* file, JS::ConstUTF8CharsZ toStringResult,
+                 T* report, PrintErrorKind kind)
+{
+    UniquePtr<char> prefix;
+    if (report->filename)
+        prefix.reset(JS_smprintf("%s:", report->filename));
+
+    if (report->lineno) {
+        UniquePtr<char> tmp(JS_smprintf("%s%u:%u ", prefix ? prefix.get() : "", report->lineno,
+                                        report->column));
+        prefix = Move(tmp);
+    }
+
+    if (kind != PrintErrorKind::Error) {
+        const char* kindPrefix = nullptr;
+        switch (kind) {
+          case PrintErrorKind::Error:
+            break;
+          case PrintErrorKind::Warning:
+            kindPrefix = "warning";
+            break;
+          case PrintErrorKind::StrictWarning:
+            kindPrefix = "strict warning";
+            break;
+          case PrintErrorKind::Note:
+            kindPrefix = "note";
+            break;
+        }
+
+        UniquePtr<char> tmp(JS_smprintf("%s%s: ", prefix ? prefix.get() : "", kindPrefix));
+        prefix = Move(tmp);
+    }
+
+    const char* message = toStringResult ? toStringResult.c_str() : report->message().c_str();
+
+    /* embedded newlines -- argh! */
+    const char* ctmp;
+    while ((ctmp = strchr(message, '\n')) != 0) {
+        ctmp++;
+        if (prefix)
+            fputs(prefix.get(), file);
+        fwrite(message, 1, ctmp - message, file);
+        message = ctmp;
+    }
+
+    /* If there were no filename or lineno, the prefix might be empty */
+    if (prefix)
+        fputs(prefix.get(), file);
+    fputs(message, file);
+
+    PrintErrorLine(cx, file, prefix.get(), report);
     fputc('\n', file);
+
     fflush(file);
-    JS_free(cx, prefix);
+    return true;
+}
+
+bool
+js::PrintError(JSContext* cx, FILE* file, JS::ConstUTF8CharsZ toStringResult,
+               JSErrorReport* report, bool reportWarnings)
+{
+    MOZ_ASSERT(report);
+
+    /* Conditionally ignore reported warnings. */
+    if (JSREPORT_IS_WARNING(report->flags) && !reportWarnings)
+        return false;
+
+    PrintErrorKind kind = PrintErrorKind::Error;
+    if (JSREPORT_IS_WARNING(report->flags)) {
+        if (JSREPORT_IS_STRICT(report->flags))
+            kind = PrintErrorKind::StrictWarning;
+        else
+            kind = PrintErrorKind::Warning;
+    }
+    PrintSingleError(cx, file, toStringResult, report, kind);
+
+    if (report->notes) {
+        for (auto&& note : *report->notes)
+            PrintSingleError(cx, file, JS::ConstUTF8CharsZ(), note.get(), PrintErrorKind::Note);
+    }
+
     return true;
 }
 
@@ -622,6 +717,18 @@ class MOZ_RAII AutoMessageArgs
     }
 };
 
+static void
+SetExnType(JSErrorReport* reportp, int16_t exnType)
+{
+    reportp->exnType = exnType;
+}
+
+static void
+SetExnType(JSErrorNotes::Note* notep, int16_t exnType)
+{
+    // Do nothing for JSErrorNotes::Note.
+}
+
 /*
  * The arguments from ap need to be packaged up into an array and stored
  * into the report struct.
@@ -633,12 +740,13 @@ class MOZ_RAII AutoMessageArgs
  *
  * Returns true if the expansion succeeds (can fail if out of memory).
  */
+template <typename T>
 bool
-js::ExpandErrorArgumentsVA(JSContext* cx, JSErrorCallback callback,
+ExpandErrorArgumentsHelper(JSContext* cx, JSErrorCallback callback,
                            void* userRef, const unsigned errorNumber,
                            const char16_t** messageArgs,
                            ErrorArgumentsType argumentsType,
-                           JSErrorReport* reportp, va_list ap)
+                           T* reportp, va_list ap)
 {
     const JSErrorFormatString* efs;
 
@@ -651,7 +759,7 @@ js::ExpandErrorArgumentsVA(JSContext* cx, JSErrorCallback callback,
     }
 
     if (efs) {
-        reportp->exnType = efs->exnType;
+        SetExnType(reportp, efs->exnType);
 
         MOZ_ASSERT_IF(argumentsType == ArgumentsAreASCII, JS::StringIsASCII(efs->format));
 
@@ -732,6 +840,28 @@ js::ExpandErrorArgumentsVA(JSContext* cx, JSErrorCallback callback,
         reportp->initOwnedMessage(message);
     }
     return true;
+}
+
+bool
+js::ExpandErrorArgumentsVA(JSContext* cx, JSErrorCallback callback,
+                           void* userRef, const unsigned errorNumber,
+                           const char16_t** messageArgs,
+                           ErrorArgumentsType argumentsType,
+                           JSErrorReport* reportp, va_list ap)
+{
+    return ExpandErrorArgumentsHelper(cx, callback, userRef, errorNumber,
+                                      messageArgs, argumentsType, reportp, ap);
+}
+
+bool
+js::ExpandErrorArgumentsVA(JSContext* cx, JSErrorCallback callback,
+                           void* userRef, const unsigned errorNumber,
+                           const char16_t** messageArgs,
+                           ErrorArgumentsType argumentsType,
+                           JSErrorNotes::Note* notep, va_list ap)
+{
+    return ExpandErrorArgumentsHelper(cx, callback, userRef, errorNumber,
+                                      messageArgs, argumentsType, notep, ap);
 }
 
 bool
@@ -897,6 +1027,52 @@ js::ReportValueErrorFlags(JSContext* cx, unsigned flags, const unsigned errorNum
     return ok;
 }
 
+JSObject*
+js::CreateErrorNotesArray(JSContext* cx, JSErrorReport* report)
+{
+    RootedArrayObject notesArray(cx, NewDenseEmptyArray(cx));
+    if (!notesArray)
+        return nullptr;
+
+    if (!report->notes)
+        return notesArray;
+
+    for (auto&& note : *report->notes) {
+        RootedPlainObject noteObj(cx, NewBuiltinClassInstance<PlainObject>(cx));
+        if (!noteObj)
+            return nullptr;
+
+        RootedString messageStr(cx, note->newMessageString(cx));
+        if (!messageStr)
+            return nullptr;
+        RootedValue messageVal(cx, StringValue(messageStr));
+        if (!DefineProperty(cx, noteObj, cx->names().message, messageVal))
+            return nullptr;
+
+        RootedValue filenameVal(cx);
+        if (note->filename) {
+            RootedString filenameStr(cx, NewStringCopyZ<CanGC>(cx, note->filename));
+            if (!filenameStr)
+                return nullptr;
+            filenameVal = StringValue(filenameStr);
+        }
+        if (!DefineProperty(cx, noteObj, cx->names().fileName, filenameVal))
+            return nullptr;
+
+        RootedValue linenoVal(cx, Int32Value(note->lineno));
+        if (!DefineProperty(cx, noteObj, cx->names().lineNumber, linenoVal))
+            return nullptr;
+        RootedValue columnVal(cx, Int32Value(note->column));
+        if (!DefineProperty(cx, noteObj, cx->names().columnNumber, columnVal))
+            return nullptr;
+
+        if (!NewbornArrayPush(cx, notesArray, ObjectValue(*noteObj)))
+            return nullptr;
+    }
+
+    return notesArray;
+}
+
 const JSErrorFormatString js_ErrorFormatString[JSErr_Limit] = {
 #define MSG_DEF(name, count, exception, format) \
     { #name, format, count, exception } ,
@@ -957,6 +1133,7 @@ JSContext::alreadyReportedError()
 
 JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
   : runtime_(runtime),
+    kind_(ContextKind::Background),
     threadNative_(0),
     helperThread_(nullptr),
     options_(options),
@@ -1000,6 +1177,7 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
 #if defined(DEBUG) || defined(JS_OOM_BREAKPOINT)
     runningOOMTest(false),
 #endif
+    enableAccessValidation(false),
     inUnsafeRegion(0),
     generationalDisabled(0),
     compactingDisabledCount(0),
@@ -1019,6 +1197,7 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
     enteredPolicy(nullptr),
 #endif
     generatingError(false),
+    cycleDetectorVector_(this),
     data(nullptr),
     outstandingRequests(0),
     jitIsBroken(false),
@@ -1035,15 +1214,20 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
 {
     MOZ_ASSERT(static_cast<JS::RootingContext*>(this) ==
                JS::RootingContext::get(this));
+
+    MOZ_ASSERT(!TlsContext.get());
+    TlsContext.set(this);
+
     for (size_t i = 0; i < mozilla::ArrayLength(nativeStackQuota); i++)
         nativeStackQuota[i] = 0;
-
-    if (!TlsContext.get())
-        TlsContext.set(this);
 }
 
 JSContext::~JSContext()
 {
+    // Clear the ContextKind first, so that ProtectedData checks will allow us to
+    // destroy this context even if the runtime is already gone.
+    kind_ = ContextKind::Background;
+
 #ifdef XP_WIN
     if (threadNative_)
         CloseHandle((HANDLE)threadNative_.ref());
@@ -1069,8 +1253,8 @@ JSContext::~JSContext()
         DestroyTraceLogger(traceLogger);
 #endif
 
-    if (TlsContext.get() == this)
-        TlsContext.set(nullptr);
+    MOZ_ASSERT(TlsContext.get() == this);
+    TlsContext.set(nullptr);
 }
 
 void
@@ -1208,14 +1392,13 @@ JSContext::sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const
      * ones have been found by DMD to be worth measuring.  More stuff may be
      * added later.
      */
-    return cycleDetectorSet().sizeOfExcludingThis(mallocSizeOf);
+    return cycleDetectorVector().sizeOfExcludingThis(mallocSizeOf);
 }
 
 void
 JSContext::trace(JSTracer* trc)
 {
-    if (cycleDetectorSet().initialized())
-        TraceCycleDetectionSet(trc, cycleDetectorSet());
+    cycleDetectorVector().trace(trc);
 
     if (trc->isMarkingTracer() && compartment_)
         compartment_->mark();

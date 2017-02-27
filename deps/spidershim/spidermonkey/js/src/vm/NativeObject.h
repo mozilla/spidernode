@@ -477,6 +477,10 @@ class NativeObject : public ShapedObject
 
     inline bool isInWholeCellBuffer() const;
 
+    static inline JS::Result<NativeObject*, JS::OOM&>
+    create(JSContext* cx, js::gc::AllocKind kind, js::gc::InitialHeap heap,
+           js::HandleShape shape, js::HandleObjectGroup group);
+
   protected:
 #ifdef DEBUG
     void checkShapeConsistency();
@@ -1389,7 +1393,7 @@ NativeGetExistingProperty(JSContext* cx, HandleObject receiver, HandleNativeObje
 /* * */
 
 extern bool
-GetPropertyForNameLookup(JSContext* cx, HandleObject obj, HandleId id, MutableHandleValue vp);
+GetNameBoundInEnvironment(JSContext* cx, HandleObject env, HandleId id, MutableHandleValue vp);
 
 } /* namespace js */
 

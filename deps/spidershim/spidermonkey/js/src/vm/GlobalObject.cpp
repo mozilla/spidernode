@@ -352,7 +352,7 @@ GlobalObject::new_(JSContext* cx, const Class* clasp, JSPrincipals* principals,
 
     Rooted<GlobalObject*> global(cx);
     {
-        AutoCompartment ac(cx, compartment);
+        AutoCompartmentUnchecked ac(cx, compartment);
         global = GlobalObject::createInternal(cx, clasp);
         if (!global)
             return nullptr;
@@ -630,7 +630,7 @@ js::DefinePropertiesAndFunctions(JSContext* cx, HandleObject obj,
 }
 
 bool
-js::DefineToStringTag(JSContext *cx, HandleObject obj, JSAtom* tag)
+js::DefineToStringTag(JSContext* cx, HandleObject obj, JSAtom* tag)
 {
     RootedId toStringTagId(cx, SYMBOL_TO_JSID(cx->wellKnownSymbols().toStringTag));
     RootedValue tagString(cx, StringValue(tag));

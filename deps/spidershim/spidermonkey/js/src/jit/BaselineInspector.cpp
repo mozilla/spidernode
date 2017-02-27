@@ -27,16 +27,10 @@ SetElemICInspector::sawOOBDenseWrite() const
     if (!icEntry_)
         return false;
 
-    // Check for an element adding stub.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (stub->isSetElem_DenseOrUnboxedArrayAdd())
-            return true;
-    }
-
     // Check for a write hole bit on the SetElem_Fallback stub.
     ICStub* stub = icEntry_->fallbackStub();
     if (stub->isSetElem_Fallback())
-        return stub->toSetElem_Fallback()->hasArrayWriteHole();
+        return stub->toSetElem_Fallback()->hasDenseAdd();
 
     return false;
 }
@@ -47,27 +41,10 @@ SetElemICInspector::sawOOBTypedArrayWrite() const
     if (!icEntry_)
         return false;
 
-    // Check for SetElem_TypedArray stubs with expectOutOfBounds set.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (!stub->isSetElem_TypedArray())
-            continue;
-        if (stub->toSetElem_TypedArray()->expectOutOfBounds())
-            return true;
-    }
-    return false;
-}
+    ICStub* stub = icEntry_->fallbackStub();
+    if (stub->isSetElem_Fallback())
+        return stub->toSetElem_Fallback()->hasTypedArrayOOB();
 
-bool
-SetElemICInspector::sawTypedArrayWrite() const
-{
-    if (!icEntry_)
-        return false;
-
-    // Check for a SetElem_TypedArray stub.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (stub->isSetElem_TypedArray())
-            return true;
-    }
     return false;
 }
 

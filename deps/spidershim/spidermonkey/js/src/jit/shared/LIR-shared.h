@@ -2967,9 +2967,12 @@ class LCompareVM : public LCallInstructionHelper<1, 2 * BOX_PIECES, 0>
 
 class LBitAndAndBranch : public LControlInstructionHelper<2, 2, 0>
 {
+    Assembler::Condition cond_;
   public:
     LIR_HEADER(BitAndAndBranch)
-    LBitAndAndBranch(MBasicBlock* ifTrue, MBasicBlock* ifFalse)
+    LBitAndAndBranch(MBasicBlock* ifTrue, MBasicBlock* ifFalse,
+                     Assembler::Condition cond = Assembler::NonZero)
+        : cond_(cond)
     {
         setSuccessor(0, ifTrue);
         setSuccessor(1, ifFalse);
@@ -2986,6 +2989,10 @@ class LBitAndAndBranch : public LControlInstructionHelper<2, 2, 0>
     }
     const LAllocation* right() {
         return getOperand(1);
+    }
+    Assembler::Condition cond() const {
+        MOZ_ASSERT(cond_ == Assembler::Zero || cond_ == Assembler::NonZero);
+        return cond_;
     }
 };
 
@@ -7043,6 +7050,42 @@ class LFunctionEnvironment : public LInstructionHelper<1, 1, 0>
     }
 };
 
+// Allocate a new LexicalEnvironmentObject.
+class LNewLexicalEnvironmentObject : public LCallInstructionHelper<1, 1, 0>
+{
+  public:
+    LIR_HEADER(NewLexicalEnvironmentObject)
+
+    explicit LNewLexicalEnvironmentObject(const LAllocation& enclosing) {
+        setOperand(0, enclosing);
+    }
+    const LAllocation* enclosing() {
+        return getOperand(0);
+    }
+
+    MNewLexicalEnvironmentObject* mir() const {
+        return mir_->toNewLexicalEnvironmentObject();
+    }
+};
+
+// Copy a LexicalEnvironmentObject.
+class LCopyLexicalEnvironmentObject : public LCallInstructionHelper<1, 1, 0>
+{
+  public:
+    LIR_HEADER(CopyLexicalEnvironmentObject)
+
+    explicit LCopyLexicalEnvironmentObject(const LAllocation& env) {
+        setOperand(0, env);
+    }
+    const LAllocation* env() {
+        return getOperand(0);
+    }
+
+    MCopyLexicalEnvironmentObject* mir() const {
+        return mir_->toCopyLexicalEnvironmentObject();
+    }
+};
+
 class LCallGetProperty : public LCallInstructionHelper<BOX_PIECES, BOX_PIECES, 0>
 {
   public:
@@ -7170,22 +7213,20 @@ class LCallDeleteElement : public LCallInstructionHelper<1, 2 * BOX_PIECES, 0>
 };
 
 // Patchable jump to stubs generated for a SetProperty cache.
-class LSetPropertyCache : public LInstructionHelper<0, 1 + 2 * BOX_PIECES, 4>
+class LSetPropertyCache : public LInstructionHelper<0, 1 + 2 * BOX_PIECES, 3>
 {
   public:
     LIR_HEADER(SetPropertyCache)
 
     LSetPropertyCache(const LAllocation& object, const LBoxAllocation& id,
                       const LBoxAllocation& value, const LDefinition& temp,
-                      const LDefinition& tempToUnboxIndex, const LDefinition& tempDouble,
-                      const LDefinition& tempFloat32) {
+                      const LDefinition& tempDouble, const LDefinition& tempFloat32) {
         setOperand(0, object);
         setBoxOperand(Id, id);
         setBoxOperand(Value, value);
         setTemp(0, temp);
-        setTemp(1, tempToUnboxIndex);
-        setTemp(2, tempDouble);
-        setTemp(3, tempFloat32);
+        setTemp(1, tempDouble);
+        setTemp(2, tempFloat32);
     }
 
     static const size_t Id = 1;
@@ -7198,16 +7239,13 @@ class LSetPropertyCache : public LInstructionHelper<0, 1 + 2 * BOX_PIECES, 4>
     const LDefinition* temp() {
         return getTemp(0);
     }
-    const LDefinition* tempToUnboxIndex() {
-        return getTemp(1);
-    }
     const LDefinition* tempDouble() {
-        return getTemp(2);
+        return getTemp(1);
     }
     const LDefinition* tempFloat32() {
         if (hasUnaliasedDouble())
-            return getTemp(3);
-        return getTemp(2);
+            return getTemp(2);
+        return getTemp(1);
     }
 };
 
@@ -8946,6 +8984,27 @@ class LCheckIsObj : public LInstructionHelper<BOX_PIECES, BOX_PIECES, 0>
 
     MCheckIsObj* mir() const {
         return mir_->toCheckIsObj();
+    }
+};
+
+class LCheckIsCallable : public LInstructionHelper<BOX_PIECES, BOX_PIECES, 1>
+{
+  public:
+    LIR_HEADER(CheckIsCallable)
+
+    static const size_t CheckValue = 0;
+
+    LCheckIsCallable(const LBoxAllocation& value, const LDefinition& temp) {
+        setBoxOperand(CheckValue, value);
+        setTemp(0, temp);
+    }
+
+    const LDefinition* temp() {
+        return getTemp(0);
+    }
+
+    MCheckIsCallable* mir() const {
+        return mir_->toCheckIsCallable();
     }
 };
 

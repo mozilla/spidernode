@@ -88,7 +88,7 @@ GCRuntime::tryNewNurseryObject(JSContext* cx, size_t thingSize, size_t nDynamicS
         return obj;
 
     if (allowGC && !cx->suppressGC) {
-        cx->zone()->group()->minorGC(JS::gcreason::OUT_OF_NURSERY);
+        cx->runtime()->gc.minorGC(JS::gcreason::OUT_OF_NURSERY);
 
         // Exceeding gcMaxBytes while tenuring can disable the Nursery.
         if (cx->nursery().isEnabled()) {

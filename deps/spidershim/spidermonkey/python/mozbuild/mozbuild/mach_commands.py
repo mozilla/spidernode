@@ -695,9 +695,9 @@ class Clobber(MachCommandBase):
                 raise
 
         if 'python' in what:
-            if os.path.isdir(mozpath.join(self.topsrcdir, '.hg')):
+            if conditions.is_hg(self):
                 cmd = ['hg', 'purge', '--all', '-I', 'glob:**.py[co]']
-            elif os.path.isdir(mozpath.join(self.topsrcdir, '.git')):
+            elif conditions.is_git(self):
                 cmd = ['git', 'clean', '-f', '-x', '*.py[co]']
             else:
                 cmd = ['find', '.', '-type', 'f', '-name', '*.py[co]', '-delete']
@@ -1593,6 +1593,9 @@ class Vendor(MachCommandBase):
                 description='Vendor rust crates from crates.io into third_party/rust')
     @CommandArgument('--ignore-modified', action='store_true',
         help='Ignore modified files in current checkout',
+        default=False)
+    @CommandArgument('--build-peers-said-large-imports-were-ok', action='store_true',
+        help='Permit overly-large files to be added to the repository',
         default=False)
     def vendor_rust(self, **kwargs):
         from mozbuild.vendor_rust import VendorRust

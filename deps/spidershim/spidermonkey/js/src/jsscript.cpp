@@ -51,9 +51,7 @@
 #include "vm/Shape.h"
 #include "vm/SharedImmutableStringsCache.h"
 #include "vm/Xdr.h"
-#ifdef MOZ_VTUNE
-# include "vtune/VTuneWrapper.h"
-#endif
+#include "vtune/VTuneWrapper.h"
 
 #include "jsfuninlines.h"
 #include "jsobjinlines.h"
@@ -2163,7 +2161,7 @@ FormatIntroducedFilename(JSContext* cx, const char* filename, unsigned lineno,
 
 bool
 ScriptSource::initFromOptions(JSContext* cx, const ReadOnlyCompileOptions& options,
-                              Maybe<uint32_t> parameterListEnd)
+                              const Maybe<uint32_t>& parameterListEnd)
 {
     MOZ_ASSERT(!filename_);
     MOZ_ASSERT(!introducerFilename_);
@@ -2975,7 +2973,7 @@ JSScript::finalize(FreeOp* fop)
     if (scriptData_)
         scriptData_->decRefCount();
 
-    zone()->group()->caches().lazyScriptCache.remove(this);
+    fop->runtime()->caches().lazyScriptCache.remove(this);
 
     // In most cases, our LazyScript's script pointer will reference this
     // script, and thus be nulled out by normal weakref processing. However, if

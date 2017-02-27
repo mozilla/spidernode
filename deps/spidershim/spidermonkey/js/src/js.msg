@@ -61,6 +61,7 @@ MSG_DEF(JSMSG_SPREAD_TOO_LARGE,        0, JSEXN_RANGEERR, "array too large due t
 MSG_DEF(JSMSG_BAD_WEAKMAP_KEY,         0, JSEXN_TYPEERR, "cannot use the given object as a weak map key")
 MSG_DEF(JSMSG_BAD_GETTER_OR_SETTER,    1, JSEXN_TYPEERR, "invalid {0} usage")
 MSG_DEF(JSMSG_BAD_ARRAY_LENGTH,        0, JSEXN_RANGEERR, "invalid array length")
+MSG_DEF(JSMSG_REDECLARED_PREV,         2, JSEXN_NOTE, "Previously declared at line {0}, column {1}")
 MSG_DEF(JSMSG_REDECLARED_VAR,          2, JSEXN_SYNTAXERR, "redeclaration of {0} {1}")
 MSG_DEF(JSMSG_UNDECLARED_VAR,          1, JSEXN_REFERENCEERR, "assignment to undeclared variable {0}")
 MSG_DEF(JSMSG_GETTER_ONLY,             0, JSEXN_TYPEERR, "setting a property that has only a getter")
@@ -264,6 +265,7 @@ MSG_DEF(JSMSG_IMPORT_DECL_AT_TOP_LEVEL, 0, JSEXN_SYNTAXERR, "import declarations
 MSG_DEF(JSMSG_OF_AFTER_FOR_LOOP_DECL,  0, JSEXN_SYNTAXERR, "a declaration in the head of a for-of loop can't have an initializer")
 MSG_DEF(JSMSG_IN_AFTER_LEXICAL_FOR_DECL,0,JSEXN_SYNTAXERR, "a lexical declaration in the head of a for-in loop can't have an initializer")
 MSG_DEF(JSMSG_INVALID_FOR_IN_DECL_WITH_INIT,0,JSEXN_SYNTAXERR,"for-in loop head declarations may not have initializers")
+MSG_DEF(JSMSG_INVALID_ID,              1, JSEXN_SYNTAXERR, "{0} is an invalid identifier")
 MSG_DEF(JSMSG_LABEL_NOT_FOUND,         0, JSEXN_SYNTAXERR, "label not found")
 MSG_DEF(JSMSG_LET_COMP_BINDING,        0, JSEXN_SYNTAXERR, "'let' is not a valid name for a comprehension variable")
 MSG_DEF(JSMSG_LEXICAL_DECL_NOT_IN_BLOCK,   1, JSEXN_SYNTAXERR, "{0} declaration not directly within block")
@@ -425,7 +427,7 @@ MSG_DEF(JSMSG_SC_DUP_TRANSFERABLE,     0, JSEXN_TYPEERR, "duplicate transferable
 MSG_DEF(JSMSG_SC_NOT_TRANSFERABLE,     0, JSEXN_TYPEERR, "invalid transferable array for structured clone")
 MSG_DEF(JSMSG_SC_UNSUPPORTED_TYPE,     0, JSEXN_TYPEERR, "unsupported type for structured data")
 MSG_DEF(JSMSG_SC_NOT_CLONABLE,         1, JSEXN_TYPEERR, "{0} cannot be cloned in this context")
-MSG_DEF(JSMSG_SC_SAB_TRANSFER,         0, JSEXN_WARN, "SharedArrayBuffer must not be in the transfer list")
+MSG_DEF(JSMSG_SC_SAB_TRANSFERABLE,     0, JSEXN_TYPEERR, "SharedArrayBuffer must not be in the transfer list")
 MSG_DEF(JSMSG_SC_SAB_DISABLED,         0, JSEXN_TYPEERR, "SharedArrayBuffer not cloned - shared memory disabled in receiver")
 
 // Debugger

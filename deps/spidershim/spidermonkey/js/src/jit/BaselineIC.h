@@ -431,15 +431,17 @@ class ICSetElem_Fallback : public ICFallbackStub
       : ICFallbackStub(ICStub::SetElem_Fallback, stubCode)
     { }
 
+    static const size_t HasDenseAddFlag = 0x1;
+    static const size_t HasTypedArrayOOBFlag = 0x2;
+
   public:
     static const uint32_t MAX_OPTIMIZED_STUBS = 8;
 
-    void noteArrayWriteHole() {
-        extra_ = 1;
-    }
-    bool hasArrayWriteHole() const {
-        return extra_;
-    }
+    void noteHasDenseAdd() { extra_ |= HasDenseAddFlag; }
+    bool hasDenseAdd() const { return extra_ & HasDenseAddFlag; }
+
+    void noteHasTypedArrayOOB() { extra_ |= HasTypedArrayOOBFlag; }
+    bool hasTypedArrayOOB() const { return extra_ & HasTypedArrayOOBFlag; }
 
     // Compiler for this stub kind.
     class Compiler : public ICStubCompiler {
@@ -453,173 +455,6 @@ class ICSetElem_Fallback : public ICFallbackStub
 
         ICStub* getStub(ICStubSpace* space) {
             return newStub<ICSetElem_Fallback>(space, getStubCode());
-        }
-    };
-};
-
-template <size_t ProtoChainDepth> class ICSetElem_DenseOrUnboxedArrayAddImpl;
-
-class ICSetElem_DenseOrUnboxedArrayAdd : public ICUpdatedStub
-{
-    friend class ICStubSpace;
-
-  public:
-    static const size_t MAX_PROTO_CHAIN_DEPTH = 4;
-
-  protected:
-    GCPtrObjectGroup group_;
-
-    ICSetElem_DenseOrUnboxedArrayAdd(JitCode* stubCode, ObjectGroup* group, size_t protoChainDepth);
-
-  public:
-    static size_t offsetOfGroup() {
-        return offsetof(ICSetElem_DenseOrUnboxedArrayAdd, group_);
-    }
-
-    GCPtrObjectGroup& group() {
-        return group_;
-    }
-    size_t protoChainDepth() const {
-        MOZ_ASSERT(extra_ <= MAX_PROTO_CHAIN_DEPTH);
-        return extra_;
-    }
-
-    template <size_t ProtoChainDepth>
-    ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>* toImplUnchecked() {
-        return static_cast<ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>*>(this);
-    }
-
-    template <size_t ProtoChainDepth>
-    ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>* toImpl() {
-        MOZ_ASSERT(ProtoChainDepth == protoChainDepth());
-        return toImplUnchecked<ProtoChainDepth>();
-    }
-};
-
-template <size_t ProtoChainDepth>
-class ICSetElem_DenseOrUnboxedArrayAddImpl : public ICSetElem_DenseOrUnboxedArrayAdd
-{
-    friend class ICStubSpace;
-
-    // Note: for unboxed arrays, the first shape is null.
-    static const size_t NumShapes = ProtoChainDepth + 1;
-    mozilla::Array<GCPtrShape, NumShapes> shapes_;
-
-    ICSetElem_DenseOrUnboxedArrayAddImpl(JitCode* stubCode, ObjectGroup* group,
-                                         Handle<ShapeVector> shapes)
-      : ICSetElem_DenseOrUnboxedArrayAdd(stubCode, group, ProtoChainDepth)
-    {
-        MOZ_ASSERT(shapes.length() == NumShapes);
-        for (size_t i = 0; i < NumShapes; i++)
-            shapes_[i].init(shapes[i]);
-    }
-
-  public:
-    void traceShapes(JSTracer* trc) {
-        for (size_t i = 0; i < NumShapes; i++)
-            TraceNullableEdge(trc, &shapes_[i], "baseline-setelem-denseadd-stub-shape");
-    }
-    Shape* shape(size_t i) const {
-        MOZ_ASSERT(i < NumShapes);
-        return shapes_[i];
-    }
-    static size_t offsetOfShape(size_t idx) {
-        return offsetof(ICSetElem_DenseOrUnboxedArrayAddImpl, shapes_) + idx * sizeof(GCPtrShape);
-    }
-};
-
-class ICSetElemDenseOrUnboxedArrayAddCompiler : public ICStubCompiler {
-    RootedObject obj_;
-    size_t protoChainDepth_;
-    JSValueType unboxedType_;
-
-    MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
-
-  protected:
-    virtual int32_t getKey() const {
-        return static_cast<int32_t>(engine_) |
-              (static_cast<int32_t>(kind) << 1) |
-              (static_cast<int32_t>(protoChainDepth_) << 17) |
-              (static_cast<int32_t>(unboxedType_) << 20);
-    }
-
-  public:
-    ICSetElemDenseOrUnboxedArrayAddCompiler(JSContext* cx, HandleObject obj, size_t protoChainDepth)
-        : ICStubCompiler(cx, ICStub::SetElem_DenseOrUnboxedArrayAdd, Engine::Baseline),
-          obj_(cx, obj),
-          protoChainDepth_(protoChainDepth),
-          unboxedType_(obj->is<UnboxedArrayObject>()
-                       ? obj->as<UnboxedArrayObject>().elementType()
-                       : JSVAL_TYPE_MAGIC)
-    {}
-
-    template <size_t ProtoChainDepth>
-    ICUpdatedStub* getStubSpecific(ICStubSpace* space, Handle<ShapeVector> shapes);
-
-    ICUpdatedStub* getStub(ICStubSpace* space);
-
-    bool needsUpdateStubs() {
-        return unboxedType_ == JSVAL_TYPE_MAGIC || unboxedType_ == JSVAL_TYPE_OBJECT;
-    }
-};
-
-// Accesses scalar elements of a typed array or typed object.
-class ICSetElem_TypedArray : public ICStub
-{
-    friend class ICStubSpace;
-
-  protected: // Protected to silence Clang warning.
-    GCPtrShape shape_;
-
-    ICSetElem_TypedArray(JitCode* stubCode, Shape* shape, Scalar::Type type,
-                         bool expectOutOfBounds);
-
-  public:
-    Scalar::Type type() const {
-        return (Scalar::Type) (extra_ & 0xff);
-    }
-
-    bool expectOutOfBounds() const {
-        return (extra_ >> 8) & 1;
-    }
-
-    static size_t offsetOfShape() {
-        return offsetof(ICSetElem_TypedArray, shape_);
-    }
-
-    GCPtrShape& shape() {
-        return shape_;
-    }
-
-    class Compiler : public ICStubCompiler {
-        RootedShape shape_;
-        Scalar::Type type_;
-        TypedThingLayout layout_;
-        bool expectOutOfBounds_;
-
-      protected:
-        MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
-
-        virtual int32_t getKey() const {
-            return static_cast<int32_t>(engine_) |
-                  (static_cast<int32_t>(kind) << 1) |
-                  (static_cast<int32_t>(type_) << 17) |
-                  (static_cast<int32_t>(layout_) << 25) |
-                  (static_cast<int32_t>(expectOutOfBounds_) << 29);
-        }
-
-      public:
-        Compiler(JSContext* cx, Shape* shape, Scalar::Type type, bool expectOutOfBounds)
-          : ICStubCompiler(cx, ICStub::SetElem_TypedArray, Engine::Baseline),
-            shape_(cx, shape),
-            type_(type),
-            layout_(GetTypedThingLayout(shape->getObjectClass())),
-            expectOutOfBounds_(expectOutOfBounds)
-        {}
-
-        ICStub* getStub(ICStubSpace* space) {
-            return newStub<ICSetElem_TypedArray>(space, getStubCode(), shape_, type_,
-                                                 expectOutOfBounds_);
         }
     };
 };
@@ -1876,17 +1711,16 @@ IsCacheableDOMProxy(JSObject* obj)
 
 struct IonOsrTempData;
 
-void EmitUnboxedPreBarrierForBaseline(MacroAssembler &masm, const BaseIndex& address,
-                                      JSValueType type);
+template <typename T>
+void EmitICUnboxedPreBarrier(MacroAssembler &masm, const T& address, JSValueType type);
 
 // Write an arbitrary value to a typed array or typed object address at dest.
 // If the value could not be converted to the appropriate format, jump to
-// failure or failureModifiedScratch.
-template <typename S, typename T>
-void
-BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type, const S& value,
-                          const T& dest, Register scratch, Label* failure,
-                          Label* failureModifiedScratch);
+// failure.
+template <typename T>
+void BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
+                               const ValueOperand& value, const T& dest, Register scratch,
+                               Label* failure);
 
 } // namespace jit
 } // namespace js

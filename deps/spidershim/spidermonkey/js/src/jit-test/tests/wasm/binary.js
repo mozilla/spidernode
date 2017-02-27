@@ -1,4 +1,3 @@
-load(libdir + "wasm.js");
 load(libdir + "wasm-binary.js");
 
 const Module = WebAssembly.Module;
@@ -63,9 +62,6 @@ assertErrorMessage(() => wasmEval(toU8([magic0, magic1, magic2, magic3])), Compi
 assertErrorMessage(() => wasmEval(toU8([magic0, magic1, magic2, magic3, 1])), CompileError, versionError(0x6d736100));
 assertErrorMessage(() => wasmEval(toU8([magic0, magic1, magic2, magic3, ver0])), CompileError, versionError(0x6d736100));
 assertErrorMessage(() => wasmEval(toU8([magic0, magic1, magic2, magic3, ver0, ver1, ver2])), CompileError, versionError(0x6d736100));
-
-// This test should be removed shortly.
-assertEq(WebAssembly.validate(toU8([magic0, magic1, magic2, magic3, 0xd, 0x0, 0x0, 0x0])), true);
 
 function moduleHeaderThen(...rest) {
     return [magic0, magic1, magic2, magic3, ver0, ver1, ver2, ver3, ...rest];

@@ -13,7 +13,7 @@
 
 namespace js {
 
-#ifdef DEBUG
+#ifdef JS_HAS_PROTECTED_DATA_CHECKS
 
 /* static */ mozilla::Atomic<size_t> AutoNoteSingleThreadedRegion::count(0);
 
@@ -34,6 +34,21 @@ OnHelperThread()
     return false;
 }
 
+void
+CheckThreadLocal::check() const
+{
+    JSContext* cx = TlsContext.get();
+    MOZ_ASSERT(cx);
+
+    // As for CheckZoneGroup, in a cooperatively scheduled runtime the active
+    // thread is permitted access to thread local state for other suspended
+    // threads in the same runtime.
+    if (cx->isCooperativelyScheduled())
+        MOZ_ASSERT(CurrentThreadCanAccessRuntime(cx->runtime()));
+    else
+        MOZ_ASSERT(id == ThisThread::GetId());
+}
+
 template <AllowedHelperThread Helper>
 void
 CheckActiveThread<Helper>::check() const
@@ -47,7 +62,7 @@ CheckActiveThread<Helper>::check() const
         return;
 
     JSContext* cx = TlsContext.get();
-    MOZ_ASSERT(cx == cx->runtime()->activeContext());
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(cx->runtime()));
 #endif // XP_WIN
 }
 
@@ -62,15 +77,30 @@ CheckZoneGroup<Helper>::check() const
     if (OnHelperThread<Helper>())
         return;
 
+    JSContext* cx = TlsContext.get();
     if (group) {
-        // This check is disabled for now because helper thread parse tasks
-        // access data in the same zone group that the single active thread is
-        // using. This will be fixed soon (bug 1323066).
-        //MOZ_ASSERT(group->context && group->context == TlsContext.get());
+        if (group->usedByHelperThread) {
+            MOZ_ASSERT(group->ownedByCurrentThread());
+        } else {
+            // This check is disabled on windows for the same reason as in
+            // CheckActiveThread.
+#ifndef XP_WIN
+            // In a cooperatively scheduled runtime the active thread is
+            // permitted access to all zone groups --- even those it has not
+            // entered --- for GC and similar purposes. Since all other
+            // cooperative threads are suspended, these accesses are threadsafe
+            // if the zone group is not in use by a helper thread.
+            //
+            // A corollary to this is that suspended cooperative threads may
+            // not access anything in a zone group, even zone groups they own,
+            // because they're not allowed to interact with the JS API.
+            MOZ_ASSERT(CurrentThreadCanAccessRuntime(cx->runtime()));
+#endif
+        }
     } else {
         // |group| will be null for data in the atoms zone. This is protected
         // by the exclusive access lock.
-        MOZ_ASSERT(TlsContext.get()->runtime()->currentThreadHasExclusiveAccess());
+        MOZ_ASSERT(cx->runtime()->currentThreadHasExclusiveAccess());
     }
 }
 
@@ -104,6 +134,6 @@ template class CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedHelperThr
 template class CheckGlobalLock<GlobalLock::ExclusiveAccessLock, AllowedHelperThread::GCTask>;
 template class CheckGlobalLock<GlobalLock::HelperThreadLock, AllowedHelperThread::None>;
 
-#endif // DEBUG
+#endif // JS_HAS_PROTECTED_DATA_CHECKS
 
 } // namespace js

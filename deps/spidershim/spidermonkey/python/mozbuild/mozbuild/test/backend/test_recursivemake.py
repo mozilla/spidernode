@@ -18,6 +18,7 @@ from mozbuild.backend.recursivemake import (
     RecursiveMakeBackend,
     RecursiveMakeTraversal,
 )
+from mozbuild.backend.test_manifest import TestManifestBackend
 from mozbuild.frontend.emitter import TreeMetadataEmitter
 from mozbuild.frontend.reader import BuildReader
 
@@ -545,17 +546,6 @@ class TestRecursiveMakeBackend(BackendTester):
             '[include:xpcshell.ini]',
         ])
 
-        all_tests_path = mozpath.join(env.topobjdir, 'all-tests.pkl')
-        self.assertTrue(os.path.exists(all_tests_path))
-
-        with open(all_tests_path, 'rb') as fh:
-            o = pickle.load(fh)
-
-            self.assertIn('xpcshell.js', o)
-            self.assertIn('dir1/test_bar.js', o)
-
-            self.assertEqual(len(o['xpcshell.js']), 1)
-
     def test_test_manifest_pattern_matches_recorded(self):
         """Pattern matches in test manifests' support-files should be recorded."""
         env = self._consume('test-manifests-written', RecursiveMakeBackend)
@@ -571,8 +561,17 @@ class TestRecursiveMakeBackend(BackendTester):
     def test_test_manifest_deffered_installs_written(self):
         """Shared support files are written to their own data file by the backend."""
         env = self._consume('test-manifest-shared-support', RecursiveMakeBackend)
-        all_tests_path = mozpath.join(env.topobjdir, 'all-tests.pkl')
-        self.assertTrue(os.path.exists(all_tests_path))
+
+        # First, read the generated for ini manifest contents.
+        test_files_manifest = mozpath.join(env.topobjdir,
+                                           '_build_manifests',
+                                           'install',
+                                           '_test_files')
+        m = InstallManifest(path=test_files_manifest)
+
+        # Then, synthesize one from the test-installs.pkl file. This should
+        # allow us to re-create a subset of the above.
+        env = self._consume('test-manifest-shared-support', TestManifestBackend)
         test_installs_path = mozpath.join(env.topobjdir, 'test-installs.pkl')
 
         with open(test_installs_path, 'r') as fh:
@@ -585,16 +584,6 @@ class TestRecursiveMakeBackend(BackendTester):
         for key in test_installs.keys():
             self.assertIn(key, test_installs)
 
-        test_files_manifest = mozpath.join(env.topobjdir,
-                                           '_build_manifests',
-                                           'install',
-                                           '_test_files')
-
-        # First, read the generated for ini manifest contents.
-        m = InstallManifest(path=test_files_manifest)
-
-        # Then, synthesize one from the test-installs.pkl file. This should
-        # allow us to re-create a subset of the above.
         synthesized_manifest = InstallManifest()
         for item, installs in test_installs.items():
             for install_info in installs:
@@ -773,8 +762,9 @@ class TestRecursiveMakeBackend(BackendTester):
         lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
 
         expected = [
-            'RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libgkrust.a',
+            'RUST_LIBRARY_FILE := ./x86_64-unknown-linux-gnu/release/libtest_library.a',
             'CARGO_FILE := $(srcdir)/Cargo.toml',
+            'CARGO_TARGET_DIR := %s' % env.topobjdir,
         ]
 
         self.assertEqual(lines, expected)
@@ -787,8 +777,9 @@ class TestRecursiveMakeBackend(BackendTester):
         lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
 
         expected = [
-            'HOST_RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libhostrusttool.a',
+            'HOST_RUST_LIBRARY_FILE := ./x86_64-unknown-linux-gnu/release/libhostrusttool.a',
             'CARGO_FILE := $(srcdir)/Cargo.toml',
+            'CARGO_TARGET_DIR := %s' % env.topobjdir,
         ]
 
         self.assertEqual(lines, expected)
@@ -801,8 +792,9 @@ class TestRecursiveMakeBackend(BackendTester):
         lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
 
         expected = [
-            'HOST_RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libhostrusttool.a',
+            'HOST_RUST_LIBRARY_FILE := ./x86_64-unknown-linux-gnu/release/libhostrusttool.a',
             'CARGO_FILE := $(srcdir)/Cargo.toml',
+            'CARGO_TARGET_DIR := %s' % env.topobjdir,
             'HOST_RUST_LIBRARY_FEATURES := musthave cantlivewithout',
         ]
 
@@ -816,8 +808,9 @@ class TestRecursiveMakeBackend(BackendTester):
         lines = [l.strip() for l in open(backend_path, 'rt').readlines()[2:]]
 
         expected = [
-            'RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libgkrust.a',
+            'RUST_LIBRARY_FILE := ./x86_64-unknown-linux-gnu/release/libfeature_library.a',
             'CARGO_FILE := $(srcdir)/Cargo.toml',
+            'CARGO_TARGET_DIR := %s' % env.topobjdir,
             'RUST_LIBRARY_FEATURES := musthave cantlivewithout',
         ]
 
@@ -832,6 +825,7 @@ class TestRecursiveMakeBackend(BackendTester):
 
         expected = [
             'CARGO_FILE := %s/code/Cargo.toml' % env.topsrcdir,
+            'CARGO_TARGET_DIR := .',
             'RUST_PROGRAMS += i686-pc-windows-msvc/release/target.exe',
             'RUST_CARGO_PROGRAMS += target',
             'HOST_RUST_PROGRAMS += i686-pc-windows-msvc/release/host.exe',
@@ -960,14 +954,6 @@ class TestRecursiveMakeBackend(BackendTester):
     def test_install_manifests_package_tests(self):
         """Ensure test suites honor package_tests=False."""
         env = self._consume('test-manifests-package-tests', RecursiveMakeBackend)
-
-        all_tests_path = mozpath.join(env.topobjdir, 'all-tests.pkl')
-        self.assertTrue(os.path.exists(all_tests_path))
-
-        with open(all_tests_path, 'rb') as fh:
-            o = pickle.load(fh)
-            self.assertIn('mochitest.js', o)
-            self.assertIn('not_packaged.java', o)
 
         man_dir = mozpath.join(env.topobjdir, '_build_manifests', 'install')
         self.assertTrue(os.path.isdir(man_dir))

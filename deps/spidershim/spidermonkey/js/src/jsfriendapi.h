@@ -964,7 +964,7 @@ IsObjectInContextCompartment(JSObject* obj, const JSContext* cx);
 JS_FRIEND_API(bool)
 RunningWithTrustedPrincipals(JSContext* cx);
 
-inline uintptr_t
+MOZ_ALWAYS_INLINE uintptr_t
 GetNativeStackLimit(JSContext* cx, JS::StackKind kind, int extraAllowance = 0)
 {
     uintptr_t limit = JS::RootingContext::get(cx)->nativeStackLimit[kind];
@@ -976,7 +976,7 @@ GetNativeStackLimit(JSContext* cx, JS::StackKind kind, int extraAllowance = 0)
     return limit;
 }
 
-inline uintptr_t
+MOZ_ALWAYS_INLINE uintptr_t
 GetNativeStackLimit(JSContext* cx, int extraAllowance = 0)
 {
     JS::StackKind kind = RunningWithTrustedPrincipals(cx) ? JS::StackForTrustedScript
@@ -985,64 +985,86 @@ GetNativeStackLimit(JSContext* cx, int extraAllowance = 0)
 }
 
 /*
- * These macros report a stack overflow and run |onerror| if we are close to
- * using up the C stack. The JS_CHECK_CHROME_RECURSION variant gives us a
- * little extra space so that we can ensure that crucial code is able to run.
- * JS_CHECK_RECURSION_CONSERVATIVE allows less space than any other check,
- * including a safety buffer (as in, it uses the untrusted limit and subtracts
- * a little more from it).
+ * These functions return |false| if we are close to using up the C++ stack.
+ * They also report an overrecursion error, except for the DontReport variants.
+ * The CheckSystemRecursionLimit variant gives us a little extra space so we
+ * can ensure that crucial code is able to run. CheckRecursionLimitConservative
+ * allows less space than any other check, including a safety buffer (as in, it
+ * uses the untrusted limit and subtracts a little more from it).
  */
 
-#define JS_CHECK_RECURSION_LIMIT(cx, limit, onerror)                            \
-    JS_BEGIN_MACRO                                                              \
-        int stackDummy_;                                                        \
-        if (!JS_CHECK_STACK_SIZE(limit, &stackDummy_)) {                        \
-            js::ReportOverRecursed(cx);                                         \
-            onerror;                                                            \
-        }                                                                       \
-    JS_END_MACRO
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimit(JSContext* cx, uintptr_t limit)
+{
+    int stackDummy;
+    if (!JS_CHECK_STACK_SIZE(limit, &stackDummy)) {
+        ReportOverRecursed(cx);
+        return false;
+    }
+    return true;
+}
 
-#define JS_CHECK_RECURSION(cx, onerror)                                         \
-    JS_CHECK_RECURSION_LIMIT(cx, js::GetNativeStackLimit(cx), onerror)
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitDontReport(JSContext* cx, uintptr_t limit)
+{
+    int stackDummy;
+    return JS_CHECK_STACK_SIZE(limit, &stackDummy);
+}
 
-#define JS_CHECK_RECURSION_LIMIT_DONT_REPORT(cx, limit, onerror)                \
-    JS_BEGIN_MACRO                                                              \
-        int stackDummy_;                                                        \
-        if (!JS_CHECK_STACK_SIZE(limit, &stackDummy_)) {                        \
-            onerror;                                                            \
-        }                                                                       \
-    JS_END_MACRO
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimit(JSContext* cx)
+{
+    // GetNativeStackLimit(cx) is pretty slow because it has to do an uninlined
+    // call to RunningWithTrustedPrincipals to determine which stack limit to
+    // use. To work around this, check the untrusted limit first to avoid the
+    // overhead in most cases.
+    uintptr_t untrustedLimit = GetNativeStackLimit(cx, JS::StackForUntrustedScript);
+    if (MOZ_LIKELY(CheckRecursionLimitDontReport(cx, untrustedLimit)))
+        return true;
+    return CheckRecursionLimit(cx, GetNativeStackLimit(cx));
+}
 
-#define JS_CHECK_RECURSION_DONT_REPORT(cx, onerror)                             \
-    JS_CHECK_RECURSION_LIMIT_DONT_REPORT(cx, js::GetNativeStackLimit(cx), onerror)
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitDontReport(JSContext* cx)
+{
+    return CheckRecursionLimitDontReport(cx, GetNativeStackLimit(cx));
+}
 
-#define JS_CHECK_RECURSION_WITH_SP_DONT_REPORT(cx, sp, onerror)                 \
-    JS_BEGIN_MACRO                                                              \
-        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(cx), sp)) {            \
-            onerror;                                                            \
-        }                                                                       \
-    JS_END_MACRO
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitWithStackPointerDontReport(JSContext* cx, void* sp)
+{
+    return JS_CHECK_STACK_SIZE(GetNativeStackLimit(cx), sp);
+}
 
-#define JS_CHECK_RECURSION_WITH_SP(cx, sp, onerror)                             \
-    JS_BEGIN_MACRO                                                              \
-        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(cx), sp)) {            \
-            js::ReportOverRecursed(cx);                                         \
-            onerror;                                                            \
-        }                                                                       \
-    JS_END_MACRO
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitWithStackPointer(JSContext* cx, void* sp)
+{
+    if (!JS_CHECK_STACK_SIZE(GetNativeStackLimit(cx), sp)) {
+        ReportOverRecursed(cx);
+        return false;
+    }
+    return true;
+}
 
-#define JS_CHECK_SYSTEM_RECURSION(cx, onerror)                                  \
-    JS_CHECK_RECURSION_LIMIT(cx, js::GetNativeStackLimit(cx, JS::StackForSystemCode), onerror)
+MOZ_ALWAYS_INLINE bool
+CheckSystemRecursionLimit(JSContext* cx)
+{
+    return CheckRecursionLimit(cx, GetNativeStackLimit(cx, JS::StackForSystemCode));
+}
 
-#define JS_CHECK_RECURSION_CONSERVATIVE(cx, onerror)                            \
-    JS_CHECK_RECURSION_LIMIT(cx,                                                \
-                             js::GetNativeStackLimit(cx, JS::StackForUntrustedScript, -1024 * int(sizeof(size_t))), \
-                             onerror)
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitConservative(JSContext* cx)
+{
+    return CheckRecursionLimit(cx, GetNativeStackLimit(cx, JS::StackForUntrustedScript,
+                                                       -1024 * int(sizeof(size_t))));
+}
 
-#define JS_CHECK_RECURSION_CONSERVATIVE_DONT_REPORT(cx, onerror)                \
-    JS_CHECK_RECURSION_LIMIT_DONT_REPORT(cx,                                    \
-                                         js::GetNativeStackLimit(cx, JS::StackForUntrustedScript, -1024 * int(sizeof(size_t))), \
-                                         onerror)
+MOZ_ALWAYS_INLINE bool
+CheckRecursionLimitConservativeDontReport(JSContext* cx)
+{
+    return CheckRecursionLimitDontReport(cx, GetNativeStackLimit(cx, JS::StackForUntrustedScript,
+                                                                 -1024 * int(sizeof(size_t))));
+}
 
 JS_FRIEND_API(void)
 StartPCCountProfiling(JSContext* cx);
@@ -1130,11 +1152,16 @@ class RegExpGuard;
 extern JS_FRIEND_API(bool)
 RegExpToSharedNonInline(JSContext* cx, JS::HandleObject regexp, RegExpGuard* shared);
 
-/* Implemented in jswrapper.cpp. */
+/* Implemented in CrossCompartmentWrapper.cpp. */
 typedef enum NukeReferencesToWindow {
     NukeWindowReferences,
     DontNukeWindowReferences
 } NukeReferencesToWindow;
+
+typedef enum NukeReferencesFromTarget {
+    NukeAllReferences,
+    NukeIncomingReferences,
+} NukeReferencesFromTarget;
 
 /*
  * These filters are designed to be ephemeral stack classes, and thus don't
@@ -1178,7 +1205,8 @@ extern JS_FRIEND_API(bool)
 NukeCrossCompartmentWrappers(JSContext* cx,
                              const CompartmentFilter& sourceFilter,
                              const CompartmentFilter& targetFilter,
-                             NukeReferencesToWindow nukeReferencesToWindow);
+                             NukeReferencesToWindow nukeReferencesToWindow,
+                             NukeReferencesFromTarget nukeReferencesFromTarget);
 
 /* Specify information about DOMProxy proxies in the DOM, for use by ICs. */
 
@@ -2892,6 +2920,20 @@ class MOZ_STACK_CLASS JS_FRIEND_API(AutoAssertNoContentJS)
     JSContext* context_;
     bool prevAllowContentJS_;
 };
+
+// Turn on assertions so that we assert that
+//     !comp->validAccessPtr || *comp->validAccessPtr
+// is true for every |comp| that we run JS code in. The compartment's validAccessPtr
+// is set via SetCompartmentValidAccessPtr.
+extern JS_FRIEND_API(void)
+EnableAccessValidation(JSContext* cx, bool enabled);
+
+// See EnableAccessValidation above. The caller must guarantee that accessp will
+// live at least as long as |global| is alive. The JS engine reads accessp from
+// threads that are allowed to run code on |global|, so all changes to *accessp
+// should be made from whichever thread owns |global| at a given time.
+extern JS_FRIEND_API(void)
+SetCompartmentValidAccessPtr(JSContext* cx, JS::HandleObject global, bool* accessp);
 
 } /* namespace js */
 

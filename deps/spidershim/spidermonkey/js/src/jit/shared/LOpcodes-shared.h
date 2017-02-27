@@ -319,6 +319,8 @@
     _(StoreFixedSlotV)              \
     _(StoreFixedSlotT)              \
     _(FunctionEnvironment)          \
+    _(NewLexicalEnvironmentObject)  \
+    _(CopyLexicalEnvironmentObject) \
     _(GetPropertyCacheV)            \
     _(GetPropertyCacheT)            \
     _(GetPropertyPolymorphicV)      \
@@ -403,6 +405,7 @@
     _(ArrowNewTarget)               \
     _(CheckReturn)                  \
     _(CheckIsObj)                   \
+    _(CheckIsCallable)              \
     _(CheckObjCoercible)            \
     _(DebugCheckSelfHosted)         \
     _(AsmJSLoadHeap)                \

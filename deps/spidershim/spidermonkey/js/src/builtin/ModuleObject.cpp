@@ -147,7 +147,7 @@ DEFINE_GETTER_FUNCTIONS(ExportEntryObject, moduleRequest, ModuleRequestSlot)
 DEFINE_GETTER_FUNCTIONS(ExportEntryObject, importName, ImportNameSlot)
 DEFINE_GETTER_FUNCTIONS(ExportEntryObject, localName, LocalNameSlot)
 
-DEFINE_ATOM_ACCESSOR_METHOD(ExportEntryObject, exportName)
+DEFINE_ATOM_OR_NULL_ACCESSOR_METHOD(ExportEntryObject, exportName)
 DEFINE_ATOM_OR_NULL_ACCESSOR_METHOD(ExportEntryObject, moduleRequest)
 DEFINE_ATOM_OR_NULL_ACCESSOR_METHOD(ExportEntryObject, importName)
 DEFINE_ATOM_OR_NULL_ACCESSOR_METHOD(ExportEntryObject, localName)
@@ -330,7 +330,7 @@ ModuleNamespaceObject::addBinding(JSContext* cx, HandleAtom exportedName,
 const char ModuleNamespaceObject::ProxyHandler::family = 0;
 
 ModuleNamespaceObject::ProxyHandler::ProxyHandler()
-  : BaseProxyHandler(&family, true)
+  : BaseProxyHandler(&family, false)
 {}
 
 bool
@@ -438,7 +438,8 @@ ModuleNamespaceObject::ProxyHandler::has(JSContext* cx, HandleObject proxy, Hand
     Rooted<ModuleNamespaceObject*> ns(cx, &proxy->as<ModuleNamespaceObject>());
     if (JSID_IS_SYMBOL(id)) {
         Rooted<JS::Symbol*> symbol(cx, JSID_TO_SYMBOL(id));
-        return symbol == cx->wellKnownSymbols().toStringTag;
+        *bp = symbol == cx->wellKnownSymbols().toStringTag;
+        return true;
     }
 
     *bp = ns->bindings().has(id);
@@ -457,13 +458,16 @@ ModuleNamespaceObject::ProxyHandler::get(JSContext* cx, HandleObject proxy, Hand
             return true;
         }
 
-        return false;
+        vp.setUndefined();
+        return true;
     }
 
     ModuleEnvironmentObject* env;
     Shape* shape;
-    if (!ns->bindings().lookup(id, &env, &shape))
-        return false;
+    if (!ns->bindings().lookup(id, &env, &shape)) {
+        vp.setUndefined();
+        return true;
+    }
 
     RootedValue value(cx, env->getSlot(shape->slot()));
     if (value.isMagic(JS_UNINITIALIZED_LEXICAL)) {
@@ -990,7 +994,7 @@ GlobalObject::initModuleProto(JSContext* cx, Handle<GlobalObject*> global)
 
     static const JSFunctionSpec protoFunctions[] = {
         JS_SELF_HOSTED_FN("getExportedNames", "ModuleGetExportedNames", 1, 0),
-        JS_SELF_HOSTED_FN("resolveExport", "ModuleResolveExport", 3, 0),
+        JS_SELF_HOSTED_FN("resolveExport", "ModuleResolveExport", 2, 0),
         JS_SELF_HOSTED_FN("declarationInstantiation", "ModuleDeclarationInstantiation", 0, 0),
         JS_SELF_HOSTED_FN("evaluation", "ModuleEvaluation", 0, 0),
         JS_FS_END

@@ -513,19 +513,22 @@ JS_FRIEND_API(bool)
 js::NukeCrossCompartmentWrappers(JSContext* cx,
                                  const CompartmentFilter& sourceFilter,
                                  const CompartmentFilter& targetFilter,
-                                 js::NukeReferencesToWindow nukeReferencesToWindow)
+                                 js::NukeReferencesToWindow nukeReferencesToWindow,
+                                 js::NukeReferencesFromTarget nukeReferencesFromTarget)
 {
     CHECK_REQUEST(cx);
     JSRuntime* rt = cx->runtime();
 
     EvictAllNurseries(rt);
 
-    // Iterate through scopes looking for system cross compartment wrappers
-    // that point to an object that shares a global with obj.
-
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {
         if (!sourceFilter.match(c))
             continue;
+
+        // If the compartment matches both the source and target filter, we may
+        // want to cut both incoming and outgoing wrappers.
+        bool nukeAll = (nukeReferencesFromTarget == NukeAllReferences &&
+                        targetFilter.match(c));
 
         // Iterate the wrappers looking for anything interesting.
         for (JSCompartment::WrapperEnum e(c); !e.empty(); e.popFront()) {
@@ -538,13 +541,15 @@ js::NukeCrossCompartmentWrappers(JSContext* cx,
             AutoWrapperRooter wobj(cx, WrapperValue(e));
             JSObject* wrapped = UncheckedUnwrap(wobj);
 
+            // We only skip nuking window references that point to a target
+            // compartment, not the ones that belong to it.
             if (nukeReferencesToWindow == DontNukeWindowReferences &&
-                IsWindowProxy(wrapped))
+                MOZ_LIKELY(!nukeAll) && IsWindowProxy(wrapped))
             {
                 continue;
             }
 
-            if (targetFilter.match(wrapped->compartment())) {
+            if (MOZ_UNLIKELY(nukeAll) || targetFilter.match(wrapped->compartment())) {
                 // We found a wrapper to nuke.
                 e.removeFront();
                 NukeCrossCompartmentWrapper(cx, wobj);
@@ -597,7 +602,7 @@ js::RemapWrapper(JSContext* cx, JSObject* wobjArg, JSObject* newTargetArg)
     // wrapper, |wobj|, since it's been nuked anyway. The wrap() function has
     // the choice to reuse |wobj| or not.
     RootedObject tobj(cx, newTarget);
-    AutoCompartment ac(cx, wobj);
+    AutoCompartmentUnchecked ac(cx, wcompartment);
     if (!wcompartment->rewrap(cx, &tobj, wobj))
         MOZ_CRASH();
 

@@ -485,11 +485,10 @@ class BaseCompiler
     ValTypeVector               SigI64I64_;
     ValTypeVector               SigD_;
     ValTypeVector               SigF_;
-    ValTypeVector               SigI_;
-    ValTypeVector               Sig_;
+    MIRTypeVector               SigPI_;
+    MIRTypeVector               SigP_;
     Label                       returnLabel_;
     Label                       stackOverflowLabel_;
-    TrapOffset                  prologueTrapOffset_;
     CodeOffset                  stackAddOffset_;
 
     LatentOp                    latentOp_;       // Latent operation for branch (seen next)
@@ -2046,31 +2045,31 @@ class BaseCompiler
         AllocatableGeneralRegisterSet knownGPR_ = availGPR_;
         AllocatableFloatRegisterSet knownFPU_ = availFPU_;
         for (size_t i = 0 ; i < stk_.length() ; i++) {
-	    Stk& item = stk_[i];
-	    switch (item.kind_) {
-	      case Stk::RegisterI32:
-		knownGPR_.add(item.i32reg());
-		break;
-	      case Stk::RegisterI64:
+            Stk& item = stk_[i];
+            switch (item.kind_) {
+              case Stk::RegisterI32:
+                knownGPR_.add(item.i32reg());
+                break;
+              case Stk::RegisterI64:
 #ifdef JS_PUNBOX64
-		knownGPR_.add(item.i64reg().reg);
+                knownGPR_.add(item.i64reg().reg);
 #else
-		knownGPR_.add(item.i64reg().high);
-		knownGPR_.add(item.i64reg().low);
+                knownGPR_.add(item.i64reg().high);
+                knownGPR_.add(item.i64reg().low);
 #endif
-		break;
-	      case Stk::RegisterF32:
-		knownFPU_.add(item.f32reg());
-		break;
-	      case Stk::RegisterF64:
-		knownFPU_.add(item.f64reg());
-		break;
-	      default:
-		break;
-	    }
-	}
-	MOZ_ASSERT(knownGPR_.bits() == allGPR_.bits());
-	MOZ_ASSERT(knownFPU_.bits() == allFPU_.bits());
+                break;
+              case Stk::RegisterF32:
+                knownFPU_.add(item.f32reg());
+                break;
+              case Stk::RegisterF64:
+                knownFPU_.add(item.f64reg());
+                break;
+              default:
+                break;
+            }
+        }
+        MOZ_ASSERT(knownGPR_.bits() == allGPR_.bits());
+        MOZ_ASSERT(knownFPU_.bits() == allFPU_.bits());
     }
 #endif
 
@@ -2106,8 +2105,7 @@ class BaseCompiler
     // Labels
 
     void insertBreakablePoint(CallSiteDesc::Kind kind) {
-        const uint32_t offset = trapOffset().bytecodeOffset;
-        masm.nopPatchableToCall(CallSiteDesc(offset, kind));
+        masm.nopPatchableToCall(CallSiteDesc(iter_.errorOffset(), kind));
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -2271,7 +2269,8 @@ class BaseCompiler
         MOZ_ASSERT(localSize_ >= debugFrameReserved);
         if (localSize_ > debugFrameReserved)
             masm.addToStackPtr(Imm32(localSize_ - debugFrameReserved));
-        masm.jump(TrapDesc(prologueTrapOffset_, Trap::StackOverflow, debugFrameReserved));
+        TrapOffset prologueTrapOffset(func_.lineOrBytecode());
+        masm.jump(TrapDesc(prologueTrapOffset, Trap::StackOverflow, debugFrameReserved));
 
         masm.bind(&returnLabel_);
 
@@ -2380,8 +2379,13 @@ class BaseCompiler
     // TODO / OPTIMIZE (Bug 1316821): This is expensive; let's roll the iterator
     // walking into the walking done for passArg.  See comments in passArg.
 
-    size_t stackArgAreaSize(const ValTypeVector& args) {
-        ABIArgIter<const ValTypeVector> i(args);
+    // Note, stackArgAreaSize() must process all the arguments to get the
+    // alignment right; the signature must therefore be the complete call
+    // signature.
+
+    template<class T>
+    size_t stackArgAreaSize(const T& args) {
+        ABIArgIter<const T> i(args);
         while (!i.done())
             i++;
         return AlignBytes(i.stackBytesConsumedSoFar(), 16u);
@@ -2908,7 +2912,8 @@ class BaseCompiler
         // movl clears the high bits if the two registers are the same.
         masm.movl(src.reg, dest);
 #elif defined(JS_NUNBOX32)
-        masm.move32(src.low, dest);
+        if (src.low != dest)
+            masm.move32(src.low, dest);
 #else
         MOZ_CRASH("BaseCompiler platform hook: wrapI64ToI32");
 #endif
@@ -2947,7 +2952,8 @@ class BaseCompiler
 #if defined(JS_CODEGEN_X64)
         masm.movl(src, dest.reg);
 #elif defined(JS_NUNBOX32)
-        masm.move32(src, dest.low);
+        if (src != dest.low)
+            masm.move32(src, dest.low);
         masm.move32(Imm32(0), dest.high);
 #else
         MOZ_CRASH("BaseCompiler platform hook: extendU32ToI64");
@@ -3302,10 +3308,10 @@ class BaseCompiler
 
     // ptr and dest may be the same iff dest is I32.
     // This may destroy ptr even if ptr and dest are not the same.
-    MOZ_MUST_USE bool load(MemoryAccessDesc& access, RegI32 ptr, bool omitBoundsCheck, AnyReg dest,
+    MOZ_MUST_USE bool load(MemoryAccessDesc* access, RegI32 ptr, bool omitBoundsCheck, AnyReg dest,
                            RegI32 tmp1, RegI32 tmp2, RegI32 tmp3)
     {
-        checkOffset(&access, ptr);
+        checkOffset(access, ptr);
 
         OutOfLineCode* ool = nullptr;
 #ifndef WASM_HUGE_MEMORY
@@ -3314,48 +3320,48 @@ class BaseCompiler
 #endif
 
 #if defined(JS_CODEGEN_X64)
-        Operand srcAddr(HeapReg, ptr, TimesOne, access.offset());
+        Operand srcAddr(HeapReg, ptr, TimesOne, access->offset());
 
         if (dest.tag == AnyReg::I64)
-            masm.wasmLoadI64(access, srcAddr, dest.i64());
+            masm.wasmLoadI64(*access, srcAddr, dest.i64());
         else
-            masm.wasmLoad(access, srcAddr, dest.any());
+            masm.wasmLoad(*access, srcAddr, dest.any());
 #elif defined(JS_CODEGEN_X86)
-        Operand srcAddr(ptr, access.offset());
+        Operand srcAddr(ptr, access->offset());
 
         if (dest.tag == AnyReg::I64) {
             MOZ_ASSERT(dest.i64() == abiReturnRegI64);
-            masm.wasmLoadI64(access, srcAddr, dest.i64());
+            masm.wasmLoadI64(*access, srcAddr, dest.i64());
         } else {
-            bool byteRegConflict = access.byteSize() == 1 && !singleByteRegs_.has(dest.i32());
+            bool byteRegConflict = access->byteSize() == 1 && !singleByteRegs_.has(dest.i32());
             AnyRegister out = byteRegConflict ? AnyRegister(ScratchRegX86) : dest.any();
 
-            masm.wasmLoad(access, srcAddr, out);
+            masm.wasmLoad(*access, srcAddr, out);
 
             if (byteRegConflict)
                 masm.mov(ScratchRegX86, dest.i32());
         }
 #elif defined(JS_CODEGEN_ARM)
-        if (IsUnaligned(access)) {
+        if (IsUnaligned(*access)) {
             switch (dest.tag) {
               case AnyReg::I64:
-                masm.wasmUnalignedLoadI64(access, ptr, ptr, dest.i64(), tmp1);
+                masm.wasmUnalignedLoadI64(*access, ptr, ptr, dest.i64(), tmp1);
                 break;
               case AnyReg::F32:
-                masm.wasmUnalignedLoadFP(access, ptr, ptr, dest.f32(), tmp1, tmp2, Register::Invalid());
+                masm.wasmUnalignedLoadFP(*access, ptr, ptr, dest.f32(), tmp1, tmp2, Register::Invalid());
                 break;
               case AnyReg::F64:
-                masm.wasmUnalignedLoadFP(access, ptr, ptr, dest.f64(), tmp1, tmp2, tmp3);
+                masm.wasmUnalignedLoadFP(*access, ptr, ptr, dest.f64(), tmp1, tmp2, tmp3);
                 break;
               default:
-                masm.wasmUnalignedLoad(access, ptr, ptr, dest.i32(), tmp1);
+                masm.wasmUnalignedLoad(*access, ptr, ptr, dest.i32(), tmp1);
                 break;
             }
         } else {
             if (dest.tag == AnyReg::I64)
-                masm.wasmLoadI64(access, ptr, ptr, dest.i64());
+                masm.wasmLoadI64(*access, ptr, ptr, dest.i64());
             else
-                masm.wasmLoad(access, ptr, ptr, dest.any());
+                masm.wasmLoad(*access, ptr, ptr, dest.any());
         }
 #else
         MOZ_CRASH("BaseCompiler platform hook: load");
@@ -3366,7 +3372,7 @@ class BaseCompiler
         return true;
     }
 
-    MOZ_MUST_USE size_t storeTemps(MemoryAccessDesc& access, ValType srcType) {
+    MOZ_MUST_USE size_t storeTemps(const MemoryAccessDesc& access, ValType srcType) {
 #if defined(JS_CODEGEN_ARM)
         if (IsUnaligned(access) && srcType != ValType::I32)
             return 1;
@@ -3376,10 +3382,10 @@ class BaseCompiler
 
     // ptr and src must not be the same register.
     // This may destroy ptr and src.
-    MOZ_MUST_USE bool store(MemoryAccessDesc access, RegI32 ptr, bool omitBoundsCheck, AnyReg src,
+    MOZ_MUST_USE bool store(MemoryAccessDesc* access, RegI32 ptr, bool omitBoundsCheck, AnyReg src,
                             RegI32 tmp)
     {
-        checkOffset(&access, ptr);
+        checkOffset(access, ptr);
 
         Label rejoin;
 #ifndef WASM_HUGE_MEMORY
@@ -3390,58 +3396,58 @@ class BaseCompiler
         // Emit the store
 #if defined(JS_CODEGEN_X64)
         MOZ_ASSERT(tmp == Register::Invalid());
-        Operand dstAddr(HeapReg, ptr, TimesOne, access.offset());
+        Operand dstAddr(HeapReg, ptr, TimesOne, access->offset());
 
-        masm.wasmStore(access, src.any(), dstAddr);
+        masm.wasmStore(*access, src.any(), dstAddr);
 #elif defined(JS_CODEGEN_X86)
         MOZ_ASSERT(tmp == Register::Invalid());
-        Operand dstAddr(ptr, access.offset());
+        Operand dstAddr(ptr, access->offset());
 
-        if (access.type() == Scalar::Int64) {
-            masm.wasmStoreI64(access, src.i64(), dstAddr);
+        if (access->type() == Scalar::Int64) {
+            masm.wasmStoreI64(*access, src.i64(), dstAddr);
         } else {
             AnyRegister value;
             if (src.tag == AnyReg::I64) {
-                if (access.byteSize() == 1 && !singleByteRegs_.has(src.i64().low)) {
+                if (access->byteSize() == 1 && !singleByteRegs_.has(src.i64().low)) {
                     masm.mov(src.i64().low, ScratchRegX86);
                     value = AnyRegister(ScratchRegX86);
                 } else {
                     value = AnyRegister(src.i64().low);
                 }
-            } else if (access.byteSize() == 1 && !singleByteRegs_.has(src.i32())) {
+            } else if (access->byteSize() == 1 && !singleByteRegs_.has(src.i32())) {
                 masm.mov(src.i32(), ScratchRegX86);
                 value = AnyRegister(ScratchRegX86);
             } else {
                 value = src.any();
             }
 
-            masm.wasmStore(access, value, dstAddr);
+            masm.wasmStore(*access, value, dstAddr);
         }
 #elif defined(JS_CODEGEN_ARM)
-        if (IsUnaligned(access)) {
+        if (IsUnaligned(*access)) {
             switch (src.tag) {
               case AnyReg::I64:
-                masm.wasmUnalignedStoreI64(access, src.i64(), ptr, ptr, tmp);
+                masm.wasmUnalignedStoreI64(*access, src.i64(), ptr, ptr, tmp);
                 break;
               case AnyReg::F32:
-                masm.wasmUnalignedStoreFP(access, src.f32(), ptr, ptr, tmp);
+                masm.wasmUnalignedStoreFP(*access, src.f32(), ptr, ptr, tmp);
                 break;
               case AnyReg::F64:
-                masm.wasmUnalignedStoreFP(access, src.f64(), ptr, ptr, tmp);
+                masm.wasmUnalignedStoreFP(*access, src.f64(), ptr, ptr, tmp);
                 break;
               default:
                 MOZ_ASSERT(tmp == Register::Invalid());
-                masm.wasmUnalignedStore(access, src.i32(), ptr, ptr);
+                masm.wasmUnalignedStore(*access, src.i32(), ptr, ptr);
                 break;
             }
         } else {
             MOZ_ASSERT(tmp == Register::Invalid());
-            if (access.type() == Scalar::Int64)
-                masm.wasmStoreI64(access, src.i64(), ptr, ptr);
+            if (access->type() == Scalar::Int64)
+                masm.wasmStoreI64(*access, src.i64(), ptr, ptr);
             else if (src.tag == AnyReg::I64)
-                masm.wasmStore(access, AnyRegister(src.i64().low), ptr, ptr);
+                masm.wasmStore(*access, AnyRegister(src.i64().low), ptr, ptr);
             else
-                masm.wasmStore(access, src.any(), ptr, ptr);
+                masm.wasmStore(*access, src.any(), ptr, ptr);
         }
 #else
         MOZ_CRASH("BaseCompiler platform hook: store");
@@ -3505,7 +3511,7 @@ class BaseCompiler
     uint32_t readCallSiteLineOrBytecode() {
         if (!func_.callSiteLineNums().empty())
             return func_.callSiteLineNums()[lastReadCallSite_++];
-        return trapOffset().bytecodeOffset;
+        return iter_.errorOffset();
     }
 
     bool done() const {
@@ -5398,14 +5404,12 @@ BaseCompiler::emitEnd()
     LabelKind kind;
     ExprType type;
     Nothing unused_value;
-
     if (!iter_.readEnd(&kind, &type, &unused_value))
         return false;
 
     switch (kind) {
       case LabelKind::Block: endBlock(type); break;
       case LabelKind::Loop:  endLoop(type); break;
-      case LabelKind::UnreachableThen:
       case LabelKind::Then:  endIfThen(); break;
       case LabelKind::Else:  endIfThenElse(type); break;
     }
@@ -5475,46 +5479,28 @@ BaseCompiler::emitBrIf()
 bool
 BaseCompiler::emitBrTable()
 {
-    uint32_t tableLength;
-    ExprType type;
-    Nothing unused_value, unused_index;
-    if (!iter_.readBrTable(&tableLength, &type, &unused_value, &unused_index))
-        return false;
-
-    LabelVector stubs;
-    if (!stubs.reserve(tableLength+1))
-        return false;
-
     Uint32Vector depths;
-    if (!depths.reserve(tableLength))
-        return false;
-
-    for (size_t i = 0; i < tableLength; ++i) {
-        uint32_t depth;
-        if (!iter_.readBrTableEntry(&type, &unused_value, &depth))
-            return false;
-        depths.infallibleAppend(depth);
-    }
-
     uint32_t defaultDepth;
-    if (!iter_.readBrTableDefault(&type, &unused_value, &defaultDepth))
+    ExprType branchValueType;
+    Nothing unused_value, unused_index;
+    if (!iter_.readBrTable(&depths, &defaultDepth, &branchValueType, &unused_value, &unused_index))
         return false;
 
     if (deadCode_)
         return true;
 
     // Don't use joinReg for rc
-    maybeReserveJoinRegI(type);
+    maybeReserveJoinRegI(branchValueType);
 
     // Table switch value always on top.
     RegI32 rc = popI32();
 
-    maybeUnreserveJoinRegI(type);
+    maybeUnreserveJoinRegI(branchValueType);
 
-    AnyReg r = popJoinRegUnlessVoid(type);
+    AnyReg r = popJoinRegUnlessVoid(branchValueType);
 
     Label dispatchCode;
-    masm.branch32(Assembler::Below, rc, Imm32(tableLength), &dispatchCode);
+    masm.branch32(Assembler::Below, rc, Imm32(depths.length()), &dispatchCode);
 
     // This is the out-of-range stub.  rc is dead here but we don't need it.
 
@@ -5530,13 +5516,16 @@ BaseCompiler::emitBrTable()
     // TODO / OPTIMIZE (Bug 1316804): Branch directly to the case code if we
     // can, don't emit an intermediate stub.
 
-    for (uint32_t i = 0; i < tableLength; i++) {
+    LabelVector stubs;
+    if (!stubs.reserve(depths.length()))
+        return false;
+
+    for (uint32_t depth : depths) {
         stubs.infallibleEmplaceBack(NonAssertingLabel());
         masm.bind(&stubs.back());
-        uint32_t k = depths[i];
-        popStackBeforeBranch(controlItem(k).framePushed);
-        controlItem(k).bceSafeOnExit &= bceSafe_;
-        masm.jump(&controlItem(k).label);
+        popStackBeforeBranch(controlItem(depth).framePushed);
+        controlItem(depth).bceSafeOnExit &= bceSafe_;
+        masm.jump(&controlItem(depth).label);
     }
 
     // Emit table.
@@ -5627,30 +5616,21 @@ BaseCompiler::emitReturn()
 }
 
 bool
-BaseCompiler::emitCallArgs(const ValTypeVector& args, FunctionCall& baselineCall)
+BaseCompiler::emitCallArgs(const ValTypeVector& argTypes, FunctionCall& baselineCall)
 {
     MOZ_ASSERT(!deadCode_);
 
-    startCallArgs(baselineCall, stackArgAreaSize(args));
+    startCallArgs(baselineCall, stackArgAreaSize(argTypes));
 
-    uint32_t numArgs = args.length();
-    for (size_t i = 0; i < numArgs; ++i) {
-        ValType argType = args[i];
-        Nothing arg_;
-        if (!iter_.readCallArg(argType, numArgs, i, &arg_))
-            return false;
-        Stk& arg = peek(numArgs - 1 - i);
-        passArg(baselineCall, argType, arg);
-    }
+    uint32_t numArgs = argTypes.length();
+    for (size_t i = 0; i < numArgs; ++i)
+        passArg(baselineCall, argTypes[i], peek(numArgs - 1 - i));
 
     // Pass the TLS pointer as a hidden argument in WasmTlsReg.  Load
     // it directly out if its stack slot so we don't interfere with
     // the stk_.
     if (baselineCall.loadTlsBefore)
         loadFromFramePtr(WasmTlsReg, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
-
-    if (!iter_.readCallArgsEnd(numArgs))
-        return false;
 
     return true;
 }
@@ -5706,7 +5686,8 @@ BaseCompiler::emitCall()
     uint32_t lineOrBytecode = readCallSiteLineOrBytecode();
 
     uint32_t funcIndex;
-    if (!iter_.readCall(&funcIndex))
+    BaseOpIter::ValueVector args_;
+    if (!iter_.readCall(&funcIndex, &args_))
         return false;
 
     if (deadCode_)
@@ -5724,9 +5705,6 @@ BaseCompiler::emitCall()
     beginCall(baselineCall, UseABI::Wasm, import ? InterModule::True : InterModule::False);
 
     if (!emitCallArgs(sig.args(), baselineCall))
-        return false;
-
-    if (!iter_.readCallReturn(sig.ret()))
         return false;
 
     if (import)
@@ -5751,7 +5729,8 @@ BaseCompiler::emitCallIndirect()
 
     uint32_t sigIndex;
     Nothing callee_;
-    if (!iter_.readCallIndirect(&sigIndex, &callee_))
+    BaseOpIter::ValueVector args_;
+    if (!iter_.readCallIndirect(&sigIndex, &callee_, &args_))
         return false;
 
     if (deadCode_)
@@ -5778,9 +5757,6 @@ BaseCompiler::emitCallIndirect()
     if (!emitCallArgs(sig.args(), baselineCall))
         return false;
 
-    if (!iter_.readCallReturn(sig.ret()))
-        return false;
-
     callIndirect(sigIndex, callee, baselineCall);
 
     endCall(baselineCall, stackSpace);
@@ -5798,6 +5774,10 @@ BaseCompiler::emitUnaryMathBuiltinCall(SymbolicAddress callee, ValType operandTy
 {
     uint32_t lineOrBytecode = readCallSiteLineOrBytecode();
 
+    Nothing operand_;
+    if (!iter_.readUnary(operandType, &operand_))
+        return false;
+
     if (deadCode_)
         return true;
 
@@ -5813,9 +5793,6 @@ BaseCompiler::emitUnaryMathBuiltinCall(SymbolicAddress callee, ValType operandTy
 
     if (!emitCallArgs(signature, baselineCall))
         return false;
-
-    if (!iter_.readCallReturn(retType))
-      return false;
 
     builtinCall(callee, baselineCall);
 
@@ -6077,7 +6054,7 @@ bool
 BaseCompiler::emitGetGlobal()
 {
     uint32_t id;
-    if (!iter_.readGetGlobal(env_.globals, &id))
+    if (!iter_.readGetGlobal(&id))
         return false;
 
     if (deadCode_)
@@ -6143,7 +6120,7 @@ BaseCompiler::emitSetGlobal()
 {
     uint32_t id;
     Nothing unused_value;
-    if (!iter_.readSetGlobal(env_.globals, &id, &unused_value))
+    if (!iter_.readSetGlobal(&id, &unused_value))
         return false;
 
     if (deadCode_)
@@ -6299,7 +6276,7 @@ BaseCompiler::emitLoad(ValType type, Scalar::Type viewType)
 #else
         RegI32 rv = rp;
 #endif
-        if (!load(access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
+        if (!load(&access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
             return false;
         pushI32(rv);
         if (rp != rv)
@@ -6317,7 +6294,7 @@ BaseCompiler::emitLoad(ValType type, Scalar::Type viewType)
         rp = popMemoryAccess(&access, &omitBoundsCheck);
         rv = needI64();
 #endif
-        if (!load(access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
+        if (!load(&access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
             return false;
         pushI64(rv);
         freeI32(rp);
@@ -6326,7 +6303,7 @@ BaseCompiler::emitLoad(ValType type, Scalar::Type viewType)
       case ValType::F32: {
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
         RegF32 rv = needF32();
-        if (!load(access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
+        if (!load(&access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
             return false;
         pushF32(rv);
         freeI32(rp);
@@ -6335,7 +6312,7 @@ BaseCompiler::emitLoad(ValType type, Scalar::Type viewType)
       case ValType::F64: {
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
         RegF64 rv = needF64();
-        if (!load(access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
+        if (!load(&access, rp, omitBoundsCheck, AnyReg(rv), tmp1, tmp2, tmp3))
             return false;
         pushF64(rv);
         freeI32(rp);
@@ -6379,7 +6356,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
       case ValType::I32: {
         RegI32 rv = popI32();
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
-        if (!store(access, rp, omitBoundsCheck, AnyReg(rv), tmp))
+        if (!store(&access, rp, omitBoundsCheck, AnyReg(rv), tmp))
             return false;
         freeI32(rp);
         freeI32(rv);
@@ -6388,7 +6365,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
       case ValType::I64: {
         RegI64 rv = popI64();
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
-        if (!store(access, rp, omitBoundsCheck, AnyReg(rv), tmp))
+        if (!store(&access, rp, omitBoundsCheck, AnyReg(rv), tmp))
             return false;
         freeI32(rp);
         freeI64(rv);
@@ -6397,7 +6374,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
       case ValType::F32: {
         RegF32 rv = popF32();
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
-        if (!store(access, rp, omitBoundsCheck, AnyReg(rv), tmp))
+        if (!store(&access, rp, omitBoundsCheck, AnyReg(rv), tmp))
             return false;
         freeI32(rp);
         freeF32(rv);
@@ -6406,7 +6383,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
       case ValType::F64: {
         RegF64 rv = popF64();
         RegI32 rp = popMemoryAccess(&access, &omitBoundsCheck);
-        if (!store(access, rp, omitBoundsCheck, AnyReg(rv), tmp))
+        if (!store(&access, rp, omitBoundsCheck, AnyReg(rv), tmp))
             return false;
         freeI32(rp);
         freeF64(rv);
@@ -6427,7 +6404,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
 bool
 BaseCompiler::emitSelect()
 {
-    ValType type;
+    StackType type;
     Nothing unused_trueValue;
     Nothing unused_falseValue;
     Nothing unused_condition;
@@ -6445,7 +6422,7 @@ BaseCompiler::emitSelect()
     BranchState b(&done);
     emitBranchSetup(&b);
 
-    switch (type) {
+    switch (NonAnyToValType(type)) {
       case ValType::I32: {
         RegI32 r0, r1;
         pop2xI32(&r0, &r1);
@@ -6624,7 +6601,7 @@ BaseCompiler::emitGrowMemory()
 
     ABIArg instanceArg = reservePointerArgument(baselineCall);
 
-    startCallArgs(baselineCall, stackArgAreaSize(SigI_));
+    startCallArgs(baselineCall, stackArgAreaSize(SigPI_));
     passArg(baselineCall, ValType::I32, peek(0));
     builtinInstanceMethodCall(SymbolicAddress::GrowMemory, instanceArg, baselineCall);
     endCall(baselineCall, stackSpace);
@@ -6654,7 +6631,7 @@ BaseCompiler::emitCurrentMemory()
 
     ABIArg instanceArg = reservePointerArgument(baselineCall);
 
-    startCallArgs(baselineCall, stackArgAreaSize(Sig_));
+    startCallArgs(baselineCall, stackArgAreaSize(SigP_));
     builtinInstanceMethodCall(SymbolicAddress::CurrentMemory, instanceArg, baselineCall);
     endCall(baselineCall, 0);
 
@@ -7355,7 +7332,7 @@ BaseCompiler::BaseCompiler(const ModuleEnvironment& env,
                            TempAllocator* alloc,
                            MacroAssembler* masm)
     : env_(env),
-      iter_(decoder, func.lineOrBytecode()),
+      iter_(env, decoder),
       func_(func),
       lastReadCallSite_(0),
       alloc_(*alloc),
@@ -7367,7 +7344,6 @@ BaseCompiler::BaseCompiler(const ModuleEnvironment& env,
       deadCode_(false),
       debugEnabled_(debugEnabled),
       bceSafe_(0),
-      prologueTrapOffset_(trapOffset()),
       stackAddOffset_(0),
       latentOp_(LatentOp::None),
       latentType_(ValType::I32),
@@ -7430,7 +7406,9 @@ BaseCompiler::init()
         return false;
     if (!SigF_.append(ValType::F32))
         return false;
-    if (!SigI_.append(ValType::I32))
+    if (!SigP_.append(MIRType::Pointer))
+        return false;
+    if (!SigPI_.append(MIRType::Pointer) || !SigPI_.append(MIRType::Int32))
         return false;
     if (!SigI64I64_.append(ValType::I64) || !SigI64I64_.append(ValType::I64))
         return false;
@@ -7568,7 +7546,7 @@ js::wasm::BaselineCompileFunction(CompileTask* task, FuncCompileUnit* unit, Uniq
     const FuncBytes& func = unit->func();
     uint32_t bodySize = func.bytes().length();
 
-    Decoder d(func.bytes(), error);
+    Decoder d(func.bytes().begin(), func.bytes().end(), func.lineOrBytecode(), error);
 
     if (!ValidateFunctionBody(task->env(), func.index(), bodySize, d))
         return false;
