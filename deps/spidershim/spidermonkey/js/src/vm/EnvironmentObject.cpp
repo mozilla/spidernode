@@ -28,6 +28,7 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
+#include "vm/NativeObject-inl.h"
 #include "vm/Stack-inl.h"
 
 using namespace js;
@@ -144,7 +145,7 @@ CallObject::create(JSContext* cx, HandleShape shape, HandleObjectGroup group)
     kind = gc::GetBackgroundAllocKind(kind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, gc::DefaultHeap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, gc::DefaultHeap, shape, group));
 
     return &obj->as<CallObject>();
 }
@@ -161,7 +162,7 @@ CallObject::createSingleton(JSContext* cx, HandleShape shape)
         return nullptr;
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, gc::TenuredHeap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, gc::TenuredHeap, shape, group));
 
     MOZ_ASSERT(obj->isSingleton(),
                "group created inline above must be a singleton");
@@ -191,7 +192,7 @@ CallObject::createTemplateObject(JSContext* cx, HandleScript script, HandleObjec
     kind = gc::GetBackgroundAllocKind(kind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, heap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, heap, shape, group));
 
     CallObject* callObj = &obj->as<CallObject>();
     callObj->initEnclosingEnvironment(enclosing);
@@ -322,7 +323,7 @@ VarEnvironmentObject::create(JSContext* cx, HandleShape shape, HandleObject encl
     kind = gc::GetBackgroundAllocKind(kind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, heap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, heap, shape, group));
 
     VarEnvironmentObject* env = &obj->as<VarEnvironmentObject>();
     MOZ_ASSERT(!env->inDictionaryMode());
@@ -438,7 +439,7 @@ ModuleEnvironmentObject::create(JSContext* cx, HandleModuleObject module)
     kind = gc::GetBackgroundAllocKind(kind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, TenuredHeap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, TenuredHeap, shape, group));
 
     RootedModuleEnvironmentObject env(cx, &obj->as<ModuleEnvironmentObject>());
 
@@ -488,7 +489,7 @@ ModuleEnvironmentObject::createImportBinding(JSContext* cx, HandleAtom importNam
 {
     RootedId importNameId(cx, AtomToId(importName));
     RootedId localNameId(cx, AtomToId(localName));
-    RootedModuleEnvironmentObject env(cx, module->environment());
+    RootedModuleEnvironmentObject env(cx, &module->initialEnvironment());
     if (!importBindings().putNew(cx, importNameId, env, localNameId)) {
         ReportOutOfMemory(cx);
         return false;
@@ -650,7 +651,7 @@ WasmFunctionCallObject::createHollowForDebug(JSContext* cx, Handle<WasmFunctionS
     kind = gc::GetBackgroundAllocKind(kind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, gc::DefaultHeap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, kind, gc::DefaultHeap, shape, group));
 
     Rooted<WasmFunctionCallObject*> callobj(cx, &obj->as<WasmFunctionCallObject>());
     callobj->initEnclosingEnvironment(&cx->global()->lexicalEnvironment());
@@ -876,7 +877,7 @@ LexicalEnvironmentObject::createTemplateObject(JSContext* cx, HandleShape shape,
     allocKind = GetBackgroundAllocKind(allocKind);
 
     JSObject* obj;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, allocKind, heap, shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, NativeObject::create(cx, allocKind, heap, shape, group));
 
     LexicalEnvironmentObject* env = &obj->as<LexicalEnvironmentObject>();
     MOZ_ASSERT(!env->inDictionaryMode());
@@ -889,8 +890,8 @@ LexicalEnvironmentObject::createTemplateObject(JSContext* cx, HandleShape shape,
 }
 
 /* static */ LexicalEnvironmentObject*
-LexicalEnvironmentObject::createTemplateObject(JSContext* cx, Handle<LexicalScope*> scope,
-                                               HandleObject enclosing, gc::InitialHeap heap)
+LexicalEnvironmentObject::create(JSContext* cx, Handle<LexicalScope*> scope,
+                                 HandleObject enclosing, gc::InitialHeap heap)
 {
     assertSameCompartment(cx, enclosing);
     MOZ_ASSERT(scope->hasEnvironment());
@@ -915,7 +916,7 @@ LexicalEnvironmentObject::create(JSContext* cx, Handle<LexicalScope*> scope,
                                  AbstractFramePtr frame)
 {
     RootedObject enclosing(cx, frame.environmentChain());
-    return createTemplateObject(cx, scope, enclosing, gc::DefaultHeap);
+    return create(cx, scope, enclosing, gc::DefaultHeap);
 }
 
 /* static */ LexicalEnvironmentObject*
@@ -997,8 +998,7 @@ LexicalEnvironmentObject::clone(JSContext* cx, Handle<LexicalEnvironmentObject*>
 {
     Rooted<LexicalScope*> scope(cx, &env->scope());
     RootedObject enclosing(cx, &env->enclosingEnvironment());
-    Rooted<LexicalEnvironmentObject*> copy(cx, createTemplateObject(cx, scope, enclosing,
-                                                                    gc::TenuredHeap));
+    Rooted<LexicalEnvironmentObject*> copy(cx, create(cx, scope, enclosing, gc::TenuredHeap));
     if (!copy)
         return nullptr;
 
@@ -1016,7 +1016,7 @@ LexicalEnvironmentObject::recreate(JSContext* cx, Handle<LexicalEnvironmentObjec
 {
     Rooted<LexicalScope*> scope(cx, &env->scope());
     RootedObject enclosing(cx, &env->enclosingEnvironment());
-    return createTemplateObject(cx, scope, enclosing, gc::TenuredHeap);
+    return create(cx, scope, enclosing, gc::TenuredHeap);
 }
 
 bool
@@ -1071,8 +1071,7 @@ NamedLambdaObject::create(JSContext* cx, HandleFunction callee,
 #endif
 
     LexicalEnvironmentObject* obj =
-        LexicalEnvironmentObject::createTemplateObject(cx, scope.as<LexicalScope>(),
-                                                       enclosing, heap);
+        LexicalEnvironmentObject::create(cx, scope.as<LexicalScope>(), enclosing, heap);
     if (!obj)
         return nullptr;
 
@@ -2753,7 +2752,8 @@ DebugEnvironments::onCompartmentUnsetIsDebuggee(JSCompartment* c)
 bool
 DebugEnvironments::updateLiveEnvironments(JSContext* cx)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
     /*
      * Note that we must always update the top frame's environment objects'
@@ -2994,7 +2994,8 @@ GetDebugEnvironmentForNonEnvironmentObject(const EnvironmentIter& ei)
 static JSObject*
 GetDebugEnvironment(JSContext* cx, const EnvironmentIter& ei)
 {
-    JS_CHECK_RECURSION(cx, return nullptr);
+    if (!CheckRecursionLimit(cx))
+        return nullptr;
 
     if (ei.done())
         return GetDebugEnvironmentForNonEnvironmentObject(ei);

@@ -340,29 +340,21 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     js::ActiveThreadData<js::Vector<js::CooperatingContext, 4, js::SystemAllocPolicy>> cooperatingContexts_;
 
     // Count of AutoProhibitActiveContextChange instances on the active context.
-    js::ActiveThreadData<size_t> activeContextChangeProhibited_;
+    mozilla::Atomic<size_t> activeContextChangeProhibited_;
 
   public:
     JSContext* activeContext() const { return activeContext_; }
     const void* addressOfActiveContext() { return &activeContext_; }
 
     void setActiveContext(JSContext* cx);
+    void setNewbornActiveContext(JSContext* cx);
+    void deleteActiveContext(JSContext* cx);
 
     inline JSContext* activeContextFromOwnThread();
 
     js::Vector<js::CooperatingContext, 4, js::SystemAllocPolicy>& cooperatingContexts() {
         return cooperatingContexts_.ref();
     }
-
-#ifdef DEBUG
-    bool isCooperatingContext(JSContext* cx) {
-        for (const js::CooperatingContext& target : cooperatingContexts()) {
-            if (target.context() == cx)
-                return true;
-        }
-        return false;
-    }
-#endif
 
     class MOZ_RAII AutoProhibitActiveContextChange
     {
@@ -571,22 +563,22 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     bool activeThreadHasExclusiveAccess;
 #endif
 
-    /* Number of non-cooperating threads with exclusive access to some zone. */
-    js::UnprotectedData<size_t> numExclusiveThreads;
+    /* Number of zones which may be operated on by non-cooperating helper threads. */
+    js::UnprotectedData<size_t> numHelperThreadZones;
 
     friend class js::AutoLockForExclusiveAccess;
 
   public:
-    void setUsedByExclusiveThread(JS::Zone* zone);
-    void clearUsedByExclusiveThread(JS::Zone* zone);
+    void setUsedByHelperThread(JS::Zone* zone);
+    void clearUsedByHelperThread(JS::Zone* zone);
 
-    bool exclusiveThreadsPresent() const {
-        return numExclusiveThreads > 0;
+    bool hasHelperThreadZones() const {
+        return numHelperThreadZones > 0;
     }
 
 #ifdef DEBUG
     bool currentThreadHasExclusiveAccess() const {
-        return (!exclusiveThreadsPresent() && activeThreadHasExclusiveAccess) ||
+        return (!hasHelperThreadZones() && activeThreadHasExclusiveAccess) ||
             exclusiveAccessLock.ownedByCurrentThread();
     }
 #endif
@@ -1044,6 +1036,11 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     // For inherited heap state accessors.
     friend class js::gc::AutoTraceSession;
     friend class JS::AutoEnterCycleCollection;
+
+  private:
+    js::ActiveThreadData<js::RuntimeCaches> caches_;
+  public:
+    js::RuntimeCaches& caches() { return caches_.ref(); }
 };
 
 namespace js {
@@ -1307,6 +1304,24 @@ class RuntimeAllocPolicy
 };
 
 extern const JSSecurityCallbacks NullSecurityCallbacks;
+
+inline Nursery&
+ZoneGroup::nursery()
+{
+    return runtime->gc.nursery();
+}
+
+inline gc::StoreBuffer&
+ZoneGroup::storeBuffer()
+{
+    return runtime->gc.storeBuffer();
+}
+
+inline void
+ZoneGroup::callAfterMinorGC(void (*thunk)(void* data), void* data)
+{
+    nursery().queueSweepAction(thunk, data);
+}
 
 } /* namespace js */
 

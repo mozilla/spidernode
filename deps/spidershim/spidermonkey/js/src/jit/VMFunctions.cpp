@@ -123,6 +123,18 @@ InvokeFunctionShuffleNewTarget(JSContext* cx, HandleObject obj, uint32_t numActu
     return InvokeFunction(cx, obj, true, numActualArgs, argv, rval);
 }
 
+#ifdef JS_SIMULATOR
+static bool
+CheckSimulatorRecursionLimitWithExtra(JSContext* cx, uint32_t extra)
+{
+    if (cx->simulator()->overRecursedWithExtra(extra)) {
+        ReportOverRecursed(cx);
+        return false;
+    }
+    return true;
+}
+#endif
+
 bool
 CheckOverRecursed(JSContext* cx)
 {
@@ -131,9 +143,11 @@ CheckOverRecursed(JSContext* cx)
     //  - jitStackLimit was set to UINTPTR_MAX by JSRuntime::requestInterrupt
     //    and we need to call JSRuntime::handleInterrupt.
 #ifdef JS_SIMULATOR
-    JS_CHECK_SIMULATOR_RECURSION_WITH_EXTRA(cx, 0, return false);
+    if (!CheckSimulatorRecursionLimitWithExtra(cx, 0))
+        return false;
 #else
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 #endif
     gc::MaybeVerifyBarriers(cx);
     return cx->handleInterrupt();
@@ -162,9 +176,11 @@ CheckOverRecursedWithExtra(JSContext* cx, BaselineFrame* frame,
     if (earlyCheck) {
 #ifdef JS_SIMULATOR
         (void)checkSp;
-        JS_CHECK_SIMULATOR_RECURSION_WITH_EXTRA(cx, extra, frame->setOverRecursed());
+        if (!CheckSimulatorRecursionLimitWithExtra(cx, extra))
+            frame->setOverRecursed();
 #else
-        JS_CHECK_RECURSION_WITH_SP(cx, checkSp, frame->setOverRecursed());
+        if (!CheckRecursionLimitWithStackPointer(cx, checkSp))
+            frame->setOverRecursed();
 #endif
         return true;
     }
@@ -175,9 +191,11 @@ CheckOverRecursedWithExtra(JSContext* cx, BaselineFrame* frame,
         return false;
 
 #ifdef JS_SIMULATOR
-    JS_CHECK_SIMULATOR_RECURSION_WITH_EXTRA(cx, extra, return false);
+    if (!CheckSimulatorRecursionLimitWithExtra(cx, extra))
+        return false;
 #else
-    JS_CHECK_RECURSION_WITH_SP(cx, checkSp, return false);
+    if (!CheckRecursionLimitWithStackPointer(cx, checkSp))
+        return false;
 #endif
 
     gc::MaybeVerifyBarriers(cx);
@@ -694,6 +712,38 @@ GetIndexFromString(JSString* str)
     return int32_t(index);
 }
 
+JSObject*
+WrapObjectPure(JSContext* cx, JSObject* obj)
+{
+    MOZ_ASSERT(obj);
+    MOZ_ASSERT(cx->compartment() != obj->compartment());
+
+    // From: JSCompartment::getNonWrapperObjectForCurrentCompartment
+    // Note that if the object is same-compartment, but has been wrapped into a
+    // different compartment, we need to unwrap it and return the bare same-
+    // compartment object. Note again that windows are always wrapped by a
+    // WindowProxy even when same-compartment so take care not to strip this
+    // particular wrapper.
+    obj = UncheckedUnwrap(obj, /* stopAtWindowProxy = */ true);
+    if (cx->compartment() == obj->compartment()) {
+        MOZ_ASSERT(!IsWindow(obj));
+        JS::ExposeObjectToActiveJS(obj);
+        return obj;
+    }
+
+    // Try to Lookup an existing wrapper for this object. We assume that
+    // if we can find such a wrapper, not calling preWrap is correct.
+    if (WrapperMap::Ptr p = cx->compartment()->lookupWrapper(obj)) {
+        JSObject* wrapped = &p->value().get().toObject();
+
+        // Ensure the wrapper is still exposed.
+        JS::ExposeObjectToActiveJS(wrapped);
+        return wrapped;
+    }
+
+    return nullptr;
+}
+
 bool
 DebugPrologue(JSContext* cx, BaselineFrame* frame, jsbytecode* pc, bool* mustReturn)
 {
@@ -922,6 +972,17 @@ NewArgumentsObject(JSContext* cx, BaselineFrame* frame, MutableHandleValue res)
         return false;
     res.setObject(*obj);
     return true;
+}
+
+JSObject*
+CopyLexicalEnvironmentObject(JSContext* cx, HandleObject env, bool copySlots)
+{
+    Handle<LexicalEnvironmentObject*> lexicalEnv = env.as<LexicalEnvironmentObject>();
+
+    if (copySlots)
+        return LexicalEnvironmentObject::clone(cx, lexicalEnv);
+
+    return LexicalEnvironmentObject::recreate(cx, lexicalEnv);
 }
 
 JSObject*
@@ -1438,6 +1499,15 @@ EqualStringsHelper(JSString* str1, JSString* str2)
         return false;
 
     return EqualChars(&str1->asLinear(), str2Linear);
+}
+
+bool
+CheckIsCallable(JSContext* cx, HandleValue v, CheckIsCallableKind kind)
+{
+    if (!IsCallable(v))
+        return ThrowCheckIsCallable(cx, kind);
+
+    return true;
 }
 
 } // namespace jit

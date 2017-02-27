@@ -513,14 +513,15 @@ class js::WasmArrayRawBuffer
     size_t mappedSize_;
 
   protected:
-    WasmArrayRawBuffer(uint8_t* buffer, uint32_t length, Maybe<uint32_t> maxSize, size_t mappedSize)
+    WasmArrayRawBuffer(uint8_t* buffer, uint32_t length, const Maybe<uint32_t>& maxSize,
+                       size_t mappedSize)
       : maxSize_(maxSize), mappedSize_(mappedSize)
     {
         MOZ_ASSERT(buffer == dataPointer());
     }
 
   public:
-    static WasmArrayRawBuffer* Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize);
+    static WasmArrayRawBuffer* Allocate(uint32_t numBytes, const Maybe<uint32_t>& maxSize);
     static void Release(void* mem);
 
     uint8_t* dataPointer() {
@@ -622,7 +623,7 @@ class js::WasmArrayRawBuffer
 };
 
 /* static */ WasmArrayRawBuffer*
-WasmArrayRawBuffer::Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize)
+WasmArrayRawBuffer::Allocate(uint32_t numBytes, const Maybe<uint32_t>& maxSize)
 {
     size_t mappedSize;
 #ifdef WASM_HUGE_MEMORY
@@ -704,7 +705,8 @@ ArrayBufferObject::BufferContents::wasmBuffer() const
 #define ROUND_UP(v, a) ((v) % (a) == 0 ? (v) : v + a - ((v) % (a)))
 
 /* static */ ArrayBufferObject*
-ArrayBufferObject::createForWasm(JSContext* cx, uint32_t initialSize, Maybe<uint32_t> maxSize)
+ArrayBufferObject::createForWasm(JSContext* cx, uint32_t initialSize,
+                                 const Maybe<uint32_t>& maybeMaxSize)
 {
     MOZ_ASSERT(initialSize % wasm::PageSize == 0);
     MOZ_RELEASE_ASSERT(wasm::HaveSignalHandlers());
@@ -712,10 +714,11 @@ ArrayBufferObject::createForWasm(JSContext* cx, uint32_t initialSize, Maybe<uint
     // Prevent applications specifying a large max (like UINT32_MAX) from
     // unintentially OOMing the browser on 32-bit: they just want "a lot of
     // memory". Maintain the invariant that initialSize <= maxSize.
-    if (sizeof(void*) == 4 && maxSize) {
+    Maybe<uint32_t> maxSize = maybeMaxSize;
+    if (sizeof(void*) == 4 && maybeMaxSize) {
         static const uint32_t OneGiB = 1 << 30;
         uint32_t clamp = Max(OneGiB, initialSize);
-        maxSize = Some(Min(clamp, maxSize.value()));
+        maxSize = Some(Min(clamp, maybeMaxSize.value()));
     }
 
     RootedArrayBufferObject buffer(cx, ArrayBufferObject::createEmpty(cx));
@@ -942,7 +945,9 @@ ArrayBufferObject::wasmGrowToSizeInPlace(uint32_t newSize,
     // wasm-visible length of the buffer has been increased so it must be the
     // last fallible operation.
 
-    // byteLength can be at most INT32_MAX.
+    // byteLength can be at most INT32_MAX. Note: if this hard limit changes,
+    // update the clamping behavior in wasm::DecodeMemoryLimits and remove this
+    // comment as well as the one in wasmMovingGrowToSize.
     if (newSize > INT32_MAX)
         return false;
 
@@ -973,6 +978,7 @@ ArrayBufferObject::wasmMovingGrowToSize(uint32_t newSize,
     // unmodified and valid.
 
     // byteLength can be at most INT32_MAX.
+    // See comment in wasmGrowToSizeInPlace about wasm::DecodeMemoryLimits.
     if (newSize > INT32_MAX)
         return false;
 
@@ -1484,8 +1490,10 @@ ArrayBufferViewObject::trace(JSTracer* trc, JSObject* objArg)
                 // We can't use a direct forwarding pointer here, as there might
                 // not be enough bytes available, and other views might have data
                 // pointers whose forwarding pointers would overlap this one.
-                Nursery& nursery = obj->zoneFromAnyThread()->group()->nursery();
-                nursery.maybeSetForwardingPointer(trc, srcData, dstData, /* direct = */ false);
+                if (trc->isTenuringTracer()) {
+                    Nursery& nursery = obj->zoneFromAnyThread()->group()->nursery();
+                    nursery.maybeSetForwardingPointer(trc, srcData, dstData, /* direct = */ false);
+                }
             } else {
                 MOZ_ASSERT_IF(buf.dataPointer() == nullptr, offset == 0);
 

@@ -28,6 +28,7 @@
 #include "vm/EnvironmentObject.h"
 #include "vm/Interpreter.h"
 #include "vm/TraceLogging.h"
+#include "vtune/VTuneWrapper.h"
 
 #include "jsscriptinlines.h"
 
@@ -35,9 +36,6 @@
 #include "jit/MacroAssembler-inl.h"
 #include "vm/Interpreter-inl.h"
 #include "vm/NativeObject-inl.h"
-#ifdef MOZ_VTUNE
-# include "vtune/VTuneWrapper.h"
-#endif
 
 using namespace js;
 using namespace js::jit;
@@ -1390,6 +1388,26 @@ BaselineCompiler::emit_JSOP_CHECKISOBJ()
     return true;
 }
 
+typedef bool (*CheckIsCallableFn)(JSContext*, HandleValue, CheckIsCallableKind);
+static const VMFunction CheckIsCallableInfo =
+    FunctionInfo<CheckIsCallableFn>(CheckIsCallable, "CheckIsCallable");
+
+bool
+BaselineCompiler::emit_JSOP_CHECKISCALLABLE()
+{
+    frame.syncStack(0);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), R0);
+
+    prepareVMCall();
+
+    pushArg(Imm32(GET_UINT8(pc)));
+    pushArg(R0);
+    if (!callVM(CheckIsCallableInfo))
+        return false;
+
+    return true;
+}
+
 typedef bool (*ThrowUninitializedThisFn)(JSContext*, BaselineFrame* frame);
 static const VMFunction ThrowUninitializedThisInfo =
     FunctionInfo<ThrowUninitializedThisFn>(BaselineThrowUninitializedThis,
@@ -2501,7 +2519,7 @@ BaselineCompiler::emit_JSOP_LENGTH()
 }
 
 bool
-BaselineCompiler::emit_JSOP_GETXPROP()
+BaselineCompiler::emit_JSOP_GETBOUNDNAME()
 {
     return emit_JSOP_GETPROP();
 }

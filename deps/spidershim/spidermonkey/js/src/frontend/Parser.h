@@ -11,6 +11,7 @@
 
 #include "mozilla/Array.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/TypeTraits.h"
 
 #include "jspubtd.h"
 
@@ -146,9 +147,9 @@ class ParseContext : public Nestable<ParseContext>
         }
 
         MOZ_MUST_USE bool addDeclaredName(ParseContext* pc, AddDeclaredNamePtr& p, JSAtom* name,
-                                          DeclarationKind kind)
+                                          DeclarationKind kind, uint32_t pos)
         {
-            return maybeReportOOM(pc, declared_->add(p, name, DeclaredNameInfo(kind)));
+            return maybeReportOOM(pc, declared_->add(p, name, DeclaredNameInfo(kind, pos)));
         }
 
         // Remove all VarForAnnexBLexicalFunction declarations of a certain
@@ -255,6 +256,9 @@ class ParseContext : public Nestable<ParseContext>
     };
 
   private:
+    // Trace logging of parsing time.
+    AutoFrontendTraceLog traceLog_;
+
     // Context shared between parsing and bytecode generation.
     SharedContext* sc_;
 
@@ -351,6 +355,11 @@ class ParseContext : public Nestable<ParseContext>
     template <typename ParseHandler>
     ParseContext(Parser<ParseHandler>* prs, SharedContext* sc, Directives* newDirectives)
       : Nestable<ParseContext>(&prs->pc),
+        traceLog_(sc->context,
+                  mozilla::IsSame<ParseHandler, FullParseHandler>::value
+                  ? TraceLogger_ParsingFull
+                  : TraceLogger_ParsingSyntax,
+                  prs->tokenStream),
         sc_(sc),
         tokenStream_(prs->tokenStream),
         innermostStatement_(nullptr),
@@ -734,6 +743,9 @@ class UsedNameTracker
     }
 };
 
+template <typename ParseHandler>
+class AutoAwaitIsKeyword;
+
 class ParserBase : public StrictModeGetter
 {
   private:
@@ -783,7 +795,13 @@ class ParserBase : public StrictModeGetter
     /* Unexpected end of input, i.e. TOK_EOF not at top-level. */
     bool isUnexpectedEOF_:1;
 
+    bool awaitIsKeyword_:1;
+
   public:
+    bool awaitIsKeyword() const {
+      return awaitIsKeyword_;
+    }
+
     ParserBase(JSContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
                const char16_t* chars, size_t length, bool foldConstants,
                UsedNameTracker& usedNames, Parser<SyntaxParseHandler>* syntaxParser,
@@ -824,9 +842,12 @@ class ParserBase : public StrictModeGetter
 
     /* Report the given error at the current offset. */
     void error(unsigned errorNumber, ...);
+    void errorWithNotes(UniquePtr<JSErrorNotes> notes, unsigned errorNumber, ...);
 
     /* Report the given error at the given offset. */
     void errorAt(uint32_t offset, unsigned errorNumber, ...);
+    void errorWithNotesAt(UniquePtr<JSErrorNotes> notes, uint32_t offset,
+                          unsigned errorNumber, ...);
 
     /*
      * Handle a strict mode error at the current offset.  Report an error if in
@@ -997,6 +1018,9 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
            Parser<SyntaxParseHandler>* syntaxParser, LazyScript* lazyOuterFunction);
     ~Parser();
 
+    friend class AutoAwaitIsKeyword<ParseHandler>;
+    void setAwaitIsKeyword(bool isKeyword);
+
     bool checkOptions();
 
     // A Parser::Mark is the extension of the LifoAlloc::Mark to the entire
@@ -1045,8 +1069,6 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
 
     void trace(JSTracer* trc);
 
-    bool checkUnescapedName();
-
   private:
     Parser* thisForCtor() { return this; }
 
@@ -1092,7 +1114,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // Parse a function, used for the Function, GeneratorFunction, and
     // AsyncFunction constructors.
     Node standaloneFunction(HandleFunction fun, HandleScope enclosingScope,
-                            mozilla::Maybe<uint32_t> parameterListEnd,
+                            const mozilla::Maybe<uint32_t>& parameterListEnd,
                             GeneratorKind generatorKind, FunctionAsyncKind asyncKind,
                             Directives inheritedDirectives, Directives* newDirectives);
 
@@ -1111,7 +1133,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // ParseContext is already on the stack.
     bool functionFormalParametersAndBody(InHandling inHandling, YieldHandling yieldHandling,
                                          Node pn, FunctionSyntaxKind kind,
-                                         mozilla::Maybe<uint32_t> parameterListEnd = mozilla::Nothing(),
+                                         const mozilla::Maybe<uint32_t>& parameterListEnd = mozilla::Nothing(),
                                          bool isStandaloneFunction = false);
 
     // Match the current token against the BindingIdentifier production with
@@ -1179,10 +1201,29 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // continues a LexicalDeclaration.
     bool nextTokenContinuesLetDeclaration(TokenKind next, YieldHandling yieldHandling);
 
-    Node lexicalDeclaration(YieldHandling yieldHandling, bool isConst);
+    Node lexicalDeclaration(YieldHandling yieldHandling, DeclarationKind kind);
 
     Node importDeclaration();
+
+    bool processExport(Node node);
+    bool processExportFrom(Node node);
+
+    Node exportFrom(uint32_t begin, Node specList);
+    Node exportBatch(uint32_t begin);
+    bool checkLocalExportNames(Node node);
+    Node exportClause(uint32_t begin);
+    Node exportFunctionDeclaration(uint32_t begin,
+                                   FunctionAsyncKind asyncKind = SyncFunction);
+    Node exportVariableStatement(uint32_t begin);
+    Node exportClassDeclaration(uint32_t begin);
+    Node exportLexicalDeclaration(uint32_t begin, DeclarationKind kind);
+    Node exportDefaultFunctionDeclaration(uint32_t begin,
+                                          FunctionAsyncKind asyncKind = SyncFunction);
+    Node exportDefaultClassDeclaration(uint32_t begin);
+    Node exportDefaultAssignExpr(uint32_t begin);
+    Node exportDefault(uint32_t begin);
     Node exportDeclaration();
+
     Node expressionStatement(YieldHandling yieldHandling,
                              InvokedPrediction invoked = PredictUninvoked);
 
@@ -1311,22 +1352,34 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool namedImportsOrNamespaceImport(TokenKind tt, Node importSpecSet);
     bool checkExportedName(JSAtom* exportName);
     bool checkExportedNamesForDeclaration(Node node);
+    bool checkExportedNameForClause(Node node);
+    bool checkExportedNameForFunction(Node node);
+    bool checkExportedNameForClass(Node node);
 
     enum ClassContext { ClassStatement, ClassExpression };
     Node classDefinition(YieldHandling yieldHandling, ClassContext classContext,
                          DefaultHandling defaultHandling);
 
-    PropertyName* labelOrIdentifierReference(YieldHandling yieldHandling,
-                                             bool yieldTokenizedAsName);
+    bool checkLabelOrIdentifierReference(HandlePropertyName ident,
+                                         uint32_t offset,
+                                         YieldHandling yieldHandling);
 
-    PropertyName* labelIdentifier(YieldHandling yieldHandling) {
-        return labelOrIdentifierReference(yieldHandling, false);
+    bool checkLocalExportName(HandlePropertyName ident, uint32_t offset) {
+        return checkLabelOrIdentifierReference(ident, offset, YieldIsName);
     }
 
-    PropertyName* identifierReference(YieldHandling yieldHandling,
-                                      bool yieldTokenizedAsName = false)
-    {
-        return labelOrIdentifierReference(yieldHandling, yieldTokenizedAsName);
+    bool checkBindingIdentifier(HandlePropertyName ident,
+                                uint32_t offset,
+                                YieldHandling yieldHandling);
+
+    PropertyName* labelOrIdentifierReference(YieldHandling yieldHandling);
+
+    PropertyName* labelIdentifier(YieldHandling yieldHandling) {
+        return labelOrIdentifierReference(yieldHandling);
+    }
+
+    PropertyName* identifierReference(YieldHandling yieldHandling) {
+        return labelOrIdentifierReference(yieldHandling);
     }
 
     PropertyName* importedBinding() {
@@ -1386,19 +1439,20 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
   private:
     bool checkIncDecOperand(Node operand, uint32_t operandOffset);
     bool checkStrictAssignment(Node lhs);
-    bool checkStrictBinding(PropertyName* name, TokenPos pos);
 
     bool hasValidSimpleStrictParameterNames();
 
-    void reportRedeclaration(HandlePropertyName name, DeclarationKind kind, TokenPos pos);
-    bool notePositionalFormalParameter(Node fn, HandlePropertyName name,
+    void reportRedeclaration(HandlePropertyName name, DeclarationKind prevKind, TokenPos pos,
+                             uint32_t prevPos);
+    bool notePositionalFormalParameter(Node fn, HandlePropertyName name, uint32_t beginPos,
                                        bool disallowDuplicateParams, bool* duplicatedParam);
     bool noteDestructuredPositionalFormalParameter(Node fn, Node destruct);
     mozilla::Maybe<DeclarationKind> isVarRedeclaredInEval(HandlePropertyName name,
                                                           DeclarationKind kind);
-    bool tryDeclareVar(HandlePropertyName name, DeclarationKind kind,
-                       mozilla::Maybe<DeclarationKind>* redeclaredKind);
-    bool tryDeclareVarForAnnexBLexicalFunction(HandlePropertyName name, bool* tryAnnexB);
+    bool tryDeclareVar(HandlePropertyName name, DeclarationKind kind, uint32_t beginPos,
+                       mozilla::Maybe<DeclarationKind>* redeclaredKind, uint32_t* prevPos);
+    bool tryDeclareVarForAnnexBLexicalFunction(HandlePropertyName name, uint32_t beginPos,
+                                               bool* tryAnnexB);
     bool checkLexicalDeclarationDirectlyWithinBlock(ParseContext::Statement& stmt,
                                                     DeclarationKind kind, TokenPos pos);
     bool noteDeclaredName(HandlePropertyName name, DeclarationKind kind, TokenPos pos);
@@ -1435,7 +1489,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // error if not passed a name.
     bool checkDestructuringArray(Node arrayPattern, const mozilla::Maybe<DeclarationKind>& maybeDecl);
     bool checkDestructuringObject(Node objectPattern, const mozilla::Maybe<DeclarationKind>& maybeDecl);
-    bool checkDestructuringName(Node expr, mozilla::Maybe<DeclarationKind> maybeDecl);
+    bool checkDestructuringName(Node expr, const mozilla::Maybe<DeclarationKind>& maybeDecl);
 
     Node newNumber(const Token& tok) {
         return handler.newNumber(tok.number(), tok.decimalPoint(), tok.pos);
@@ -1446,6 +1500,25 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     JSAtom* prefixAccessorName(PropertyType propType, HandleAtom propAtom);
 
     bool asmJS(Node list);
+};
+
+template <typename ParseHandler>
+class MOZ_STACK_CLASS AutoAwaitIsKeyword
+{
+  private:
+    Parser<ParseHandler>* parser_;
+    bool oldAwaitIsKeyword_;
+
+  public:
+    AutoAwaitIsKeyword(Parser<ParseHandler>* parser, bool awaitIsKeyword) {
+        parser_ = parser;
+        oldAwaitIsKeyword_ = parser_->awaitIsKeyword_;
+        parser_->setAwaitIsKeyword(awaitIsKeyword);
+    }
+
+    ~AutoAwaitIsKeyword() {
+        parser_->setAwaitIsKeyword(oldAwaitIsKeyword_);
+    }
 };
 
 } /* namespace frontend */

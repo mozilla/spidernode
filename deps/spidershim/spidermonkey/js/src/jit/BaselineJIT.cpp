@@ -54,7 +54,7 @@ ICStubSpace::freeAllAfterMinorGC(Zone* zone)
     if (zone->isAtomsZone())
         MOZ_ASSERT(allocator_.isEmpty());
     else
-        zone->group()->freeAllLifoBlocksAfterMinorGC(&allocator_);
+        zone->runtimeFromActiveCooperatingThread()->gc.freeAllLifoBlocksAfterMinorGC(&allocator_);
 }
 
 BaselineScript::BaselineScript(uint32_t prologueOffset, uint32_t epilogueOffset,
@@ -113,9 +113,11 @@ EnterBaseline(JSContext* cx, EnterJitData& data)
         uint8_t spDummy;
         uint32_t extra = BaselineFrame::Size() + (data.osrNumStackValues * sizeof(Value));
         uint8_t* checkSp = (&spDummy) - extra;
-        JS_CHECK_RECURSION_WITH_SP(cx, checkSp, return JitExec_Aborted);
+        if (!CheckRecursionLimitWithStackPointer(cx, checkSp))
+            return JitExec_Aborted;
     } else {
-        JS_CHECK_RECURSION(cx, return JitExec_Aborted);
+        if (!CheckRecursionLimit(cx))
+            return JitExec_Aborted;
     }
 
 #ifdef DEBUG

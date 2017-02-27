@@ -154,8 +154,6 @@ class ArenaCellIterImpl
     void init(Arena* arena, CellIterNeedsBarrier mayNeedBarrier) {
         MOZ_ASSERT(!initialized);
         MOZ_ASSERT(arena);
-        MOZ_ASSERT_IF(!mayNeedBarrier,
-                      CurrentThreadIsPerformingGC() || CurrentThreadIsGCSweeping());
         initialized = true;
         AllocKind kind = arena->getAllocKind();
         firstThingOffset = Arena::firstThingOffset(kind);
@@ -243,6 +241,14 @@ class ArenaCellIterUnderFinalize : public ArenaCellIterImpl
     }
 };
 
+class ArenaCellIterUnbarriered : public ArenaCellIterImpl
+{
+  public:
+    explicit ArenaCellIterUnbarriered(Arena* arena)
+      : ArenaCellIterImpl(arena, CellIterDoesntNeedBarrier)
+    {}
+};
+
 template <typename T>
 class ZoneCellIter;
 
@@ -288,7 +294,7 @@ class ZoneCellIter<TenuredCell> {
         // If we are iterating a nursery-allocated kind then we need to
         // evict first so that we can see all things.
         if (IsNurseryAllocable(kind))
-            zone->group()->evictNursery();
+            zone->runtimeFromActiveCooperatingThread()->gc.evictNursery();
 
         init(zone, kind);
     }

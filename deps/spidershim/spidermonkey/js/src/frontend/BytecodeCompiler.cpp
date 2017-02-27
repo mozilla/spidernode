@@ -31,19 +31,6 @@ using namespace js::frontend;
 using mozilla::Maybe;
 using mozilla::Nothing;
 
-class MOZ_STACK_CLASS AutoCompilationTraceLogger
-{
-  public:
-    AutoCompilationTraceLogger(JSContext* cx, const TraceLoggerTextId id,
-                               const ReadOnlyCompileOptions& options);
-
-  private:
-    TraceLoggerThread* logger;
-    TraceLoggerEvent event;
-    AutoTraceLog scriptLogger;
-    AutoTraceLog typeLogger;
-};
-
 // The BytecodeCompiler class contains resources common to compiling scripts and
 // function bodies.
 class MOZ_STACK_CLASS BytecodeCompiler
@@ -54,8 +41,7 @@ class MOZ_STACK_CLASS BytecodeCompiler
                      LifoAlloc& alloc,
                      const ReadOnlyCompileOptions& options,
                      SourceBufferHolder& sourceBuffer,
-                     HandleScope enclosingScope,
-                     TraceLoggerTextId logId);
+                     HandleScope enclosingScope);
 
     // Call setters for optional arguments.
     void maybeSetSourceCompressor(SourceCompressionTask* sourceCompressor);
@@ -65,25 +51,24 @@ class MOZ_STACK_CLASS BytecodeCompiler
     ModuleObject* compileModule();
     bool compileStandaloneFunction(MutableHandleFunction fun, GeneratorKind generatorKind,
                                    FunctionAsyncKind asyncKind,
-                                   Maybe<uint32_t> parameterListEnd);
+                                   const Maybe<uint32_t>& parameterListEnd);
 
     ScriptSourceObject* sourceObjectPtr() const;
 
   private:
     JSScript* compileScript(HandleObject environment, SharedContext* sc);
     bool checkLength();
-    bool createScriptSource(Maybe<uint32_t> parameterListEnd);
+    bool createScriptSource(const Maybe<uint32_t>& parameterListEnd);
     bool maybeCompressSource();
     bool canLazilyParse();
     bool createParser();
-    bool createSourceAndParser(Maybe<uint32_t> parameterListEnd = Nothing());
+    bool createSourceAndParser(const Maybe<uint32_t>& parameterListEnd = Nothing());
     bool createScript();
     bool emplaceEmitter(Maybe<BytecodeEmitter>& emitter, SharedContext* sharedContext);
     bool handleParseFailure(const Directives& newDirectives);
     bool deoptimizeArgumentsInEnclosingScripts(JSContext* cx, HandleObject environment);
     bool maybeCompleteCompressSource();
 
-    AutoCompilationTraceLogger traceLogger;
     AutoKeepAtoms keepAtoms;
 
     JSContext* cx;
@@ -109,22 +94,77 @@ class MOZ_STACK_CLASS BytecodeCompiler
     RootedScript script;
 };
 
-AutoCompilationTraceLogger::AutoCompilationTraceLogger(JSContext* cx,
-        const TraceLoggerTextId id, const ReadOnlyCompileOptions& options)
-  : logger(TraceLoggerForCurrentThread(cx)),
-    event(TraceLogger_AnnotateScripts, options),
-    scriptLogger(logger, event),
-    typeLogger(logger, id)
-{}
+AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx, const TraceLoggerTextId id,
+                                           const char* filename, size_t line, size_t column)
+#ifdef JS_TRACE_LOGGING
+  : logger_(TraceLoggerForCurrentThread(cx))
+{
+    frontendEvent_.emplace(TraceLogger_Frontend, filename, line, column);
+    frontendLog_.emplace(logger_, *frontendEvent_);
+    typeLog_.emplace(logger_, id);
+}
+#else
+{ }
+#endif
+
+AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx, const TraceLoggerTextId id,
+                                           const TokenStream& tokenStream)
+#ifdef JS_TRACE_LOGGING
+  : logger_(TraceLoggerForCurrentThread(cx))
+{
+    // If the tokenizer hasn't yet gotten any tokens, use the line and column
+    // numbers from CompileOptions.
+    uint32_t line, column;
+    if (tokenStream.isCurrentTokenType(TOK_EOF) && !tokenStream.isEOF()) {
+        line = tokenStream.options().lineno;
+        column = tokenStream.options().column;
+    } else {
+        uint32_t offset = tokenStream.currentToken().pos.begin;
+        tokenStream.srcCoords.lineNumAndColumnIndex(offset, &line, &column);
+    }
+    frontendEvent_.emplace(TraceLogger_Frontend, tokenStream.getFilename(), line, column);
+    frontendLog_.emplace(logger_, *frontendEvent_);
+    typeLog_.emplace(logger_, id);
+}
+#else
+{ }
+#endif
+
+AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx, const TraceLoggerTextId id,
+                                           const TokenStream& tokenStream, FunctionBox* funbox)
+#ifdef JS_TRACE_LOGGING
+  : logger_(TraceLoggerForCurrentThread(cx))
+{
+    frontendEvent_.emplace(TraceLogger_Frontend, tokenStream.getFilename(),
+                           funbox->startLine, funbox->startColumn);
+    frontendLog_.emplace(logger_, *frontendEvent_);
+    typeLog_.emplace(logger_, id);
+}
+#else
+{ }
+#endif
+
+AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx, const TraceLoggerTextId id,
+                                           const TokenStream& tokenStream, ParseNode* pn)
+#ifdef JS_TRACE_LOGGING
+  : logger_(TraceLoggerForCurrentThread(cx))
+{
+    uint32_t line, column;
+    tokenStream.srcCoords.lineNumAndColumnIndex(pn->pn_pos.begin, &line, &column);
+    frontendEvent_.emplace(TraceLogger_Frontend, tokenStream.getFilename(), line, column);
+    frontendLog_.emplace(logger_, *frontendEvent_);
+    typeLog_.emplace(logger_, id);
+}
+#else
+{ }
+#endif
 
 BytecodeCompiler::BytecodeCompiler(JSContext* cx,
                                    LifoAlloc& alloc,
                                    const ReadOnlyCompileOptions& options,
                                    SourceBufferHolder& sourceBuffer,
-                                   HandleScope enclosingScope,
-                                   TraceLoggerTextId logId)
-  : traceLogger(cx, logId, options),
-    keepAtoms(cx),
+                                   HandleScope enclosingScope)
+  : keepAtoms(cx),
     cx(cx),
     alloc(alloc),
     options(options),
@@ -162,7 +202,7 @@ BytecodeCompiler::checkLength()
 }
 
 bool
-BytecodeCompiler::createScriptSource(Maybe<uint32_t> parameterListEnd)
+BytecodeCompiler::createScriptSource(const Maybe<uint32_t>& parameterListEnd)
 {
     if (!checkLength())
         return false;
@@ -233,7 +273,7 @@ BytecodeCompiler::createParser()
 }
 
 bool
-BytecodeCompiler::createSourceAndParser(Maybe<uint32_t> parameterListEnd /* = Nothing() */)
+BytecodeCompiler::createSourceAndParser(const Maybe<uint32_t>& parameterListEnd /* = Nothing() */)
 {
     return createScriptSource(parameterListEnd) &&
            maybeCompressSource() &&
@@ -431,7 +471,7 @@ bool
 BytecodeCompiler::compileStandaloneFunction(MutableHandleFunction fun,
                                             GeneratorKind generatorKind,
                                             FunctionAsyncKind asyncKind,
-                                            Maybe<uint32_t> parameterListEnd)
+                                            const Maybe<uint32_t>& parameterListEnd)
 {
     MOZ_ASSERT(fun);
     MOZ_ASSERT(fun->isTenured());
@@ -486,7 +526,7 @@ BytecodeCompiler::sourceObjectPtr() const
 
 ScriptSourceObject*
 frontend::CreateScriptSourceObject(JSContext* cx, const ReadOnlyCompileOptions& options,
-                                   Maybe<uint32_t> parameterListEnd /* = Nothing() */)
+                                   const Maybe<uint32_t>& parameterListEnd /* = Nothing() */)
 {
     ScriptSource* ss = cx->new_<ScriptSource>();
     if (!ss)
@@ -556,8 +596,7 @@ frontend::CompileGlobalScript(JSContext* cx, LifoAlloc& alloc, ScopeKind scopeKi
                               ScriptSourceObject** sourceObjectOut)
 {
     MOZ_ASSERT(scopeKind == ScopeKind::Global || scopeKind == ScopeKind::NonSyntactic);
-    BytecodeCompiler compiler(cx, alloc, options, srcBuf, /* enclosingScope = */ nullptr,
-                              TraceLogger_ParserCompileScript);
+    BytecodeCompiler compiler(cx, alloc, options, srcBuf, /* enclosingScope = */ nullptr);
     AutoInitializeSourceObject autoSSO(compiler, sourceObjectOut);
     compiler.maybeSetSourceCompressor(extraSct);
     return compiler.compileGlobalScript(scopeKind);
@@ -571,8 +610,7 @@ frontend::CompileEvalScript(JSContext* cx, LifoAlloc& alloc,
                             SourceCompressionTask* extraSct,
                             ScriptSourceObject** sourceObjectOut)
 {
-    BytecodeCompiler compiler(cx, alloc, options, srcBuf, enclosingScope,
-                              TraceLogger_ParserCompileScript);
+    BytecodeCompiler compiler(cx, alloc, options, srcBuf, enclosingScope);
     AutoInitializeSourceObject autoSSO(compiler, sourceObjectOut);
     compiler.maybeSetSourceCompressor(extraSct);
     return compiler.compileEvalScript(environment, enclosingScope);
@@ -589,10 +627,10 @@ frontend::CompileModule(JSContext* cx, const ReadOnlyCompileOptions& optionsInpu
     CompileOptions options(cx, optionsInput);
     options.maybeMakeStrictMode(true); // ES6 10.2.1 Module code is always strict mode code.
     options.setIsRunOnce(true);
+    options.allowHTMLComments = false;
 
     RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
-    BytecodeCompiler compiler(cx, alloc, options, srcBuf, emptyGlobalScope,
-                              TraceLogger_ParserCompileModule);
+    BytecodeCompiler compiler(cx, alloc, options, srcBuf, emptyGlobalScope);
     AutoInitializeSourceObject autoSSO(compiler, sourceObjectOut);
     return compiler.compileModule();
 }
@@ -628,8 +666,6 @@ frontend::CompileLazyFunction(JSContext* cx, Handle<LazyScript*> lazy, const cha
            .setColumn(lazy->column())
            .setNoScriptRval(false)
            .setSelfHostingMode(false);
-
-    AutoCompilationTraceLogger traceLogger(cx, TraceLogger_ParserCompileLazy, options);
 
     UsedNameTracker usedNames(cx);
     if (!usedNames.init())
@@ -684,15 +720,14 @@ bool
 frontend::CompileStandaloneFunction(JSContext* cx, MutableHandleFunction fun,
                                     const ReadOnlyCompileOptions& options,
                                     JS::SourceBufferHolder& srcBuf,
-                                    Maybe<uint32_t> parameterListEnd,
+                                    const Maybe<uint32_t>& parameterListEnd,
                                     HandleScope enclosingScope /* = nullptr */)
 {
     RootedScope scope(cx, enclosingScope);
     if (!scope)
         scope = &cx->global()->emptyGlobalScope();
 
-    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, scope,
-                              TraceLogger_ParserCompileFunction);
+    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, scope);
     return compiler.compileStandaloneFunction(fun, NotGenerator, SyncFunction, parameterListEnd);
 }
 
@@ -700,12 +735,11 @@ bool
 frontend::CompileStandaloneGenerator(JSContext* cx, MutableHandleFunction fun,
                                      const ReadOnlyCompileOptions& options,
                                      JS::SourceBufferHolder& srcBuf,
-                                     Maybe<uint32_t> parameterListEnd)
+                                     const Maybe<uint32_t>& parameterListEnd)
 {
     RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
 
-    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, emptyGlobalScope,
-                              TraceLogger_ParserCompileFunction);
+    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, emptyGlobalScope);
     return compiler.compileStandaloneFunction(fun, StarGenerator, SyncFunction, parameterListEnd);
 }
 
@@ -713,11 +747,10 @@ bool
 frontend::CompileStandaloneAsyncFunction(JSContext* cx, MutableHandleFunction fun,
                                          const ReadOnlyCompileOptions& options,
                                          JS::SourceBufferHolder& srcBuf,
-                                         Maybe<uint32_t> parameterListEnd)
+                                         const Maybe<uint32_t>& parameterListEnd)
 {
     RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
 
-    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, emptyGlobalScope,
-                              TraceLogger_ParserCompileFunction);
+    BytecodeCompiler compiler(cx, cx->tempLifoAlloc(), options, srcBuf, emptyGlobalScope);
     return compiler.compileStandaloneFunction(fun, StarGenerator, AsyncFunction, parameterListEnd);
 }

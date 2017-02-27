@@ -272,7 +272,8 @@ STATIC_PRECONDITION_ASSUME(ubound(args.argv_) >= argc)
 MOZ_ALWAYS_INLINE bool
 CallJSNative(JSContext* cx, Native native, const CallArgs& args)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
 #ifdef DEBUG
     bool alreadyThrowing = cx->isExceptionPending();
@@ -346,7 +347,8 @@ MOZ_ALWAYS_INLINE bool
 CallJSGetterOp(JSContext* cx, GetterOp op, HandleObject obj, HandleId id,
                MutableHandleValue vp)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
     assertSameCompartment(cx, obj, id, vp);
     bool ok = op(cx, obj, id, vp);
@@ -359,7 +361,8 @@ MOZ_ALWAYS_INLINE bool
 CallJSSetterOp(JSContext* cx, SetterOp op, HandleObject obj, HandleId id, MutableHandleValue vp,
                ObjectOpResult& result)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
     assertSameCompartment(cx, obj, id, vp);
     return op(cx, obj, id, vp, result);
@@ -369,7 +372,8 @@ inline bool
 CallJSAddPropertyOp(JSContext* cx, JSAddPropertyOp op, HandleObject obj, HandleId id,
                     HandleValue v)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
     assertSameCompartment(cx, obj, id, v);
     return op(cx, obj, id, v);
@@ -379,7 +383,8 @@ inline bool
 CallJSDeletePropertyOp(JSContext* cx, JSDeletePropertyOp op, HandleObject receiver, HandleId id,
                        ObjectOpResult& result)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    if (!CheckRecursionLimit(cx))
+        return false;
 
     assertSameCompartment(cx, receiver, id);
     if (op)
@@ -409,13 +414,13 @@ JSContext::typeLifoAlloc()
 inline js::Nursery&
 JSContext::nursery()
 {
-    return zone()->group()->nursery();
+    return runtime()->gc.nursery();
 }
 
 inline void
 JSContext::minorGC(JS::gcreason::Reason reason)
 {
-    zone()->group()->minorGC(reason);
+    runtime()->gc.minorGC(reason);
 }
 
 inline void
@@ -443,11 +448,19 @@ JSContext::enterCompartment(
 {
     enterCompartmentDepth_++;
 
-    if (!c->zone()->isAtomsZone() && !c->zone()->usedByExclusiveThread)
+    if (!c->zone()->isAtomsZone())
         enterZoneGroup(c->zone()->group());
 
     c->enter();
     setCompartment(c, maybeLock);
+}
+
+template <typename T>
+inline void
+JSContext::enterCompartmentOf(const T& target)
+{
+    MOZ_ASSERT(!js::gc::detail::CellIsMarkedGrayIfKnown(target));
+    enterCompartment(target->compartment(), nullptr);
 }
 
 inline void
@@ -471,7 +484,7 @@ JSContext::leaveCompartment(
     setCompartment(oldCompartment, maybeLock);
     if (startingCompartment) {
         startingCompartment->leave();
-        if (!startingCompartment->zone()->isAtomsZone() && !startingCompartment->zone()->usedByExclusiveThread)
+        if (!startingCompartment->zone()->isAtomsZone())
             leaveZoneGroup(startingCompartment->zone()->group());
     }
 }
@@ -480,16 +493,10 @@ inline void
 JSContext::setCompartment(JSCompartment* comp,
                           const js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
 {
-    // Contexts operating on helper threads can only be in the atoms zone or in exclusive zones.
-    MOZ_ASSERT_IF(helperThread() && !runtime_->isAtomsCompartment(comp),
-                  comp->zone()->usedByExclusiveThread);
-
-    // Normal JSContexts cannot enter exclusive zones.
-    MOZ_ASSERT_IF(this == runtime()->activeContext() && comp,
-                  !comp->zone()->usedByExclusiveThread);
-
     // Only one thread can be in the atoms compartment at a time.
     MOZ_ASSERT_IF(runtime_->isAtomsCompartment(comp), maybeLock != nullptr);
+    MOZ_ASSERT_IF(runtime_->isAtomsCompartment(comp) || runtime_->isAtomsCompartment(compartment_),
+                  runtime_->currentThreadHasExclusiveAccess());
 
     // Make sure that the atoms compartment has its own zone.
     MOZ_ASSERT_IF(comp && !runtime_->isAtomsCompartment(comp),
@@ -500,9 +507,8 @@ JSContext::setCompartment(JSCompartment* comp,
     MOZ_ASSERT_IF(compartment_, compartment_->hasBeenEntered());
     MOZ_ASSERT_IF(comp, comp->hasBeenEntered());
 
-    // This context must have exclusive access to the zone's group. There is an
-    // exception, for now, for zones used by exclusive threads.
-    MOZ_ASSERT_IF(comp && !comp->zone()->isAtomsZone() && !comp->zone()->usedByExclusiveThread,
+    // This context must have exclusive access to the zone's group.
+    MOZ_ASSERT_IF(comp && !comp->zone()->isAtomsZone(),
                   comp->zone()->group()->ownedByCurrentThread());
 
     compartment_ = comp;
@@ -540,14 +546,13 @@ JSContext::currentScript(jsbytecode** ppc,
 
     MOZ_ASSERT(act->cx() == this);
 
+    if (!allowCrossCompartment && act->compartment() != compartment())
+        return nullptr;
+
     if (act->isJit()) {
         JSScript* script = nullptr;
         js::jit::GetPcScript(const_cast<JSContext*>(this), &script, ppc);
-        if (!allowCrossCompartment && script->compartment() != compartment()) {
-            if (ppc)
-                *ppc = nullptr;
-            return nullptr;
-        }
+        MOZ_ASSERT(allowCrossCompartment || script->compartment() == compartment());
         return script;
     }
 
@@ -560,20 +565,20 @@ JSContext::currentScript(jsbytecode** ppc,
     MOZ_ASSERT(!fp->runningInJit());
 
     JSScript* script = fp->script();
-    if (!allowCrossCompartment && script->compartment() != compartment())
-        return nullptr;
+    MOZ_ASSERT(allowCrossCompartment || script->compartment() == compartment());
 
     if (ppc) {
         *ppc = act->asInterpreter()->regs().pc;
         MOZ_ASSERT(script->containsPC(*ppc));
     }
+
     return script;
 }
 
-inline js::ZoneGroupCaches&
+inline js::RuntimeCaches&
 JSContext::caches()
 {
-    return zone()->group()->caches();
+    return runtime()->caches();
 }
 
 #endif /* jscntxtinlines_h */

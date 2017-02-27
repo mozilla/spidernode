@@ -186,11 +186,6 @@ $(addprefix install-,$(subst /,_,$(filter dist/%,$(install_manifests)))): instal
 .PHONY: install-tests
 install-tests: install-test-files
 
-# We no longer run "make install-tests" directly before running tests, but we still
-# want to depend on things like config.status, hence this target.
-.PHONY: run-tests-deps
-run-tests-deps: $(install_manifest_depends)
-
 # Force --no-remove, because $objdir/_tests is handled by multiple manifests.
 .PHONY: install-test-files
 install-test-files:
@@ -269,13 +264,8 @@ MAKE_SYM_STORE_PATH := .
 endif
 ifeq ($(OS_ARCH),Darwin)
 # need to pass arch flags for universal builds
-ifdef UNIVERSAL_BINARY
-MAKE_SYM_STORE_ARGS := -c --vcs-info
-MAKE_SYM_STORE_PATH := $(DIST)/bin $(UNIFY_DIST)/bin
-else
 MAKE_SYM_STORE_ARGS := -c -a $(OS_TEST) --vcs-info
 MAKE_SYM_STORE_PATH := $(DIST)/bin
-endif
 DUMP_SYMS_BIN ?= $(DIST)/host/bin/dump_syms
 endif
 ifeq (,$(filter-out Linux SunOS,$(OS_ARCH)))
@@ -341,26 +331,6 @@ endif
 .PHONY: update-packaging
 update-packaging:
 	$(MAKE) -C tools/update-packaging
-
-.PHONY: pretty-package
-pretty-package:
-	unset MOZ_SIGN_CMD && $(MAKE) package MOZ_PKG_PRETTYNAMES=1
-
-.PHONY: pretty-package-tests
-pretty-package-tests:
-	unset MOZ_SIGN_CMD && $(MAKE) package-tests MOZ_PKG_PRETTYNAMES=1
-
-.PHONY: pretty-l10n-check
-pretty-l10n-check:
-	unset MOZ_SIGN_CMD && $(MAKE) l10n-check MOZ_PKG_PRETTYNAMES=1
-
-.PHONY: pretty-update-packaging
-pretty-update-packaging:
-	unset MOZ_SIGN_CMD && $(MAKE) -C tools/update-packaging MOZ_PKG_PRETTYNAMES=1
-
-.PHONY: pretty-installer
-pretty-installer:
-	unset MOZ_SIGN_CMD && $(MAKE) installer MOZ_PKG_PRETTYNAMES=1
 
 #XXX: this is a hack, since we don't want to clobber for MSVC
 # PGO support, but we can't do this test in client.mk
