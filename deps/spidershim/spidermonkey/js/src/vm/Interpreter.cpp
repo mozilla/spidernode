@@ -1500,8 +1500,19 @@ SetObjectElementOperation(JSContext* cx, HandleObject obj, HandleId id, HandleVa
         }
     }
 
-    if (obj->isNative() && !JSID_IS_INT(id) && !JSObject::setHadElementsAccess(cx, obj))
-        return false;
+    // Set the HadElementsAccess flag on the object if needed. This flag is
+    // used to do more eager dictionary-mode conversion for objects that are
+    // used as hashmaps. Set this flag only for objects with many properties,
+    // to avoid unnecessary Shape changes.
+    if (obj->isNative() &&
+        JSID_IS_ATOM(id) &&
+        !obj->as<NativeObject>().inDictionaryMode() &&
+        !obj->hadElementsAccess() &&
+        obj->as<NativeObject>().slotSpan() > PropertyTree::MAX_HEIGHT_WITH_ELEMENTS_ACCESS / 3)
+    {
+        if (!JSObject::setHadElementsAccess(cx, obj))
+            return false;
+    }
 
     ObjectOpResult result;
     return SetProperty(cx, obj, id, value, receiver, result) &&
@@ -1870,7 +1881,6 @@ CASE(EnableInterruptsPseudoOpcode)
 CASE(JSOP_NOP)
 CASE(JSOP_NOP_DESTRUCTURING)
 CASE(JSOP_UNUSED192)
-CASE(JSOP_UNUSED209)
 CASE(JSOP_UNUSED210)
 CASE(JSOP_UNUSED211)
 CASE(JSOP_UNUSED220)
@@ -3924,6 +3934,7 @@ CASE(JSOP_INITIALYIELD)
 }
 
 CASE(JSOP_YIELD)
+CASE(JSOP_AWAIT)
 {
     MOZ_ASSERT(!cx->isExceptionPending());
     MOZ_ASSERT(REGS.fp()->isFunctionFrame());

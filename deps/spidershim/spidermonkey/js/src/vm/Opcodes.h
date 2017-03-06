@@ -2071,7 +2071,7 @@
      * interpretation.
      *   Category: Statements
      *   Type: Generator
-     *   Operands: uint24_t yieldIndex
+     *   Operands: uint24_t yieldAndAwaitIndex
      *   Stack: generator => generator
      */ \
     macro(JSOP_INITIALYIELD,  202,"initialyield", NULL,   4,  1,  1,  JOF_UINT24) \
@@ -2080,7 +2080,7 @@
      * returns 'rval1'. Pushes sent value from 'send()' onto the stack.
      *   Category: Statements
      *   Type: Generator
-     *   Operands: uint24_t yieldIndex
+     *   Operands: uint24_t yieldAndAwaitIndex
      *   Stack: rval1, gen => rval2
      */ \
     macro(JSOP_YIELD,         203,"yield",       NULL,    4,  2,  1,  JOF_UINT24) \
@@ -2135,7 +2135,15 @@
      *   Stack: =>
      */ \
     macro(JSOP_DEBUGAFTERYIELD,  208, "debugafteryield",  NULL,  1,  0,  0,  JOF_BYTE) \
-    macro(JSOP_UNUSED209,     209, "unused209",    NULL,  1,  0,  0,  JOF_BYTE) \
+    /*
+     * Pops the generator and the return value 'promise', stops interpretation
+     * and returns 'promise'. Pushes resolved value onto the stack.
+     *   Category: Statements
+     *   Type: Generator
+     *   Operands: uint24_t yieldAndAwaitIndex
+     *   Stack: promise, gen => resolved
+     */ \
+    macro(JSOP_AWAIT,         209, "await",        NULL,  4,  2,  1,  JOF_UINT24) \
     macro(JSOP_UNUSED210,     210, "unused210",    NULL,  1,  0,  0,  JOF_BYTE) \
     macro(JSOP_UNUSED211,     211, "unused211",    NULL,  1,  0,  0,  JOF_BYTE) \
     /*
@@ -2214,7 +2222,7 @@
      *   Category: Statements
      *   Type: Function
      *   Operands: uint8_t kind
-     *   Stack: result => result, callable
+     *   Stack: obj => obj
      */ \
     macro(JSOP_CHECKISCALLABLE, 219, "checkiscallable", NULL, 2, 1, 1, JOF_UINT8) \
     macro(JSOP_UNUSED220,     220,"unused220",     NULL,  1,  0,  0,  JOF_BYTE) \

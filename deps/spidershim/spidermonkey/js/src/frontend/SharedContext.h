@@ -450,6 +450,7 @@ class FunctionBox : public ObjectBox, public SharedContext
     uint32_t        bufEnd;
     uint32_t        startLine;
     uint32_t        startColumn;
+    uint32_t        preludeStart;
     uint16_t        length;
 
     uint8_t         generatorKindBits_;     /* The GeneratorKind of this function. */
@@ -479,8 +480,8 @@ class FunctionBox : public ObjectBox, public SharedContext
     FunctionContextFlags funCxFlags;
 
     FunctionBox(JSContext* cx, LifoAlloc& alloc, ObjectBox* traceListHead, JSFunction* fun,
-                Directives directives, bool extraWarnings, GeneratorKind generatorKind,
-                FunctionAsyncKind asyncKind);
+                uint32_t preludeStart, Directives directives, bool extraWarnings,
+                GeneratorKind generatorKind, FunctionAsyncKind asyncKind);
 
     MutableHandle<LexicalScope::Data*> namedLambdaBindings() {
         MOZ_ASSERT(context->keepAtoms);
@@ -517,7 +518,9 @@ class FunctionBox : public ObjectBox, public SharedContext
         return hasExtensibleScope() ||
                needsHomeObject() ||
                isDerivedClassConstructor() ||
-               isGenerator();
+               isStarGenerator() ||
+               isLegacyGenerator() ||
+               isAsync();
     }
 
     bool hasExtraBodyVarScope() const {
@@ -528,7 +531,7 @@ class FunctionBox : public ObjectBox, public SharedContext
 
     bool needsExtraBodyVarEnvironmentRegardlessOfBindings() const {
         MOZ_ASSERT(hasParameterExprs);
-        return hasExtensibleScope() || isGenerator();
+        return hasExtensibleScope() || needsDotGeneratorName();
     }
 
     bool isLikelyConstructorWrapper() const {
@@ -536,10 +539,20 @@ class FunctionBox : public ObjectBox, public SharedContext
     }
 
     GeneratorKind generatorKind() const { return GeneratorKindFromBits(generatorKindBits_); }
-    bool isGenerator() const { return generatorKind() != NotGenerator; }
     bool isLegacyGenerator() const { return generatorKind() == LegacyGenerator; }
     bool isStarGenerator() const { return generatorKind() == StarGenerator; }
     FunctionAsyncKind asyncKind() const { return AsyncKindFromBits(asyncKindBits_); }
+
+    bool needsFinalYield() const {
+        return isStarGenerator() || isLegacyGenerator() || isAsync();
+    }
+    bool needsDotGeneratorName() const {
+        return isStarGenerator() || isLegacyGenerator() || isAsync();
+    }
+    bool needsIteratorResult() const {
+        return isStarGenerator();
+    }
+
     bool isAsync() const { return asyncKind() == AsyncFunction; }
     bool isArrow() const { return function()->isArrow(); }
 
@@ -557,7 +570,7 @@ class FunctionBox : public ObjectBox, public SharedContext
         // A generator kind can be set at initialization, or when "yield" is
         // first seen.  In both cases the transition can only happen from
         // NotGenerator.
-        MOZ_ASSERT(!isGenerator());
+        MOZ_ASSERT(!isStarGenerator() && !isLegacyGenerator());
         generatorKindBits_ = GeneratorKindAsBits(kind);
     }
 
@@ -644,7 +657,11 @@ SharedContext::asModuleContext()
 inline bool
 SharedContext::allBindingsClosedOver()
 {
-    return bindingsAccessedDynamically() || (isFunctionBox() && asFunctionBox()->isGenerator());
+    return bindingsAccessedDynamically() ||
+           (isFunctionBox() &&
+            (asFunctionBox()->isStarGenerator() ||
+             asFunctionBox()->isLegacyGenerator() ||
+             asFunctionBox()->isAsync()));
 }
 
 } // namespace frontend

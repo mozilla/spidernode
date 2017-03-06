@@ -361,6 +361,35 @@ GeneratePrototypeGuards(CacheIRWriter& writer, JSObject* obj, JSObject* holder, 
 }
 
 static void
+GeneratePrototypeHoleGuards(CacheIRWriter& writer, JSObject* obj, ObjOperandId objId)
+{
+    if (obj->hasUncacheableProto()) {
+        // If the shape does not imply the proto, emit an explicit proto guard.
+        writer.guardProto(objId, obj->staticPrototype());
+    }
+
+    JSObject* pobj = obj->staticPrototype();
+    while (pobj) {
+        ObjOperandId protoId = writer.loadObject(pobj);
+
+        // Non-singletons with uncacheable protos can change their proto
+        // without a shape change, so also guard on the group (which determines
+        // the proto) in this case.
+        if (pobj->hasUncacheableProto() && !pobj->isSingleton())
+            writer.guardGroup(protoId, pobj->group());
+
+        // Make sure the shape matches, to avoid non-dense elements or anything
+        // else that is being checked by CanAttachDenseElementHole.
+        writer.guardShape(protoId, pobj->as<NativeObject>().lastProperty());
+
+        // Also make sure there are no dense elements.
+        writer.guardNoDenseElements(protoId);
+
+        pobj = pobj->staticPrototype();
+    }
+}
+
+static void
 TestMatchingReceiver(CacheIRWriter& writer, JSObject* obj, Shape* shape, ObjOperandId objId,
                      Maybe<ObjOperandId>* expandoId)
 {
@@ -1338,31 +1367,7 @@ GetPropIRGenerator::tryAttachDenseElementHole(HandleObject obj, ObjOperandId obj
     // Guard on the shape, to prevent non-dense elements from appearing.
     writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
 
-    if (obj->hasUncacheableProto()) {
-        // If the shape does not imply the proto, emit an explicit proto guard.
-        writer.guardProto(objId, obj->staticPrototype());
-    }
-
-    JSObject* pobj = obj->staticPrototype();
-    while (pobj) {
-        ObjOperandId protoId = writer.loadObject(pobj);
-
-        // Non-singletons with uncacheable protos can change their proto
-        // without a shape change, so also guard on the group (which determines
-        // the proto) in this case.
-        if (pobj->hasUncacheableProto() && !pobj->isSingleton())
-            writer.guardGroup(protoId, pobj->group());
-
-        // Make sure the shape matches, to avoid non-dense elements or anything
-        // else that is being checked by CanAttachDenseElementHole.
-        writer.guardShape(protoId, pobj->as<NativeObject>().lastProperty());
-
-        // Also make sure there are no dense elements.
-        writer.guardNoDenseElements(protoId);
-
-        pobj = pobj->staticPrototype();
-    }
-
+    GeneratePrototypeHoleGuards(writer, obj, objId);
     writer.loadDenseElementHoleResult(objId, indexId);
     writer.typeMonitorResult();
 
@@ -1769,6 +1774,30 @@ InIRGenerator::tryAttachDenseIn(uint32_t index, Int32OperandId indexId,
 }
 
 bool
+InIRGenerator::tryAttachDenseInHole(uint32_t index, Int32OperandId indexId,
+                                    HandleObject obj, ObjOperandId objId)
+{
+    if (!obj->isNative())
+        return false;
+
+    if (obj->as<NativeObject>().containsDenseElement(index))
+        return false;
+
+    if (!CanAttachDenseElementHole(obj))
+        return false;
+
+    // Guard on the shape, to prevent non-dense elements from appearing.
+    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
+
+    GeneratePrototypeHoleGuards(writer, obj, objId);
+    writer.loadDenseElementHoleExistsResult(objId, indexId);
+    writer.returnFromIC();
+
+    trackAttached("DenseInHole");
+    return true;
+}
+
+bool
 InIRGenerator::tryAttachNativeIn(HandleId key, ValOperandId keyId,
                                  HandleObject obj, ObjOperandId objId)
 {
@@ -1842,6 +1871,8 @@ InIRGenerator::tryAttachStub()
     Int32OperandId indexId;
     if (maybeGuardInt32Index(key_, keyId, &index, &indexId)) {
         if (tryAttachDenseIn(index, indexId, obj_, objId))
+            return true;
+        if (tryAttachDenseInHole(index, indexId, obj_, objId))
             return true;
 
         trackNotAttached();
@@ -1974,19 +2005,23 @@ SetPropIRGenerator::tryAttachStub()
                 return true;
             if (tryAttachUnboxedProperty(obj, objId, id, rhsValId))
                 return true;
-            if (tryAttachSetter(obj, objId, id, rhsValId))
-                return true;
             if (tryAttachTypedObjectProperty(obj, objId, id, rhsValId))
                 return true;
             if (tryAttachSetArrayLength(obj, objId, id, rhsValId))
                 return true;
-            if (tryAttachProxy(obj, objId, id, rhsValId))
-                return true;
+            if (IsPropertySetOp(JSOp(*pc_))) {
+                if (tryAttachSetter(obj, objId, id, rhsValId))
+                    return true;
+                if (tryAttachProxy(obj, objId, id, rhsValId))
+                    return true;
+            }
             return false;
         }
 
-        if (tryAttachProxyElement(obj, objId, rhsValId))
-            return true;
+        if (IsPropertySetOp(JSOp(*pc_))) {
+            if (tryAttachProxyElement(obj, objId, rhsValId))
+                return true;
+        }
 
         uint32_t index;
         Int32OperandId indexId;
@@ -2248,8 +2283,6 @@ CanAttachSetter(JSContext* cx, jsbytecode* pc, HandleObject obj, HandleId id,
                 bool* isTemporarilyUnoptimizable)
 {
     // Don't attach a setter stub for ops like JSOP_INITELEM.
-    if (IsPropertyInitOp(JSOp(*pc)))
-        return false;
     MOZ_ASSERT(IsPropertySetOp(JSOp(*pc)));
 
     PropertyResult prop;
@@ -2693,6 +2726,9 @@ bool
 SetPropIRGenerator::tryAttachProxy(HandleObject obj, ObjOperandId objId, HandleId id,
                                    ValOperandId rhsId)
 {
+    // Don't attach a proxy stub for ops like JSOP_INITELEM.
+    MOZ_ASSERT(IsPropertySetOp(JSOp(*pc_)));
+
     switch (GetProxyStubType(cx_, obj, id)) {
       case ProxyStubType::None:
         return false;
@@ -2713,6 +2749,9 @@ SetPropIRGenerator::tryAttachProxy(HandleObject obj, ObjOperandId objId, HandleI
 bool
 SetPropIRGenerator::tryAttachProxyElement(HandleObject obj, ObjOperandId objId, ValOperandId rhsId)
 {
+    // Don't attach a proxy stub for ops like JSOP_INITELEM.
+    MOZ_ASSERT(IsPropertySetOp(JSOp(*pc_)));
+
     if (!obj->is<ProxyObject>())
         return false;
 

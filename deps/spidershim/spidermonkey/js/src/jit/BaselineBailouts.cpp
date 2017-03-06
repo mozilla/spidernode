@@ -511,9 +511,10 @@ HasLiveStackValueAtDepth(JSScript* script, jsbytecode* pc, uint32_t stackDepth)
             break;
 
           case JSTRY_FOR_OF:
-            // For-of loops have both the iterator and the result object on
-            // stack. The iterator is below the result object.
-            if (stackDepth == tn->stackDepth - 1)
+            // For-of loops have the iterator, the result object, and the value
+            // of the result object on stack. The iterator is below the result
+            // object and the value.
+            if (stackDepth == tn->stackDepth - 2)
                 return true;
             break;
 
@@ -735,6 +736,21 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
             }
         } else {
             MOZ_ASSERT(v.isUndefined() || v.isMagic(JS_OPTIMIZED_OUT));
+
+#ifdef DEBUG
+            // The |envChain| slot must not be optimized out if the currently
+            // active scope requires any EnvironmentObjects beyond what is
+            // available at body scope. This checks that scope chain does not
+            // require any such EnvironmentObjects.
+            // See also: |CompileInfo::isObservableFrameSlot|
+            jsbytecode* pc = script->offsetToPC(iter.pcOffset());
+            Scope* scopeIter = script->innermostScope(pc);
+            while (scopeIter != script->bodyScope()) {
+                MOZ_ASSERT(scopeIter);
+                MOZ_ASSERT(!scopeIter->hasEnvironment());
+                scopeIter = scopeIter->enclosing();
+            }
+#endif
 
             // Get env chain from function or script.
             if (fun) {

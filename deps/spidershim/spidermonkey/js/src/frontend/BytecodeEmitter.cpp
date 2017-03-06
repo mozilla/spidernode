@@ -305,17 +305,6 @@ class TryFinallyControl : public BytecodeEmitter::NestableControl
     }
 };
 
-static bool
-ScopeKindIsInBody(ScopeKind kind)
-{
-    return kind == ScopeKind::Lexical ||
-           kind == ScopeKind::SimpleCatch ||
-           kind == ScopeKind::Catch ||
-           kind == ScopeKind::With ||
-           kind == ScopeKind::FunctionBodyVar ||
-           kind == ScopeKind::ParameterExpressionVar;
-}
-
 static inline void
 MarkAllBindingsClosedOver(LexicalScope::Data& data)
 {
@@ -389,7 +378,10 @@ class BytecodeEmitter::EmitterScope : public Nestable<BytecodeEmitter::EmitterSc
         nextFrameSlot_ = bi.nextFrameSlot();
         if (nextFrameSlot_ > bce->maxFixedSlots)
             bce->maxFixedSlots = nextFrameSlot_;
-        MOZ_ASSERT_IF(bce->sc->isFunctionBox() && bce->sc->asFunctionBox()->isGenerator(),
+        MOZ_ASSERT_IF(bce->sc->isFunctionBox() &&
+                      (bce->sc->asFunctionBox()->isStarGenerator() ||
+                       bce->sc->asFunctionBox()->isLegacyGenerator() ||
+                       bce->sc->asFunctionBox()->isAsync()),
                       bce->maxFixedSlots == 0);
     }
 
@@ -2166,7 +2158,7 @@ BytecodeEmitter::BytecodeEmitter(BytecodeEmitter* parent,
     scopeList(cx),
     tryNoteList(cx),
     scopeNoteList(cx),
-    yieldOffsetList(cx),
+    yieldAndAwaitOffsetList(cx),
     typesetCount(0),
     hasSingletons(false),
     hasTryFinally(false),
@@ -3160,10 +3152,11 @@ BytecodeEmitter::checkSideEffects(ParseNode* pn, bool* answer)
         *answer = true;
         return true;
 
+      case PNK_INITIALYIELD:
       case PNK_YIELD_STAR:
       case PNK_YIELD:
       case PNK_AWAIT:
-        MOZ_ASSERT(pn->isArity(PN_BINARY));
+        MOZ_ASSERT(pn->isArity(PN_UNARY));
         *answer = true;
         return true;
 
@@ -4791,7 +4784,9 @@ BytecodeEmitter::isRunOnceLambda()
 
     FunctionBox* funbox = sc->asFunctionBox();
     return !funbox->argumentsHasLocalBinding() &&
-           !funbox->isGenerator() &&
+           !funbox->isStarGenerator() &&
+           !funbox->isLegacyGenerator() &&
+           !funbox->isAsync() &&
            !funbox->function()->explicitName();
 }
 
@@ -4801,21 +4796,21 @@ BytecodeEmitter::emitYieldOp(JSOp op)
     if (op == JSOP_FINALYIELDRVAL)
         return emit1(JSOP_FINALYIELDRVAL);
 
-    MOZ_ASSERT(op == JSOP_INITIALYIELD || op == JSOP_YIELD);
+    MOZ_ASSERT(op == JSOP_INITIALYIELD || op == JSOP_YIELD || op == JSOP_AWAIT);
 
     ptrdiff_t off;
     if (!emitN(op, 3, &off))
         return false;
 
-    uint32_t yieldIndex = yieldOffsetList.length();
-    if (yieldIndex >= JS_BIT(24)) {
+    uint32_t yieldAndAwaitIndex = yieldAndAwaitOffsetList.length();
+    if (yieldAndAwaitIndex >= JS_BIT(24)) {
         reportError(nullptr, JSMSG_TOO_MANY_YIELDS);
         return false;
     }
 
-    SET_UINT24(code(off), yieldIndex);
+    SET_UINT24(code(off), yieldAndAwaitIndex);
 
-    if (!yieldOffsetList.append(offset()))
+    if (!yieldAndAwaitOffsetList.append(offset()))
         return false;
 
     return emit1(JSOP_DEBUGAFTERYIELD);
@@ -7832,7 +7827,8 @@ BytecodeEmitter::emitFunction(ParseNode* pn, bool needsProto)
 
             Rooted<JSObject*> sourceObject(cx, script->sourceObject());
             Rooted<JSScript*> script(cx, JSScript::Create(cx, options, sourceObject,
-                                                          funbox->bufStart, funbox->bufEnd));
+                                                          funbox->bufStart, funbox->bufEnd,
+                                                          funbox->preludeStart));
             if (!script)
                 return false;
 
@@ -8241,7 +8237,8 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
     if (!updateSourceCoordNotes(pn->pn_pos.begin))
         return false;
 
-    if (sc->isFunctionBox() && sc->asFunctionBox()->isStarGenerator()) {
+    bool needsIteratorResult = sc->isFunctionBox() && sc->asFunctionBox()->needsIteratorResult();
+    if (needsIteratorResult) {
         if (!emitPrepareIteratorResult())
             return false;
     }
@@ -8256,7 +8253,7 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
             return false;
     }
 
-    if (sc->isFunctionBox() && sc->asFunctionBox()->isStarGenerator()) {
+    if (needsIteratorResult) {
         if (!emitFinishIteratorResult(true))
             return false;
     }
@@ -8281,11 +8278,11 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
      */
     ptrdiff_t top = offset();
 
-    bool isGenerator = sc->isFunctionBox() && sc->asFunctionBox()->isGenerator();
+    bool needsFinalYield = sc->isFunctionBox() && sc->asFunctionBox()->needsFinalYield();
     bool isDerivedClassConstructor =
         sc->isFunctionBox() && sc->asFunctionBox()->isDerivedClassConstructor();
 
-    if (!emit1((isGenerator || isDerivedClassConstructor) ? JSOP_SETRVAL : JSOP_RETURN))
+    if (!emit1((needsFinalYield || isDerivedClassConstructor) ? JSOP_SETRVAL : JSOP_RETURN))
         return false;
 
     // Make sure that we emit this before popping the blocks in prepareForNonLocalJump,
@@ -8300,7 +8297,7 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
     if (!nle.prepareForNonLocalJumpToOutermost())
         return false;
 
-    if (isGenerator) {
+    if (needsFinalYield) {
         // We know that .generator is on the function scope, as we just exited
         // all nested scopes.
         NameLocation loc =
@@ -8323,44 +8320,76 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
 }
 
 bool
-BytecodeEmitter::emitYield(ParseNode* pn)
+BytecodeEmitter::emitGetDotGenerator()
 {
-    MOZ_ASSERT(sc->isFunctionBox());
+    NameLocation loc = *locationOfNameBoundInFunctionScope(cx->names().dotGenerator);
+    return emitGetNameAtLocation(cx->names().dotGenerator, loc);
+}
 
-    if (pn->getOp() == JSOP_YIELD) {
-        if (sc->asFunctionBox()->isStarGenerator()) {
-            if (!emitPrepareIteratorResult())
-                return false;
-        }
-        if (pn->pn_left) {
-            if (!emitTree(pn->pn_left))
-                return false;
-        } else {
-            if (!emit1(JSOP_UNDEFINED))
-                return false;
-        }
-        if (sc->asFunctionBox()->isStarGenerator()) {
-            if (!emitFinishIteratorResult(false))
-                return false;
-        }
-    } else {
-        MOZ_ASSERT(pn->getOp() == JSOP_INITIALYIELD);
-    }
-
-    if (!emitTree(pn->pn_right))
+bool
+BytecodeEmitter::emitInitialYield(ParseNode* pn)
+{
+    if (!emitTree(pn->pn_kid))
         return false;
 
-    if (!emitYieldOp(pn->getOp()))
+    if (!emitYieldOp(JSOP_INITIALYIELD))
         return false;
 
-    if (pn->getOp() == JSOP_INITIALYIELD && !emit1(JSOP_POP))
+    if (!emit1(JSOP_POP))
         return false;
 
     return true;
 }
 
 bool
-BytecodeEmitter::emitYieldStar(ParseNode* iter, ParseNode* gen)
+BytecodeEmitter::emitYield(ParseNode* pn)
+{
+    MOZ_ASSERT(sc->isFunctionBox());
+    MOZ_ASSERT(pn->getOp() == JSOP_YIELD);
+
+    bool needsIteratorResult = sc->asFunctionBox()->needsIteratorResult();
+    if (needsIteratorResult) {
+        if (!emitPrepareIteratorResult())
+            return false;
+    }
+    if (pn->pn_kid) {
+        if (!emitTree(pn->pn_kid))
+            return false;
+    } else {
+        if (!emit1(JSOP_UNDEFINED))
+            return false;
+    }
+    if (needsIteratorResult) {
+        if (!emitFinishIteratorResult(false))
+            return false;
+    }
+
+    if (!emitGetDotGenerator())
+        return false;
+
+    if (!emitYieldOp(JSOP_YIELD))
+        return false;
+
+    return true;
+}
+
+bool
+BytecodeEmitter::emitAwait(ParseNode* pn)
+{
+    MOZ_ASSERT(sc->isFunctionBox());
+    MOZ_ASSERT(pn->getOp() == JSOP_AWAIT);
+
+    if (!emitTree(pn->pn_kid))
+        return false;
+    if (!emitGetDotGenerator())
+        return false;
+    if (!emitYieldOp(JSOP_AWAIT))
+        return false;
+    return true;
+}
+
+bool
+BytecodeEmitter::emitYieldStar(ParseNode* iter)
 {
     MOZ_ASSERT(sc->isFunctionBox());
     MOZ_ASSERT(sc->asFunctionBox()->isStarGenerator());
@@ -8390,7 +8419,7 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter, ParseNode* gen)
     MOZ_ASSERT(this->stackDepth == startDepth);
 
     // Load the generator object.
-    if (!emitTree(gen))                                   // ITER RESULT GENOBJ
+    if (!emitGetDotGenerator())                           // ITER RESULT GENOBJ
         return false;
 
     // Yield RESULT as-is, without re-boxing.
@@ -8945,6 +8974,35 @@ BytecodeEmitter::emitSelfHostedAllowContentIter(ParseNode* pn)
 }
 
 bool
+BytecodeEmitter::emitSelfHostedDefineDataProperty(ParseNode* pn)
+{
+    // Only optimize when 3 arguments are passed (we use 4 to include |this|).
+    MOZ_ASSERT(pn->pn_count == 4);
+
+    ParseNode* funNode = pn->pn_head;  // The _DefineDataProperty node.
+
+    ParseNode* objNode = funNode->pn_next;
+    if (!emitTree(objNode))
+        return false;
+
+    ParseNode* idNode = objNode->pn_next;
+    if (!emitTree(idNode))
+        return false;
+
+    ParseNode* valNode = idNode->pn_next;
+    if (!emitTree(valNode))
+        return false;
+
+    // This will leave the object on the stack instead of pushing |undefined|,
+    // but that's fine because the self-hosted code doesn't use the return
+    // value.
+    if (!emit1(JSOP_INITELEM))
+        return false;
+
+    return true;
+}
+
+bool
 BytecodeEmitter::isRestParameter(ParseNode* pn, bool* result)
 {
     if (!sc->isFunctionBox()) {
@@ -9072,6 +9130,8 @@ BytecodeEmitter::emitCallOrNew(ParseNode* pn)
                 return emitSelfHostedForceInterpreter(pn);
             if (pn2->name() == cx->names().allowContentIter)
                 return emitSelfHostedAllowContentIter(pn);
+            if (pn2->name() == cx->names().defineDataPropertyIntrinsic && pn->pn_count == 4)
+                return emitSelfHostedDefineDataProperty(pn);
             // Fall through.
         }
         if (!emitGetName(pn2, callop))
@@ -10090,22 +10150,26 @@ BytecodeEmitter::emitFunctionBody(ParseNode* funBody)
     if (!emitTree(funBody))
         return false;
 
-    if (funbox->isGenerator()) {
+    if (funbox->needsFinalYield()) {
         // If we fall off the end of a generator, do a final yield.
-        if (funbox->isStarGenerator() && !emitPrepareIteratorResult())
-            return false;
+        bool needsIteratorResult = funbox->needsIteratorResult();
+        if (needsIteratorResult) {
+            if (!emitPrepareIteratorResult())
+                return false;
+        }
 
         if (!emit1(JSOP_UNDEFINED))
             return false;
 
-        if (sc->asFunctionBox()->isStarGenerator() && !emitFinishIteratorResult(true))
-            return false;
+        if (needsIteratorResult) {
+            if (!emitFinishIteratorResult(true))
+                return false;
+        }
 
         if (!emit1(JSOP_SETRVAL))
             return false;
 
-        NameLocation loc = *locationOfNameBoundInFunctionScope(cx->names().dotGenerator);
-        if (!emitGetNameAtLocation(cx->names().dotGenerator, loc))
+        if (!emitGetDotGenerator())
             return false;
 
         // No need to check for finally blocks, etc as in EmitReturn.
@@ -10358,7 +10422,7 @@ BytecodeEmitter::emitTree(ParseNode* pn, EmitLineNumberNote emitLineNote)
         break;
 
       case PNK_YIELD_STAR:
-        if (!emitYieldStar(pn->pn_left, pn->pn_right))
+        if (!emitYieldStar(pn->pn_kid))
             return false;
         break;
 
@@ -10367,9 +10431,18 @@ BytecodeEmitter::emitTree(ParseNode* pn, EmitLineNumberNote emitLineNote)
             return false;
         break;
 
+      case PNK_INITIALYIELD:
+        if (!emitInitialYield(pn))
+            return false;
+        break;
+
       case PNK_YIELD:
-      case PNK_AWAIT:
         if (!emitYield(pn))
+            return false;
+        break;
+
+      case PNK_AWAIT:
+        if (!emitAwait(pn))
             return false;
         break;
 
@@ -11045,7 +11118,7 @@ CGScopeNoteList::finish(ScopeNoteArray* array, uint32_t prologueLength)
 }
 
 void
-CGYieldOffsetList::finish(YieldOffsetArray& array, uint32_t prologueLength)
+CGYieldAndAwaitOffsetList::finish(YieldAndAwaitOffsetArray& array, uint32_t prologueLength)
 {
     MOZ_ASSERT(length() == array.length());
 
