@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #ifndef SRC_NODE_CRYPTO_H_
 #define SRC_NODE_CRYPTO_H_
 
@@ -249,7 +270,7 @@ class SSLWrap {
       const v8::FunctionCallbackInfo<v8::Value>& args);
 #endif  // SSL_set_max_send_fragment
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   static void GetNegotiatedProto(
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetNPNProtocols(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -263,7 +284,7 @@ class SSLWrap {
                                      const unsigned char* in,
                                      unsigned int inlen,
                                      void* arg);
-#endif  // OPENSSL_NPN_NEGOTIATED
+#endif  // OPENSSL_NO_NEXTPROTONEG
 
   static void GetALPNNegotiatedProto(
       const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -328,7 +349,7 @@ class Connection : public AsyncWrap, public SSLWrap<Connection> {
   static void Initialize(Environment* env, v8::Local<v8::Object> target);
   void NewSessionDoneCb();
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   v8::Persistent<v8::Object> npnProtos_;
   v8::Persistent<v8::Value> selectedNPNProto_;
 #endif

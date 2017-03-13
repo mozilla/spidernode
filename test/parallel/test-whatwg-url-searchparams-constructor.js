@@ -207,3 +207,22 @@ test(() => {
   assert.throws(() => new URLSearchParams([{ [Symbol.iterator]: 42 }]),
                 /^TypeError: Each query pair must be iterable$/);
 }
+
+{
+  const obj = {
+    toString() { throw new Error('toString'); },
+    valueOf() { throw new Error('valueOf'); }
+  };
+  const sym = Symbol();
+
+  assert.throws(() => new URLSearchParams({ a: obj }), /^Error: toString$/);
+  assert.throws(() => new URLSearchParams([['a', obj]]), /^Error: toString$/);
+  assert.throws(() => new URLSearchParams(sym),
+                /^TypeError: Cannot convert a Symbol value to a string$/);
+  assert.throws(() => new URLSearchParams({ a: sym }),
+                /^TypeError: Cannot convert a Symbol value to a string$/);
+  assert.throws(() => new URLSearchParams([[sym, 'a']]),
+                /^TypeError: Cannot convert a Symbol value to a string$/);
+  assert.throws(() => new URLSearchParams([['a', sym]]),
+                /^TypeError: Cannot convert a Symbol value to a string$/);
+}
