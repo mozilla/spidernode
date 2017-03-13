@@ -1,0 +1,16 @@
+Metadata-Version: 1.1
+Name: mozlog
+Version: 3.4
+Summary: Robust log handling specialized for logging in the Mozilla universe
+Home-page: https://wiki.mozilla.org/Auto-tools/Projects/Mozbase
+Author: Mozilla Automation and Testing Team
+Author-email: tools@lists.mozilla.org
+License: MPL 1.1/GPL 2.0/LGPL 2.1
+Description: see http://mozbase.readthedocs.org/
+Platform: Any
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Mozilla Public License 1.1 (MPL 1.1)
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Software Development :: Libraries :: Python Modules

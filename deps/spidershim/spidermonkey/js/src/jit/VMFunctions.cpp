@@ -715,6 +715,9 @@ GetIndexFromString(JSString* str)
 JSObject*
 WrapObjectPure(JSContext* cx, JSObject* obj)
 {
+    // IC code calls this directly so we shouldn't GC.
+    JS::AutoCheckCannotGC nogc;
+
     MOZ_ASSERT(obj);
     MOZ_ASSERT(cx->compartment() != obj->compartment());
 
@@ -832,7 +835,7 @@ bool
 NormalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame, jsbytecode* pc,
               uint32_t stackDepth)
 {
-    MOZ_ASSERT(*pc == JSOP_YIELD);
+    MOZ_ASSERT(*pc == JSOP_YIELD || *pc == JSOP_AWAIT);
 
     // Return value is still on the stack.
     MOZ_ASSERT(stackDepth >= 1);
@@ -913,7 +916,7 @@ GeneratorThrowOrClose(JSContext* cx, BaselineFrame* frame, Handle<GeneratorObjec
     // work. This function always returns false, so we're guaranteed to enter
     // the exception handler where we will clear the pc.
     JSScript* script = frame->script();
-    uint32_t offset = script->yieldOffsets()[genObj->yieldIndex()];
+    uint32_t offset = script->yieldAndAwaitOffsets()[genObj->yieldAndAwaitIndex()];
     frame->setOverridePc(script->offsetToPC(offset));
 
     MOZ_ALWAYS_TRUE(DebugAfterYield(cx, frame));
@@ -1490,6 +1493,9 @@ CallNativeSetter(JSContext* cx, HandleFunction callee, HandleObject obj, HandleV
 bool
 EqualStringsHelper(JSString* str1, JSString* str2)
 {
+    // IC code calls this directly so we shouldn't GC.
+    JS::AutoCheckCannotGC nogc;
+
     MOZ_ASSERT(str1->isAtom());
     MOZ_ASSERT(!str2->isAtom());
     MOZ_ASSERT(str1->length() == str2->length());

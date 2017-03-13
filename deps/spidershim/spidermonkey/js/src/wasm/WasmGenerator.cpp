@@ -201,6 +201,18 @@ ModuleGenerator::initWasm(const CompileArgs& args)
             return false;
     }
 
+    if (metadata_->debugEnabled) {
+        if (!debugFuncArgTypes_.resize(env_->funcSigs.length()))
+            return false;
+        if (!debugFuncReturnTypes_.resize(env_->funcSigs.length()))
+            return false;
+        for (size_t i = 0; i < debugFuncArgTypes_.length(); i++) {
+            if (!debugFuncArgTypes_[i].appendAll(env_->funcSigs[i]->args()))
+                return false;
+            debugFuncReturnTypes_[i] = env_->funcSigs[i]->ret();
+        }
+    }
+
     return true;
 }
 
@@ -1149,6 +1161,12 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
     metadata_->funcNames = Move(env_->funcNames);
     metadata_->customSections = Move(env_->customSections);
 
+    // Additional debug information to copy.
+    metadata_->debugFuncArgTypes = Move(debugFuncArgTypes_);
+    metadata_->debugFuncReturnTypes = Move(debugFuncReturnTypes_);
+    if (metadata_->debugEnabled)
+        metadata_->debugFuncToCodeRange = Move(funcToCodeRange_);
+
     // These Vectors can get large and the excess capacity can be significant,
     // so realloc them down to size.
     metadata_->memoryAccesses.podResizeToFit();
@@ -1158,6 +1176,7 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
     metadata_->callSites.podResizeToFit();
     metadata_->callThunks.podResizeToFit();
     metadata_->debugTrapFarJumpOffsets.podResizeToFit();
+    metadata_->debugFuncToCodeRange.podResizeToFit();
 
     // For asm.js, the tables vector is over-allocated (to avoid resize during
     // parallel copilation). Shrink it back down to fit.

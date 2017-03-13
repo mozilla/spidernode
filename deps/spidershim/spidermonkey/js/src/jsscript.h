@@ -155,7 +155,7 @@ struct ScopeNoteArray {
     uint32_t   length;          // Count of indexed try notes.
 };
 
-class YieldOffsetArray {
+class YieldAndAwaitOffsetArray {
     friend bool
     detail::CopyScript(JSContext* cx, HandleScript src, HandleScript dst,
                        MutableHandle<GCVector<Scope*>> scopes);
@@ -581,10 +581,6 @@ class ScriptSource
         hasIntroductionOffset_ = true;
     }
 
-    uint32_t parameterListEnd() const {
-        return parameterListEnd_;
-    }
-
     // Return wether an XDR encoder is present or not.
     bool hasEncoder() const { return bool(xdrEncoder_); }
 
@@ -885,9 +881,19 @@ class JSScript : public js::gc::TenuredCell
 
     uint32_t        bodyScopeIndex_; /* index into the scopes array of the body scope */
 
-    /* Range of characters in scriptSource which contains this script's source. */
+    // Range of characters in scriptSource which contains this script's source.
+    // each field points the following location.
+    //
+    //   function * f(a, b) { return a + b; }
+    //   ^          ^                        ^
+    //   |          |                        |
+    //   |          sourceStart_             sourceEnd_
+    //   |
+    //   preludeStart_
+    //
     uint32_t        sourceStart_;
     uint32_t        sourceEnd_;
+    uint32_t        preludeStart_;
 
 #ifdef MOZ_VTUNE
     // Unique Method ID passed to the VTune profiler, or 0 if unset.
@@ -1057,7 +1063,7 @@ class JSScript : public js::gc::TenuredCell
     // instead of private to suppress -Wunused-private-field compiler warnings.
   protected:
 #if JS_BITS_PER_WORD == 32
-    // Currently no padding is needed.
+    uint32_t padding;
 #endif
 
     //
@@ -1068,7 +1074,7 @@ class JSScript : public js::gc::TenuredCell
     static JSScript* Create(JSContext* cx,
                             const JS::ReadOnlyCompileOptions& options,
                             js::HandleObject sourceObject, uint32_t sourceStart,
-                            uint32_t sourceEnd);
+                            uint32_t sourceEnd, uint32_t preludeStart);
 
     void initCompartment(JSContext* cx);
 
@@ -1219,6 +1225,10 @@ class JSScript : public js::gc::TenuredCell
         return sourceEnd_;
     }
 
+    size_t preludeStart() const {
+        return preludeStart_;
+    }
+
     bool noScriptRval() const {
         return noScriptRval_;
     }
@@ -1335,18 +1345,20 @@ class JSScript : public js::gc::TenuredCell
     js::GeneratorKind generatorKind() const {
         return js::GeneratorKindFromBits(generatorKindBits_);
     }
-    bool isGenerator() const { return generatorKind() != js::NotGenerator; }
     bool isLegacyGenerator() const { return generatorKind() == js::LegacyGenerator; }
     bool isStarGenerator() const { return generatorKind() == js::StarGenerator; }
     void setGeneratorKind(js::GeneratorKind kind) {
         // A script only gets its generator kind set as part of initialization,
         // so it can only transition from not being a generator.
-        MOZ_ASSERT(!isGenerator());
+        MOZ_ASSERT(!isStarGenerator() && !isLegacyGenerator());
         generatorKindBits_ = GeneratorKindAsBits(kind);
     }
 
     js::FunctionAsyncKind asyncKind() const {
         return isAsync_ ? js::AsyncFunction : js::SyncFunction;
+    }
+    bool isAsync() const {
+        return isAsync_;
     }
 
     void setAsyncKind(js::FunctionAsyncKind kind) {
@@ -1501,7 +1513,8 @@ class JSScript : public js::gc::TenuredCell
 
     bool isRelazifiable() const {
         return (selfHosted() || lazyScript) && !hasInnerFunctions_ && !types_ &&
-               !isGenerator() && !hasBaselineScript() && !hasAnyIonScript() &&
+               !isStarGenerator() && !isLegacyGenerator() && !isAsync() &&
+               !hasBaselineScript() && !hasAnyIonScript() &&
                !doNotRelazify_;
     }
     void setLazyScript(js::LazyScript* lazy) {
@@ -1549,6 +1562,7 @@ class JSScript : public js::gc::TenuredCell
     bool mayReadFrameArgsDirectly();
 
     static JSFlatString* sourceData(JSContext* cx, JS::HandleScript script);
+    static JSFlatString* sourceDataWithPrelude(JSContext* cx, JS::HandleScript script);
 
     static bool loadSource(JSContext* cx, js::ScriptSource* ss, bool* worked);
 
@@ -1634,6 +1648,15 @@ class JSScript : public js::gc::TenuredCell
         MOZ_CRASH("Function extra body var scope not found");
     }
 
+    bool needsBodyEnvironment() const {
+        for (uint32_t i = 0; i < scopes()->length; i++) {
+            js::Scope* scope = getScope(i);
+            if (ScopeKindIsInBody(scope->kind()) && scope->hasEnvironment())
+                return true;
+        }
+        return false;
+    }
+
     inline js::LexicalScope* maybeNamedLambdaScope() const;
 
     js::Scope* enclosingScope() const {
@@ -1703,7 +1726,9 @@ class JSScript : public js::gc::TenuredCell
     bool hasObjects() const      { return hasArray(OBJECTS); }
     bool hasTrynotes() const     { return hasArray(TRYNOTES); }
     bool hasScopeNotes() const   { return hasArray(SCOPENOTES); }
-    bool hasYieldOffsets() const { return isGenerator(); }
+    bool hasYieldAndAwaitOffsets() const {
+        return isStarGenerator() || isLegacyGenerator() || isAsync();
+    }
 
 #define OFF(fooOff, hasFoo, t)   (fooOff() + (hasFoo() ? sizeof(t) : 0))
 
@@ -1712,7 +1737,9 @@ class JSScript : public js::gc::TenuredCell
     size_t objectsOffset() const      { return OFF(constsOffset,     hasConsts,     js::ConstArray); }
     size_t trynotesOffset() const     { return OFF(objectsOffset,    hasObjects,    js::ObjectArray); }
     size_t scopeNotesOffset() const   { return OFF(trynotesOffset,   hasTrynotes,   js::TryNoteArray); }
-    size_t yieldOffsetsOffset() const { return OFF(scopeNotesOffset, hasScopeNotes, js::ScopeNoteArray); }
+    size_t yieldAndAwaitOffsetsOffset() const {
+        return OFF(scopeNotesOffset, hasScopeNotes, js::ScopeNoteArray);
+    }
 
 #undef OFF
 
@@ -1742,9 +1769,10 @@ class JSScript : public js::gc::TenuredCell
         return reinterpret_cast<js::ScopeNoteArray*>(data + scopeNotesOffset());
     }
 
-    js::YieldOffsetArray& yieldOffsets() {
-        MOZ_ASSERT(hasYieldOffsets());
-        return *reinterpret_cast<js::YieldOffsetArray*>(data + yieldOffsetsOffset());
+    js::YieldAndAwaitOffsetArray& yieldAndAwaitOffsets() {
+        MOZ_ASSERT(hasYieldAndAwaitOffsets());
+        return *reinterpret_cast<js::YieldAndAwaitOffsetArray*>(data +
+                                                                yieldAndAwaitOffsetsOffset());
     }
 
     bool hasLoops();
@@ -1972,7 +2000,7 @@ class LazyScript : public gc::TenuredCell
     // instead of private to suppress -Wunused-private-field compiler warnings.
   protected:
 #if JS_BITS_PER_WORD == 32
-    uint32_t padding;
+    // Currently no padding is needed.
 #endif
 
   private:
@@ -2017,20 +2045,25 @@ class LazyScript : public gc::TenuredCell
     };
 
     // Source location for the script.
+    // See the comment in JSScript for the details
     uint32_t begin_;
     uint32_t end_;
+    uint32_t preludeStart_;
+    // Line and column of |begin_| position, that is the position where we
+    // start parsing.
     uint32_t lineno_;
     uint32_t column_;
 
     LazyScript(JSFunction* fun, void* table, uint64_t packedFields,
-               uint32_t begin, uint32_t end, uint32_t lineno, uint32_t column);
+               uint32_t begin, uint32_t end, uint32_t preludeStart,
+               uint32_t lineno, uint32_t column);
 
     // Create a LazyScript without initializing the closedOverBindings and the
     // innerFunctions. To be GC-safe, the caller must initialize both vectors
     // with valid atoms and functions.
     static LazyScript* CreateRaw(JSContext* cx, HandleFunction fun,
                                  uint64_t packedData, uint32_t begin, uint32_t end,
-                                 uint32_t lineno, uint32_t column);
+                                 uint32_t preludeStart, uint32_t lineno, uint32_t column);
 
   public:
     static const uint32_t NumClosedOverBindingsLimit = 1 << NumClosedOverBindingsBits;
@@ -2042,7 +2075,7 @@ class LazyScript : public gc::TenuredCell
                               const frontend::AtomVector& closedOverBindings,
                               Handle<GCVector<JSFunction*, 8>> innerFunctions,
                               JSVersion version, uint32_t begin, uint32_t end,
-                              uint32_t lineno, uint32_t column);
+                              uint32_t preludeStart, uint32_t lineno, uint32_t column);
 
     // Create a LazyScript and initialize the closedOverBindings and the
     // innerFunctions with dummy values to be replaced in a later initialization
@@ -2057,7 +2090,7 @@ class LazyScript : public gc::TenuredCell
                               HandleScript script, HandleScope enclosingScope,
                               HandleScriptSource sourceObject,
                               uint64_t packedData, uint32_t begin, uint32_t end,
-                              uint32_t lineno, uint32_t column);
+                              uint32_t preludeStart, uint32_t lineno, uint32_t column);
 
     void initRuntimeFields(uint64_t packedFields);
 
@@ -2114,8 +2147,6 @@ class LazyScript : public gc::TenuredCell
 
     GeneratorKind generatorKind() const { return GeneratorKindFromBits(p_.generatorKindBits); }
 
-    bool isGenerator() const { return generatorKind() != NotGenerator; }
-
     bool isLegacyGenerator() const { return generatorKind() == LegacyGenerator; }
 
     bool isStarGenerator() const { return generatorKind() == StarGenerator; }
@@ -2123,7 +2154,7 @@ class LazyScript : public gc::TenuredCell
     void setGeneratorKind(GeneratorKind kind) {
         // A script only gets its generator kind set as part of initialization,
         // so it can only transition from NotGenerator.
-        MOZ_ASSERT(!isGenerator());
+        MOZ_ASSERT(!isStarGenerator() && !isLegacyGenerator());
         // Legacy generators cannot currently be lazy.
         MOZ_ASSERT(kind != LegacyGenerator);
         p_.generatorKindBits = GeneratorKindAsBits(kind);
@@ -2131,6 +2162,9 @@ class LazyScript : public gc::TenuredCell
 
     FunctionAsyncKind asyncKind() const {
         return p_.isAsync ? AsyncFunction : SyncFunction;
+    }
+    bool isAsync() const {
+        return p_.isAsync;
     }
 
     void setAsyncKind(FunctionAsyncKind kind) {
@@ -2237,6 +2271,9 @@ class LazyScript : public gc::TenuredCell
     uint32_t end() const {
         return end_;
     }
+    uint32_t preludeStart() const {
+        return preludeStart_;
+    }
     uint32_t lineno() const {
         return lineno_;
     }
@@ -2263,7 +2300,8 @@ class LazyScript : public gc::TenuredCell
 };
 
 /* If this fails, add/remove padding within LazyScript. */
-JS_STATIC_ASSERT(sizeof(LazyScript) % js::gc::CellSize == 0);
+static_assert(sizeof(LazyScript) % js::gc::CellSize == 0,
+              "Size of LazyScript must be an integral multiple of js::gc::CellSize");
 
 struct ScriptAndCounts
 {

@@ -68,7 +68,7 @@ class CompartmentChecker
     }
 
     void check(JSObject* obj) {
-        MOZ_ASSERT_IF(obj, IsInsideNursery(obj) || !obj->asTenured().isMarked(gc::GRAY));
+        MOZ_ASSERT(JS::ObjectIsNotGray(obj));
         if (obj)
             check(obj->compartment());
     }
@@ -100,7 +100,7 @@ class CompartmentChecker
     }
 
     void check(JSString* str) {
-        MOZ_ASSERT(!str->isMarked(gc::GRAY));
+        MOZ_ASSERT(JS::CellIsNotGray(str));
         if (str->isAtom()) {
             checkAtom(str);
         } else {
@@ -161,7 +161,7 @@ class CompartmentChecker
     }
 
     void check(JSScript* script) {
-        MOZ_ASSERT_IF(script, !script->isMarked(gc::GRAY));
+        MOZ_ASSERT(JS::CellIsNotGray(script));
         if (script)
             check(script->compartment());
     }
@@ -459,7 +459,7 @@ template <typename T>
 inline void
 JSContext::enterCompartmentOf(const T& target)
 {
-    MOZ_ASSERT(!js::gc::detail::CellIsMarkedGrayIfKnown(target));
+    MOZ_ASSERT(JS::CellIsNotGray(target));
     enterCompartment(target->compartment(), nullptr);
 }
 

@@ -121,6 +121,7 @@ typedef bool InvertBranch;
 typedef bool IsKnownNotZero;
 typedef bool IsSigned;
 typedef bool IsUnsigned;
+typedef bool NeedsBoundsCheck;
 typedef bool PopStack;
 typedef bool ZeroOnOverflow;
 
@@ -193,6 +194,124 @@ template<> struct RegTypeOf<MIRType::Float32> {
 template<> struct RegTypeOf<MIRType::Double> {
     static constexpr RegTypeName value = RegTypeName::Float64;
 };
+
+static constexpr int32_t TlsSlotSize = sizeof(void*);
+static constexpr int32_t TlsSlotOffset = TlsSlotSize;
+
+BaseLocalIter::BaseLocalIter(const ValTypeVector& locals,
+                                     size_t argsLength,
+                                     bool debugEnabled)
+  : locals_(locals),
+    argsLength_(argsLength),
+    argsRange_(locals.begin(), argsLength),
+    argsIter_(argsRange_),
+    index_(0),
+    localSize_(0),
+    done_(false)
+{
+    MOZ_ASSERT(argsLength <= locals.length());
+
+    // Reserve a stack slot for the TLS pointer outside the locals range so it
+    // isn't zero-filled like the normal locals.
+    DebugOnly<int32_t> tlsSlotOffset = pushLocal(TlsSlotSize);
+    MOZ_ASSERT(tlsSlotOffset == TlsSlotOffset);
+    if (debugEnabled) {
+        // If debug information is generated, constructing DebugFrame record:
+        // reserving some data before TLS pointer. The TLS pointer allocated
+        // above and regular wasm::Frame data starts after locals.
+        localSize_ += DebugFrame::offsetOfTlsData();
+        MOZ_ASSERT(DebugFrame::offsetOfFrame() == localSize_);
+    }
+    reservedSize_ = localSize_;
+
+    settle();
+}
+
+int32_t
+BaseLocalIter::pushLocal(size_t nbytes)
+{
+    if (nbytes == 8)
+        localSize_ = AlignBytes(localSize_, 8u);
+    else if (nbytes == 16)
+        localSize_ = AlignBytes(localSize_, 16u);
+    localSize_ += nbytes;
+    return localSize_;          // Locals grow down so capture base address
+}
+
+void
+BaseLocalIter::settle()
+{
+    if (index_ < argsLength_) {
+        MOZ_ASSERT(!argsIter_.done());
+        mirType_ = argsIter_.mirType();
+        switch (mirType_) {
+          case MIRType::Int32:
+            if (argsIter_->argInRegister())
+                frameOffset_ = pushLocal(4);
+            else
+                frameOffset_ = -(argsIter_->offsetFromArgBase() + sizeof(Frame));
+            break;
+          case MIRType::Int64:
+            if (argsIter_->argInRegister())
+                frameOffset_ = pushLocal(8);
+            else
+                frameOffset_ = -(argsIter_->offsetFromArgBase() + sizeof(Frame));
+            break;
+          case MIRType::Double:
+            if (argsIter_->argInRegister())
+                frameOffset_ = pushLocal(8);
+            else
+                frameOffset_ = -(argsIter_->offsetFromArgBase() + sizeof(Frame));
+            break;
+          case MIRType::Float32:
+            if (argsIter_->argInRegister())
+                frameOffset_ = pushLocal(4);
+            else
+                frameOffset_ = -(argsIter_->offsetFromArgBase() + sizeof(Frame));
+            break;
+          default:
+            MOZ_CRASH("Argument type");
+        }
+        return;
+    }
+
+    MOZ_ASSERT(argsIter_.done());
+    if (index_ < locals_.length()) {
+        switch (locals_[index_]) {
+          case ValType::I32:
+            mirType_ = jit::MIRType::Int32;
+            frameOffset_ = pushLocal(4);
+            break;
+          case ValType::F32:
+            mirType_ = jit::MIRType::Float32;
+            frameOffset_ = pushLocal(4);
+            break;
+          case ValType::F64:
+            mirType_ = jit::MIRType::Double;
+            frameOffset_ = pushLocal(8);
+            break;
+          case ValType::I64:
+            mirType_ = jit::MIRType::Int64;
+            frameOffset_ = pushLocal(8);
+            break;
+          default:
+            MOZ_CRASH("Compiler bug: Unexpected local type");
+        }
+        return;
+    }
+
+    done_ = true;
+}
+
+void
+BaseLocalIter::operator++(int)
+{
+    MOZ_ASSERT(!done_);
+    index_++;
+    if (!argsIter_.done())
+        argsIter_++;
+    settle();
+}
 
 class BaseCompiler
 {
@@ -644,17 +763,6 @@ class BaseCompiler
 
     void loadFromFrameF32(FloatRegister r, int32_t offset) {
         masm.loadFloat32(Address(StackPointer, localOffsetToSPOffset(offset)), r);
-    }
-
-    // Stack-allocated local slots.
-
-    int32_t pushLocal(size_t nbytes) {
-        if (nbytes == 8)
-            localSize_ = AlignBytes(localSize_, 8u);
-        else if (nbytes == 16)
-            localSize_ = AlignBytes(localSize_, 16u);
-        localSize_ += nbytes;
-        return localSize_;          // Locals grow down so capture base address
     }
 
     int32_t frameOffsetFromSlot(uint32_t slot, MIRType type) {
@@ -1667,20 +1775,20 @@ class BaseCompiler
         return specific;
     }
 
-    MOZ_MUST_USE bool popConstI32(int32_t& c) {
+    MOZ_MUST_USE bool popConstI32(int32_t* c) {
         Stk& v = stk_.back();
         if (v.kind() != Stk::ConstI32)
             return false;
-        c = v.i32val();
+        *c = v.i32val();
         stk_.popBack();
         return true;
     }
 
-    MOZ_MUST_USE bool popConstI64(int64_t& c) {
+    MOZ_MUST_USE bool popConstI64(int64_t* c) {
         Stk& v = stk_.back();
         if (v.kind() != Stk::ConstI64)
             return false;
-        c = v.i64val();
+        *c = v.i64val();
         stk_.popBack();
         return true;
     }
@@ -1701,32 +1809,32 @@ class BaseCompiler
         return true;
     }
 
-    MOZ_MUST_USE bool popConstPositivePowerOfTwoI32(int32_t& c,
-                                                    uint_fast8_t& power,
+    MOZ_MUST_USE bool popConstPositivePowerOfTwoI32(int32_t* c,
+                                                    uint_fast8_t* power,
                                                     int32_t cutoff)
     {
         Stk& v = stk_.back();
         if (v.kind() != Stk::ConstI32)
             return false;
-        c = v.i32val();
-        if (c <= cutoff || !IsPowerOfTwo(static_cast<uint32_t>(c)))
+        *c = v.i32val();
+        if (*c <= cutoff || !IsPowerOfTwo(static_cast<uint32_t>(*c)))
             return false;
-        power = FloorLog2(c);
+        *power = FloorLog2(*c);
         stk_.popBack();
         return true;
     }
 
-    MOZ_MUST_USE bool popConstPositivePowerOfTwoI64(int64_t& c,
-                                                    uint_fast8_t& power,
+    MOZ_MUST_USE bool popConstPositivePowerOfTwoI64(int64_t* c,
+                                                    uint_fast8_t* power,
                                                     int64_t cutoff)
     {
         Stk& v = stk_.back();
         if (v.kind() != Stk::ConstI64)
             return false;
-        c = v.i64val();
-        if (c <= cutoff || !IsPowerOfTwo(static_cast<uint64_t>(c)))
+        *c = v.i64val();
+        if (*c <= cutoff || !IsPowerOfTwo(static_cast<uint64_t>(*c)))
             return false;
-        power = FloorLog2(c);
+        *power = FloorLog2(*c);
         stk_.popBack();
         return true;
     }
@@ -2546,7 +2654,7 @@ class BaseCompiler
 
         CallSiteDesc desc(call.lineOrBytecode, CallSiteDesc::Dynamic);
         CalleeDesc callee = CalleeDesc::wasmTable(table, sig.id);
-        masm.wasmCallIndirect(desc, callee);
+        masm.wasmCallIndirect(desc, callee, NeedsBoundsCheck(true));
     }
 
     // Precondition: sync()
@@ -3122,11 +3230,13 @@ class BaseCompiler
 #endif // FLOAT_TO_I64_CALLOUT
 
 #ifndef I64_TO_FLOAT_CALLOUT
-    bool convertI64ToFloatNeedsTemp(bool isUnsigned) const {
+    bool convertI64ToFloatNeedsTemp(ValType to, bool isUnsigned) const {
 # if defined(JS_CODEGEN_X86)
-        return isUnsigned && AssemblerX86Shared::HasSSE3();
+        return isUnsigned &&
+               ((to == ValType::F64 && AssemblerX86Shared::HasSSE3()) ||
+               to == ValType::F32);
 # else
-        return false;
+        return isUnsigned;
 # endif
     }
 
@@ -3802,7 +3912,7 @@ void
 BaseCompiler::emitAddI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.add32(Imm32(c), r);
         pushI32(r);
@@ -3819,7 +3929,7 @@ void
 BaseCompiler::emitAddI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.add64(Imm64(c), r);
         pushI64(r);
@@ -3856,7 +3966,7 @@ void
 BaseCompiler::emitSubtractI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.sub32(Imm32(c), r);
         pushI32(r);
@@ -3873,7 +3983,7 @@ void
 BaseCompiler::emitSubtractI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.sub64(Imm64(c), r);
         pushI64(r);
@@ -3968,7 +4078,7 @@ BaseCompiler::emitQuotientI32()
 {
     int32_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI32(c, power, 0)) {
+    if (popConstPositivePowerOfTwoI32(&c, &power, 0)) {
         if (power != 0) {
             RegI32 r = popI32();
             Label positive;
@@ -4002,7 +4112,7 @@ BaseCompiler::emitQuotientU32()
 {
     int32_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI32(c, power, 0)) {
+    if (popConstPositivePowerOfTwoI32(&c, &power, 0)) {
         if (power != 0) {
             RegI32 r = popI32();
             masm.rshift32(Imm32(power & 31), r);
@@ -4029,7 +4139,7 @@ BaseCompiler::emitRemainderI32()
 {
     int32_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI32(c, power, 1)) {
+    if (popConstPositivePowerOfTwoI32(&c, &power, 1)) {
         RegI32 r = popI32();
         RegI32 temp = needI32();
         moveI32(r, temp);
@@ -4068,7 +4178,7 @@ BaseCompiler::emitRemainderU32()
 {
     int32_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI32(c, power, 1)) {
+    if (popConstPositivePowerOfTwoI32(&c, &power, 1)) {
         RegI32 r = popI32();
         masm.and32(Imm32(c-1), r);
         pushI32(r);
@@ -4095,7 +4205,7 @@ BaseCompiler::emitQuotientI64()
 # ifdef JS_PUNBOX64
     int64_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI64(c, power, 0)) {
+    if (popConstPositivePowerOfTwoI64(&c, &power, 0)) {
         if (power != 0) {
             RegI64 r = popI64();
             Label positive;
@@ -4126,7 +4236,7 @@ BaseCompiler::emitQuotientU64()
 # ifdef JS_PUNBOX64
     int64_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI64(c, power, 0)) {
+    if (popConstPositivePowerOfTwoI64(&c, &power, 0)) {
         if (power != 0) {
             RegI64 r = popI64();
             masm.rshift64(Imm32(power & 63), r);
@@ -4151,7 +4261,7 @@ BaseCompiler::emitRemainderI64()
 # ifdef JS_PUNBOX64
     int64_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI64(c, power, 1)) {
+    if (popConstPositivePowerOfTwoI64(&c, &power, 1)) {
         RegI64 r = popI64();
         RegI64 temp = needI64();
         moveI64(r, temp);
@@ -4187,7 +4297,7 @@ BaseCompiler::emitRemainderU64()
 # ifdef JS_PUNBOX64
     int64_t c;
     uint_fast8_t power;
-    if (popConstPositivePowerOfTwoI64(c, power, 1)) {
+    if (popConstPositivePowerOfTwoI64(&c, &power, 1)) {
         RegI64 r = popI64();
         masm.and64(Imm64(c-1), r);
         pushI64(r);
@@ -4336,7 +4446,7 @@ void
 BaseCompiler::emitOrI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.or32(Imm32(c), r);
         pushI32(r);
@@ -4353,7 +4463,7 @@ void
 BaseCompiler::emitOrI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.or64(Imm64(c), r);
         pushI64(r);
@@ -4370,7 +4480,7 @@ void
 BaseCompiler::emitAndI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.and32(Imm32(c), r);
         pushI32(r);
@@ -4387,7 +4497,7 @@ void
 BaseCompiler::emitAndI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.and64(Imm64(c), r);
         pushI64(r);
@@ -4404,7 +4514,7 @@ void
 BaseCompiler::emitXorI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.xor32(Imm32(c), r);
         pushI32(r);
@@ -4421,7 +4531,7 @@ void
 BaseCompiler::emitXorI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.xor64(Imm64(c), r);
         pushI64(r);
@@ -4438,7 +4548,7 @@ void
 BaseCompiler::emitShlI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.lshift32(Imm32(c & 31), r);
         pushI32(r);
@@ -4456,7 +4566,7 @@ void
 BaseCompiler::emitShlI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.lshift64(Imm32(c & 63), r);
         pushI64(r);
@@ -4473,7 +4583,7 @@ void
 BaseCompiler::emitShrI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.rshift32Arithmetic(Imm32(c & 31), r);
         pushI32(r);
@@ -4491,7 +4601,7 @@ void
 BaseCompiler::emitShrI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.rshift64Arithmetic(Imm32(c & 63), r);
         pushI64(r);
@@ -4508,7 +4618,7 @@ void
 BaseCompiler::emitShrU32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.rshift32(Imm32(c & 31), r);
         pushI32(r);
@@ -4526,7 +4636,7 @@ void
 BaseCompiler::emitShrU64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         masm.rshift64(Imm32(c & 63), r);
         pushI64(r);
@@ -4543,7 +4653,7 @@ void
 BaseCompiler::emitRotrI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.rotateRight(Imm32(c & 31), r, r);
         pushI32(r);
@@ -4560,7 +4670,7 @@ void
 BaseCompiler::emitRotrI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         RegI32 temp;
         if (rotate64NeedsTemp())
@@ -4582,7 +4692,7 @@ void
 BaseCompiler::emitRotlI32()
 {
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r = popI32();
         masm.rotateLeft(Imm32(c & 31), r, r);
         pushI32(r);
@@ -4599,7 +4709,7 @@ void
 BaseCompiler::emitRotlI64()
 {
     int64_t c;
-    if (popConstI64(c)) {
+    if (popConstI64(&c)) {
         RegI64 r = popI64();
         RegI32 temp;
         if (rotate64NeedsTemp())
@@ -4916,7 +5026,7 @@ BaseCompiler::emitConvertU64ToF32()
     RegI64 r0 = popI64();
     RegF32 f0 = needF32();
     RegI32 temp;
-    if (convertI64ToFloatNeedsTemp(IsUnsigned(true)))
+    if (convertI64ToFloatNeedsTemp(ValType::F32, IsUnsigned(true)))
         temp = needI32();
     convertI64ToF32(r0, IsUnsigned(true), f0, temp);
     if (temp != Register::Invalid())
@@ -4973,7 +5083,7 @@ BaseCompiler::emitConvertU64ToF64()
     RegI64 r0 = popI64();
     RegF64 d0 = needF64();
     RegI32 temp;
-    if (convertI64ToFloatNeedsTemp(IsUnsigned(true)))
+    if (convertI64ToFloatNeedsTemp(ValType::F64, IsUnsigned(true)))
         temp = needI32();
     convertI64ToF64(r0, IsUnsigned(true), d0, temp);
     if (temp != Register::Invalid())
@@ -5054,7 +5164,7 @@ BaseCompiler::emitBranchSetup(BranchState* b)
       case LatentOp::Compare: {
         switch (latentType_) {
           case ValType::I32: {
-            if (popConstI32(b->i32.imm)) {
+            if (popConstI32(&b->i32.imm)) {
                 b->i32.lhs = popI32();
                 b->i32.rhsImm = true;
             } else {
@@ -5863,21 +5973,15 @@ BaseCompiler::emitConvertInt64ToFloatingCallout(SymbolicAddress callee, ValType 
 # else
     MOZ_CRASH("BaseCompiler platform hook: emitConvertInt64ToFloatingCallout");
 # endif
-    masm.callWithABI(callee, MoveOp::DOUBLE);
+    masm.callWithABI(callee, resultType == ValType::F32 ? MoveOp::FLOAT32 : MoveOp::DOUBLE);
 
     freeI32(temp);
     freeI64(input);
 
-    RegF64 rv = captureReturnedF64(call);
-
-    if (resultType == ValType::F32) {
-        RegF32 rv2 = needF32();
-        masm.convertDoubleToFloat32(rv, rv2);
-        freeF64(rv);
-        pushF32(rv2);
-    } else {
-        pushF64(rv);
-    }
+    if (resultType == ValType::F32)
+        pushF32(captureReturnedF32(call));
+    else
+        pushF64(captureReturnedF64(call));
 
     return true;
 }
@@ -6222,7 +6326,7 @@ BaseCompiler::popMemoryAccess(MemoryAccessDesc* access, bool* omitBoundsCheck)
     MOZ_ASSERT(!*omitBoundsCheck);
 
     int32_t addrTmp;
-    if (popConstI32(addrTmp)) {
+    if (popConstI32(&addrTmp)) {
         uint32_t addr = addrTmp;
 
         uint64_t ea = uint64_t(addr) + uint64_t(access->offset());
@@ -6507,7 +6611,7 @@ BaseCompiler::emitCompareI32(Assembler::Condition compareOp, ValType compareType
         return;
 
     int32_t c;
-    if (popConstI32(c)) {
+    if (popConstI32(&c)) {
         RegI32 r0 = popI32();
         masm.cmp32Set(compareOp, r0, Imm32(c), r0);
         pushI32(r0);
@@ -7012,7 +7116,7 @@ BaseCompiler::emitBody()
           case uint16_t(Op::F32ConvertSI64):
 #ifdef I64_TO_FLOAT_CALLOUT
             CHECK_NEXT(emitCalloutConversionOOM(emitConvertInt64ToFloatingCallout,
-                                                SymbolicAddress::Int64ToFloatingPoint,
+                                                SymbolicAddress::Int64ToFloat32,
                                                 ValType::I64, ValType::F32));
 #else
             CHECK_NEXT(emitConversion(emitConvertI64ToF32, ValType::I64, ValType::F32));
@@ -7020,7 +7124,7 @@ BaseCompiler::emitBody()
           case uint16_t(Op::F32ConvertUI64):
 #ifdef I64_TO_FLOAT_CALLOUT
             CHECK_NEXT(emitCalloutConversionOOM(emitConvertInt64ToFloatingCallout,
-                                                SymbolicAddress::Uint64ToFloatingPoint,
+                                                SymbolicAddress::Uint64ToFloat32,
                                                 ValType::I64, ValType::F32));
 #else
             CHECK_NEXT(emitConversion(emitConvertU64ToF32, ValType::I64, ValType::F32));
@@ -7077,7 +7181,7 @@ BaseCompiler::emitBody()
           case uint16_t(Op::F64ConvertSI64):
 #ifdef I64_TO_FLOAT_CALLOUT
             CHECK_NEXT(emitCalloutConversionOOM(emitConvertInt64ToFloatingCallout,
-                                                SymbolicAddress::Int64ToFloatingPoint,
+                                                SymbolicAddress::Int64ToDouble,
                                                 ValType::I64, ValType::F64));
 #else
             CHECK_NEXT(emitConversion(emitConvertI64ToF64, ValType::I64, ValType::F64));
@@ -7085,7 +7189,7 @@ BaseCompiler::emitBody()
           case uint16_t(Op::F64ConvertUI64):
 #ifdef I64_TO_FLOAT_CALLOUT
             CHECK_NEXT(emitCalloutConversionOOM(emitConvertInt64ToFloatingCallout,
-                                                SymbolicAddress::Uint64ToFloatingPoint,
+                                                SymbolicAddress::Uint64ToDouble,
                                                 ValType::I64, ValType::F64));
 #else
             CHECK_NEXT(emitConversion(emitConvertU64ToF64, ValType::I64, ValType::F64));
@@ -7422,76 +7526,26 @@ BaseCompiler::init()
     if (!localInfo_.resize(locals_.length() + 1))
         return false;
 
-    localSize_ = 0;
+    localInfo_[tlsSlot_].init(MIRType::Pointer, TlsSlotOffset);
 
-    // Reserve a stack slot for the TLS pointer outside the varLow..varHigh
-    // range so it isn't zero-filled like the normal locals.
-    localInfo_[tlsSlot_].init(MIRType::Pointer, pushLocal(sizeof(void*)));
-    if (debugEnabled_) {
-        // If debug information is generated, constructing DebugFrame record:
-        // reserving some data before TLS pointer. The TLS pointer allocated
-        // above and regular wasm::Frame data starts after locals.
-        localSize_ += DebugFrame::offsetOfTlsData();
-        MOZ_ASSERT(DebugFrame::offsetOfFrame() == localSize_);
-    }
-
-    for (ABIArgIter<const ValTypeVector> i(args); !i.done(); i++) {
+    BaseLocalIter i(locals_, args.length(), debugEnabled_);
+    varLow_ = i.reservedSize();
+    for (; !i.done() && i.index() < args.length(); i++) {
+        MOZ_ASSERT(i.isArg());
         Local& l = localInfo_[i.index()];
-        switch (i.mirType()) {
-          case MIRType::Int32:
-            if (i->argInRegister())
-                l.init(MIRType::Int32, pushLocal(4));
-            else
-                l.init(MIRType::Int32, -(i->offsetFromArgBase() + sizeof(Frame)));
-            break;
-          case MIRType::Int64:
-            if (i->argInRegister())
-                l.init(MIRType::Int64, pushLocal(8));
-            else
-                l.init(MIRType::Int64, -(i->offsetFromArgBase() + sizeof(Frame)));
-            break;
-          case MIRType::Double:
-            if (i->argInRegister())
-                l.init(MIRType::Double, pushLocal(8));
-            else
-                l.init(MIRType::Double, -(i->offsetFromArgBase() + sizeof(Frame)));
-            break;
-          case MIRType::Float32:
-            if (i->argInRegister())
-                l.init(MIRType::Float32, pushLocal(4));
-            else
-                l.init(MIRType::Float32, -(i->offsetFromArgBase() + sizeof(Frame)));
-            break;
-          default:
-            MOZ_CRASH("Argument type");
-        }
+        l.init(i.mirType(), i.frameOffset());
+        varLow_ = i.currentLocalSize();
     }
 
-    varLow_ = localSize_;
-
-    for (size_t i = args.length(); i < locals_.length(); i++) {
-        Local& l = localInfo_[i];
-        switch (locals_[i]) {
-          case ValType::I32:
-            l.init(MIRType::Int32, pushLocal(4));
-            break;
-          case ValType::F32:
-            l.init(MIRType::Float32, pushLocal(4));
-            break;
-          case ValType::F64:
-            l.init(MIRType::Double, pushLocal(8));
-            break;
-          case ValType::I64:
-            l.init(MIRType::Int64, pushLocal(8));
-            break;
-          default:
-            MOZ_CRASH("Compiler bug: Unexpected local type");
-        }
+    varHigh_ = varLow_;
+    for (; !i.done() ; i++) {
+        MOZ_ASSERT(!i.isArg());
+        Local& l = localInfo_[i.index()];
+        l.init(i.mirType(), i.frameOffset());
+        varHigh_ = i.currentLocalSize();
     }
 
-    varHigh_ = localSize_;
-
-    localSize_ = AlignBytes(localSize_, 16u);
+    localSize_ = AlignBytes(varHigh_, 16u);
 
     addInterruptCheck();
 

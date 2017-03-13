@@ -1109,9 +1109,9 @@ EmitICUnboxedPreBarrier(MacroAssembler& masm, const BaseIndex& address, JSValueT
 
 template <typename T>
 void
-BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
-                          const ValueOperand& value, const T& dest, Register scratch,
-                          Label* failure)
+StoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
+                  const ValueOperand& value, const T& dest, Register scratch,
+                  Label* failure)
 {
     Label done;
 
@@ -1172,14 +1172,14 @@ BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type
 }
 
 template void
-BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
-                          const ValueOperand& value, const Address& dest, Register scratch,
-                          Label* failure);
+StoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
+                  const ValueOperand& value, const Address& dest, Register scratch,
+                  Label* failure);
 
 template void
-BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
-                          const ValueOperand& value, const BaseIndex& dest, Register scratch,
-                          Label* failure);
+StoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
+                  const ValueOperand& value, const BaseIndex& dest, Register scratch,
+                  Label* failure);
 
 //
 // In_Fallback
@@ -3278,12 +3278,13 @@ ICCall_IsSuspendedStarGenerator::Compiler::generateStubCode(MacroAssembler& masm
     masm.branchTestObjClass(Assembler::NotEqual, genObj, scratch, &StarGeneratorObject::class_,
                             &returnFalse);
 
-    // If the yield index slot holds an int32 value < YIELD_INDEX_CLOSING,
+    // If the yield index slot holds an int32 value < YIELD_AND_AWAIT_INDEX_CLOSING,
     // the generator is suspended.
-    masm.loadValue(Address(genObj, GeneratorObject::offsetOfYieldIndexSlot()), argVal);
+    masm.loadValue(Address(genObj, GeneratorObject::offsetOfYieldAndAwaitIndexSlot()), argVal);
     masm.branchTestInt32(Assembler::NotEqual, argVal, &returnFalse);
     masm.unboxInt32(argVal, scratch);
-    masm.branch32(Assembler::AboveOrEqual, scratch, Imm32(StarGeneratorObject::YIELD_INDEX_CLOSING),
+    masm.branch32(Assembler::AboveOrEqual, scratch,
+                  Imm32(StarGeneratorObject::YIELD_AND_AWAIT_INDEX_CLOSING),
                   &returnFalse);
 
     masm.moveValue(BooleanValue(true), R0);
