@@ -3750,8 +3750,11 @@ CodeGenerator::visitPostWriteBarrierCommonO(LPostBarrierType* lir, OutOfLineCode
     maybeEmitGlobalBarrierCheck(lir->object(), ool);
 
     Register valueObj = ToRegister(lir->value());
-    masm.branchTestPtr(Assembler::Zero, valueObj, valueObj, ool->rejoin());
-    masm.branchPtrInNurseryChunk(Assembler::Equal, ToRegister(lir->value()), temp, ool->entry());
+    if (lir->mir()->value()->type() == MIRType::ObjectOrNull)
+        masm.branchTestPtr(Assembler::Zero, valueObj, valueObj, ool->rejoin());
+    else
+        MOZ_ASSERT(lir->mir()->value()->type() == MIRType::Object);
+    masm.branchPtrInNurseryChunk(Assembler::Equal, valueObj, temp, ool->entry());
 
     masm.bind(ool->rejoin());
 }
@@ -6462,7 +6465,7 @@ RangeFront<ValueMap>(MacroAssembler& masm, Register range, Register i, Register 
     masm.loadPtr(Address(range, ValueMap::Range::offsetOfHashTable()), front);
     masm.loadPtr(Address(front, ValueMap::offsetOfImplData()), front);
 
-    static_assert(ValueMap::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
+    MOZ_ASSERT(ValueMap::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
     static_assert(ValueMap::sizeofImplData() == 24, "sizeof(Data) is 24");
     masm.mulBy3(i, i);
     masm.lshiftPtr(Imm32(3), i);
@@ -6476,7 +6479,7 @@ RangeFront<ValueSet>(MacroAssembler& masm, Register range, Register i, Register 
     masm.loadPtr(Address(range, ValueSet::Range::offsetOfHashTable()), front);
     masm.loadPtr(Address(front, ValueSet::offsetOfImplData()), front);
 
-    static_assert(ValueSet::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
+    MOZ_ASSERT(ValueSet::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
     static_assert(ValueSet::sizeofImplData() == 16, "sizeof(Data) is 16");
     masm.lshiftPtr(Imm32(4), i);
     masm.addPtr(i, front);
@@ -6500,7 +6503,7 @@ RangePopFront(MacroAssembler& masm, Register range, Register front, Register dat
 
     // We can add sizeof(Data) to |front| to select the next element, because
     // |front| and |range.ht.data[i]| point to the same location.
-    static_assert(OrderedHashTable::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
+    MOZ_ASSERT(OrderedHashTable::offsetOfImplDataElement() == 0, "offsetof(Data, element) is 0");
     masm.addPtr(Imm32(OrderedHashTable::sizeofImplData()), front);
 
     masm.branchTestMagic(Assembler::NotEqual, Address(front, OrderedHashTable::offsetOfEntryKey()),
@@ -12002,9 +12005,32 @@ CodeGenerator::visitWasmTrap(LWasmTrap* lir)
 void
 CodeGenerator::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
 {
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No wasm bounds check for huge memory");
+#else
     const MWasmBoundsCheck* mir = ins->mir();
     Register ptr = ToRegister(ins->ptr());
-    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, trap(mir, wasm::Trap::OutOfBounds));
+    Register boundsCheckLimit = ToRegister(ins->boundsCheckLimit());
+    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, boundsCheckLimit,
+                         trap(mir, wasm::Trap::OutOfBounds));
+#endif
+}
+
+void
+CodeGenerator::visitWasmLoadTls(LWasmLoadTls* ins)
+{
+    switch (ins->mir()->type()) {
+      case MIRType::Pointer:
+        masm.loadPtr(Address(ToRegister(ins->tlsPtr()), ins->mir()->offset()),
+                     ToRegister(ins->output()));
+        break;
+      case MIRType::Int32:
+        masm.load32(Address(ToRegister(ins->tlsPtr()), ins->mir()->offset()),
+                    ToRegister(ins->output()));
+        break;
+      default:
+        MOZ_CRASH("MIRType not supported in WasmLoadTls");
+    }
 }
 
 typedef bool (*RecompileFn)(JSContext*);

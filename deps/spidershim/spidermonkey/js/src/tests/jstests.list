@@ -3,6 +3,21 @@
 
 skip script ecma_6/String/normalize-generateddata-input.js # input data for other test
 
+# Skip intl402 tests when Intl isn't available.
+skip-if(!this.hasOwnProperty('Intl')) include test262/intl402/jstests.list
+
+# Skip Intl.PluralRules tests when the addIntlExtras helper isn't available.
+skip-if(!this.hasOwnProperty('addIntlExtras')) include test262/intl402/PluralRules/jstests.list
+
+# Skip built-ins/Simd tests when SIMD isn't available.
+skip-if(!this.hasOwnProperty('SIMD')) include test262/built-ins/Simd/jstests.list
+
+# Skip built-in/Atomics when Atomics isn't available
+skip-if(!this.hasOwnProperty('Atomics')) include test262/built-ins/Atomics/jstests.list
+
+# Skip built-in/SharedArrayBuffer
+skip-if(!this.hasOwnProperty('SharedArrayBuffer')) include test262/built-ins/SharedArrayBuffer/jstests.list
+
 # Times out on arm and cgc builds.
 slow script test262/built-ins/decodeURI/S15.1.3.1_A2.5_T1.js
 slow script test262/built-ins/decodeURIComponent/S15.1.3.2_A2.5_T1.js
@@ -360,11 +375,6 @@ skip script test262/built-ins/Function/prototype/toString/class-declaration-impl
 skip script test262/built-ins/Function/prototype/toString/class-expression-explicit-ctor.js
 skip script test262/built-ins/Function/prototype/toString/class-expression-implicit-ctor.js
 
-# https://bugzilla.mozilla.org/show_bug.cgi?id=1317397
-skip script test262/built-ins/RegExp/prototype/Symbol.search/lastindex-no-restore.js
-skip script test262/built-ins/RegExp/prototype/exec/failure-lastindex-no-access.js
-skip script test262/built-ins/RegExp/prototype/exec/success-lastindex-no-access.js
-
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1317395
 skip script test262/built-ins/ArrayBuffer/prototype/byteLength/detached-buffer.js
 
@@ -375,14 +385,6 @@ skip script test262/built-ins/DataView/prototype/byteLength/detached-buffer.js
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1317391
 skip script test262/language/statements/class/subclass/class-definition-null-proto-missing-return-override.js
 skip script test262/language/statements/class/subclass/class-definition-null-proto-this.js
-
-# https://bugzilla.mozilla.org/show_bug.cgi?id=1108941
-skip script test262/language/expressions/tagged-template/cache-differing-expressions.js
-skip script test262/language/expressions/tagged-template/cache-differing-expressions-eval.js
-skip script test262/language/expressions/tagged-template/cache-differing-expressions-new-function.js
-skip script test262/language/expressions/tagged-template/cache-identical-source.js
-skip script test262/language/expressions/tagged-template/cache-identical-source-new-function.js
-skip script test262/language/expressions/tagged-template/cache-identical-source-eval.js
 
 # We're still waiting for a final decision on https://github.com/tc39/ecma402/pull/84.
 skip script test262/intl402/Collator/10.1.1_1.js
@@ -419,6 +421,7 @@ skip script test262/language/statements/for-of/cptn-expr-abrupt-empty.js
 skip script test262/language/statements/for-of/cptn-expr-itr.js
 skip script test262/language/statements/for-of/cptn-expr-no-itr.js
 skip script test262/language/statements/if/cptn-else-false-nrml.js
+skip script test262/language/statements/if/cptn-else-false-abrupt-empty.js
 skip script test262/language/statements/if/cptn-else-true-abrupt-empty.js
 skip script test262/language/statements/if/cptn-else-true-nrml.js
 skip script test262/language/statements/if/cptn-no-else-false.js
@@ -452,11 +455,8 @@ skip script test262/intl402/NumberFormat/prototype/formatToParts/name.js
 skip script test262/intl402/NumberFormat/prototype/formatToParts/return-abrupt-tonumber.js
 
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1296234
-skip script test262/intl402/Collator/prototype/compare/name.js
 skip script test262/intl402/Collator/prototype/compare/compare-function-name.js
-skip script test262/intl402/DateTimeFormat/prototype/format/name.js
 skip script test262/intl402/DateTimeFormat/prototype/format/format-function-name.js
-skip script test262/intl402/NumberFormat/prototype/format/name.js
 skip script test262/intl402/NumberFormat/prototype/format/format-function-name.js
 
 # https://bugzilla.mozilla.org/show_bug.cgi?id=394604
@@ -494,13 +494,8 @@ skip script test262/annexB/language/eval-code/indirect/global-block-decl-eval-gl
 skip script test262/annexB/language/eval-code/indirect/global-switch-case-eval-global-exsting-global-init.js
 
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1331092
-skip script test262/language/expressions/async-generators/expression-yield-as-statement.js
-skip script test262/language/expressions/async-generators/expression-await-thenable-as-yield-operand.js
-skip script test262/language/expressions/async-generators/expression-yield-as-operand.js
-skip script test262/language/expressions/async-generators/expression-await-as-yield-operand.js
-skip script test262/language/expressions/async-generators/expression-yield-newline.js
-skip script test262/language/expressions/async-generators/expression-await-promise-as-yield-operand.js
-skip script test262/language/expressions/async-generators/expression-yield-star-before-newline.js
+skip include test262/language/expressions/async-generators/jstests.list
+skip include test262/language/statements/async-generator/jstests.list
 
 # SIMD.
 skip script test262/built-ins/Simd/check.js
@@ -510,29 +505,367 @@ skip script test262/built-ins/Simd/replace_lane.js
 skip script test262/built-ins/Simd/shuffle.js
 skip script test262/built-ins/Simd/swizzle.js
 
-# SIMD. Fails with --ion-eager --no-threads
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1336991
 skip script test262/built-ins/Simd/float_operators.js
 skip script test262/built-ins/Simd/all_true.js
 skip script test262/built-ins/Simd/any_true.js
 
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1340147
+skip script test262/language/module-code/eval-export-dflt-cls-anon.js
+skip script test262/language/module-code/eval-export-dflt-expr-cls-anon.js
+skip script test262/language/module-code/eval-export-dflt-expr-fn-anon.js
+skip script test262/language/module-code/eval-export-dflt-expr-gen-anon.js
+skip script test262/language/module-code/instn-named-bndng-dflt-fun-anon.js
+skip script test262/language/module-code/instn-named-bndng-dflt-gen-anon.js
 
-####################################################
-# Tests disabled due to invalid test expectations  #
-####################################################
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1340307
+skip script test262/language/module-code/instn-resolve-empty-export.js
+skip script test262/language/module-code/instn-resolve-empty-import.js
+skip script test262/language/module-code/instn-resolve-err-reference.js
+skip script test262/language/module-code/instn-resolve-order-depth.js
+skip script test262/language/module-code/instn-resolve-order-src.js
+skip script test262/language/module-code/parse-err-reference.js
+skip script test262/language/expressions/postfix-increment/target-cover-yieldexpr.js
+skip script test262/language/expressions/postfix-increment/target-newtarget.js
+skip script test262/language/expressions/postfix-increment/target-cover-newtarget.js
+skip script test262/language/expressions/postfix-increment/non-simple.js
+skip script test262/language/expressions/postfix-decrement/target-cover-yieldexpr.js
+skip script test262/language/expressions/postfix-decrement/target-newtarget.js
+skip script test262/language/expressions/postfix-decrement/target-cover-newtarget.js
+skip script test262/language/expressions/postfix-decrement/non-simple.js
+skip script test262/language/expressions/prefix-increment/target-cover-yieldexpr.js
+skip script test262/language/expressions/prefix-increment/target-newtarget.js
+skip script test262/language/expressions/prefix-increment/target-cover-newtarget.js
+skip script test262/language/expressions/prefix-increment/non-simple.js
+skip script test262/language/expressions/prefix-decrement/target-cover-yieldexpr.js
+skip script test262/language/expressions/prefix-decrement/target-newtarget.js
+skip script test262/language/expressions/prefix-decrement/target-cover-newtarget.js
+skip script test262/language/expressions/prefix-decrement/non-simple.js
+skip script test262/language/asi/S7.9_A5.7_T1.js
 
-# Only works in the Bocoup time zone.
-skip script test262/annexB/built-ins/Date/prototype/setYear/time-clip.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1339395
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/let/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/variable/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/generators/dstr-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/generators/yield-identifier-spread-non-strict.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/generators/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/generators/yield-spread-obj.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/function/dstr-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/function/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/for/dstr-const-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for/dstr-var-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/for/dstr-let-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/const/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for-of/dstr-obj-rest-val-null.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for-of/dstr-obj-rest-nested-obj.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/for-of/dstr-obj-rest-nested-obj-nested-rest.js
+skip script test262/language/statements/for-of/dstr-obj-rest-to-property-with-setter.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for-of/dstr-obj-rest-put-const.js
+skip script test262/language/statements/for-of/dstr-obj-rest-str-val.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for-of/dstr-obj-rest-empty-obj.js
+skip script test262/language/statements/for-of/dstr-obj-rest-obj-own-property.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for-of/dstr-obj-rest-number.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/for-of/dstr-obj-rest-to-property.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/for-of/dstr-obj-rest-val-undefined.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/for-of/dstr-const-obj-ptrn-rest-getter.js
+skip script test262/language/statements/for-of/dstr-obj-rest-getter-abrupt-get-error.js
+skip script test262/language/statements/for-of/dstr-obj-rest-symbol-val.js
+skip script test262/language/statements/for-of/dstr-obj-rest-descriptors.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/for-of/dstr-obj-rest-valid-object.js
+skip script test262/language/statements/for-of/dstr-var-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/for-of/dstr-obj-rest-skip-non-enumerable.js
+skip script test262/language/statements/for-of/dstr-obj-rest-getter.js
+skip script test262/language/statements/for-of/dstr-let-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/try/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-gen-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-getter.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/statements/class/dstr-meth-static-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/statements/class/dstr-gen-meth-static-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/statements/class/dstr-meth-static-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/statements/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/arrow-function/dstr-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/arrow-function/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/generators/dstr-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/generators/yield-identifier-spread-non-strict.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/generators/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/generators/yield-spread-obj.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/function/dstr-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/function/dstr-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/object/dstr-gen-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/object/dstr-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/object/dstr-gen-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/object/dstr-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/object/method-definition/generator-yield-spread-obj.js
+skip script test262/language/expressions/object/method-definition/generator-yield-identifier-spread-non-strict.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-val-null.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-nested-obj.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-nested-obj-nested-rest.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-to-property-with-setter.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-put-const.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-str-val.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-empty-obj.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-obj-own-property.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-number.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-to-property.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-val-undefined.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-getter-abrupt-get-error.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-symbol-val.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-descriptors.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-valid-object.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-skip-non-enumerable.js
+skip script test262/language/expressions/assignment/dstr-obj-rest-getter.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-gen-meth-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-getter.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-nested-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-obj-own-property.js
+skip script test262/language/expressions/class/dstr-meth-static-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-meth-dflt-obj-ptrn-rest-obj-nested-rest.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-obj-ptrn-rest-skip-non-enumerable.js
+skip script test262/language/expressions/class/gen-method-yield-spread-obj.js
+skip script test262/language/expressions/class/dstr-meth-static-dflt-obj-ptrn-rest-val-obj.js
+skip script test262/language/expressions/class/dstr-gen-meth-static-dflt-obj-ptrn-rest-getter.js
 
-# Only works for time zones west of Greenwich.
-skip script test262/built-ins/Date/prototype/setFullYear/new-value-time-clip.js
-skip script test262/built-ins/Date/prototype/setMonth/new-value-time-clip.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346068
+skip script test262/built-ins/Atomics/wait/negative-timeout.js
+skip script test262/built-ins/Atomics/wait/was-woken.js
+skip script test262/built-ins/Atomics/wait/did-timeout.js
+skip script test262/built-ins/Atomics/wait/good-views.js
+skip script test262/built-ins/Atomics/wait/no-spurious-wakeup.js
+skip script test262/built-ins/Atomics/wait/nan-timeout.js
+skip script test262/built-ins/Atomics/wake/wake-all.js
+skip script test262/built-ins/Atomics/wake/wake-zero.js
+skip script test262/built-ins/Atomics/wake/wake-negative.js
+skip script test262/built-ins/Atomics/wake/wake-nan.js
+skip script test262/built-ins/Atomics/wake/wake-two.js
+skip script test262/built-ins/Atomics/wake/wake-in-order.js
+skip script test262/built-ins/Atomics/wake/wake-one.js
+skip script test262/built-ins/Atomics/wake/wake-all-on-loc.js
 
-# ES2017: https://github.com/tc39/ecma262/pull/453
-skip script test262/language/block-scope/syntax/redeclaration-in-block/attempt-to-redeclare-function-declaration-with-function-declaration-n.js
+# SharedArrayBuffer API pedantry
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346071
+skip script test262/built-ins/TypedArrays/buffer-arg-proto-from-ctor-realm-sab.js
+skip script test262/built-ins/SharedArrayBuffer/proto-from-ctor-realm.js
+skip script test262/built-ins/DataView/proto-from-ctor-realm-sab.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346073
+skip script test262/built-ins/TypedArrays/buffer-arg-byteoffset-is-negative-throws-sab.js
+skip script test262/built-ins/TypedArrays/buffer-arg-defined-negative-length-sab.js
+skip script test262/built-ins/SharedArrayBuffer/return-abrupt-from-length.js
+skip script test262/built-ins/SharedArrayBuffer/return-abrupt-from-length-symbol.js
+skip script test262/built-ins/SharedArrayBuffer/negative-length-throws.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346074
+skip script test262/built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js
 
-# Expects TypeError, but RangeError thrown.
-skip script test262/built-ins/DataView/prototype/setFloat64/detached-buffer-after-toindex-byteoffset.js
-skip script test262/built-ins/DataView/prototype/setInt16/detached-buffer-after-toindex-byteoffset.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346081
+skip script test262/intl402/NumberFormat/prototype/format/11.3.2_TRP.js
+skip script test262/intl402/NumberFormat/prototype/format/11.3.2_TRF.js
 
-# https://github.com/tc39/Function-prototype-toString-revision/issues/20
-skip script test262/built-ins/Function/prototype/toString/AsyncFunction.js
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346079
+skip script test262/intl402/DateTimeFormat/prototype/format/12.3.2_1_a_L15.js
+
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1346080
+skip script test262/intl402/PluralRules/prototype/select/tainting.js
+
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1340304
+skip-if(!xulRuntime.shell) script test262/language/module-code/instn-iee-err-circular.js
+skip-if(!xulRuntime.shell) script test262/language/module-code/instn-iee-err-circular-as.js

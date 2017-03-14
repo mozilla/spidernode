@@ -136,6 +136,8 @@ enum {
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS,
     JS_TELEMETRY_ADDON_EXCEPTIONS,
     JS_TELEMETRY_AOT_USAGE,
+    JS_TELEMETRY_PRIVILEGED_PARSER_COMPILE_LAZY_AFTER_MS,
+    JS_TELEMETRY_WEB_PARSER_COMPILE_LAZY_AFTER_MS,
     JS_TELEMETRY_END
 };
 
@@ -491,6 +493,16 @@ IterateGrayObjects(JS::Zone* zone, GCThingCallback cellCallback, void* data);
  */
 extern JS_FRIEND_API(void)
 IterateGrayObjectsUnderCC(JS::Zone* zone, GCThingCallback cellCallback, void* data);
+
+#ifdef DEBUG
+// Trace the heap and check there are no black to gray edges. These are
+// not allowed since the cycle collector could throw away the gray thing and
+// leave a dangling pointer.
+//
+// This doesn't trace weak maps as these are handled separately.
+extern JS_FRIEND_API(bool)
+CheckGrayMarkingState(JSContext* cx);
+#endif
 
 #ifdef JS_HAS_CTYPES
 extern JS_FRIEND_API(size_t)
