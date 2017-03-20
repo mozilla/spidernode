@@ -3,13 +3,12 @@
 
 /*---
 description: Object.getOwnPropertyDescriptors should be writable, non-enumerable, and configurable
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 includes: [propertyHelper.js]
 ---*/
 
-verifyNotEnumerable(Object, 'getOwnPropertyDescriptors');
-verifyWritable(Object, 'getOwnPropertyDescriptors');
-verifyConfigurable(Object, 'getOwnPropertyDescriptors');
-
-reportCompare(0, 0);
+var desc = Object.getOwnPropertyDescriptor(Object, 'getOwnPropertyDescriptors');
+assertEq(desc.enumerable, false);
+assertEq(desc.writable, true);
+assertEq(desc.configurable, true);

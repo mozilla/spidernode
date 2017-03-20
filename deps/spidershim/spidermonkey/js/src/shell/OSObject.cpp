@@ -23,7 +23,6 @@
 // For JSFunctionSpecWithHelp
 #include "jsfriendapi.h"
 #include "jsobj.h"
-#include "jsstr.h"
 #ifdef XP_WIN
 # include "jswin.h"
 #endif
@@ -113,18 +112,16 @@ ResolvePath(JSContext* cx, HandleString filenameStr, PathResolutionMode resolveM
     if (IsAbsolutePath(filename))
         return filenameStr;
 
+    /* Get the currently executing script's name. */
     JS::AutoFilename scriptFilename;
-    if (resolveMode == ScriptRelative) {
-        // Get the currently executing script's name.
-        if (!DescribeScriptedCaller(cx, &scriptFilename))
-            return nullptr;
+    if (!DescribeScriptedCaller(cx, &scriptFilename))
+        return nullptr;
 
-        if (!scriptFilename.get())
-            return nullptr;
+    if (!scriptFilename.get())
+        return nullptr;
 
-        if (strcmp(scriptFilename.get(), "-e") == 0 || strcmp(scriptFilename.get(), "typein") == 0)
-            resolveMode = RootRelative;
-    }
+    if (strcmp(scriptFilename.get(), "-e") == 0 || strcmp(scriptFilename.get(), "typein") == 0)
+        resolveMode = RootRelative;
 
     static char buffer[PATH_MAX+1];
     if (resolveMode == ScriptRelative) {
@@ -227,19 +224,6 @@ FileAsTypedArray(JSContext* cx, JS::HandleString pathnameStr)
         }
     }
     return obj;
-}
-
-/**
- * Return the current working directory or |null| on failure.
- */
-UniqueChars
-GetCWD()
-{
-    static char buffer[PATH_MAX + 1];
-    const char* cwd = getcwd(buffer, PATH_MAX);
-    if (!cwd)
-        return UniqueChars();
-    return js::DuplicateString(buffer);
 }
 
 static bool
@@ -1015,30 +999,25 @@ DefineOS(JSContext* cx, HandleObject global,
 
     // For backwards compatibility, expose various os.file.* functions as
     // direct methods on the global.
-    struct Export {
+    RootedValue val(cx);
+
+    struct {
         const char* src;
         const char* dst;
-    };
-
-    const Export osfile_exports[] = {
+    } osfile_exports[] = {
         { "readFile", "read" },
         { "readFile", "snarf" },
         { "readRelativeToScript", "readRelativeToScript" },
+        { "redirect", "redirect" },
+        { "redirectErr", "redirectErr" }
     };
 
     for (auto pair : osfile_exports) {
-        if (!CreateAlias(cx, pair.dst, osfile, pair.src))
+        if (!JS_GetProperty(cx, osfile, pair.src, &val))
             return false;
-    }
-
-    if (!fuzzingSafe) {
-        const Export unsafe_osfile_exports[] = {
-            { "redirect", "redirect" },
-            { "redirectErr", "redirectErr" }
-        };
-
-        for (auto pair : unsafe_osfile_exports) {
-            if (!CreateAlias(cx, pair.dst, osfile, pair.src))
+        if (val.isObject()) {
+            RootedObject function(cx, &val.toObject());
+            if (!JS_DefineProperty(cx, global, pair.dst, function, 0))
                 return false;
         }
     }

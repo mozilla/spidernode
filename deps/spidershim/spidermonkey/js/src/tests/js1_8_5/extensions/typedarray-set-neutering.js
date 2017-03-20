@@ -1,3 +1,4 @@
+// |reftest| skip-if(!xulRuntime.shell)
 // Any copyright is dedicated to the Public Domain.
 // http://creativecommons.org/licenses/publicdomain/
 
@@ -35,7 +36,7 @@ Object.defineProperty(src, 4, {
   }
 });
 
-assertThrowsInstanceOf(() => a.set(src), TypeError);
+a.set(src);
 
 // Not really needed
 Array.reverse(a_2);

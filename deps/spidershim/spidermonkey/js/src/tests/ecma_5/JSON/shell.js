@@ -1,3 +1,5 @@
+gTestsubsuite='JSON';
+
 function testJSON(str, expectSyntaxError)
 {
   // Leading and trailing whitespace never affect parsing, so test the string

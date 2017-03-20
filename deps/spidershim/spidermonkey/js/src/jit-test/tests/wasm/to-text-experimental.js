@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 assertErrorMessage(() => wasmBinaryToText(wasmTextToBinary(`(module (func (result i32) (f32.const 13.37)))`), 'experimental'), WebAssembly.CompileError, /type mismatch/);
 
 function runTest(code, expected) {
@@ -60,7 +62,7 @@ wasmFailValidateText(
   )
   (export "test" 0)
   (memory 1 10)
-)`, emptyStackError);
+)`, /popping value from empty stack/);
 
 // function calls
 runTest(`

@@ -1,4 +1,4 @@
-// |reftest| slow skip-if(!xulRuntime.shell)
+// |reftest| skip-if(!xulRuntime.shell)
 function test() {
 
 function testVarPatternCombinations(makePattSrc, makePattPatt) {

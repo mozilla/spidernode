@@ -206,9 +206,7 @@ DebuggerMemory::drainAllocationsLog(JSContext* cx, unsigned argc, Value* vp)
         if (!DefineProperty(cx, obj, cx->names().frame, frame))
             return false;
 
-        bool ignore;
-        double when = (entry.when - mozilla::TimeStamp::ProcessCreation(ignore)).ToMilliseconds();
-        RootedValue timestampValue(cx, NumberValue(when));
+        RootedValue timestampValue(cx, NumberValue(entry.when));
         if (!DefineProperty(cx, obj, cx->names().timestamp, timestampValue))
             return false;
 
@@ -360,13 +358,13 @@ DebuggerMemory::setOnGarbageCollection(JSContext* cx, unsigned argc, Value* vp)
 JS_PUBLIC_API(void)
 JS::dbg::SetDebuggerMallocSizeOf(JSContext* cx, mozilla::MallocSizeOf mallocSizeOf)
 {
-    cx->runtime()->debuggerMallocSizeOf = mallocSizeOf;
+    cx->debuggerMallocSizeOf = mallocSizeOf;
 }
 
 JS_PUBLIC_API(mozilla::MallocSizeOf)
 JS::dbg::GetDebuggerMallocSizeOf(JSContext* cx)
 {
-    return cx->runtime()->debuggerMallocSizeOf;
+    return cx->debuggerMallocSizeOf;
 }
 
 using JS::ubi::Census;

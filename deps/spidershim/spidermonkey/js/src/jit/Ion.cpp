@@ -51,7 +51,6 @@
 #include "vm/Debugger.h"
 #include "vm/HelperThreads.h"
 #include "vm/TraceLogging.h"
-#include "vtune/VTuneWrapper.h"
 
 #include "jscompartmentinlines.h"
 #include "jsobjinlines.h"
@@ -103,6 +102,17 @@ JitContext::JitContext(JSContext* cx, TempAllocator* temp)
     temp(temp),
     runtime(CompileRuntime::get(cx->runtime())),
     compartment(CompileCompartment::get(cx->compartment())),
+    prev_(CurrentJitContext()),
+    assemblerCount_(0)
+{
+    SetJitContext(this);
+}
+
+JitContext::JitContext(ExclusiveContext* cx, TempAllocator* temp)
+  : cx(nullptr),
+    temp(temp),
+    runtime(CompileRuntime::get(cx->runtime_)),
+    compartment(nullptr),
     prev_(CurrentJitContext()),
     assemblerCount_(0)
 {
@@ -196,24 +206,28 @@ JitRuntime::JitRuntime(JSRuntime* rt)
     debugTrapHandler_(nullptr),
     baselineDebugModeOSRHandler_(nullptr),
     functionWrappers_(nullptr),
+    osrTempData_(nullptr),
     preventBackedgePatching_(false),
+    backedgeTarget_(BackedgeLoopHeader),
+    ionReturnOverride_(MagicValue(JS_ARG_POISON)),
     jitcodeGlobalTable_(nullptr)
 {
 }
 
 JitRuntime::~JitRuntime()
 {
-    js_delete(functionWrappers_.ref());
+    js_delete(functionWrappers_);
+    freeOsrTempData();
 
     // By this point, the jitcode global table should be empty.
     MOZ_ASSERT_IF(jitcodeGlobalTable_, jitcodeGlobalTable_->empty());
-    js_delete(jitcodeGlobalTable_.ref());
+    js_delete(jitcodeGlobalTable_);
 }
 
 bool
 JitRuntime::initialize(JSContext* cx, AutoLockForExclusiveAccess& lock)
 {
-    AutoAtomsCompartment ac(cx, lock);
+    AutoCompartment ac(cx, cx->atomsCompartment(lock), &lock);
 
     JitContext jctx(cx, nullptr);
 
@@ -246,18 +260,17 @@ JitRuntime::initialize(JSContext* cx, AutoLockForExclusiveAccess& lock)
         JitSpew(JitSpew_Codegen, "# Emitting bailout tables");
 
         // Initialize some Ion-only stubs that require floating-point support.
-        BailoutTableVector& bailoutTables = bailoutTables_.writeRef();
-        if (!bailoutTables.reserve(FrameSizeClass::ClassLimit().classId()))
+        if (!bailoutTables_.reserve(FrameSizeClass::ClassLimit().classId()))
             return false;
 
         for (uint32_t id = 0;; id++) {
             FrameSizeClass class_ = FrameSizeClass::FromClass(id);
             if (class_ == FrameSizeClass::ClassLimit())
                 break;
-            bailoutTables.infallibleAppend((JitCode*)nullptr);
+            bailoutTables_.infallibleAppend((JitCode*)nullptr);
             JitSpew(JitSpew_Codegen, "# Bailout table");
-            bailoutTables[id] = generateBailoutTable(cx, id);
-            if (!bailoutTables[id])
+            bailoutTables_[id] = generateBailoutTable(cx, id);
+            if (!bailoutTables_[id])
                 return false;
         }
 
@@ -273,7 +286,7 @@ JitRuntime::initialize(JSContext* cx, AutoLockForExclusiveAccess& lock)
     }
 
     JitSpew(JitSpew_Codegen, "# Emitting sequential arguments rectifier");
-    argumentsRectifier_ = generateArgumentsRectifier(cx, &argumentsRectifierReturnAddr_.writeRef());
+    argumentsRectifier_ = generateArgumentsRectifier(cx, &argumentsRectifierReturnAddr_);
     if (!argumentsRectifier_)
         return false;
 
@@ -348,40 +361,40 @@ JitRuntime::debugTrapHandler(JSContext* cx)
         // JitRuntime code stubs are shared across compartments and have to
         // be allocated in the atoms compartment.
         AutoLockForExclusiveAccess lock(cx);
-        AutoAtomsCompartment ac(cx, lock);
+        AutoCompartment ac(cx, cx->runtime()->atomsCompartment(lock), &lock);
         debugTrapHandler_ = generateDebugTrapHandler(cx);
     }
     return debugTrapHandler_;
 }
 
 uint8_t*
-JSContext::allocateOsrTempData(size_t size)
+JitRuntime::allocateOsrTempData(size_t size)
 {
     osrTempData_ = (uint8_t*)js_realloc(osrTempData_, size);
     return osrTempData_;
 }
 
 void
-JSContext::freeOsrTempData()
+JitRuntime::freeOsrTempData()
 {
     js_free(osrTempData_);
     osrTempData_ = nullptr;
 }
 
 void
-JitZoneGroup::patchIonBackedges(JSContext* cx, BackedgeTarget target)
+JitRuntime::patchIonBackedges(JSRuntime* rt, BackedgeTarget target)
 {
     if (target == BackedgeLoopHeader) {
-        // We must be on the active thread. The caller must use
+        // We must be on the main thread. The caller must use
         // AutoPreventBackedgePatching to ensure we don't reenter.
-        MOZ_ASSERT(cx->runtime()->jitRuntime()->preventBackedgePatching());
-        MOZ_ASSERT(CurrentThreadCanAccessRuntime(cx->runtime()));
+        MOZ_ASSERT(preventBackedgePatching_);
+        MOZ_ASSERT(CurrentThreadCanAccessRuntime(rt));
     } else {
         // We must be called from InterruptRunningJitCode, or a signal handler
         // triggered there. rt->handlingJitInterrupt() ensures we can't reenter
         // this code.
-        MOZ_ASSERT(!cx->runtime()->jitRuntime()->preventBackedgePatching());
-        MOZ_ASSERT(cx->handlingJitInterrupt());
+        MOZ_ASSERT(!preventBackedgePatching_);
+        MOZ_ASSERT(rt->handlingJitInterrupt());
     }
 
     // Do nothing if we know all backedges are already jumping to `target`.
@@ -390,12 +403,12 @@ JitZoneGroup::patchIonBackedges(JSContext* cx, BackedgeTarget target)
 
     backedgeTarget_ = target;
 
-    cx->runtime()->jitRuntime()->backedgeExecAlloc().makeAllWritable();
+    backedgeExecAlloc_.makeAllWritable();
 
     // Patch all loop backedges in Ion code so that they either jump to the
     // normal loop header or to an interrupt handler each time they run.
-    for (InlineListIterator<PatchableBackedge> iter(backedgeList().begin());
-         iter != backedgeList().end();
+    for (InlineListIterator<PatchableBackedge> iter(backedgeList_.begin());
+         iter != backedgeList_.end();
          iter++)
     {
         PatchableBackedge* patchableBackedge = *iter;
@@ -405,13 +418,8 @@ JitZoneGroup::patchIonBackedges(JSContext* cx, BackedgeTarget target)
             PatchBackedge(patchableBackedge->backedge, patchableBackedge->interruptCheck, target);
     }
 
-    cx->runtime()->jitRuntime()->backedgeExecAlloc().makeAllExecutable();
+    backedgeExecAlloc_.makeAllExecutable();
 }
-
-JitZoneGroup::JitZoneGroup(ZoneGroup* group)
-  : backedgeTarget_(group, BackedgeLoopHeader),
-    backedgeList_(group)
-{}
 
 JitCompartment::JitCompartment()
   : stubCodes_(nullptr),
@@ -511,8 +519,8 @@ static bool
 LinkCodeGen(JSContext* cx, IonBuilder* builder, CodeGenerator *codegen)
 {
     RootedScript script(cx, builder->script());
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
-    TraceLoggerEvent event(TraceLogger_AnnotateScripts, script);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, script);
     AutoTraceLog logScript(logger, event);
     AutoTraceLog logLink(logger, TraceLogger_IonLinking);
 
@@ -576,10 +584,9 @@ jit::LinkIonScript(JSContext* cx, HandleScript calleeScript)
 }
 
 uint8_t*
-jit::LazyLinkTopActivation()
+jit::LazyLinkTopActivation(JSContext* cx)
 {
     // First frame should be an exit frame.
-    JSContext* cx = TlsContext.get();
     JitFrameIterator it(cx);
     LazyLinkExitFrameLayout* ll = it.exitFrame()->as<LazyLinkExitFrameLayout>();
     RootedScript calleeScript(cx, ScriptFromCalleeToken(ll->jsFrame()->calleeToken()));
@@ -595,7 +602,7 @@ jit::LazyLinkTopActivation()
 /* static */ void
 JitRuntime::Trace(JSTracer* trc, AutoLockForExclusiveAccess& lock)
 {
-    MOZ_ASSERT(!JS::CurrentThreadIsHeapMinorCollecting());
+    MOZ_ASSERT(!trc->runtime()->isHeapMinorCollecting());
 
     // Shared stubs are allocated in the atoms compartment, so do not iterate
     // them after the atoms heap after it has been "finished."
@@ -612,7 +619,7 @@ JitRuntime::Trace(JSTracer* trc, AutoLockForExclusiveAccess& lock)
 /* static */ void
 JitRuntime::TraceJitcodeGlobalTable(JSTracer* trc)
 {
-    if (trc->runtime()->geckoProfiler().enabled() &&
+    if (trc->runtime()->geckoProfiler.enabled() &&
         trc->runtime()->hasJitRuntime() &&
         trc->runtime()->jitRuntime()->hasJitcodeGlobalTable())
     {
@@ -636,6 +643,13 @@ JitRuntime::SweepJitcodeGlobalTable(JSRuntime* rt)
 {
     if (rt->hasJitRuntime() && rt->jitRuntime()->hasJitcodeGlobalTable())
         rt->jitRuntime()->getJitcodeGlobalTable()->sweep(rt);
+}
+
+void
+JitCompartment::trace(JSTracer* trc, JSCompartment* compartment)
+{
+    // Free temporary OSR buffer.
+    trc->runtime()->jitRuntime()->freeOsrTempData();
 }
 
 void
@@ -715,7 +729,7 @@ JitCode*
 JitRuntime::getBailoutTable(const FrameSizeClass& frameClass) const
 {
     MOZ_ASSERT(frameClass != FrameSizeClass::None());
-    return bailoutTables_.ref()[frameClass.classId()];
+    return bailoutTables_[frameClass.classId()];
 }
 
 JitCode*
@@ -790,7 +804,7 @@ JitCode::traceChildren(JSTracer* trc)
     }
     if (dataRelocTableBytes_) {
         // If we're moving objects, we need writable JIT code.
-        bool movingObjects = JS::CurrentThreadIsHeapMinorCollecting() || zone()->isGCCompacting();
+        bool movingObjects = trc->runtime()->isHeapMinorCollecting() || zone()->isGCCompacting();
         MaybeAutoWritableJitCode awjc(this, movingObjects ? Reprotect : DontReprotect);
 
         uint8_t* start = code_ + dataRelocTableOffset();
@@ -811,10 +825,6 @@ JitCode::finalize(FreeOp* fop)
     }
 #endif
 
-#ifdef MOZ_VTUNE
-    vtune::UnmarkCode(this);
-#endif
-
     MOZ_ASSERT(pool_);
 
     // With W^X JIT code, reprotecting memory for each JitCode instance is
@@ -833,7 +843,6 @@ JitCode::finalize(FreeOp* fop)
     // memory instead.
     if (!PerfEnabled())
         pool_->release(headerSize_ + bufferSize_, CodeKind(kind_));
-
     pool_ = nullptr;
 }
 
@@ -1098,7 +1107,7 @@ IonScript::copyPatchableBackedges(JSContext* cx, JitCode* code,
                                   PatchableBackedgeInfo* backedges,
                                   MacroAssembler& masm)
 {
-    JitZoneGroup* jzg = cx->zone()->group()->jitZoneGroup;
+    JitRuntime* jrt = cx->runtime()->jitRuntime();
     JitRuntime::AutoPreventBackedgePatching apbp(cx->runtime());
 
     for (size_t i = 0; i < backedgeEntries_; i++) {
@@ -1113,12 +1122,12 @@ IonScript::copyPatchableBackedges(JSContext* cx, JitCode* code,
 
         // Point the backedge to either of its possible targets, matching the
         // other backedges in the runtime.
-        if (jzg->backedgeTarget() == JitZoneGroup::BackedgeInterruptCheck)
-            PatchBackedge(backedge, interruptCheck, JitZoneGroup::BackedgeInterruptCheck);
+        if (jrt->backedgeTarget() == JitRuntime::BackedgeInterruptCheck)
+            PatchBackedge(backedge, interruptCheck, JitRuntime::BackedgeInterruptCheck);
         else
-            PatchBackedge(backedge, loopHeader, JitZoneGroup::BackedgeLoopHeader);
+            PatchBackedge(backedge, loopHeader, JitRuntime::BackedgeLoopHeader);
 
-        jzg->addPatchableBackedge(cx->runtime()->jitRuntime(), patchableBackedge);
+        jrt->addPatchableBackedge(patchableBackedge);
     }
 }
 
@@ -1260,7 +1269,7 @@ IonScript::Destroy(FreeOp* fop, IonScript* script)
      *
      * Defer freeing any allocated blocks until after the next minor GC.
      */
-    script->fallbackStubSpace_.freeAllAfterMinorGC(script->method()->zone());
+    script->fallbackStubSpace_.freeAllAfterMinorGC(fop->runtime());
 
     fop->delete_(script);
 }
@@ -1275,9 +1284,6 @@ void
 IonScript::toggleBarriers(bool enabled, ReprotectCode reprotect)
 {
     method()->togglePreBarriers(enabled, reprotect);
-
-    for (size_t i = 0; i < numICs(); i++)
-        getICFromIndex(i).togglePreBarriers(enabled, reprotect);
 }
 
 void
@@ -1374,10 +1380,10 @@ IonScript::unlinkFromRuntime(FreeOp* fop)
     // The writes to the executable buffer below may clobber backedge jumps, so
     // make sure that those backedges are unlinked from the runtime and not
     // reclobbered with garbage if an interrupt is requested.
-    JitZoneGroup* jzg = method()->zone()->group()->jitZoneGroup;
+    JitRuntime* jrt = fop->runtime()->jitRuntime();
     JitRuntime::AutoPreventBackedgePatching apbp(fop->runtime());
     for (size_t i = 0; i < backedgeEntries_; i++)
-        jzg->removePatchableBackedge(fop->runtime()->jitRuntime(), &backedgeList()[i]);
+        jrt->removePatchableBackedge(&backedgeList()[i]);
 
     // Clear the list of backedges, so that this method is idempotent. It is
     // called during destruction, and may be additionally called when the
@@ -1388,7 +1394,7 @@ IonScript::unlinkFromRuntime(FreeOp* fop)
 void
 jit::ToggleBarriers(JS::Zone* zone, bool needs)
 {
-    JSRuntime* rt = zone->runtimeFromActiveCooperatingThread();
+    JSRuntime* rt = zone->runtimeFromMainThread();
     if (!rt->hasJitRuntime())
         return;
 
@@ -1518,7 +1524,11 @@ OptimizeMIR(MIRGenerator* mir)
 {
     MIRGraph& graph = mir->graph();
     GraphSpewer& gs = mir->graphSpewer();
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger;
+    if (GetJitContext()->onMainThread())
+        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
+    else
+        logger = TraceLoggerForCurrentThread();
 
     if (mir->shouldCancel("Start"))
         return false;
@@ -1896,7 +1906,6 @@ OptimizeMIR(MIRGenerator* mir)
         if (mir->shouldCancel("Make loops contiguous"))
             return false;
     }
-    AssertExtendedGraphCoherency(graph, /* underValueNumberer = */ false, /* force = */ true);
 
     // Passes after this point must not move instructions; these analyses
     // depend on knowing the final order in which instructions will execute.
@@ -1940,8 +1949,6 @@ OptimizeMIR(MIRGenerator* mir)
         AssertGraphCoherency(graph);
     }
 
-    AssertGraphCoherency(graph, /* force = */ true);
-
     DumpMIRExpressions(graph);
 
     return true;
@@ -1953,7 +1960,11 @@ GenerateLIR(MIRGenerator* mir)
     MIRGraph& graph = mir->graph();
     GraphSpewer& gs = mir->graphSpewer();
 
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger;
+    if (GetJitContext()->onMainThread())
+        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
+    else
+        logger = TraceLoggerForCurrentThread();
 
     LIRGraph* lir = mir->alloc().lifoAlloc()->new_<LIRGraph>(&graph);
     if (!lir || !lir->init())
@@ -1981,10 +1992,8 @@ GenerateLIR(MIRGenerator* mir)
           case RegisterAllocator_Backtracking:
           case RegisterAllocator_Testbed: {
 #ifdef DEBUG
-            if (JitOptions.fullDebugChecks) {
-                if (!integrity.record())
-                    return nullptr;
-            }
+            if (!integrity.record())
+                return nullptr;
 #endif
 
             BacktrackingAllocator regalloc(mir, &lirgen, *lir,
@@ -1993,10 +2002,8 @@ GenerateLIR(MIRGenerator* mir)
                 return nullptr;
 
 #ifdef DEBUG
-            if (JitOptions.fullDebugChecks) {
-                if (!integrity.check(false))
-                    return nullptr;
-            }
+            if (!integrity.check(false))
+                return nullptr;
 #endif
 
             gs.spewPass("Allocate Registers [Backtracking]");
@@ -2032,7 +2039,11 @@ GenerateLIR(MIRGenerator* mir)
 CodeGenerator*
 GenerateCode(MIRGenerator* mir, LIRGraph* lir)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+    TraceLoggerThread* logger;
+    if (GetJitContext()->onMainThread())
+        logger = TraceLoggerForMainThread(GetJitContext()->runtime);
+    else
+        logger = TraceLoggerForCurrentThread();
     AutoTraceLog log(logger, TraceLogger_GenerateCode);
 
     CodeGenerator* codegen = js_new<CodeGenerator>(mir, lir);
@@ -2111,7 +2122,7 @@ AttachFinishedCompilations(JSContext* cx)
                 RootedScript script(cx, builder->script());
 
                 AutoUnlockHelperThreadState unlock(lock);
-                AutoCompartment ac(cx, script);
+                AutoCompartment ac(cx, script->compartment());
                 jit::LinkIonScript(cx, script);
             }
 
@@ -2156,7 +2167,7 @@ TrackPropertiesForSingletonScopes(JSContext* cx, JSScript* script, BaselineFrame
 static void
 TrackIonAbort(JSContext* cx, JSScript* script, jsbytecode* pc, const char* message)
 {
-    if (!cx->runtime()->jitRuntime()->isOptimizationTrackingEnabled(cx->zone()->group()))
+    if (!cx->runtime()->jitRuntime()->isOptimizationTrackingEnabled(cx->runtime()))
         return;
 
     // Only bother tracking aborts of functions we're attempting to
@@ -2182,8 +2193,8 @@ IonCompile(JSContext* cx, JSScript* script,
            BaselineFrame* baselineFrame, jsbytecode* osrPc,
            bool recompile, OptimizationLevel optimizationLevel)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
-    TraceLoggerEvent event(TraceLogger_AnnotateScripts, script);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, script);
     AutoTraceLog logScript(logger, event);
     AutoTraceLog logCompile(logger, TraceLogger_IonCompilation);
 
@@ -2251,7 +2262,7 @@ IonCompile(JSContext* cx, JSScript* script,
     if (!builder)
         return AbortReason::Alloc;
 
-    if (cx->zone()->group()->storeBuffer().cancelIonCompilations())
+    if (cx->runtime()->gc.storeBuffer.cancelIonCompilations())
         builder->setNotSafeForMinorGC();
 
     MOZ_ASSERT(recompile == builder->script()->hasIonScript());
@@ -2359,9 +2370,7 @@ IonCompile(JSContext* cx, JSScript* script,
 static bool
 CheckFrame(JSContext* cx, BaselineFrame* frame)
 {
-    MOZ_ASSERT(!frame->script()->isStarGenerator());
-    MOZ_ASSERT(!frame->script()->isLegacyGenerator());
-    MOZ_ASSERT(!frame->script()->isAsync());
+    MOZ_ASSERT(!frame->script()->isGenerator());
     MOZ_ASSERT(!frame->isDebuggerEvalFrame());
     MOZ_ASSERT(!frame->isEvalFrame());
 
@@ -2392,12 +2401,8 @@ CheckScript(JSContext* cx, JSScript* script, bool osr)
         return false;
     }
 
-    if (script->isStarGenerator() || script->isLegacyGenerator()) {
+    if (script->isGenerator()) {
         TrackAndSpewIonAbort(cx, script, "generator script");
-        return false;
-    }
-    if (script->isAsync()) {
-        TrackAndSpewIonAbort(cx, script, "async script");
         return false;
     }
 
@@ -2437,8 +2442,8 @@ CheckScriptSize(JSContext* cx, JSScript* script)
 
     uint32_t numLocalsAndArgs = NumLocalsAndArgs(script);
 
-    if (script->length() > MAX_ACTIVE_THREAD_SCRIPT_SIZE ||
-        numLocalsAndArgs > MAX_ACTIVE_THREAD_LOCALS_AND_ARGS)
+    if (script->length() > MAX_MAIN_THREAD_SCRIPT_SIZE ||
+        numLocalsAndArgs > MAX_MAIN_THREAD_LOCALS_AND_ARGS)
     {
         if (!OffThreadCompilationAvailable(cx)) {
             JitSpew(JitSpew_IonAbort, "Script too large (%" PRIuSIZE " bytes) (%u locals/args)",
@@ -2556,9 +2561,9 @@ bool
 jit::OffThreadCompilationAvailable(JSContext* cx)
 {
     // Even if off thread compilation is enabled, compilation must still occur
-    // on the active thread in some cases.
+    // on the main thread in some cases.
     //
-    // Require cpuCount > 1 so that Ion compilation jobs and active-thread
+    // Require cpuCount > 1 so that Ion compilation jobs and main-thread
     // execution are not competing for the same resources.
     return cx->runtime()->canUseOffthreadIonCompilation()
         && HelperThreadState().cpuCount > 1
@@ -2868,9 +2873,7 @@ jit::CanEnterUsingFastInvoke(JSContext* cx, HandleScript script, uint32_t numAct
 static JitExecStatus
 EnterIon(JSContext* cx, EnterJitData& data)
 {
-    if (!CheckRecursionLimit(cx))
-        return JitExec_Aborted;
-
+    JS_CHECK_RECURSION(cx, return JitExec_Aborted);
     MOZ_ASSERT(jit::IsIonEnabled(cx));
     MOZ_ASSERT(!data.osrFrame);
 
@@ -2899,7 +2902,7 @@ EnterIon(JSContext* cx, EnterJitData& data)
                             /* envChain = */ nullptr, 0, data.result.address());
     }
 
-    MOZ_ASSERT(!cx->hasIonReturnOverride());
+    MOZ_ASSERT(!cx->runtime()->jitRuntime()->hasIonReturnOverride());
 
     // Jit callers wrap primitive constructor return, except for derived class constructors.
     if (!data.result.isMagic() && data.constructing &&
@@ -2910,7 +2913,7 @@ EnterIon(JSContext* cx, EnterJitData& data)
     }
 
     // Release temporary buffer used for OSR into Ion.
-    cx->freeOsrTempData();
+    cx->runtime()->getJitRuntime(cx)->freeOsrTempData();
 
     MOZ_ASSERT_IF(data.result.isMagic(), data.result.isMagic(JS_ION_ERROR));
     return data.result.isMagic() ? JitExec_Error : JitExec_Ok;
@@ -3004,8 +3007,7 @@ jit::IonCannon(JSContext* cx, RunState& state)
 JitExecStatus
 jit::FastInvoke(JSContext* cx, HandleFunction fun, CallArgs& args)
 {
-    if (!CheckRecursionLimit(cx))
-        return JitExec_Error;
+    JS_CHECK_RECURSION(cx, return JitExec_Error);
 
     RootedScript script(cx, fun->nonLazyScript());
 
@@ -3040,7 +3042,7 @@ jit::FastInvoke(JSContext* cx, HandleFunction fun, CallArgs& args)
     CALL_GENERATED_CODE(enter, jitcode, args.length() + 1, args.array() - 1, /* osrFrame = */nullptr,
                         calleeToken, /* envChain = */ nullptr, 0, result.address());
 
-    MOZ_ASSERT(!cx->hasIonReturnOverride());
+    MOZ_ASSERT(!cx->runtime()->jitRuntime()->hasIonReturnOverride());
 
     args.rval().set(result);
 
@@ -3087,6 +3089,9 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
                     it.returnAddressToFp());
             break;
           }
+          case JitFrame_IonStub:
+            JitSpew(JitSpew_IonInvalidate, "#%" PRIuSIZE " ion stub frame @ %p", frameno, it.fp());
+            break;
           case JitFrame_BaselineStub:
             JitSpew(JitSpew_IonInvalidate, "#%" PRIuSIZE " baseline stub frame @ %p", frameno, it.fp());
             break;
@@ -3209,10 +3214,8 @@ jit::InvalidateAll(FreeOp* fop, Zone* zone)
     for (CompartmentsInZoneIter comp(zone); !comp.done(); comp.next())
         MOZ_ASSERT(!HasOffThreadIonCompile(comp));
 #endif
-    if (zone->isAtomsZone())
-        return;
-    JSContext* cx = TlsContext.get();
-    for (JitActivationIterator iter(cx, zone->group()->ownerContext()); !iter.done(); ++iter) {
+
+    for (JitActivationIterator iter(fop->runtime()); !iter.done(); ++iter) {
         if (iter->compartment()->zone() == zone) {
             JitSpew(JitSpew_IonInvalidate, "Invalidating all frames for GC");
             InvalidateActivation(fop, iter, true);
@@ -3258,15 +3261,7 @@ jit::Invalidate(TypeZone& types, FreeOp* fop,
         return;
     }
 
-    // This method can be called both during GC and during the course of normal
-    // script execution. In the former case this class will already be on the
-    // stack, and in the latter case the invalidations will all be on the
-    // current thread's stack, but the assertion under ActivationIterator can't
-    // tell that this is a thread local use of the iterator.
-    JSRuntime::AutoProhibitActiveContextChange apacc(fop->runtime());
-
-    JSContext* cx = TlsContext.get();
-    for (JitActivationIterator iter(cx, types.zone()->group()->ownerContext()); !iter.done(); ++iter)
+    for (JitActivationIterator iter(fop->runtime()); !iter.done(); ++iter)
         InvalidateActivation(fop, iter, false);
 
     // Drop the references added above. If a script was never active, its
@@ -3326,7 +3321,7 @@ jit::Invalidate(JSContext* cx, JSScript* script, bool resetUses, bool cancelOffT
 {
     MOZ_ASSERT(script->hasIonScript());
 
-    if (cx->runtime()->geckoProfiler().enabled()) {
+    if (cx->runtime()->geckoProfiler.enabled()) {
         // Register invalidation with profiler.
         // Format of event payload string:
         //      "<filename>:<lineno>"
@@ -3341,7 +3336,7 @@ jit::Invalidate(JSContext* cx, JSScript* script, bool resetUses, bool cancelOffT
 
         // Ignore the event on allocation failure.
         if (buf) {
-            cx->runtime()->geckoProfiler().markEvent(buf);
+            cx->runtime()->geckoProfiler.markEvent(buf);
             JS_smprintf_free(buf);
         }
     }
@@ -3397,13 +3392,13 @@ jit::ForbidCompilation(JSContext* cx, JSScript* script)
 }
 
 AutoFlushICache*
-JSContext::autoFlushICache() const
+PerThreadData::autoFlushICache() const
 {
     return autoFlushICache_;
 }
 
 void
-JSContext::setAutoFlushICache(AutoFlushICache* afc)
+PerThreadData::setAutoFlushICache(AutoFlushICache* afc)
 {
     autoFlushICache_ = afc;
 }
@@ -3417,7 +3412,7 @@ void
 AutoFlushICache::setRange(uintptr_t start, size_t len)
 {
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    AutoFlushICache* afc = TlsContext.get()->autoFlushICache();
+    AutoFlushICache* afc = TlsPerThreadData.get()->PerThreadData::autoFlushICache();
     MOZ_ASSERT(afc);
     MOZ_ASSERT(!afc->start_);
     JitSpewCont(JitSpew_CacheFlush, "(%" PRIxPTR " %" PRIxSIZE "):", start, len);
@@ -3443,15 +3438,15 @@ AutoFlushICache::setRange(uintptr_t start, size_t len)
 // indicate a program fault but it might indicate a lost opportunity to merge cache
 // flushing.  It can be corrected by wrapping the call in an AutoFlushICache to context.
 //
-// Note this can be called without TLS JSContext defined so this case needs
+// Note this can be called without TLS PerThreadData defined so this case needs
 // to be guarded against. E.g. when patching instructions from the exception
 // handler on MacOS running the ARM simulator.
 void
 AutoFlushICache::flush(uintptr_t start, size_t len)
 {
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    JSContext* cx = TlsContext.get();
-    AutoFlushICache* afc = cx ? cx->autoFlushICache() : nullptr;
+    PerThreadData* pt = TlsPerThreadData.get();
+    AutoFlushICache* afc = pt ? pt->PerThreadData::autoFlushICache() : nullptr;
     if (!afc) {
         JitSpewCont(JitSpew_CacheFlush, "#");
         ExecutableAllocator::cacheFlush((void*)start, len);
@@ -3477,7 +3472,7 @@ void
 AutoFlushICache::setInhibit()
 {
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    AutoFlushICache* afc = TlsContext.get()->autoFlushICache();
+    AutoFlushICache* afc = TlsPerThreadData.get()->PerThreadData::autoFlushICache();
     MOZ_ASSERT(afc);
     MOZ_ASSERT(afc->start_);
     JitSpewCont(JitSpew_CacheFlush, "I");
@@ -3511,30 +3506,30 @@ AutoFlushICache::AutoFlushICache(const char* nonce, bool inhibit)
 #endif
 {
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    JSContext* cx = TlsContext.get();
-    AutoFlushICache* afc = cx->autoFlushICache();
+    PerThreadData* pt = TlsPerThreadData.get();
+    AutoFlushICache* afc = pt->PerThreadData::autoFlushICache();
     if (afc)
         JitSpew(JitSpew_CacheFlush, "<%s,%s%s ", nonce, afc->name_, inhibit ? " I" : "");
     else
         JitSpewCont(JitSpew_CacheFlush, "<%s%s ", nonce, inhibit ? " I" : "");
 
     prev_ = afc;
-    cx->setAutoFlushICache(this);
+    pt->PerThreadData::setAutoFlushICache(this);
 #endif
 }
 
 AutoFlushICache::~AutoFlushICache()
 {
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
-    JSContext* cx = TlsContext.get();
-    MOZ_ASSERT(cx->autoFlushICache() == this);
+    PerThreadData* pt = TlsPerThreadData.get();
+    MOZ_ASSERT(pt->PerThreadData::autoFlushICache() == this);
 
     if (!inhibit_ && start_)
         ExecutableAllocator::cacheFlush((void*)start_, size_t(stop_ - start_));
 
     JitSpewCont(JitSpew_CacheFlush, "%s%s>", name_, start_ ? "" : " U");
     JitSpewFin(JitSpew_CacheFlush);
-    cx->setAutoFlushICache(prev_);
+    pt->PerThreadData::setAutoFlushICache(prev_);
 #endif
 }
 

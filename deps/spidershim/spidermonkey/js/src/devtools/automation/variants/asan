@@ -1,6 +1,5 @@
 {
-    "configure-args": "--disable-debug --enable-debug-symbols='-gline-tables-only' --disable-jemalloc --enable-address-sanitizer",
-    "optimize": true,
+    "configure-args": "--disable-debug --enable-optimize --enable-debug-symbols='-gline-tables-only' --disable-jemalloc --enable-address-sanitizer",
     "compiler": "clang",
     "env": {
         "LLVM_SYMBOLIZER": "{TOOLTOOL_CHECKOUT}/clang/bin/llvm-symbolizer"

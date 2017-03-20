@@ -40,8 +40,6 @@ class DebugFrame
         double  resultF64_;
     };
 
-    js::Value   cachedReturnJSValue_;
-
     // The fields below are initialized by the baseline compiler.
     uint32_t    funcIndex_;
     uint32_t    reserved0_;
@@ -54,7 +52,6 @@ class DebugFrame
             bool    isDebuggee_ : 1;
             bool    prevUpToDate_ : 1;
             bool    hasCachedSavedFrame_ : 1;
-            bool    hasCachedReturnJSValue_ : 1;
         };
         void*   reserved1_;
     };
@@ -63,17 +60,6 @@ class DebugFrame
     Frame       frame_;
 
     explicit DebugFrame() {}
-
-    void StaticAsserts() {
-        // VS2017 doesn't consider offsetOfResults() etc. to be constexpr, so we have to use
-        // offsetof directly. These asserts can't be at class-level because the type is incomplete.
-        static_assert(offsetof(DebugFrame, resultI32_) == 0, "results shall be at offset 0");
-        static_assert(offsetof(DebugFrame, tlsData_) + sizeof(TlsData*) ==
-                      offsetof(DebugFrame, frame_),
-                      "TLS pointer must be a field just before the wasm frame");
-        static_assert(sizeof(DebugFrame) % 8 == 0 && offsetof(DebugFrame, frame_) % 8 == 0,
-                      "DebugFrame and its portion is 8-bytes aligned for AbstractFramePtr");
-    }
 
   public:
     inline uint32_t funcIndex() const { return funcIndex_; }
@@ -105,21 +91,18 @@ class DebugFrame
 
     inline void* resultsPtr() { return &resultI32_; }
 
-    inline HandleValue returnValue() const {
-        MOZ_ASSERT(hasCachedReturnJSValue_);
-        return HandleValue::fromMarkedLocation(&cachedReturnJSValue_);
-    }
-    void updateReturnJSValue();
-    void clearReturnJSValue();
-
-    bool getLocal(uint32_t localIndex, MutableHandleValue vp);
-
     static constexpr size_t offsetOfResults() { return offsetof(DebugFrame, resultI32_); }
     static constexpr size_t offsetOfFlagsWord() { return offsetof(DebugFrame, reserved1_); }
     static constexpr size_t offsetOfFuncIndex() { return offsetof(DebugFrame, funcIndex_); }
     static constexpr size_t offsetOfTlsData() { return offsetof(DebugFrame, tlsData_); }
     static constexpr size_t offsetOfFrame() { return offsetof(DebugFrame, frame_); }
 };
+
+static_assert(DebugFrame::offsetOfResults() == 0, "results shall be at offset 0");
+static_assert(DebugFrame::offsetOfTlsData() + sizeof(TlsData*) == DebugFrame::offsetOfFrame(),
+              "TLS pointer must be a field just before the wasm frame");
+static_assert(sizeof(DebugFrame) % 8 == 0 && DebugFrame::offsetOfFrame() % 8 == 0,
+              "DebugFrame and its portion is 8-bytes aligned for AbstractFramePtr");
 
 } // namespace wasm
 } // namespace js

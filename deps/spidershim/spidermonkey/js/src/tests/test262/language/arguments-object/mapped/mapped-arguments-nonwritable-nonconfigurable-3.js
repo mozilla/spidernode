@@ -23,5 +23,3 @@ function argumentsNonWritableThenNonConfigurableWithInterveningSet(a) {
   assert.sameValue(arguments[0], 1);
 }
 argumentsNonWritableThenNonConfigurableWithInterveningSet(1);
-
-reportCompare(0, 0);

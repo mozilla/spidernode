@@ -21,7 +21,6 @@
 #include "mozilla/CheckedInt.h"
 
 #include "jscntxt.h"
-#include "jscompartment.h"
 
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmJS.h"
@@ -119,7 +118,7 @@ Table::set(uint32_t index, void* code, Instance& instance)
             JSObject::writeBarrierPre(elem.tls->instance->objectUnbarriered());
 
         elem.code = code;
-        elem.tls = instance.tlsData();
+        elem.tls = &instance.tlsData();
 
         MOZ_ASSERT(elem.tls->instance->objectUnbarriered()->isTenured(), "no writeBarrierPost");
     } else {
@@ -159,7 +158,7 @@ Table::grow(uint32_t delta, JSContext* cx)
 
     MOZ_ASSERT(movingGrowable());
 
-    JSRuntime* rt = cx->runtime();  // Use JSRuntime's MallocProvider to avoid throwing.
+    JSRuntime* rt = cx;  // Use JSRuntime's MallocProvider to avoid throwing.
 
     // Note that realloc does not release array_'s pointee (which is returned by
     // externalArray()) on failure which is exactly what we need here.

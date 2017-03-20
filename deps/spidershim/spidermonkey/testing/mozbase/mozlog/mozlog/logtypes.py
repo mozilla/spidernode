@@ -2,8 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import inspect
-
 convertor_registry = {}
 missing = object()
 no_default = object()
@@ -125,31 +123,6 @@ class DataType(object):
                              (value, type(value).__name__, self.name, self.__class__.__name__))
 
 
-class ContainerType(DataType):
-    """A DataType that contains other DataTypes.
-
-    ContainerTypes must specify which other DataType they will contain. ContainerTypes
-    may contain other ContainerTypes.
-
-    Some examples:
-
-        List(Int, 'numbers')
-        Tuple((Unicode, Int, Any), 'things')
-        Dict(Unicode, 'config')
-        Dict({TestId: Status}, 'results')
-        Dict(List(Unicode), 'stuff')
-    """
-
-    def __init__(self, item_type, name=None, **kwargs):
-        DataType.__init__(self, name, **kwargs)
-        self.item_type = self._format_item_type(item_type)
-
-    def _format_item_type(self, item_type):
-        if inspect.isclass(item_type):
-            return item_type(None)
-        return item_type
-
-
 class Unicode(DataType):
 
     def convert(self, data):
@@ -190,42 +163,20 @@ class SubStatus(Status):
     allowed = ["PASS", "FAIL", "ERROR", "TIMEOUT", "ASSERT", "NOTRUN", "SKIP"]
 
 
-class Dict(ContainerType):
-
-    def _format_item_type(self, item_type):
-        superfmt = super(Dict, self)._format_item_type
-
-        if isinstance(item_type, dict):
-            if len(item_type) != 1:
-                raise ValueError("Dict item type specifier must contain a single entry.")
-            key_type, value_type = item_type.items()[0]
-            return superfmt(key_type), superfmt(value_type)
-        return Any(None), superfmt(item_type)
+class Dict(DataType):
 
     def convert(self, data):
-        key_type, value_type = self.item_type
-        return {key_type.convert(k): value_type.convert(v) for k, v in dict(data).items()}
+        return dict(data)
 
 
-class List(ContainerType):
+class List(DataType):
+
+    def __init__(self, name, item_type, default=no_default, optional=False):
+        DataType.__init__(self, name, default, optional)
+        self.item_type = item_type(None)
 
     def convert(self, data):
-        # while dicts and strings _can_ be cast to lists,
-        # doing so is likely not intentional behaviour
-        if isinstance(data, (basestring, dict)):
-            raise ValueError("Expected list but got %s" % type(data))
         return [self.item_type.convert(item) for item in data]
-
-
-class TestList(DataType):
-    """A TestList is a list of tests that can be either keyed by a group name,
-    or specified as a flat list.
-    """
-
-    def convert(self, data):
-        if isinstance(data, (list, tuple)):
-            data = {'default': data}
-        return Dict({Unicode: List(Unicode)}).convert(data)
 
 
 class Int(DataType):
@@ -240,17 +191,14 @@ class Any(DataType):
         return data
 
 
-class Tuple(ContainerType):
+class Tuple(DataType):
 
-    def _format_item_type(self, item_type):
-        superfmt = super(Tuple, self)._format_item_type
-
-        if isinstance(item_type, (tuple, list)):
-            return [superfmt(t) for t in item_type]
-        return (superfmt(item_type),)
+    def __init__(self, name, item_types, default=no_default, optional=False):
+        DataType.__init__(self, name, default, optional)
+        self.item_types = item_types
 
     def convert(self, data):
-        if len(data) != len(self.item_type):
-            raise ValueError("Expected %i items got %i" % (len(self.item_type), len(data)))
+        if len(data) != len(self.item_types):
+            raise ValueError("Expected %i items got %i" % (len(self.item_types), len(data)))
         return tuple(item_type.convert(value)
-                     for item_type, value in zip(self.item_type, data))
+                     for item_type, value in zip(self.item_types, data))

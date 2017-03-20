@@ -13,10 +13,6 @@ function IsObject(o) {
     return Object(o) === o;
 }
 
-function IsPrimitive(o) {
-    return Object(o) !== o;
-}
-
 function thisValues() {
     const intlConstructors = Object.getOwnPropertyNames(Intl).map(name => Intl[name]).filter(IsConstructor);
 
@@ -65,7 +61,7 @@ for (let thisValue of thisValues()) {
 
 // Intl.NumberFormat uses the legacy Intl constructor compromise semantics.
 // - Test when InstanceofOperator(thisValue, %NumberFormat%) returns true.
-for (let thisValue of thisValues().filter(IsObject)) {
+for (let thisValue of thisValues()) {
     let hasInstanceCalled = false;
     Object.defineProperty(Intl.NumberFormat, Symbol.hasInstance, {
         value() {
@@ -74,15 +70,21 @@ for (let thisValue of thisValues().filter(IsObject)) {
             return true;
         }, configurable: true
     });
-    let obj = Intl.NumberFormat.call(thisValue);
-    delete Intl.NumberFormat[Symbol.hasInstance];
-
-    assertEq(Object.is(obj, thisValue), true);
+    if (!IsObject(thisValue)) {
+        // A TypeError is thrown when Intl.NumberFormat tries to install the
+        // [[FallbackSymbol]] property on |thisValue|.
+        assertThrowsInstanceOf(() => Intl.NumberFormat.call(thisValue), TypeError);
+        delete Intl.NumberFormat[Symbol.hasInstance];
+    } else {
+        let obj = Intl.NumberFormat.call(thisValue);
+        delete Intl.NumberFormat[Symbol.hasInstance];
+        assertEq(Object.is(obj, thisValue), true);
+        assertEqArray(Object.getOwnPropertySymbols(thisValue), [intlFallbackSymbol]);
+    }
     assertEq(hasInstanceCalled, true);
-    assertEqArray(Object.getOwnPropertySymbols(thisValue), [intlFallbackSymbol]);
 }
 // - Test when InstanceofOperator(thisValue, %NumberFormat%) returns false.
-for (let thisValue of thisValues().filter(IsObject)) {
+for (let thisValue of thisValues()) {
     let hasInstanceCalled = false;
     Object.defineProperty(Intl.NumberFormat, Symbol.hasInstance, {
         value() {
@@ -93,23 +95,11 @@ for (let thisValue of thisValues().filter(IsObject)) {
     });
     let obj = Intl.NumberFormat.call(thisValue);
     delete Intl.NumberFormat[Symbol.hasInstance];
-
     assertEq(Object.is(obj, thisValue), false);
     assertEq(obj instanceof Intl.NumberFormat, true);
+    if (IsObject(thisValue))
+        assertEqArray(Object.getOwnPropertySymbols(thisValue), []);
     assertEq(hasInstanceCalled, true);
-    assertEqArray(Object.getOwnPropertySymbols(thisValue), []);
-}
-// - Test with primitive values.
-for (let thisValue of thisValues().filter(IsPrimitive)) {
-    // Ensure @@hasInstance is not called.
-    Object.defineProperty(Intl.NumberFormat, Symbol.hasInstance, {
-        value() { assertEq(true, false); }, configurable: true
-    });
-    let obj = Intl.NumberFormat.call(thisValue);
-    delete Intl.NumberFormat[Symbol.hasInstance];
-
-    assertEq(Object.is(obj, thisValue), false);
-    assertEq(obj instanceof Intl.NumberFormat, true);
 }
 
 // Throws an error when attempting to install [[FallbackSymbol]] twice.

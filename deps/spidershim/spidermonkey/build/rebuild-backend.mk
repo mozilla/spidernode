@@ -25,7 +25,9 @@ $(subst .,%,$(BUILD_BACKEND_FILES)):
 	$(PYTHON) $(BACKEND_GENERATION_SCRIPT)
 
 define build_backend_rule
-$(1): $$(wildcard $$(shell cat $(1).in))
+$(1)_files := $$(shell cat $(1).in)
+$(1): $$($(1)_files)
+$$($(1)_files):
 
 endef
 $(foreach file,$(BUILD_BACKEND_FILES),$(eval $(call build_backend_rule,$(file))))

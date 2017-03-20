@@ -242,14 +242,8 @@ bool
 CurrentThreadIsGCSweeping();
 
 bool
-IsMarkedBlack(JSObject* obj);
+IsMarkedBlack(NativeObject* obj);
 #endif
-
-MOZ_ALWAYS_INLINE void
-CheckEdgeIsNotBlackToGray(JSObject* src, const Value& dst)
-{
-    MOZ_ASSERT_IF(IsMarkedBlack(src), JS::ValueIsNotGray(dst));
-}
 
 template <typename T>
 struct InternalBarrierMethods {};

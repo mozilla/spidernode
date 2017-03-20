@@ -12,10 +12,8 @@ class OpenBSDBootstrapper(BaseBootstrapper):
         self.packages = [
             'mercurial',
             'autoconf-2.13',
-            'cargo',
             'gmake',
             'gtar',
-            'rust',
             'wget',
             'unzip',
             'zip',

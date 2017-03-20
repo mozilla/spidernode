@@ -61,13 +61,8 @@ import urlparse
 import zipfile
 
 import pylru
-from taskgraph.util.taskcluster import (
-    find_task_id,
-    get_artifact_url,
-    list_artifacts,
-)
+import taskcluster
 
-from mozbuild.action.test_archive import OBJDIR_TEST_FILES
 from mozbuild.util import (
     ensureParentDir,
     FileAvoidWrite,
@@ -83,8 +78,10 @@ from mozpack.mozjar import (
 )
 from mozpack.packager.unpack import UnpackFinder
 import mozpack.path as mozpath
-from dlmanager import (
+from mozregression.download_manager import (
     DownloadManager,
+)
+from mozregression.persist_limit import (
     PersistLimit,
 )
 
@@ -130,7 +127,6 @@ class ArtifactJob(object):
         ('bin/pk12util', ('bin', 'bin')),
         ('bin/ssltunnel', ('bin', 'bin')),
         ('bin/xpcshell', ('bin', 'bin')),
-        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
         ('bin/components/*', ('bin/components', 'bin/components')),
     }
@@ -139,13 +135,12 @@ class ArtifactJob(object):
     # be the same across platforms.
     _test_archive_suffix = '.common.tests.zip'
 
-    def __init__(self, package_re, tests_re, log=None, download_symbols=False, substs=None):
+    def __init__(self, package_re, tests_re, log=None, download_symbols=False):
         self._package_re = re.compile(package_re)
         self._tests_re = None
         if tests_re:
             self._tests_re = re.compile(tests_re)
         self._log = log
-        self._substs = substs
         self._symbols_archive_suffix = None
         if download_symbols:
             self._symbols_archive_suffix = 'crashreporter-symbols.zip'
@@ -201,18 +196,6 @@ class ArtifactJob(object):
                     mode = entry['external_attr'] >> 16
                     writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
                     added_entry = True
-                    break
-                for files_entry in OBJDIR_TEST_FILES.values():
-                    origin_pattern = files_entry['pattern']
-                    leaf_filename = filename
-                    if 'dest' in files_entry:
-                        dest = files_entry['dest']
-                        origin_pattern = mozpath.join(dest, origin_pattern)
-                        leaf_filename = filename[len(dest) + 1:]
-                    if mozpath.match(filename, origin_pattern):
-                        destpath = mozpath.join('..', files_entry['base'], leaf_filename)
-                        mode = entry['external_attr'] >> 16
-                        writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
 
         if not added_entry:
             raise ValueError('Archive format changed! No pattern from "{patterns}"'
@@ -270,7 +253,6 @@ class LinuxArtifactJob(ArtifactJob):
         'firefox/firefox',
         'firefox/firefox-bin',
         'firefox/minidump-analyzer',
-        'firefox/pingsender',
         'firefox/platform.ini',
         'firefox/plugin-container',
         'firefox/updater',
@@ -309,28 +291,28 @@ class MacArtifactJob(ArtifactJob):
 
     def process_package_artifact(self, filename, processed_filename):
         tempdir = tempfile.mkdtemp()
-        oldcwd = os.getcwd()
         try:
             self.log(logging.INFO, 'artifact',
                 {'tempdir': tempdir},
                 'Unpacking DMG into {tempdir}')
-            if self._substs['HOST_OS_ARCH'] == 'Linux':
-                # This is a cross build, use hfsplus and dmg tools to extract the dmg.
-                os.chdir(tempdir)
-                with open(os.devnull, 'wb') as devnull:
-                    subprocess.check_call([
-                        self._substs['DMG_TOOL'],
-                        'extract',
-                        filename,
-                        'extracted_img',
-                    ], stdout=devnull)
-                    subprocess.check_call([
-                        self._substs['HFS_TOOL'],
-                        'extracted_img',
-                        'extractall'
-                    ], stdout=devnull)
-            else:
-                mozinstall.install(filename, tempdir)
+            mozinstall.install(filename, tempdir) # Doesn't handle already mounted DMG files nicely:
+
+            # InstallError: Failed to install "/Users/nalexander/.mozbuild/package-frontend/b38eeeb54cdcf744-firefox-44.0a1.en-US.mac.dmg (local variable 'appDir' referenced before assignment)"
+
+            #   File "/Users/nalexander/Mozilla/gecko/mobile/android/mach_commands.py", line 250, in artifact_install
+            #     return artifacts.install_from(source, self.distdir)
+            #   File "/Users/nalexander/Mozilla/gecko/python/mozbuild/mozbuild/artifacts.py", line 457, in install_from
+            #     return self.install_from_hg(source, distdir)
+            #   File "/Users/nalexander/Mozilla/gecko/python/mozbuild/mozbuild/artifacts.py", line 445, in install_from_hg
+            #     return self.install_from_url(url, distdir)
+            #   File "/Users/nalexander/Mozilla/gecko/python/mozbuild/mozbuild/artifacts.py", line 418, in install_from_url
+            #     return self.install_from_file(filename, distdir)
+            #   File "/Users/nalexander/Mozilla/gecko/python/mozbuild/mozbuild/artifacts.py", line 336, in install_from_file
+            #     mozinstall.install(filename, tempdir)
+            #   File "/Users/nalexander/Mozilla/gecko/objdir-dce/_virtualenv/lib/python2.7/site-packages/mozinstall/mozinstall.py", line 117, in install
+            #     install_dir = _install_dmg(src, dest)
+            #   File "/Users/nalexander/Mozilla/gecko/objdir-dce/_virtualenv/lib/python2.7/site-packages/mozinstall/mozinstall.py", line 261, in _install_dmg
+            #     subprocess.call('hdiutil detach %s -quiet' % appDir,
 
             bundle_dirs = glob.glob(mozpath.join(tempdir, '*.app'))
             if len(bundle_dirs) != 1:
@@ -356,7 +338,6 @@ class MacArtifactJob(ArtifactJob):
                 'libmozavutil.dylib',
                 'libmozavcodec.dylib',
                 'libsoftokn3.dylib',
-                'pingsender',
                 'plugin-container.app/Contents/MacOS/plugin-container',
                 'updater.app/Contents/MacOS/org.mozilla.updater',
                 # 'xpcshell',
@@ -396,7 +377,6 @@ class MacArtifactJob(ArtifactJob):
                         writer.add(destpath.encode('utf-8'), f.open(), mode=f.mode)
 
         finally:
-            os.chdir(oldcwd)
             try:
                 shutil.rmtree(tempdir)
             except (OSError, IOError):
@@ -428,7 +408,6 @@ class WinArtifactJob(ArtifactJob):
         ('bin/pk12util.exe', ('bin', 'bin')),
         ('bin/ssltunnel.exe', ('bin', 'bin')),
         ('bin/xpcshell.exe', ('bin', 'bin')),
-        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
         ('bin/components/*', ('bin/components', 'bin/components')),
     }
@@ -489,10 +468,9 @@ JOB_DETAILS = {
 
 
 
-def get_job_details(job, log=None, download_symbols=False, substs=None):
+def get_job_details(job, log=None, download_symbols=False):
     cls, (package_re, tests_re) = JOB_DETAILS[job]
-    return cls(package_re, tests_re, log=log, download_symbols=download_symbols,
-               substs=substs)
+    return cls(package_re, tests_re, log=log, download_symbols=download_symbols)
 
 def cachedmethod(cachefunc):
     '''Decorator to wrap a class or instance method with a memoizing callable that
@@ -641,6 +619,8 @@ class TaskCache(CacheManager):
 
     def __init__(self, cache_dir, log=None, skip_cache=False):
         CacheManager.__init__(self, cache_dir, 'artifact_url', MAX_CACHED_TASKS, log=log, skip_cache=skip_cache)
+        self._index = taskcluster.Index()
+        self._queue = taskcluster.Queue()
 
     @cachedmethod(operator.attrgetter('_cache'))
     def artifact_urls(self, tree, job, rev, download_symbols):
@@ -667,13 +647,14 @@ class TaskCache(CacheManager):
                  {'namespace': namespace},
                  'Searching Taskcluster index with namespace: {namespace}')
         try:
-            taskId = find_task_id(namespace)
+            task = self._index.findTask(namespace)
         except Exception:
             # Not all revisions correspond to pushes that produce the job we
             # care about; and even those that do may not have completed yet.
             raise ValueError('Task for {namespace} does not exist (yet)!'.format(namespace=namespace))
+        taskId = task['taskId']
 
-        artifacts = list_artifacts(taskId)
+        artifacts = self._queue.listLatestArtifacts(taskId)['artifacts']
 
         urls = []
         for artifact_name in artifact_job.find_candidate_artifacts(artifacts):
@@ -681,7 +662,7 @@ class TaskCache(CacheManager):
             # extract the build ID; we use the .ini files embedded in the
             # downloaded artifact for this.  We could also use the uploaded
             # public/build/buildprops.json for this purpose.
-            url = get_artifact_url(taskId, artifact_name)
+            url = self._queue.buildUrl('getLatestArtifact', taskId, artifact_name)
             urls.append(url)
         if not urls:
             raise ValueError('Task for {namespace} existed, but no artifacts found!'.format(namespace=namespace))
@@ -803,9 +784,7 @@ class Artifacts(object):
         self._topsrcdir = topsrcdir
 
         try:
-            self._artifact_job = get_job_details(self._job, log=self._log,
-                                                 download_symbols=self._download_symbols,
-                                                 substs=self._substs)
+            self._artifact_job = get_job_details(self._job, log=self._log, download_symbols=self._download_symbols)
         except KeyError:
             self.log(logging.INFO, 'artifact',
                 {'job': self._job},

@@ -3,15 +3,14 @@
 
 /*---
 description: Object.getOwnPropertyDescriptors should have length 1
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 includes: [propertyHelper.js]
 ---*/
 
 assert.sameValue(Object.getOwnPropertyDescriptors.length, 1, 'Expected Object.getOwnPropertyDescriptors.length to be 1');
 
-verifyNotEnumerable(Object.getOwnPropertyDescriptors, 'length');
-verifyNotWritable(Object.getOwnPropertyDescriptors, 'length');
-verifyConfigurable(Object.getOwnPropertyDescriptors, 'length');
-
-reportCompare(0, 0);
+var desc = Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptors, 'length');
+assertEq(desc.enumerable, false);
+assertEq(desc.writable, false);
+assertEq(desc.configurable, true);

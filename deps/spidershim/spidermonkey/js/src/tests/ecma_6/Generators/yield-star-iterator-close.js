@@ -6,8 +6,6 @@ function test() {
     var returnCalledExpected = 0;
     var nextCalled = 0;
     var nextCalledExpected = 0;
-    var throwCalled = 0;
-    var throwCalledExpected = 0;
     var iterable = {};
     iterable[Symbol.iterator] = makeIterator({
         next: function() {
@@ -27,9 +25,9 @@ function test() {
     // G.p.throw on an iterator without "throw" calls IteratorClose.
     var g1 = y();
     g1.next();
-    assertThrowsInstanceOf(function() {
+    assertThrowsValue(function() {
         g1.throw("foo");
-    }, TypeError);
+    }, "foo");
     assertEq(returnCalled, ++returnCalledExpected);
     assertEq(nextCalled, ++nextCalledExpected);
     g1.next();
@@ -100,18 +98,9 @@ function test() {
     // IteratorClose expects iter.return to return an Object.
     var g6 = y();
     g6.next();
-    var exc;
-    try {
+    assertThrowsInstanceOf(function() {
         g6.throw("foo");
-    } catch (e) {
-        exc = e;
-    } finally {
-        assertEq(exc instanceof TypeError, true);
-        // The message test is here because instanceof TypeError doesn't
-        // distinguish the non-Object return TypeError and the
-        // throw-method-is-not-defined iterator protocol error.
-        assertEq(exc.toString().indexOf("non-object") > 0, true);
-    }
+    }, TypeError);
     assertEq(returnCalled, ++returnCalledExpected);
 
     // G.p.return passes its argument to "return".
@@ -126,25 +115,6 @@ function test() {
     g7.next();
     g7.return("in test");
     assertEq(returnCalled, ++returnCalledExpected);
-
-    // If a throw method is present, do not call "return".
-    iterable[Symbol.iterator] = makeIterator({
-        throw: function(e) {
-            throwCalled++;
-            throw e;
-        },
-        ret: function(x) {
-            returnCalled++;
-            return { done: true };
-        }
-    });
-    var g8 = y();
-    g8.next();
-    assertThrowsValue(function() {
-        g8.throw("foo");
-    }, "foo");
-    assertEq(throwCalled, ++throwCalledExpected);
-    assertEq(returnCalled, returnCalledExpected);
 }
 
 test();

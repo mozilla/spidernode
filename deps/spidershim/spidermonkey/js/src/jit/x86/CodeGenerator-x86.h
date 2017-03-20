@@ -56,6 +56,10 @@ class CodeGeneratorX86 : public CodeGeneratorX86Shared
     void visitWasmLoadI64(LWasmLoadI64* ins);
     void visitWasmStore(LWasmStore* ins);
     void visitWasmStoreI64(LWasmStoreI64* ins);
+    void visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins);
+    void visitWasmLoadGlobalVarI64(LWasmLoadGlobalVarI64* ins);
+    void visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins);
+    void visitWasmStoreGlobalVarI64(LWasmStoreGlobalVarI64* ins);
     void visitAsmJSLoadHeap(LAsmJSLoadHeap* ins);
     void visitAsmJSStoreHeap(LAsmJSStoreHeap* ins);
     void visitAsmJSCompareExchangeHeap(LAsmJSCompareExchangeHeap* ins);
@@ -83,7 +87,7 @@ class CodeGeneratorX86 : public CodeGeneratorX86Shared
     void visitTestI64AndBranch(LTestI64AndBranch* lir);
 
   private:
-    void asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg, Register memoryBase);
+    void asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg);
 };
 
 typedef CodeGeneratorX86 CodeGeneratorSpecific;

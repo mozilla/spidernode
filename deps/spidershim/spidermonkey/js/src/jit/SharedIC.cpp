@@ -192,8 +192,6 @@ bool
 ICStub::makesGCCalls() const
 {
     switch (kind()) {
-      case CacheIR_Regular:
-        return toCacheIR_Regular()->stubInfo()->makesGCCalls();
       case CacheIR_Monitored:
         return toCacheIR_Monitored()->stubInfo()->makesGCCalls();
       case CacheIR_Updated:
@@ -267,6 +265,33 @@ ICStub::trace(JSTracer* trc)
         TraceEdge(trc, &callStub->expectedStr(), "baseline-callstringsplit-str");
         break;
       }
+      case ICStub::SetElem_DenseOrUnboxedArray: {
+        ICSetElem_DenseOrUnboxedArray* setElemStub = toSetElem_DenseOrUnboxedArray();
+        TraceNullableEdge(trc, &setElemStub->shape(), "baseline-getelem-dense-shape");
+        TraceEdge(trc, &setElemStub->group(), "baseline-setelem-dense-group");
+        break;
+      }
+      case ICStub::SetElem_DenseOrUnboxedArrayAdd: {
+        ICSetElem_DenseOrUnboxedArrayAdd* setElemStub = toSetElem_DenseOrUnboxedArrayAdd();
+        TraceEdge(trc, &setElemStub->group(), "baseline-setelem-denseadd-group");
+
+        JS_STATIC_ASSERT(ICSetElem_DenseOrUnboxedArrayAdd::MAX_PROTO_CHAIN_DEPTH == 4);
+
+        switch (setElemStub->protoChainDepth()) {
+          case 0: setElemStub->toImpl<0>()->traceShapes(trc); break;
+          case 1: setElemStub->toImpl<1>()->traceShapes(trc); break;
+          case 2: setElemStub->toImpl<2>()->traceShapes(trc); break;
+          case 3: setElemStub->toImpl<3>()->traceShapes(trc); break;
+          case 4: setElemStub->toImpl<4>()->traceShapes(trc); break;
+          default: MOZ_CRASH("Invalid proto stub.");
+        }
+        break;
+      }
+      case ICStub::SetElem_TypedArray: {
+        ICSetElem_TypedArray* setElemStub = toSetElem_TypedArray();
+        TraceEdge(trc, &setElemStub->shape(), "baseline-setelem-typedarray-shape");
+        break;
+      }
       case ICStub::TypeMonitor_SingleObject: {
         ICTypeMonitor_SingleObject* monitorStub = toTypeMonitor_SingleObject();
         TraceEdge(trc, &monitorStub->object(), "baseline-monitor-singleton");
@@ -285,6 +310,43 @@ ICStub::trace(JSTracer* trc)
       case ICStub::TypeUpdate_ObjectGroup: {
         ICTypeUpdate_ObjectGroup* updateStub = toTypeUpdate_ObjectGroup();
         TraceEdge(trc, &updateStub->group(), "baseline-update-group");
+        break;
+      }
+      case ICStub::In_Native: {
+        ICIn_Native* inStub = toIn_Native();
+        TraceEdge(trc, &inStub->shape(), "baseline-innative-stub-shape");
+        TraceEdge(trc, &inStub->name(), "baseline-innative-stub-name");
+        break;
+      }
+      case ICStub::In_NativePrototype: {
+        ICIn_NativePrototype* inStub = toIn_NativePrototype();
+        TraceEdge(trc, &inStub->shape(), "baseline-innativeproto-stub-shape");
+        TraceEdge(trc, &inStub->name(), "baseline-innativeproto-stub-name");
+        TraceEdge(trc, &inStub->holder(), "baseline-innativeproto-stub-holder");
+        TraceEdge(trc, &inStub->holderShape(), "baseline-innativeproto-stub-holdershape");
+        break;
+      }
+      case ICStub::In_NativeDoesNotExist: {
+        ICIn_NativeDoesNotExist* inStub = toIn_NativeDoesNotExist();
+        TraceEdge(trc, &inStub->name(), "baseline-innativedoesnotexist-stub-name");
+        JS_STATIC_ASSERT(ICIn_NativeDoesNotExist::MAX_PROTO_CHAIN_DEPTH == 8);
+        switch (inStub->protoChainDepth()) {
+          case 0: inStub->toImpl<0>()->traceShapes(trc); break;
+          case 1: inStub->toImpl<1>()->traceShapes(trc); break;
+          case 2: inStub->toImpl<2>()->traceShapes(trc); break;
+          case 3: inStub->toImpl<3>()->traceShapes(trc); break;
+          case 4: inStub->toImpl<4>()->traceShapes(trc); break;
+          case 5: inStub->toImpl<5>()->traceShapes(trc); break;
+          case 6: inStub->toImpl<6>()->traceShapes(trc); break;
+          case 7: inStub->toImpl<7>()->traceShapes(trc); break;
+          case 8: inStub->toImpl<8>()->traceShapes(trc); break;
+          default: MOZ_CRASH("Invalid proto stub.");
+        }
+        break;
+      }
+      case ICStub::In_Dense: {
+        ICIn_Dense* inStub = toIn_Dense();
+        TraceEdge(trc, &inStub->shape(), "baseline-in-dense-shape");
         break;
       }
       case ICStub::GetIntrinsic_Constant: {
@@ -314,9 +376,6 @@ ICStub::trace(JSTracer* trc)
         TraceEdge(trc, &stub->templateObject(), "baseline-rest-template");
         break;
       }
-      case ICStub::CacheIR_Regular:
-        TraceCacheIRStub(trc, this, toCacheIR_Regular()->stubInfo());
-        break;
       case ICStub::CacheIR_Monitored:
         TraceCacheIRStub(trc, this, toCacheIR_Monitored()->stubInfo());
         break;
@@ -552,20 +611,35 @@ ICStubCompiler::callVM(const VMFunction& fun, MacroAssembler& masm)
         return false;
 
     MOZ_ASSERT(fun.expectTailCall == NonTailCall);
-    MOZ_ASSERT(engine_ == Engine::Baseline);
+    if (engine_ == Engine::Baseline)
+        EmitBaselineCallVM(code, masm);
+    else
+        EmitIonCallVM(code, fun.explicitStackSlots(), masm);
+    return true;
+}
 
-    EmitBaselineCallVM(code, masm);
+bool
+ICStubCompiler::callTypeUpdateIC(MacroAssembler& masm, uint32_t objectOffset)
+{
+    JitCode* code = cx->runtime()->jitRuntime()->getVMWrapper(DoTypeUpdateFallbackInfo);
+    if (!code)
+        return false;
+
+    EmitCallTypeUpdateIC(masm, code, objectOffset);
     return true;
 }
 
 void
 ICStubCompiler::enterStubFrame(MacroAssembler& masm, Register scratch)
 {
-    MOZ_ASSERT(engine_ == Engine::Baseline);
-    EmitBaselineEnterStubFrame(masm, scratch);
+    if (engine_ == Engine::Baseline) {
+        EmitBaselineEnterStubFrame(masm, scratch);
 #ifdef DEBUG
-    framePushedAtEnterStubFrame_ = masm.framePushed();
+        framePushedAtEnterStubFrame_ = masm.framePushed();
 #endif
+    } else {
+        EmitIonEnterStubFrame(masm, scratch);
+    }
 
     MOZ_ASSERT(!inStubFrame_);
     inStubFrame_ = true;
@@ -581,13 +655,17 @@ ICStubCompiler::leaveStubFrame(MacroAssembler& masm, bool calledIntoIon)
     MOZ_ASSERT(entersStubFrame_ && inStubFrame_);
     inStubFrame_ = false;
 
-    MOZ_ASSERT(engine_ == Engine::Baseline);
+    if (engine_ == Engine::Baseline) {
 #ifdef DEBUG
-    masm.setFramePushed(framePushedAtEnterStubFrame_);
-    if (calledIntoIon)
-        masm.adjustFrame(sizeof(intptr_t)); // Calls into ion have this extra.
+        masm.setFramePushed(framePushedAtEnterStubFrame_);
+        if (calledIntoIon)
+            masm.adjustFrame(sizeof(intptr_t)); // Calls into ion have this extra.
 #endif
-    EmitBaselineLeaveStubFrame(masm, calledIntoIon);
+
+        EmitBaselineLeaveStubFrame(masm, calledIntoIon);
+    } else {
+        EmitIonLeaveStubFrame(masm);
+    }
 }
 
 void
@@ -616,11 +694,8 @@ ICStubCompiler::PushStubPayload(MacroAssembler& masm, Register scratch)
 void
 BaselineEmitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
                                  Register scratch, LiveGeneralRegisterSet saveRegs,
-                                 JSContext* cx)
+                                 JSRuntime* rt)
 {
-    if (!cx->nursery().exists())
-        return;
-
     Label skipBarrier;
     masm.branchPtrInNurseryChunk(Assembler::Equal, obj, scratch, &skipBarrier);
     masm.branchValueIsNurseryObject(Assembler::NotEqual, val, scratch, &skipBarrier);
@@ -632,7 +707,7 @@ BaselineEmitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperan
     saveRegs.set() = GeneralRegisterSet::Intersect(saveRegs.set(), GeneralRegisterSet::Volatile());
     masm.PushRegsInMask(saveRegs);
     masm.setupUnalignedABICall(scratch);
-    masm.movePtr(ImmPtr(cx->runtime()), scratch);
+    masm.movePtr(ImmPtr(rt), scratch);
     masm.passABIArg(scratch);
     masm.passABIArg(obj);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, PostWriteBarrier));
@@ -662,7 +737,7 @@ HandleScript
 SharedStubInfo::outerScript(JSContext* cx)
 {
     if (!outerScript_) {
-        js::jit::JitActivationIterator iter(cx);
+        js::jit::JitActivationIterator iter(cx->runtime());
         JitFrameIterator it(iter);
         MOZ_ASSERT(it.isExitFrame());
         ++it;
@@ -1534,17 +1609,6 @@ DoCompareFallback(JSContext* cx, void* payload, ICCompare_Fallback* stub_, Handl
             return true;
         }
 
-        if (lhs.isSymbol() && rhs.isSymbol() && !stub->hasStub(ICStub::Compare_Symbol)) {
-            JitSpew(JitSpew_BaselineIC, "  Generating %s(Symbol, Symbol) stub", CodeName[op]);
-            ICCompare_Symbol::Compiler compiler(cx, op, engine);
-            ICStub* symbolStub = compiler.getStub(compiler.getStubSpace(info.outerScript(cx)));
-            if (!symbolStub)
-                return false;
-
-            stub->addNewStub(symbolStub);
-            return true;
-        }
-
         if (lhs.isObject() && rhs.isObject()) {
             MOZ_ASSERT(!stub->hasStub(ICStub::Compare_Object));
             JitSpew(JitSpew_BaselineIC, "  Generating %s(Object, Object) stub", CodeName[op]);
@@ -1557,10 +1621,13 @@ DoCompareFallback(JSContext* cx, void* payload, ICCompare_Fallback* stub_, Handl
             return true;
         }
 
-        if (lhs.isNullOrUndefined() || rhs.isNullOrUndefined()) {
-            JitSpew(JitSpew_BaselineIC, "  Generating %s(Null/Undef or X, Null/Undef or X) stub",
+        if ((lhs.isObject() || lhs.isNull() || lhs.isUndefined()) &&
+            (rhs.isObject() || rhs.isNull() || rhs.isUndefined()) &&
+            !stub->hasStub(ICStub::Compare_ObjectWithUndefined))
+        {
+            JitSpew(JitSpew_BaselineIC, "  Generating %s(Obj/Null/Undef, Obj/Null/Undef) stub",
                     CodeName[op]);
-            bool lhsIsUndefined = lhs.isNullOrUndefined();
+            bool lhsIsUndefined = lhs.isNull() || lhs.isUndefined();
             bool compareWithNull = lhs.isNull() || rhs.isNull();
             ICCompare_ObjectWithUndefined::Compiler compiler(cx, op, engine,
                                                              lhsIsUndefined, compareWithNull);
@@ -1627,38 +1694,6 @@ ICCompare_String::Compiler::generateStubCode(MacroAssembler& masm)
     masm.tagValue(JSVAL_TYPE_BOOLEAN, scratchReg, R0);
     EmitReturnFromIC(masm);
 
-    masm.bind(&failure);
-    EmitStubGuardFailure(masm);
-    return true;
-}
-
-//
-// Compare_Symbol
-//
-
-bool
-ICCompare_Symbol::Compiler::generateStubCode(MacroAssembler& masm)
-{
-    Label failure;
-    masm.branchTestSymbol(Assembler::NotEqual, R0, &failure);
-    masm.branchTestSymbol(Assembler::NotEqual, R1, &failure);
-
-    MOZ_ASSERT(IsEqualityOp(op));
-
-    Register left = masm.extractSymbol(R0, ExtractTemp0);
-    Register right = masm.extractSymbol(R1, ExtractTemp1);
-
-    Label ifTrue;
-    masm.branchPtr(JSOpToCondition(op, /* signed = */true), left, right, &ifTrue);
-
-    masm.moveValue(BooleanValue(false), R0);
-    EmitReturnFromIC(masm);
-
-    masm.bind(&ifTrue);
-    masm.moveValue(BooleanValue(true), R0);
-    EmitReturnFromIC(masm);
-
-    // Failure case - jump to next stub
     masm.bind(&failure);
     EmitStubGuardFailure(masm);
     return true;
@@ -1807,29 +1842,12 @@ ICCompare_ObjectWithUndefined::Compiler::generateStubCode(MacroAssembler& masm)
     masm.bind(&notObject);
 
     // Also support null == null or undefined == undefined comparisons.
-    Label differentTypes;
     if (compareWithNull)
-        masm.branchTestNull(Assembler::NotEqual, objectOperand, &differentTypes);
+        masm.branchTestNull(Assembler::NotEqual, objectOperand, &failure);
     else
-        masm.branchTestUndefined(Assembler::NotEqual, objectOperand, &differentTypes);
+        masm.branchTestUndefined(Assembler::NotEqual, objectOperand, &failure);
 
     masm.moveValue(BooleanValue(op == JSOP_STRICTEQ || op == JSOP_EQ), R0);
-    EmitReturnFromIC(masm);
-
-    masm.bind(&differentTypes);
-    // Also support null == undefined or undefined == null.
-    Label neverEqual;
-    if (compareWithNull)
-        masm.branchTestUndefined(Assembler::NotEqual, objectOperand, &neverEqual);
-    else
-        masm.branchTestNull(Assembler::NotEqual, objectOperand, &neverEqual);
-
-    masm.moveValue(BooleanValue(op == JSOP_EQ || op == JSOP_STRICTNE), R0);
-    EmitReturnFromIC(masm);
-
-    // null/undefined can only be equal to null/undefined or emulatesUndefined.
-    masm.bind(&neverEqual);
-    masm.moveValue(BooleanValue(op == JSOP_NE || op == JSOP_STRICTNE), R0);
     EmitReturnFromIC(masm);
 
     // Failure case - jump to next stub
@@ -1917,13 +1935,119 @@ StripPreliminaryObjectStubs(JSContext* cx, ICFallbackStub* stub)
     // stub which isn't on a preliminary object.
 
     for (ICStubIterator iter = stub->beginChain(); !iter.atEnd(); iter++) {
-        if (iter->isCacheIR_Regular() && iter->toCacheIR_Regular()->hasPreliminaryObject())
-            iter.unlink(cx);
-        else if (iter->isCacheIR_Monitored() && iter->toCacheIR_Monitored()->hasPreliminaryObject())
+        if (iter->isCacheIR_Monitored() && iter->toCacheIR_Monitored()->hasPreliminaryObject())
             iter.unlink(cx);
         else if (iter->isCacheIR_Updated() && iter->toCacheIR_Updated()->hasPreliminaryObject())
             iter.unlink(cx);
     }
+}
+
+JSObject*
+GetDOMProxyProto(JSObject* obj)
+{
+    MOZ_ASSERT(IsCacheableDOMProxy(obj));
+    return obj->staticPrototype();
+}
+
+bool
+IsCacheableProtoChain(JSObject* obj, JSObject* holder, bool isDOMProxy)
+{
+    MOZ_ASSERT_IF(isDOMProxy, IsCacheableDOMProxy(obj));
+
+    if (!isDOMProxy && !obj->isNative()) {
+        if (obj == holder)
+            return false;
+        if (!obj->is<UnboxedPlainObject>() &&
+            !obj->is<UnboxedArrayObject>() &&
+            !obj->is<TypedObject>())
+        {
+            return false;
+        }
+    }
+
+    JSObject* cur = obj;
+    while (cur != holder) {
+        // We cannot assume that we find the holder object on the prototype
+        // chain and must check for null proto. The prototype chain can be
+        // altered during the lookupProperty call.
+        MOZ_ASSERT(!cur->hasDynamicPrototype());
+
+        // Don't handle objects which require a prototype guard. This should
+        // be uncommon so handling it is likely not worth the complexity.
+        if (cur->hasUncacheableProto())
+            return false;
+
+        JSObject* proto = cur->staticPrototype();
+        if (!proto || !proto->isNative())
+            return false;
+
+        cur = proto;
+    }
+
+    return true;
+}
+
+bool
+IsCacheableGetPropReadSlot(JSObject* obj, JSObject* holder, Shape* shape, bool isDOMProxy)
+{
+    if (!shape || !IsCacheableProtoChain(obj, holder, isDOMProxy))
+        return false;
+
+    if (!shape->hasSlot() || !shape->hasDefaultGetter())
+        return false;
+
+    return true;
+}
+
+void
+GetFixedOrDynamicSlotOffset(Shape* shape, bool* isFixed, uint32_t* offset)
+{
+    MOZ_ASSERT(isFixed);
+    MOZ_ASSERT(offset);
+    *isFixed = shape->slot() < shape->numFixedSlots();
+    *offset = *isFixed ? NativeObject::getFixedSlotOffset(shape->slot())
+                       : (shape->slot() - shape->numFixedSlots()) * sizeof(Value);
+}
+
+bool
+IsCacheableGetPropCall(JSContext* cx, JSObject* obj, JSObject* holder, Shape* shape,
+                       bool* isScripted, bool* isTemporarilyUnoptimizable, bool isDOMProxy)
+{
+    MOZ_ASSERT(isScripted);
+
+    if (!shape || !IsCacheableProtoChain(obj, holder, isDOMProxy))
+        return false;
+
+    if (shape->hasSlot() || shape->hasDefaultGetter())
+        return false;
+
+    if (!shape->hasGetterValue())
+        return false;
+
+    if (!shape->getterValue().isObject() || !shape->getterObject()->is<JSFunction>())
+        return false;
+
+    JSFunction* func = &shape->getterObject()->as<JSFunction>();
+    if (IsWindow(obj)) {
+        if (!func->isNative())
+            return false;
+
+        if (!func->jitInfo() || func->jitInfo()->needsOuterizedThisObject())
+            return false;
+    }
+
+    if (func->isNative()) {
+        *isScripted = false;
+        return true;
+    }
+
+    if (!func->hasJITCode()) {
+        *isTemporarilyUnoptimizable = true;
+        return false;
+    }
+
+    *isScripted = true;
+    return true;
 }
 
 bool
@@ -1978,7 +2102,7 @@ ComputeGetPropResult(JSContext* cx, BaselineFrame* frame, JSOp op, HandlePropert
 {
     // Handle arguments.length and arguments.callee on optimized arguments, as
     // it is not an object.
-    if (val.isMagic(JS_OPTIMIZED_ARGUMENTS) && IsOptimizedArguments(frame, val)) {
+    if (frame && val.isMagic(JS_OPTIMIZED_ARGUMENTS) && IsOptimizedArguments(frame, val)) {
         if (op == JSOP_LENGTH) {
             res.setInt32(frame->numActualArgs());
         } else {
@@ -1987,10 +2111,10 @@ ComputeGetPropResult(JSContext* cx, BaselineFrame* frame, JSOp op, HandlePropert
             res.setObject(*frame->callee());
         }
     } else {
-        if (op == JSOP_GETBOUNDNAME) {
-            RootedObject env(cx, &val.toObject());
+        if (op == JSOP_GETXPROP) {
+            RootedObject obj(cx, &val.toObject());
             RootedId id(cx, NameToId(name));
-            if (!GetNameBoundInEnvironment(cx, env, id, res))
+            if (!GetPropertyForNameLookup(cx, obj, id, res))
                 return false;
         } else {
             MOZ_ASSERT(op == JSOP_GETPROP || op == JSOP_CALLPROP || op == JSOP_LENGTH);
@@ -2003,23 +2127,21 @@ ComputeGetPropResult(JSContext* cx, BaselineFrame* frame, JSOp op, HandlePropert
 }
 
 static bool
-DoGetPropFallback(JSContext* cx, BaselineFrame* frame, ICGetProp_Fallback* stub_,
+DoGetPropFallback(JSContext* cx, void* payload, ICGetProp_Fallback* stub_,
                   MutableHandleValue val, MutableHandleValue res)
 {
-    SharedStubInfo info(cx, frame, stub_->icEntry());
+    SharedStubInfo info(cx, payload, stub_->icEntry());
+    ICStubCompiler::Engine engine = info.engine();
     HandleScript script = info.innerScript();
 
     // This fallback stub may trigger debug mode toggling.
-    DebugModeOSRVolatileStub<ICGetProp_Fallback*> stub(frame, stub_);
+    DebugModeOSRVolatileStub<ICGetProp_Fallback*> stub(engine, info.maybeFrame(), stub_);
 
-    jsbytecode* pc = stub_->icEntry()->pc(script);
+    jsbytecode* pc = info.pc();
     JSOp op = JSOp(*pc);
     FallbackICSpew(cx, stub, "GetProp(%s)", CodeName[op]);
 
-    MOZ_ASSERT(op == JSOP_GETPROP ||
-               op == JSOP_CALLPROP ||
-               op == JSOP_LENGTH ||
-               op == JSOP_GETBOUNDNAME);
+    MOZ_ASSERT(op == JSOP_GETPROP || op == JSOP_CALLPROP || op == JSOP_LENGTH || op == JSOP_GETXPROP);
 
     // Grab our old shape before it goes away.
     RootedShape oldShape(cx);
@@ -2042,8 +2164,9 @@ DoGetPropFallback(JSContext* cx, BaselineFrame* frame, ICGetProp_Fallback* stub_
         // Discard all stubs in this IC and replace with generic getprop stub.
         for (ICStubIterator iter = stub->beginChain(); !iter.atEnd(); iter++)
             iter.unlink(cx);
-        ICGetProp_Generic::Compiler compiler(cx, stub->fallbackMonitorStub()->firstMonitorStub());
-        ICStub* newStub = compiler.getStub(compiler.getStubSpace(script));
+        ICGetProp_Generic::Compiler compiler(cx, engine,
+                                             stub->fallbackMonitorStub()->firstMonitorStub());
+        ICStub* newStub = compiler.getStub(compiler.getStubSpace(info.outerScript(cx)));
         if (!newStub)
             return false;
         stub->addNewStub(newStub);
@@ -2052,12 +2175,11 @@ DoGetPropFallback(JSContext* cx, BaselineFrame* frame, ICGetProp_Fallback* stub_
 
     if (!attached && !JitOptions.disableCacheIR) {
         RootedValue idVal(cx, StringValue(name));
-        GetPropIRGenerator gen(cx, script, pc, CacheKind::GetProp, &isTemporarilyUnoptimizable,
+        GetPropIRGenerator gen(cx, pc, CacheKind::GetProp, engine, &isTemporarilyUnoptimizable,
                                val, idVal, CanAttachGetter::Yes);
         if (gen.tryAttachStub()) {
             ICStub* newStub = AttachBaselineCacheIRStub(cx, gen.writerRef(), gen.cacheKind(),
-                                                        ICStubEngine::Baseline, script,
-                                                        stub);
+                                                        engine, info.outerScript(cx), stub);
             if (newStub) {
                 JitSpew(JitSpew_BaselineIC, "  Attached CacheIR stub");
                 attached = true;
@@ -2069,7 +2191,7 @@ DoGetPropFallback(JSContext* cx, BaselineFrame* frame, ICGetProp_Fallback* stub_
         }
     }
 
-    if (!ComputeGetPropResult(cx, frame, op, name, val, res))
+    if (!ComputeGetPropResult(cx, info.maybeFrame(), op, name, val, res))
         return false;
 
     TypeScript::Monitor(cx, script, pc, res);
@@ -2092,7 +2214,7 @@ DoGetPropFallback(JSContext* cx, BaselineFrame* frame, ICGetProp_Fallback* stub_
     return true;
 }
 
-typedef bool (*DoGetPropFallbackFn)(JSContext*, BaselineFrame*, ICGetProp_Fallback*,
+typedef bool (*DoGetPropFallbackFn)(JSContext*, void*, ICGetProp_Fallback*,
                                     MutableHandleValue, MutableHandleValue);
 static const VMFunction DoGetPropFallbackInfo =
     FunctionInfo<DoGetPropFallbackFn>(DoGetPropFallback, "DoGetPropFallback", TailCall,
@@ -2111,7 +2233,7 @@ ICGetProp_Fallback::Compiler::generateStubCode(MacroAssembler& masm)
     // Push arguments.
     masm.pushValue(R0);
     masm.push(ICStubReg);
-    masm.pushBaselineFramePtr(BaselineFrameReg, R0.scratchReg());
+    pushStubPayload(masm, R0.scratchReg());
 
     if (!tailCallVM(DoGetPropFallbackInfo, masm))
         return false;
@@ -2150,6 +2272,21 @@ ICGetProp_Fallback::Compiler::postGenerateStubCode(MacroAssembler& masm, Handle<
     }
 }
 
+bool
+GetProtoShapes(JSObject* obj, size_t protoChainDepth, MutableHandle<ShapeVector> shapes)
+{
+    JSObject* curProto = obj->staticPrototype();
+    for (size_t i = 0; i < protoChainDepth; i++) {
+        if (!shapes.append(curProto->as<NativeObject>().lastProperty()))
+            return false;
+        curProto = curProto->staticPrototype();
+    }
+
+    MOZ_ASSERT(!curProto,
+               "longer prototype chain encountered than this stub permits!");
+    return true;
+}
+
 /* static */ ICGetProp_Generic*
 ICGetProp_Generic::Clone(JSContext* cx, ICStubSpace* space, ICStub* firstMonitorStub,
                          ICGetProp_Generic& other)
@@ -2158,19 +2295,19 @@ ICGetProp_Generic::Clone(JSContext* cx, ICStubSpace* space, ICStub* firstMonitor
 }
 
 static bool
-DoGetPropGeneric(JSContext* cx, BaselineFrame* frame, ICGetProp_Generic* stub,
+DoGetPropGeneric(JSContext* cx, void* payload, ICGetProp_Generic* stub,
                  MutableHandleValue val, MutableHandleValue res)
 {
     ICFallbackStub* fallback = stub->getChainFallback();
-    JSScript* script = frame->script();
-    jsbytecode* pc = fallback->icEntry()->pc(script);
+    SharedStubInfo info(cx, payload, fallback->icEntry());
+    HandleScript script = info.innerScript();
+    jsbytecode* pc = info.pc();
     JSOp op = JSOp(*pc);
     RootedPropertyName name(cx, script->getName(pc));
-    return ComputeGetPropResult(cx, frame, op, name, val, res);
+    return ComputeGetPropResult(cx, info.maybeFrame(), op, name, val, res);
 }
 
-typedef bool (*DoGetPropGenericFn)(JSContext*, BaselineFrame*, ICGetProp_Generic*,
-                                   MutableHandleValue, MutableHandleValue);
+typedef bool (*DoGetPropGenericFn)(JSContext*, void*, ICGetProp_Generic*, MutableHandleValue, MutableHandleValue);
 static const VMFunction DoGetPropGenericInfo =
     FunctionInfo<DoGetPropGenericFn>(DoGetPropGeneric, "DoGetPropGeneric");
 

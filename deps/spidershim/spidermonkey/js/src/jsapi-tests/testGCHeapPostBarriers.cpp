@@ -12,33 +12,6 @@
 #include "jsapi-tests/tests.h"
 #include "vm/Runtime.h"
 
-#include "jscntxtinlines.h"
-
-// A heap-allocated structure containing one of our barriered pointer wrappers
-// to test.
-template <typename W>
-struct TestStruct
-{
-    W wrapper;
-};
-
-// A specialized version for GCPtr that adds a zone() method.
-template <typename T>
-struct TestStruct<js::GCPtr<T>>
-{
-    js::GCPtr<T> wrapper;
-
-    JS::Zone* zone() const { return wrapper->zone(); }
-};
-
-// Give the GCPtr version GCManagedDeletePolicy as required.
-namespace JS {
-template <typename T>
-struct DeletePolicy<TestStruct<js::GCPtr<T>>>
-    : public js::GCManagedDeletePolicy<TestStruct<js::GCPtr<T>>>
-{};
-} // namespace JS
-
 template <typename T>
 static T* CreateGCThing(JSContext* cx)
 {
@@ -129,26 +102,25 @@ TestHeapPostBarrierUpdate()
     CHECK(js::gc::IsInsideNursery(initialObj));
     uintptr_t initialObjAsInt = uintptr_t(initialObj);
 
-    TestStruct<W>* ptr = nullptr;
+    W* ptr = nullptr;
 
     {
-        auto testStruct = cx->make_unique<TestStruct<W>>();
-        CHECK(testStruct);
+        auto heapPtr = cx->make_unique<W>();
+        CHECK(heapPtr);
 
-        W& wrapper = testStruct->wrapper;
+        W& wrapper = *heapPtr;
         CHECK(wrapper.get() == nullptr);
         wrapper = initialObj;
         CHECK(wrapper == initialObj);
 
-        ptr = testStruct.release();
+        ptr = heapPtr.release();
     }
 
     cx->minorGC(JS::gcreason::API);
 
-    W& wrapper = ptr->wrapper;
-    CHECK(uintptr_t(wrapper.get()) != initialObjAsInt);
-    CHECK(!js::gc::IsInsideNursery(wrapper.get()));
-    CHECK(CanAccessObject(wrapper.get()));
+    CHECK(uintptr_t(ptr->get()) != initialObjAsInt);
+    CHECK(!js::gc::IsInsideNursery(ptr->get()));
+    CHECK(CanAccessObject(ptr->get()));
 
     return true;
 }
@@ -165,10 +137,10 @@ TestHeapPostBarrierInitFailure()
     CHECK(js::gc::IsInsideNursery(initialObj));
 
     {
-        auto testStruct = cx->make_unique<TestStruct<W>>();
-        CHECK(testStruct);
+        auto heapPtr = cx->make_unique<W>();
+        CHECK(heapPtr);
 
-        W& wrapper = testStruct->wrapper;
+        W& wrapper = *heapPtr;
         CHECK(wrapper.get() == nullptr);
         wrapper = initialObj;
         CHECK(wrapper == initialObj);
@@ -187,7 +159,7 @@ BEGIN_TEST(testUnbarrieredEquality)
     // in ObjectPtr without awkward conversations about nursery allocatability.
     JS::RootedObject robj(cx, JS_NewArrayBuffer(cx, 20));
     JS::RootedObject robj2(cx, JS_NewArrayBuffer(cx, 30));
-    cx->runtime()->gc.evictNursery(); // Need tenured objects
+    cx->gc.evictNursery(); // Need tenured objects
 
     // Need some bare pointers to compare against.
     JSObject* obj = robj;

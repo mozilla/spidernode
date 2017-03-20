@@ -85,5 +85,3 @@ assert.sameValue(buffer.byteLength, 0, "-0.1");
 
 buffer = new ArrayBuffer(-0.99999);
 assert.sameValue(buffer.byteLength, 0, "-0.99999");
-
-reportCompare(0, 0);

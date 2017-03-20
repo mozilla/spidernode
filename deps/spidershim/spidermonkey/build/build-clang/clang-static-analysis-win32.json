@@ -1,5 +1,5 @@
 {
-    "llvm_revision": "293859",
+    "llvm_revision": "286542",
     "stages": "3",
     "build_libcxx": false,
     "build_type": "Release",
@@ -10,5 +10,7 @@
     "libcxx_repo": "https://llvm.org/svn/llvm-project/libcxx/trunk",
     "python_path": "c:/mozilla-build/python/python.exe",
     "cc": "cl.exe",
-    "cxx": "cl.exe"
+    "cxx": "cl.exe",
+    "patches": {
+    }
 }

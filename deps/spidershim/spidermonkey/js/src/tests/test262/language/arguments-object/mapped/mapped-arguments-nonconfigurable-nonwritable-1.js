@@ -22,5 +22,3 @@ function argumentsNonConfigurableAndNonWritable(a) {
   assert.sameValue(arguments[0], 1);
 }
 argumentsNonConfigurableAndNonWritable(1);
-
-reportCompare(0, 0);

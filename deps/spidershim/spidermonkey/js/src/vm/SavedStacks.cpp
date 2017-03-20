@@ -143,8 +143,7 @@ LiveSavedFrameCache::find(JSContext* cx, FrameIter& frameIter, MutableHandleSave
 struct SavedFrame::Lookup {
     Lookup(JSAtom* source, uint32_t line, uint32_t column,
            JSAtom* functionDisplayName, JSAtom* asyncCause, SavedFrame* parent,
-           JSPrincipals* principals,
-           const Maybe<LiveSavedFrameCache::FramePtr>& framePtr = Nothing(),
+           JSPrincipals* principals, Maybe<LiveSavedFrameCache::FramePtr> framePtr = Nothing(),
            jsbytecode* pc = nullptr, Activation* activation = nullptr)
       : source(source),
         line(line),
@@ -368,11 +367,11 @@ SavedFrame::protoAccessors[] = {
 /* static */ void
 SavedFrame::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
     JSPrincipals* p = obj->as<SavedFrame>().getPrincipals();
     if (p) {
-        JSRuntime* rt = obj->runtimeFromActiveCooperatingThread();
-        JS_DropPrincipals(rt->activeContextFromOwnThread(), p);
+        JSRuntime* rt = obj->runtimeFromMainThread();
+        JS_DropPrincipals(rt->contextFromMainThread(), p);
     }
 }
 
@@ -737,7 +736,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameSource(JSContext* cx, HandleObject savedFrame, MutableHandleString sourcep,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -759,7 +758,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameLine(JSContext* cx, HandleObject savedFrame, uint32_t* linep,
                   SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
     MOZ_ASSERT(linep);
@@ -779,7 +778,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameColumn(JSContext* cx, HandleObject savedFrame, uint32_t* columnp,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
     MOZ_ASSERT(columnp);
@@ -799,7 +798,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameFunctionDisplayName(JSContext* cx, HandleObject savedFrame, MutableHandleString namep,
                                  SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -822,7 +821,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameAsyncCause(JSContext* cx, HandleObject savedFrame, MutableHandleString asyncCausep,
                         SavedFrameSelfHosted unused_ /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -853,7 +852,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameAsyncParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject asyncParentp,
                          SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -886,7 +885,7 @@ JS_PUBLIC_API(SavedFrameResult)
 GetSavedFrameParent(JSContext* cx, HandleObject savedFrame, MutableHandleObject parentp,
                     SavedFrameSelfHosted selfHosted /* = SavedFrameSelfHosted::Include */)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
@@ -962,14 +961,14 @@ JS_PUBLIC_API(bool)
 BuildStackString(JSContext* cx, HandleObject stack, MutableHandleString stringp,
                  size_t indent, js::StackFormat format)
 {
-    js::AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_RELEASE_ASSERT(cx->compartment());
 
     js::StringBuffer sb(cx);
 
     if (format == js::StackFormat::Default)
-        format = cx->runtime()->stackFormat();
+        format = cx->stackFormat();
     MOZ_ASSERT(format != js::StackFormat::Default);
 
     // Enter a new block to constrain the scope of possibly entering the stack's
@@ -1313,7 +1312,7 @@ SavedStacks::insertFrames(JSContext* cx, FrameIter& iter, MutableHandleSavedFram
                 // youngest frame of the async stack as the parent of the oldest
                 // frame of this activation. We still need to iterate over other
                 // frames in this activation before reaching the oldest frame.
-                AutoCompartmentUnchecked ac(cx, iter.compartment());
+                AutoCompartment ac(cx, iter.compartment());
                 const char* cause = activation.asyncCause();
                 UTF8Chars utf8Chars(cause, strlen(cause));
                 size_t twoByteCharsLen = 0;
@@ -1336,7 +1335,7 @@ SavedStacks::insertFrames(JSContext* cx, FrameIter& iter, MutableHandleSavedFram
 
         Rooted<LocationValue> location(cx);
         {
-            AutoCompartmentUnchecked ac(cx, iter.compartment());
+            AutoCompartment ac(cx, iter.compartment());
             if (!cx->compartment()->savedStacks().getLocation(cx, iter, &location))
                 return false;
         }
@@ -1641,7 +1640,7 @@ SavedStacks::MetadataBuilder::build(JSContext* cx, HandleObject target,
     if (!stacks.saveCurrentStack(cx, &frame))
         oomUnsafe.crash("SavedStacksMetadataBuilder");
 
-    if (!Debugger::onLogAllocationSite(cx, obj, frame, mozilla::TimeStamp::Now()))
+    if (!Debugger::onLogAllocationSite(cx, obj, frame, JS_GetCurrentEmbedderTime()))
         oomUnsafe.crash("SavedStacksMetadataBuilder");
 
     MOZ_ASSERT_IF(frame, !frame->is<WrapperObject>());

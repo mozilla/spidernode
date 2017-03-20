@@ -1,3 +1,5 @@
+// |reftest| skip-if(!xulRuntime.shell) -- needs detachArrayBuffer
+
 var buf = new ArrayBuffer([1,2]);
 var bufView = new DataView(buf);
 

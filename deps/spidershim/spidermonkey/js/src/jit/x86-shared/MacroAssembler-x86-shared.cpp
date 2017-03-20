@@ -462,8 +462,11 @@ MacroAssembler::PushRegsInMask(LiveRegisterSet set)
 }
 
 void
-MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register)
+MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
 {
+    // We don't use |scratch| here, but assert this for other platforms.
+    MOZ_ASSERT(!set.has(scratch));
+
     FloatRegisterSet fpuSet(set.fpus().reduceSetForPush());
     unsigned numFpu = fpuSet.size();
     int32_t diffF = fpuSet.getPushSizeInBytes();
@@ -471,6 +474,8 @@ MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register)
 
     MOZ_ASSERT(dest.offset >= diffG + diffF);
 
+    // On x86, always use push to push the integer registers, as it's fast
+    // on modern hardware and it's a small instruction.
     for (GeneralRegisterBackwardIterator iter(set.gprs()); iter.more(); ++iter) {
         diffG -= sizeof(intptr_t);
         dest.offset -= sizeof(intptr_t);

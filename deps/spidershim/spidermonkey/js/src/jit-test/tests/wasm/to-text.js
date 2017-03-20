@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 var caught = false;
 try {
     wasmBinaryToText(new Int8Array(1));

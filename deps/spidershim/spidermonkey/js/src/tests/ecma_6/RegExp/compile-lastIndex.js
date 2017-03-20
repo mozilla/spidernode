@@ -17,12 +17,15 @@ print(BUGNUMBER + ": " + summary);
 
 var regex = /foo/i;
 
-// Aside from making .lastIndex non-writable, this has one incidental effect
+// Aside from making .lastIndex non-writable, this has two incidental effects
 // ubiquitously tested through the remainder of this test:
 //
 //   * RegExp.prototype.compile will do everything it ordinarily does, BUT it
 //     will throw a TypeError when attempting to zero .lastIndex immediately
 //     before succeeding overall.
+//   * RegExp.prototype.test for a non-global and non-sticky regular expression,
+//     in case of a match, will return true (as normal).  BUT if no match is
+//     found, it will throw a TypeError when attempting to modify .lastIndex.
 //
 // Ain't it great?
 Object.defineProperty(regex, "lastIndex", { value: 42, writable: false });
@@ -37,8 +40,8 @@ assertEq(regex.lastIndex, 42);
 
 assertEq(regex.test("foo"), true);
 assertEq(regex.test("FOO"), true);
-assertEq(regex.test("bar"), false);
-assertEq(regex.test("BAR"), false);
+assertThrowsInstanceOf(() => regex.test("bar"), TypeError);
+assertThrowsInstanceOf(() => regex.test("BAR"), TypeError);
 
 assertThrowsInstanceOf(() => regex.compile("bar"), TypeError);
 
@@ -49,10 +52,10 @@ assertEq(regex.unicode, false);
 assertEq(regex.sticky, false);
 assertEq(Object.getOwnPropertyDescriptor(regex, "lastIndex").writable, false);
 assertEq(regex.lastIndex, 42);
-assertEq(regex.test("foo"), false);
-assertEq(regex.test("FOO"), false);
+assertThrowsInstanceOf(() => regex.test("foo"), TypeError);
+assertThrowsInstanceOf(() => regex.test("FOO"), TypeError);
 assertEq(regex.test("bar"), true);
-assertEq(regex.test("BAR"), false);
+assertThrowsInstanceOf(() => regex.test("BAR"), TypeError);
 
 assertThrowsInstanceOf(() => regex.compile("^baz", "m"), TypeError);
 
@@ -63,16 +66,19 @@ assertEq(regex.unicode, false);
 assertEq(regex.sticky, false);
 assertEq(Object.getOwnPropertyDescriptor(regex, "lastIndex").writable, false);
 assertEq(regex.lastIndex, 42);
-assertEq(regex.test("foo"), false);
-assertEq(regex.test("FOO"), false);
-assertEq(regex.test("bar"), false);
-assertEq(regex.test("BAR"), false);
+assertThrowsInstanceOf(() => regex.test("foo"), TypeError);
+assertThrowsInstanceOf(() => regex.test("FOO"), TypeError);
+assertThrowsInstanceOf(() => regex.test("bar"), TypeError);
+assertThrowsInstanceOf(() => regex.test("BAR"), TypeError);
 assertEq(regex.test("baz"), true);
-assertEq(regex.test("BAZ"), false);
-assertEq(regex.test("012345678901234567890123456789012345678901baz"), false);
+assertThrowsInstanceOf(() => regex.test("BAZ"), TypeError);
+assertThrowsInstanceOf(() => regex.test("012345678901234567890123456789012345678901baz"),
+                       TypeError);
 assertEq(regex.test("012345678901234567890123456789012345678901\nbaz"), true);
-assertEq(regex.test("012345678901234567890123456789012345678901BAZ"), false);
-assertEq(regex.test("012345678901234567890123456789012345678901\nBAZ"), false);
+assertThrowsInstanceOf(() => regex.test("012345678901234567890123456789012345678901BAZ"),
+                       TypeError);
+assertThrowsInstanceOf(() => regex.test("012345678901234567890123456789012345678901\nBAZ"),
+                       TypeError);
 
 /******************************************************************************/
 

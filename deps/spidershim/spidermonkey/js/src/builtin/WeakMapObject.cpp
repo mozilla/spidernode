@@ -169,7 +169,11 @@ WeakMap_set_impl(JSContext* cx, const CallArgs& args)
     MOZ_ASSERT(IsWeakMap(args.thisv()));
 
     if (!args.get(0).isObject()) {
-        ReportNotObjectWithName(cx, "WeakMap key", args.get(0));
+        UniqueChars bytes = DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, args.get(0), nullptr);
+        if (!bytes)
+            return false;
+        JS_ReportErrorNumberLatin1(cx, GetErrorMessage, nullptr, JSMSG_NOT_NONNULL_OBJECT,
+                                   bytes.get());
         return false;
     }
 
@@ -229,7 +233,7 @@ WeakMap_trace(JSTracer* trc, JSObject* obj)
 static void
 WeakMap_finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOnHelperThread());
+    MOZ_ASSERT(fop->maybeOffMainThread());
     if (ObjectValueMap* map = obj->as<WeakMapObject>().getMap()) {
 #ifdef DEBUG
         map->~ObjectValueMap();

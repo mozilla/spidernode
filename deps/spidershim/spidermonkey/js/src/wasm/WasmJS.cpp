@@ -28,7 +28,6 @@
 #include "jit/JitOptions.h"
 #include "vm/Interpreter.h"
 #include "vm/String.h"
-#include "vm/StringBuffer.h"
 #include "wasm/WasmCompile.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmModule.h"
@@ -51,7 +50,7 @@ using mozilla::Nothing;
 using mozilla::RangedPtr;
 
 bool
-wasm::HasCompilerSupport(JSContext* cx)
+wasm::HasCompilerSupport(ExclusiveContext* cx)
 {
     if (gc::SystemPageSize() > wasm::PageSize)
         return false;
@@ -80,7 +79,7 @@ wasm::HasCompilerSupport(JSContext* cx)
 }
 
 bool
-wasm::HasSupport(JSContext* cx)
+wasm::HasSupport(ExclusiveContext* cx)
 {
     return cx->options().wasm() && HasCompilerSupport(cx);
 }
@@ -555,9 +554,8 @@ struct KindNames
     RootedPropertyName kind;
     RootedPropertyName table;
     RootedPropertyName memory;
-    RootedPropertyName signature;
 
-    explicit KindNames(JSContext* cx) : kind(cx), table(cx), memory(cx), signature(cx) {}
+    explicit KindNames(JSContext* cx) : kind(cx), table(cx), memory(cx) {}
 };
 
 static bool
@@ -578,11 +576,6 @@ InitKindNames(JSContext* cx, KindNames* names)
         return false;
     names->memory = memory->asPropertyName();
 
-    JSAtom* signature = Atomize(cx, "signature", strlen("signature"));
-    if (!signature)
-        return false;
-    names->signature = signature->asPropertyName();
-
     return true;
 }
 
@@ -601,40 +594,6 @@ KindToString(JSContext* cx, const KindNames& names, DefinitionKind kind)
     }
 
     MOZ_CRASH("invalid kind");
-}
-
-static JSString*
-SigToString(JSContext* cx, const Sig& sig)
-{
-    StringBuffer buf(cx);
-    if (!buf.append('('))
-        return nullptr;
-
-    bool first = true;
-    for (ValType arg : sig.args()) {
-        if (!first && !buf.append(", ", strlen(", ")))
-            return nullptr;
-
-        const char* argStr = ToCString(arg);
-        if (!buf.append(argStr, strlen(argStr)))
-            return nullptr;
-
-        first = false;
-    }
-
-    if (!buf.append(") -> (", strlen(") -> (")))
-        return nullptr;
-
-    if (sig.ret() != ExprType::Void) {
-        const char* retStr = ToCString(sig.ret());
-        if (!buf.append(retStr, strlen(retStr)))
-            return nullptr;
-    }
-
-    if (!buf.append(')'))
-        return nullptr;
-
-    return buf.finishString();
 }
 
 static JSString*
@@ -660,7 +619,6 @@ WasmModuleObject::imports(JSContext* cx, unsigned argc, Value* vp)
     if (!elems.reserve(module->imports().length()))
         return false;
 
-    size_t numFuncImport = 0;
     for (const Import& import : module->imports()) {
         Rooted<IdValueVector> props(cx, IdValueVector(cx));
         if (!props.reserve(3))
@@ -680,14 +638,6 @@ WasmModuleObject::imports(JSContext* cx, unsigned argc, Value* vp)
         if (!kindStr)
             return false;
         props.infallibleAppend(IdValuePair(NameToId(names.kind), StringValue(kindStr)));
-
-        if (JitOptions.wasmTestMode && import.kind == DefinitionKind::Function) {
-            JSString* sigStr = SigToString(cx, module->metadata().funcImports[numFuncImport++].sig());
-            if (!sigStr)
-                return false;
-            if (!props.append(IdValuePair(NameToId(names.signature), StringValue(sigStr))))
-                return false;
-        }
 
         JSObject* obj = ObjectGroup::newPlainObject(cx, props.begin(), props.length(), GenericObject);
         if (!obj)
@@ -721,7 +671,6 @@ WasmModuleObject::exports(JSContext* cx, unsigned argc, Value* vp)
     if (!elems.reserve(module->exports().length()))
         return false;
 
-    size_t numFuncExport = 0;
     for (const Export& exp : module->exports()) {
         Rooted<IdValueVector> props(cx, IdValueVector(cx));
         if (!props.reserve(2))
@@ -736,14 +685,6 @@ WasmModuleObject::exports(JSContext* cx, unsigned argc, Value* vp)
         if (!kindStr)
             return false;
         props.infallibleAppend(IdValuePair(NameToId(names.kind), StringValue(kindStr)));
-
-        if (JitOptions.wasmTestMode && exp.kind() == DefinitionKind::Function) {
-            JSString* sigStr = SigToString(cx, module->metadata().funcExports[numFuncExport++].sig());
-            if (!sigStr)
-                return false;
-            if (!props.append(IdValuePair(NameToId(names.signature), StringValue(sigStr))))
-                return false;
-        }
 
         JSObject* obj = ObjectGroup::newPlainObject(cx, props.begin(), props.length(), GenericObject);
         if (!obj)
@@ -813,7 +754,7 @@ WasmModuleObject::customSections(JSContext* cx, unsigned argc, Value* vp)
 }
 
 /* static */ WasmModuleObject*
-WasmModuleObject::create(JSContext* cx, Module& module, HandleObject proto)
+WasmModuleObject::create(ExclusiveContext* cx, Module& module, HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
     auto* obj = NewObjectWithGivenProto<WasmModuleObject>(cx, proto);
@@ -984,7 +925,6 @@ WasmInstanceObject::trace(JSTracer* trc, JSObject* obj)
 /* static */ WasmInstanceObject*
 WasmInstanceObject::create(JSContext* cx,
                            UniqueCode code,
-                           UniqueGlobalSegment globals,
                            HandleWasmMemoryObject memory,
                            SharedTableVector&& tables,
                            Handle<FunctionVector> funcImports,
@@ -1018,7 +958,6 @@ WasmInstanceObject::create(JSContext* cx,
     auto* instance = cx->new_<Instance>(cx,
                                         obj,
                                         Move(code),
-                                        Move(globals),
                                         memory,
                                         Move(tables),
                                         funcImports,
@@ -1274,7 +1213,7 @@ WasmMemoryObject::finalize(FreeOp* fop, JSObject* obj)
 }
 
 /* static */ WasmMemoryObject*
-WasmMemoryObject::create(JSContext* cx, HandleArrayBufferObjectMaybeShared buffer,
+WasmMemoryObject::create(ExclusiveContext* cx, HandleArrayBufferObjectMaybeShared buffer,
                          HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
@@ -1550,7 +1489,7 @@ WasmTableObject::trace(JSTracer* trc, JSObject* obj)
 }
 
 /* static */ WasmTableObject*
-WasmTableObject::create(JSContext* cx, const Limits& limits)
+WasmTableObject::create(JSContext* cx, Limits limits)
 {
     RootedObject proto(cx, &cx->global()->getPrototype(JSProto_WasmTable).toObject());
 
@@ -1918,7 +1857,7 @@ GetBufferSource(JSContext* cx, CallArgs callArgs, const char* name, MutableBytes
 static bool
 WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
+    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.compile not supported in this runtime.");
         return false;
     }
@@ -2015,7 +1954,7 @@ GetInstantiateArgs(JSContext* cx, CallArgs callArgs, MutableHandleObject firstAr
 static bool
 WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
+    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.instantiate not supported in this runtime.");
         return false;
     }
@@ -2093,7 +2032,7 @@ static const JSFunctionSpec WebAssembly_static_methods[] =
     JS_FN(js_toSource_str, WebAssembly_toSource, 0, 0),
 #endif
     JS_FN("compile", WebAssembly_compile, 1, 0),
-    JS_FN("instantiate", WebAssembly_instantiate, 1, 0),
+    JS_FN("instantiate", WebAssembly_instantiate, 2, 0),
     JS_FN("validate", WebAssembly_validate, 1, 0),
     JS_FS_END
 };
@@ -2127,18 +2066,6 @@ InitConstructor(JSContext* cx, HandleObject wasm, const char* name, MutableHandl
         return false;
 
     if (!LinkConstructorAndPrototype(cx, ctor, proto))
-        return false;
-
-    UniqueChars tagStr(JS_smprintf("WebAssembly.%s", name));
-    if (!tagStr) {
-        ReportOutOfMemory(cx);
-        return false;
-    }
-
-    RootedAtom tag(cx, Atomize(cx, tagStr.get(), strlen(tagStr.get())));
-    if (!tag)
-        return false;
-    if (!DefineToStringTag(cx, proto, tag))
         return false;
 
     RootedId id(cx, AtomToId(className));

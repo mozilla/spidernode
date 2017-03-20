@@ -31,10 +31,9 @@ Linker::newCode(JSContext* cx, CodeKind kind, bool hasPatchableBackedges /* = fa
     bytesNeeded = AlignBytes(bytesNeeded, sizeof(void*));
 
     ExecutableAllocator& execAlloc = hasPatchableBackedges
-                                     ? cx->runtime()->jitRuntime()->backedgeExecAlloc()
-                                     : cx->runtime()->jitRuntime()->execAlloc();
-
-    uint8_t* result = (uint8_t*)execAlloc.alloc(cx, bytesNeeded, &pool, kind);
+        ? cx->runtime()->jitRuntime()->backedgeExecAlloc()
+        : cx->runtime()->jitRuntime()->execAlloc();
+    uint8_t* result = (uint8_t*)execAlloc.alloc(bytesNeeded, &pool, kind);
     if (!result)
         return fail(cx);
 
@@ -54,7 +53,7 @@ Linker::newCode(JSContext* cx, CodeKind kind, bool hasPatchableBackedges /* = fa
     code->copyFrom(masm);
     masm.link(code);
     if (masm.embedsNurseryPointers())
-        cx->zone()->group()->storeBuffer().putWholeCell(code);
+        cx->runtime()->gc.storeBuffer.putWholeCell(code);
     return code;
 }
 

@@ -11,8 +11,8 @@
 
 #include <stdio.h>
 
-#include "jit/JSONPrinter.h"
 #include "js/TypeDecls.h"
+#include "vm/Printer.h"
 
 namespace js {
 namespace jit {
@@ -23,11 +23,33 @@ class MIRGraph;
 class MResumePoint;
 class LNode;
 
-class JSONSpewer : JSONPrinter
+class JSONSpewer
 {
+  private:
+    int indentLevel_;
+    bool first_;
+    GenericPrinter& out_;
+
+    void indent();
+
+    void property(const char* name);
+    void beginObject();
+    void beginObjectProperty(const char* name);
+    void beginListProperty(const char* name);
+    void stringValue(const char* format, ...) MOZ_FORMAT_PRINTF(2, 3);
+    void stringProperty(const char* name, const char* format, ...) MOZ_FORMAT_PRINTF(3, 4);
+    void beginStringProperty(const char* name);
+    void endStringProperty();
+    void integerValue(int value);
+    void integerProperty(const char* name, int value);
+    void endObject();
+    void endList();
+
   public:
     explicit JSONSpewer(GenericPrinter& out)
-      : JSONPrinter(out)
+      : indentLevel_(0),
+        first_(true),
+        out_(out)
     { }
 
     void beginFunction(JSScript* script);

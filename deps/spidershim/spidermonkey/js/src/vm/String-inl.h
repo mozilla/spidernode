@@ -23,7 +23,7 @@ namespace js {
 // Allocate a thin inline string if possible, and a fat inline string if not.
 template <AllowGC allowGC, typename CharT>
 static MOZ_ALWAYS_INLINE JSInlineString*
-AllocateInlineString(JSContext* cx, size_t len, CharT** chars)
+AllocateInlineString(ExclusiveContext* cx, size_t len, CharT** chars)
 {
     MOZ_ASSERT(JSInlineString::lengthFits<CharT>(len));
 
@@ -45,7 +45,7 @@ AllocateInlineString(JSContext* cx, size_t len, CharT** chars)
 // Create a thin inline string if possible, and a fat inline string if not.
 template <AllowGC allowGC, typename CharT>
 static MOZ_ALWAYS_INLINE JSInlineString*
-NewInlineString(JSContext* cx, mozilla::Range<const CharT> chars)
+NewInlineString(ExclusiveContext* cx, mozilla::Range<const CharT> chars)
 {
     /*
      * Don't bother trying to find a static atom; measurement shows that not
@@ -66,7 +66,7 @@ NewInlineString(JSContext* cx, mozilla::Range<const CharT> chars)
 // Create a thin inline string if possible, and a fat inline string if not.
 template <typename CharT>
 static MOZ_ALWAYS_INLINE JSInlineString*
-NewInlineString(JSContext* cx, HandleLinearString base, size_t start, size_t length)
+NewInlineString(ExclusiveContext* cx, HandleLinearString base, size_t start, size_t length)
 {
     MOZ_ASSERT(JSInlineString::lengthFits<CharT>(length));
 
@@ -82,19 +82,19 @@ NewInlineString(JSContext* cx, HandleLinearString base, size_t start, size_t len
 }
 
 static inline void
-StringWriteBarrierPost(JSContext* maybecx, JSString** strp)
+StringWriteBarrierPost(js::ExclusiveContext* maybecx, JSString** strp)
 {
 }
 
 static inline void
-StringWriteBarrierPostRemove(JSContext* maybecx, JSString** strp)
+StringWriteBarrierPostRemove(js::ExclusiveContext* maybecx, JSString** strp)
 {
 }
 
 } /* namespace js */
 
 MOZ_ALWAYS_INLINE bool
-JSString::validateLength(JSContext* maybecx, size_t length)
+JSString::validateLength(js::ExclusiveContext* maybecx, size_t length)
 {
     if (MOZ_UNLIKELY(length > JSString::MAX_LENGTH)) {
         js::ReportAllocationOverflow(maybecx);
@@ -105,7 +105,7 @@ JSString::validateLength(JSContext* maybecx, size_t length)
 }
 
 MOZ_ALWAYS_INLINE void
-JSRope::init(JSContext* cx, JSString* left, JSString* right, size_t length)
+JSRope::init(js::ExclusiveContext* cx, JSString* left, JSString* right, size_t length)
 {
     d.u1.length = length;
     d.u1.flags = ROPE_FLAGS;
@@ -119,7 +119,7 @@ JSRope::init(JSContext* cx, JSString* left, JSString* right, size_t length)
 
 template <js::AllowGC allowGC>
 MOZ_ALWAYS_INLINE JSRope*
-JSRope::new_(JSContext* cx,
+JSRope::new_(js::ExclusiveContext* cx,
              typename js::MaybeRooted<JSString*, allowGC>::HandleType left,
              typename js::MaybeRooted<JSString*, allowGC>::HandleType right,
              size_t length)
@@ -134,7 +134,7 @@ JSRope::new_(JSContext* cx,
 }
 
 MOZ_ALWAYS_INLINE void
-JSDependentString::init(JSContext* cx, JSLinearString* base, size_t start,
+JSDependentString::init(js::ExclusiveContext* cx, JSLinearString* base, size_t start,
                         size_t length)
 {
     MOZ_ASSERT(start + length <= base->length());
@@ -152,7 +152,7 @@ JSDependentString::init(JSContext* cx, JSLinearString* base, size_t start,
 }
 
 MOZ_ALWAYS_INLINE JSLinearString*
-JSDependentString::new_(JSContext* cx, JSLinearString* baseArg, size_t start,
+JSDependentString::new_(js::ExclusiveContext* cx, JSLinearString* baseArg, size_t start,
                         size_t length)
 {
     /*
@@ -214,7 +214,7 @@ JSFlatString::init(const JS::Latin1Char* chars, size_t length)
 
 template <js::AllowGC allowGC, typename CharT>
 MOZ_ALWAYS_INLINE JSFlatString*
-JSFlatString::new_(JSContext* cx, const CharT* chars, size_t length)
+JSFlatString::new_(js::ExclusiveContext* cx, const CharT* chars, size_t length)
 {
     MOZ_ASSERT(chars[length] == CharT(0));
 
@@ -250,7 +250,7 @@ JSFlatString::toPropertyName(JSContext* cx)
 
 template <js::AllowGC allowGC>
 MOZ_ALWAYS_INLINE JSThinInlineString*
-JSThinInlineString::new_(JSContext* cx)
+JSThinInlineString::new_(js::ExclusiveContext* cx)
 {
     if (cx->compartment()->isAtomsCompartment())
         return (JSThinInlineString*)(js::Allocate<js::NormalAtom, allowGC>(cx));
@@ -260,7 +260,7 @@ JSThinInlineString::new_(JSContext* cx)
 
 template <js::AllowGC allowGC>
 MOZ_ALWAYS_INLINE JSFatInlineString*
-JSFatInlineString::new_(JSContext* cx)
+JSFatInlineString::new_(js::ExclusiveContext* cx)
 {
     if (cx->compartment()->isAtomsCompartment())
         return (JSFatInlineString*)(js::Allocate<js::FatInlineAtom, allowGC>(cx));

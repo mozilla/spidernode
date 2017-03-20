@@ -46,13 +46,6 @@ parser.add_argument('--timeout', '-t', type=int, metavar='TIMEOUT',
 parser.add_argument('--objdir', type=str, metavar='DIR',
                     default=env.get('OBJDIR', 'obj-spider'),
                     help='object directory')
-group = parser.add_mutually_exclusive_group()
-group.add_argument('--optimize', action='store_true',
-                   help='generate an optimized build. Overrides variant setting.')
-group.add_argument('--no-optimize', action='store_false',
-                   dest='optimize',
-                   help='generate a non-optimized build. Overrides variant setting.')
-group.set_defaults(optimize=None)
 parser.add_argument('--run-tests', '--tests', type=str, metavar='TESTSUITE',
                     default='',
                     help="comma-separated set of test suites to add to the variant's default set")
@@ -62,8 +55,6 @@ parser.add_argument('--skip-tests', '--skip', type=str, metavar='TESTSUITE',
 parser.add_argument('--build-only', '--build',
                     dest='skip_tests', action='store_const', const='all',
                     help="only do a build, do not run any tests")
-parser.add_argument('--noconf', action='store_true',
-                    help="skip running configure when doing a build")
 parser.add_argument('--nobuild', action='store_true',
                     help='Do not do a build. Rerun tests on existing build.')
 parser.add_argument('variant', type=str,
@@ -141,15 +132,9 @@ OUTDIR = os.path.join(OBJDIR, "out")
 POBJDIR = posixpath.join(PDIR.source, args.objdir)
 AUTOMATION = env.get('AUTOMATION', False)
 MAKE = env.get('MAKE', 'make')
-MAKEFLAGS = env.get('MAKEFLAGS', '-j6' + ('' if AUTOMATION else ' -s'))
-UNAME_M = subprocess.check_output(['uname', '-m']).strip()
-
+MAKEFLAGS = env.get('MAKEFLAGS', '-j6')
 CONFIGURE_ARGS = variant['configure-args']
-opt = args.optimize
-if opt is None:
-    opt = variant.get('optimize')
-if opt is not None:
-    CONFIGURE_ARGS += (" --enable-optimize" if opt else " --disable-optimize")
+UNAME_M = subprocess.check_output(['uname', '-m']).strip()
 
 # Any jobs that wish to produce additional output can save them into the upload
 # directory if there is such a thing, falling back to OBJDIR.
@@ -284,36 +269,19 @@ for k, v in variant.get('env', {}).items():
         OUTDIR=OUTDIR,
     )
 
-def need_updating_configure(configure):
-    if not os.path.exists(configure):
-        return True
-
-    dep_files = [
-        os.path.join(DIR.js_src, 'configure.in'),
-        os.path.join(DIR.js_src, 'old-configure.in'),
-    ]
-    for file in dep_files:
-        if os.path.getmtime(file) > os.path.getmtime(configure):
-            return True
-
-    return False
-
 if not args.nobuild:
     CONFIGURE_ARGS += ' --enable-nspr-build'
     CONFIGURE_ARGS += ' --prefix={OBJDIR}/dist'.format(OBJDIR=POBJDIR)
 
     # Generate a configure script from configure.in.
     configure = os.path.join(DIR.js_src, 'configure')
-    if need_updating_configure(configure):
+    if not os.path.exists(configure):
         shutil.copyfile(configure + ".in", configure)
         os.chmod(configure, 0755)
 
-    # Run configure
-    if not args.noconf:
-        run_command(['sh', '-c', posixpath.join(PDIR.js_src, 'configure') + ' ' + CONFIGURE_ARGS], check=True)
-
-    # Run make
-    run_command('%s -w %s' % (MAKE, MAKEFLAGS), shell=True, check=True)
+    # Run configure; make
+    run_command(['sh', '-c', posixpath.join(PDIR.js_src, 'configure') + ' ' + CONFIGURE_ARGS], check=True)
+    run_command('%s -s -w %s' % (MAKE, MAKEFLAGS), shell=True, check=True)
 
 COMMAND_PREFIX = []
 # On Linux, disable ASLR to make shell builds a bit more reproducible.

@@ -767,7 +767,6 @@ struct CompartmentStats
     macro(Other,   MallocHeap, savedStacksSet) \
     macro(Other,   MallocHeap, varNamesSet) \
     macro(Other,   MallocHeap, nonSyntacticLexicalScopesTable) \
-    macro(Other,   MallocHeap, templateLiteralMap) \
     macro(Other,   MallocHeap, jitCompartment) \
     macro(Other,   MallocHeap, privateData)
 

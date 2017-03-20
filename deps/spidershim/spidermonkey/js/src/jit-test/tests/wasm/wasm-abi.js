@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 for (let numLocals of [3, 4, 5, 6, 17, 18, 19]) {
     for (let numParams of [1, 2, 3, 4, 5, 6, 7, 8]) {
         let locals = `       (local `;

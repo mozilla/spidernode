@@ -7,7 +7,6 @@
 #include "builtin/DataViewObject.h"
 
 #include "mozilla/Alignment.h"
-#include "mozilla/Casting.h"
 
 #include <string.h>
 
@@ -21,12 +20,12 @@
 #endif
 #include "jswrapper.h"
 
-#include "jit/AtomicOperations.h"
 #include "js/Conversions.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
 #include "vm/SharedMem.h"
+#include "vm/TypedArrayCommon.h"
 #include "vm/WrapperObject.h"
 
 #include "gc/Nursery-inl.h"
@@ -37,7 +36,6 @@
 using namespace js;
 using namespace js::gc;
 
-using mozilla::AssertedCast;
 using JS::CanonicalizeNaN;
 using JS::ToInt32;
 using JS::ToUint32;
@@ -116,7 +114,7 @@ DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
 
     // Include a barrier if the data view's data pointer is in the nursery, as
     // is done for typed arrays.
-    if (!IsInsideNursery(obj) && cx->nursery().isInside(ptr)) {
+    if (!IsInsideNursery(obj) && cx->runtime()->gc.nursery.isInside(ptr)) {
         // Shared buffer data should never be nursery-allocated, so we
         // need to fail here if isSharedMemory.  However, mmap() can
         // place a SharedArrayRawBuffer up against the bottom end of a
@@ -126,7 +124,7 @@ DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
             MOZ_ASSERT(arrayBuffer->byteLength() == 0 &&
                        (uintptr_t(ptr.unwrapValue()) & gc::ChunkMask) == 0);
         } else {
-            cx->zone()->group()->storeBuffer().putWholeCell(obj);
+            cx->runtime()->gc.storeBuffer.putWholeCell(obj);
         }
     }
 
@@ -141,63 +139,71 @@ DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
     return &dvobj;
 }
 
-// ES2017 draft rev 931261ecef9b047b14daacf82884134da48dfe0f
-// 24.3.2.1 DataView (extracted part of the main algorithm)
 bool
 DataViewObject::getAndCheckConstructorArgs(JSContext* cx, HandleObject bufobj, const CallArgs& args,
                                            uint32_t* byteOffsetPtr, uint32_t* byteLengthPtr)
 {
-    // Step 3.
     if (!IsArrayBufferMaybeShared(bufobj)) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NOT_EXPECTED_TYPE,
                                   "DataView", "ArrayBuffer", bufobj->getClass()->name);
         return false;
     }
+
     Rooted<ArrayBufferObjectMaybeShared*> buffer(cx, &AsArrayBufferMaybeShared(bufobj));
+    uint32_t byteOffset = 0;
+    uint32_t byteLength = buffer->byteLength();
 
-    // Step 4.
-    uint64_t offset;
-    if (!ToIndex(cx, args.get(1), &offset))
-        return false;
+    if (args.length() > 1) {
+        if (!ToUint32(cx, args[1], &byteOffset))
+            return false;
+        if (byteOffset > INT32_MAX) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_ARG_INDEX_OUT_OF_RANGE,
+                                      "1");
+            return false;
+        }
+    }
 
-    // Step 5.
     if (buffer->isDetached()) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_DETACHED);
         return false;
     }
 
-    // Step 6.
-    uint32_t bufferByteLength = buffer->byteLength();
-
-    // Step 7.
-    if (offset > bufferByteLength) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_ARG_INDEX_OUT_OF_RANGE, "1");
-        return false;
-    }
-    MOZ_ASSERT(offset <= INT32_MAX);
-
-    // Step 8.a
-    uint64_t viewByteLength = bufferByteLength - offset;
-    if (args.hasDefined(2)) {
-        // Step 9.a.
-        if (!ToIndex(cx, args.get(2), &viewByteLength))
-            return false;
-
-
-        MOZ_ASSERT(offset + viewByteLength >= offset,
-                   "can't overflow: both numbers are less than DOUBLE_INTEGRAL_PRECISION_LIMIT");
-
-        // Step 9.b.
-        if (offset + viewByteLength > bufferByteLength) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                      JSMSG_ARG_INDEX_OUT_OF_RANGE, "2");
+    if (args.length() > 1) {
+        if (byteOffset > byteLength) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_ARG_INDEX_OUT_OF_RANGE,
+                                      "1");
             return false;
         }
-    }
-    MOZ_ASSERT(viewByteLength <= INT32_MAX);
 
-    *byteOffsetPtr = AssertedCast<uint32_t>(offset);
-    *byteLengthPtr = AssertedCast<uint32_t>(viewByteLength);
+        if (args.get(2).isUndefined()) {
+            byteLength -= byteOffset;
+        } else {
+            if (!ToUint32(cx, args[2], &byteLength))
+                return false;
+            if (byteLength > INT32_MAX) {
+                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                          JSMSG_ARG_INDEX_OUT_OF_RANGE, "2");
+                return false;
+            }
+
+            MOZ_ASSERT(byteOffset + byteLength >= byteOffset,
+                       "can't overflow: both numbers are less than INT32_MAX");
+            if (byteOffset + byteLength > buffer->byteLength()) {
+                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                          JSMSG_ARG_INDEX_OUT_OF_RANGE, "1");
+                return false;
+            }
+        }
+    }
+
+    /* The sum of these cannot overflow a uint32_t */
+    MOZ_ASSERT(byteOffset <= INT32_MAX);
+    MOZ_ASSERT(byteLength <= INT32_MAX);
+
+
+    *byteOffsetPtr = byteOffset;
+    *byteLengthPtr = byteLength;
+
     return true;
 }
 
@@ -425,8 +431,8 @@ struct DataViewIO
 
 template<typename NativeType>
 /* static */ bool
-DataViewObject::read(JSContext* cx, Handle<DataViewObject*> obj, const CallArgs& args,
-                     NativeType* val)
+DataViewObject::read(JSContext* cx, Handle<DataViewObject*> obj,
+                     const CallArgs& args, NativeType* val, const char* method)
 {
     // Steps 1-2. done by the caller
     // Step 3. unnecessary assert
@@ -497,7 +503,8 @@ WebIDLCast<double>(JSContext* cx, HandleValue value, double* out)
 
 template<typename NativeType>
 /* static */ bool
-DataViewObject::write(JSContext* cx, Handle<DataViewObject*> obj, const CallArgs& args)
+DataViewObject::write(JSContext* cx, Handle<DataViewObject*> obj,
+                      const CallArgs& args, const char* method)
 {
     // Steps 1-2. done by the caller
     // Step 3. unnecessary assert
@@ -553,7 +560,7 @@ DataViewObject::getInt8Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     int8_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getInt8"))
         return false;
     args.rval().setInt32(val);
     return true;
@@ -574,7 +581,7 @@ DataViewObject::getUint8Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     uint8_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getUint8"))
         return false;
     args.rval().setInt32(val);
     return true;
@@ -595,7 +602,7 @@ DataViewObject::getInt16Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     int16_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getInt16"))
         return false;
     args.rval().setInt32(val);
     return true;
@@ -616,7 +623,7 @@ DataViewObject::getUint16Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     uint16_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getUint16"))
         return false;
     args.rval().setInt32(val);
     return true;
@@ -637,7 +644,7 @@ DataViewObject::getInt32Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     int32_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getInt32"))
         return false;
     args.rval().setInt32(val);
     return true;
@@ -658,7 +665,7 @@ DataViewObject::getUint32Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     uint32_t val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getUint32"))
         return false;
     args.rval().setNumber(val);
     return true;
@@ -679,7 +686,7 @@ DataViewObject::getFloat32Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     float val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getFloat32"))
         return false;
 
     args.rval().setDouble(CanonicalizeNaN(val));
@@ -701,7 +708,7 @@ DataViewObject::getFloat64Impl(JSContext* cx, const CallArgs& args)
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
     double val;
-    if (!read(cx, thisView, args, &val))
+    if (!read(cx, thisView, args, &val, "getFloat64"))
         return false;
 
     args.rval().setDouble(CanonicalizeNaN(val));
@@ -722,7 +729,7 @@ DataViewObject::setInt8Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<int8_t>(cx, thisView, args))
+    if (!write<int8_t>(cx, thisView, args, "setInt8"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -742,7 +749,7 @@ DataViewObject::setUint8Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<uint8_t>(cx, thisView, args))
+    if (!write<uint8_t>(cx, thisView, args, "setUint8"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -762,7 +769,7 @@ DataViewObject::setInt16Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<int16_t>(cx, thisView, args))
+    if (!write<int16_t>(cx, thisView, args, "setInt16"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -782,7 +789,7 @@ DataViewObject::setUint16Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<uint16_t>(cx, thisView, args))
+    if (!write<uint16_t>(cx, thisView, args, "setUint16"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -802,7 +809,7 @@ DataViewObject::setInt32Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<int32_t>(cx, thisView, args))
+    if (!write<int32_t>(cx, thisView, args, "setInt32"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -822,7 +829,7 @@ DataViewObject::setUint32Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<uint32_t>(cx, thisView, args))
+    if (!write<uint32_t>(cx, thisView, args, "setUint32"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -842,7 +849,7 @@ DataViewObject::setFloat32Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<float>(cx, thisView, args))
+    if (!write<float>(cx, thisView, args, "setFloat32"))
         return false;
     args.rval().setUndefined();
     return true;
@@ -862,7 +869,7 @@ DataViewObject::setFloat64Impl(JSContext* cx, const CallArgs& args)
 
     Rooted<DataViewObject*> thisView(cx, &args.thisv().toObject().as<DataViewObject>());
 
-    if (!write<double>(cx, thisView, args))
+    if (!write<double>(cx, thisView, args, "setFloat64"))
         return false;
     args.rval().setUndefined();
     return true;

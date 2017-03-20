@@ -189,7 +189,7 @@ ObjectGroup::useSingletonForNewObject(JSContext* cx, JSScript* script, jsbytecod
      * Sub2 lets us continue to distinguish the two subclasses and any extra
      * properties added to those prototype objects.
      */
-    if (script->isStarGenerator() || script->isLegacyGenerator() || script->isAsync())
+    if (script->isGenerator())
         return false;
     if (JSOp(*pc) != JSOP_NEW)
         return false;
@@ -469,7 +469,7 @@ class ObjectGroupCompartment::NewTable : public JS::WeakCache<js::GCHashSet<NewE
 };
 
 /* static */ ObjectGroup*
-ObjectGroup::defaultNewGroup(JSContext* cx, const Class* clasp,
+ObjectGroup::defaultNewGroup(ExclusiveContext* cx, const Class* clasp,
                              TaggedProto proto, JSObject* associated)
 {
     MOZ_ASSERT_IF(associated, proto.isObject());
@@ -530,7 +530,7 @@ ObjectGroup::defaultNewGroup(JSContext* cx, const Class* clasp,
         // this group change to plain objects, to avoid issues with other types
         // of singletons like typed arrays.
         if (protoObj->is<PlainObject>() && !protoObj->isSingleton()) {
-            if (!JSObject::changeToSingleton(cx, protoObj))
+            if (!JSObject::changeToSingleton(cx->asJSContext(), protoObj))
                 return nullptr;
         }
     }
@@ -563,7 +563,7 @@ ObjectGroup::defaultNewGroup(JSContext* cx, const Class* clasp,
 
     if (associated) {
         if (associated->is<JSFunction>()) {
-            if (!TypeNewScript::make(cx, group, &associated->as<JSFunction>()))
+            if (!TypeNewScript::make(cx->asJSContext(), group, &associated->as<JSFunction>()))
                 return nullptr;
         } else {
             group->setTypeDescr(&associated->as<TypeDescr>());
@@ -593,7 +593,7 @@ ObjectGroup::defaultNewGroup(JSContext* cx, const Class* clasp,
 }
 
 /* static */ ObjectGroup*
-ObjectGroup::lazySingletonGroup(JSContext* cx, const Class* clasp, TaggedProto proto)
+ObjectGroup::lazySingletonGroup(ExclusiveContext* cx, const Class* clasp, TaggedProto proto)
 {
     MOZ_ASSERT_IF(proto.isObject(), cx->compartment() == proto.toObject()->compartment());
 
@@ -785,7 +785,7 @@ GetValueTypeForTable(const Value& v)
 }
 
 /* static */ JSObject*
-ObjectGroup::newArrayObject(JSContext* cx,
+ObjectGroup::newArrayObject(ExclusiveContext* cx,
                             const Value* vp, size_t length,
                             NewObjectKind newKind, NewArrayKind arrayKind)
 {
@@ -903,7 +903,7 @@ ObjectGroup::newArrayObject(JSContext* cx,
 
 // Try to change the group of |source| to match that of |target|.
 static bool
-GiveObjectGroup(JSContext* cx, JSObject* source, JSObject* target)
+GiveObjectGroup(ExclusiveContext* cx, JSObject* source, JSObject* target)
 {
     MOZ_ASSERT(source->group() != target->group());
 
@@ -973,7 +973,7 @@ SameGroup(JSObject* first, JSObject* second)
 // of the old element. If this isn't possible, the groups for all old elements
 // are mutated to fit that of the new element.
 bool
-js::CombineArrayElementTypes(JSContext* cx, JSObject* newObj,
+js::CombineArrayElementTypes(ExclusiveContext* cx, JSObject* newObj,
                              const Value* compare, size_t ncompare)
 {
     if (!ncompare || !compare[0].isObject())
@@ -1010,7 +1010,7 @@ js::CombineArrayElementTypes(JSContext* cx, JSObject* newObj,
 // turn have arrays as their own properties, try to ensure that a consistent
 // group is given to each array held by the same property of the plain objects.
 bool
-js::CombinePlainObjectPropertyTypes(JSContext* cx, JSObject* newObj,
+js::CombinePlainObjectPropertyTypes(ExclusiveContext* cx, JSObject* newObj,
                                     const Value* compare, size_t ncompare)
 {
     if (!ncompare || !compare[0].isObject())
@@ -1184,7 +1184,7 @@ CanShareObjectGroup(IdValuePair* properties, size_t nproperties)
 }
 
 static bool
-AddPlainObjectProperties(JSContext* cx, HandlePlainObject obj,
+AddPlainObjectProperties(ExclusiveContext* cx, HandlePlainObject obj,
                          IdValuePair* properties, size_t nproperties)
 {
     RootedId propid(cx);
@@ -1201,7 +1201,7 @@ AddPlainObjectProperties(JSContext* cx, HandlePlainObject obj,
 }
 
 PlainObject*
-js::NewPlainObjectWithProperties(JSContext* cx, IdValuePair* properties, size_t nproperties,
+js::NewPlainObjectWithProperties(ExclusiveContext* cx, IdValuePair* properties, size_t nproperties,
                                  NewObjectKind newKind)
 {
     gc::AllocKind allocKind = gc::GetGCObjectKind(nproperties);
@@ -1212,7 +1212,7 @@ js::NewPlainObjectWithProperties(JSContext* cx, IdValuePair* properties, size_t 
 }
 
 /* static */ JSObject*
-ObjectGroup::newPlainObject(JSContext* cx, IdValuePair* properties, size_t nproperties,
+ObjectGroup::newPlainObject(ExclusiveContext* cx, IdValuePair* properties, size_t nproperties,
                             NewObjectKind newKind)
 {
     // Watch for simple cases where we don't try to reuse plain object groups.
@@ -1708,7 +1708,7 @@ ObjectGroupCompartment::replaceDefaultNewGroup(const Class* clasp, TaggedProto p
 
 /* static */
 ObjectGroup*
-ObjectGroupCompartment::makeGroup(JSContext* cx, const Class* clasp,
+ObjectGroupCompartment::makeGroup(ExclusiveContext* cx, const Class* clasp,
                                   Handle<TaggedProto> proto,
                                   ObjectGroupFlags initialFlags /* = 0 */)
 {

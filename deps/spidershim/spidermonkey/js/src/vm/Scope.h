@@ -83,17 +83,6 @@ ScopeKindIsCatch(ScopeKind kind)
     return kind == ScopeKind::SimpleCatch || kind == ScopeKind::Catch;
 }
 
-static inline bool
-ScopeKindIsInBody(ScopeKind kind)
-{
-    return kind == ScopeKind::Lexical ||
-           kind == ScopeKind::SimpleCatch ||
-           kind == ScopeKind::Catch ||
-           kind == ScopeKind::With ||
-           kind == ScopeKind::FunctionBodyVar ||
-           kind == ScopeKind::ParameterExpressionVar;
-}
-
 const char* BindingKindString(BindingKind kind);
 const char* ScopeKindString(ScopeKind kind);
 
@@ -239,11 +228,11 @@ class Scope : public js::gc::TenuredCell
         data_(0)
     { }
 
-    static Scope* create(JSContext* cx, ScopeKind kind, HandleScope enclosing,
+    static Scope* create(ExclusiveContext* cx, ScopeKind kind, HandleScope enclosing,
                          HandleShape envShape);
 
     template <typename T, typename D>
-    static Scope* create(JSContext* cx, ScopeKind kind, HandleScope enclosing,
+    static Scope* create(ExclusiveContext* cx, ScopeKind kind, HandleScope enclosing,
                          HandleShape envShape, mozilla::UniquePtr<T, D> data);
 
     template <typename ConcreteScope, XDRMode mode>
@@ -390,7 +379,7 @@ class LexicalScope : public Scope
         *length = data->length;
     }
 
-    static LexicalScope* create(JSContext* cx, ScopeKind kind, Handle<Data*> data,
+    static LexicalScope* create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
                                 uint32_t firstFrameSlot, HandleScope enclosing);
 
     template <XDRMode mode>
@@ -417,7 +406,7 @@ class LexicalScope : public Scope
 
     // Returns an empty shape for extensible global and non-syntactic lexical
     // scopes.
-    static Shape* getEmptyExtensibleEnvironmentShape(JSContext* cx);
+    static Shape* getEmptyExtensibleEnvironmentShape(ExclusiveContext* cx);
 };
 
 template <>
@@ -432,11 +421,10 @@ Scope::is<LexicalScope>() const
 }
 
 //
-// Scope corresponding to a function. Holds formal parameter names, special
-// internal names (see FunctionScope::isSpecialName), and, if the function
-// parameters contain no expressions that might possibly be evaluated, the
-// function's var bindings. For example, in these functions, the FunctionScope
-// will store a/b/c bindings but not d/e/f bindings:
+// Scope corresponding to a function. Holds formal parameter names and, if the
+// function parameters contain no expressions that might possibly be
+// evaluated, the function's var bindings.  For example, in these functions,
+// the FunctionScope will store a/b/c bindings but not d/e/f bindings:
 //
 //   function f1(a, b) {
 //     var c;
@@ -497,7 +485,6 @@ class FunctionScope : public Scope
         BindingName names[1];
 
         void trace(JSTracer* trc);
-        Zone* zone() const;
     };
 
     static size_t sizeOfData(uint32_t length) {
@@ -509,7 +496,7 @@ class FunctionScope : public Scope
         *length = data->length;
     }
 
-    static FunctionScope* create(JSContext* cx, Handle<Data*> data,
+    static FunctionScope* create(ExclusiveContext* cx, Handle<Data*> data,
                                  bool hasParameterExprs, bool needsEnvironment,
                                  HandleFunction fun, HandleScope enclosing);
 
@@ -521,7 +508,7 @@ class FunctionScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
+    static UniquePtr<Data> copyData(ExclusiveContext* cx, Handle<Data*> data,
                                     bool hasParameterExprs, MutableHandleShape envShape);
 
     Data& data() {
@@ -551,9 +538,7 @@ class FunctionScope : public Scope
         return data().nonPositionalFormalStart;
     }
 
-    static bool isSpecialName(JSContext* cx, JSAtom* name);
-
-    static Shape* getEmptyEnvironmentShape(JSContext* cx, bool hasParameterExprs);
+    static Shape* getEmptyEnvironmentShape(ExclusiveContext* cx, bool hasParameterExprs);
 };
 
 //
@@ -609,7 +594,7 @@ class VarScope : public Scope
         *length = data->length;
     }
 
-    static VarScope* create(JSContext* cx, ScopeKind kind, Handle<Data*> data,
+    static VarScope* create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
                             uint32_t firstFrameSlot, bool needsEnvironment,
                             HandleScope enclosing);
 
@@ -618,7 +603,7 @@ class VarScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
+    static UniquePtr<Data> copyData(ExclusiveContext* cx, Handle<Data*> data,
                                     uint32_t firstFrameSlot, MutableHandleShape envShape);
 
     Data& data() {
@@ -636,7 +621,7 @@ class VarScope : public Scope
         return data().nextFrameSlot;
     }
 
-    static Shape* getEmptyEnvironmentShape(JSContext* cx);
+    static Shape* getEmptyEnvironmentShape(ExclusiveContext* cx);
 };
 
 template <>
@@ -702,9 +687,9 @@ class GlobalScope : public Scope
         *length = data->length;
     }
 
-    static GlobalScope* create(JSContext* cx, ScopeKind kind, Handle<Data*> data);
+    static GlobalScope* create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data);
 
-    static GlobalScope* createEmpty(JSContext* cx, ScopeKind kind) {
+    static GlobalScope* createEmpty(ExclusiveContext* cx, ScopeKind kind) {
         return create(cx, kind, nullptr);
     }
 
@@ -714,7 +699,7 @@ class GlobalScope : public Scope
     static bool XDR(XDRState<mode>* xdr, ScopeKind kind, MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data);
+    static UniquePtr<Data> copyData(ExclusiveContext* cx, Handle<Data*> data);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -751,7 +736,7 @@ class WithScope : public Scope
     static const ScopeKind classScopeKind_ = ScopeKind::With;
 
   public:
-    static WithScope* create(JSContext* cx, HandleScope enclosing);
+    static WithScope* create(ExclusiveContext* cx, HandleScope enclosing);
 };
 
 //
@@ -806,7 +791,7 @@ class EvalScope : public Scope
         *length = data->length;
     }
 
-    static EvalScope* create(JSContext* cx, ScopeKind kind, Handle<Data*> data,
+    static EvalScope* create(ExclusiveContext* cx, ScopeKind kind, Handle<Data*> data,
                              HandleScope enclosing);
 
     template <XDRMode mode>
@@ -814,7 +799,7 @@ class EvalScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, ScopeKind scopeKind,
+    static UniquePtr<Data> copyData(ExclusiveContext* cx, ScopeKind scopeKind,
                                     Handle<Data*> data, MutableHandleShape envShape);
 
     Data& data() {
@@ -848,7 +833,7 @@ class EvalScope : public Scope
         return !nearestVarScopeForDirectEval(enclosing())->is<GlobalScope>();
     }
 
-    static Shape* getEmptyEnvironmentShape(JSContext* cx);
+    static Shape* getEmptyEnvironmentShape(ExclusiveContext* cx);
 };
 
 template <>
@@ -901,7 +886,6 @@ class ModuleScope : public Scope
         BindingName names[1];
 
         void trace(JSTracer* trc);
-        Zone* zone() const;
     };
 
     static size_t sizeOfData(uint32_t length) {
@@ -913,11 +897,11 @@ class ModuleScope : public Scope
         *length = data->length;
     }
 
-    static ModuleScope* create(JSContext* cx, Handle<Data*> data,
+    static ModuleScope* create(ExclusiveContext* cx, Handle<Data*> data,
                                Handle<ModuleObject*> module, HandleScope enclosing);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
+    static UniquePtr<Data> copyData(ExclusiveContext* cx, Handle<Data*> data,
                                     MutableHandleShape envShape);
 
     Data& data() {
@@ -939,7 +923,7 @@ class ModuleScope : public Scope
 
     JSScript* script() const;
 
-    static Shape* getEmptyEnvironmentShape(JSContext* cx);
+    static Shape* getEmptyEnvironmentShape(ExclusiveContext* cx);
 };
 
 // Scope corresponding to the wasm function. A WasmFunctionScope is used by
@@ -990,7 +974,7 @@ class WasmFunctionScope : public Scope
         return data().funcIndex;
     }
 
-    static Shape* getEmptyEnvironmentShape(JSContext* cx);
+    static Shape* getEmptyEnvironmentShape(ExclusiveContext* cx);
 };
 
 //

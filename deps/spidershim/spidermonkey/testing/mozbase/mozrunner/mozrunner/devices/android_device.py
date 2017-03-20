@@ -55,19 +55,19 @@ class AvdInfo(object):
 AVD_DICT = {
     '4.3': AvdInfo('Android 4.3',
                    'mozemulator-4.3',
-                   'testing/config/tooltool-manifests/androidarm_4_3/mach-emulator.manifest',
+                   'testing/config/tooltool-manifests/androidarm_4_3/releng.manifest',
                    ['-show-kernel', '-debug',
                     'init,console,gles,memcheck,adbserver,adbclient,adb,avd_config,socket'],
                    5554),
     '6.0': AvdInfo('Android 6.0',
                    'mozemulator-6.0',
-                   'testing/config/tooltool-manifests/androidarm_6_0/mach-emulator.manifest',
+                   'testing/config/tooltool-manifests/androidarm_6_0/releng.manifest',
                    ['-show-kernel', '-debug',
                     'init,console,gles,memcheck,adbserver,adbclient,adb,avd_config,socket'],
                    5554),
     'x86': AvdInfo('Android 4.2 x86',
                    'mozemulator-x86',
-                   'testing/config/tooltool-manifests/androidx86/mach-emulator.manifest',
+                   'testing/config/tooltool-manifests/androidx86/releng.manifest',
                    ['-debug',
                     'init,console,gles,memcheck,adbserver,adbclient,adb,avd_config,socket',
                     '-qemu', '-m', '1024', '-enable-kvm'],
@@ -286,6 +286,7 @@ def grant_runtime_permissions(build_obj):
             dm.shellCheckOutput(['pm', 'grant', app, 'android.permission.READ_EXTERNAL_STORAGE'])
             dm.shellCheckOutput(['pm', 'grant', app, 'android.permission.ACCESS_FINE_LOCATION'])
             dm.shellCheckOutput(['pm', 'grant', app, 'android.permission.CAMERA'])
+            dm.shellCheckOutput(['pm', 'grant', app, 'android.permission.WRITE_CONTACTS'])
     except DMError:
         _log_warning("Unable to grant runtime permissions to %s" % app)
 

@@ -695,7 +695,7 @@ class MemoryAccessDesc
 
   public:
     explicit MemoryAccessDesc(Scalar::Type type, uint32_t align, uint32_t offset,
-                              const mozilla::Maybe<TrapOffset>& trapOffset,
+                              mozilla::Maybe<TrapOffset> trapOffset,
                               unsigned numSimdElems = 0,
                               jit::MemoryBarrierBits barrierBefore = jit::MembarNobits,
                               jit::MemoryBarrierBits barrierAfter = jit::MembarNobits)
@@ -811,6 +811,9 @@ class AssemblerShared
     wasm::TrapSiteVector trapSites_;
     wasm::TrapFarJumpVector trapFarJumps_;
     wasm::MemoryAccessVector memoryAccesses_;
+    wasm::MemoryPatchVector memoryPatches_;
+    wasm::BoundsCheckVector boundsChecks_;
+    wasm::GlobalAccessVector globalAccesses_;
     wasm::SymbolicAccessVector symbolicAccesses_;
 
   protected:
@@ -885,6 +888,15 @@ class AssemblerShared
         }
     }
 
+    void append(wasm::MemoryPatch patch) { enoughMemory_ &= memoryPatches_.append(patch); }
+    wasm::MemoryPatchVector&& extractMemoryPatches() { return Move(memoryPatches_); }
+
+    void append(wasm::BoundsCheck check) { enoughMemory_ &= boundsChecks_.append(check); }
+    wasm::BoundsCheckVector&& extractBoundsChecks() { return Move(boundsChecks_); }
+
+    void append(wasm::GlobalAccess access) { enoughMemory_ &= globalAccesses_.append(access); }
+    const wasm::GlobalAccessVector& globalAccesses() const { return globalAccesses_; }
+
     void append(wasm::SymbolicAccess access) { enoughMemory_ &= symbolicAccesses_.append(access); }
     size_t numSymbolicAccesses() const { return symbolicAccesses_.length(); }
     wasm::SymbolicAccess symbolicAccess(size_t i) const { return symbolicAccesses_[i]; }
@@ -920,6 +932,21 @@ class AssemblerShared
         enoughMemory_ &= memoryAccesses_.appendAll(other.memoryAccesses_);
         for (; i < memoryAccesses_.length(); i++)
             memoryAccesses_[i].offsetBy(delta);
+
+        i = memoryPatches_.length();
+        enoughMemory_ &= memoryPatches_.appendAll(other.memoryPatches_);
+        for (; i < memoryPatches_.length(); i++)
+            memoryPatches_[i].offsetBy(delta);
+
+        i = boundsChecks_.length();
+        enoughMemory_ &= boundsChecks_.appendAll(other.boundsChecks_);
+        for (; i < boundsChecks_.length(); i++)
+            boundsChecks_[i].offsetBy(delta);
+
+        i = globalAccesses_.length();
+        enoughMemory_ &= globalAccesses_.appendAll(other.globalAccesses_);
+        for (; i < globalAccesses_.length(); i++)
+            globalAccesses_[i].patchAt.offsetBy(delta);
 
         i = symbolicAccesses_.length();
         enoughMemory_ &= symbolicAccesses_.appendAll(other.symbolicAccesses_);

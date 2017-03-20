@@ -3,7 +3,6 @@
 let g = newGlobal();
 let dbg = new Debugger(g);
 
-var text;
 var count = 0;
 dbg.onNewScript = function (script) {
     ++count;

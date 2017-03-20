@@ -19,7 +19,6 @@
 #ifndef wasm_types_h
 #define wasm_types_h
 
-#include "mozilla/Alignment.h"
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Maybe.h"
@@ -41,10 +40,7 @@
 namespace js {
 
 class PropertyName;
-namespace jit {
-    struct BaselineScript;
-    enum class RoundingMode;
-}
+namespace jit { struct BaselineScript; }
 
 // This is a widespread header, so lets keep out the core wasm impl types.
 
@@ -96,7 +92,6 @@ typedef float F32x4[4];
 
 class Code;
 class CodeRange;
-class GlobalSegment;
 class Memory;
 class Module;
 class Instance;
@@ -1018,7 +1013,8 @@ enum class SymbolicAddress
     LogD,
     PowD,
     ATan2D,
-    ContextPtr,
+    Context,
+    InterruptUint32,
     ReportOverRecursed,
     HandleExecutionInterrupt,
     HandleDebugTrap,
@@ -1038,20 +1034,15 @@ enum class SymbolicAddress
     UModI64,
     TruncateDoubleToInt64,
     TruncateDoubleToUint64,
-    Uint64ToFloat32,
-    Uint64ToDouble,
-    Int64ToFloat32,
-    Int64ToDouble,
+    Uint64ToFloatingPoint,
+    Int64ToFloatingPoint,
     GrowMemory,
     CurrentMemory,
     Limit
 };
 
-bool
-IsRoundingFunction(SymbolicAddress callee, jit::RoundingMode* mode);
-
 void*
-AddressOf(SymbolicAddress imm, JSContext* cx);
+AddressOf(SymbolicAddress imm, ExclusiveContext* cx);
 
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
@@ -1067,7 +1058,7 @@ struct Assumptions
     // If Assumptions is constructed without arguments, initBuildIdFromContext()
     // must be called to complete initialization.
     Assumptions();
-    bool initBuildIdFromContext(JSContext* cx);
+    bool initBuildIdFromContext(ExclusiveContext* cx);
 
     bool clone(const Assumptions& other);
 
@@ -1114,7 +1105,7 @@ struct TableDesc
     Limits limits;
 
     TableDesc() = default;
-    TableDesc(TableKind kind, const Limits& limits)
+    TableDesc(TableKind kind, Limits limits)
      : kind(kind),
        external(false),
        globalDataOffset(UINT32_MAX),
@@ -1159,24 +1150,11 @@ struct TlsData
     // Pointer to the base of the default memory (or null if there is none).
     uint8_t* memoryBase;
 
-#ifndef WASM_HUGE_MEMORY
-    // Bounds check limit of memory, in bytes (or zero if there is no memory).
-    uint32_t boundsCheckLimit;
-#endif
-
     // Stack limit for the current thread. This limit is checked against the
     // stack pointer in the prologue of functions that allocate stack space. See
     // `CodeGenerator::generateWasm`.
     void* stackLimit;
-
-    // The globalArea must be the last field.  Globals for the module start here
-    // and are inline in this structure.  16-byte alignment is required for SIMD
-    // data.
-    MOZ_ALIGNED_DECL(char globalArea, 16);
-
 };
-
-static_assert(offsetof(TlsData, globalArea) % 16 == 0, "aligned");
 
 typedef int32_t (*ExportFuncPtr)(ExportArg* args, TlsData* tls);
 
@@ -1276,7 +1254,6 @@ class CalleeDesc
         } import;
         struct {
             uint32_t globalDataOffset_;
-            uint32_t minLength_;
             bool external_;
             SigIdDesc sigId_;
         } table;
@@ -1301,7 +1278,6 @@ class CalleeDesc
         CalleeDesc c;
         c.which_ = WasmTable;
         c.u.table.globalDataOffset_ = desc.globalDataOffset;
-        c.u.table.minLength_ = desc.limits.initial;
         c.u.table.external_ = desc.external;
         c.u.table.sigId_ = sigId;
         return c;
@@ -1353,10 +1329,6 @@ class CalleeDesc
     SigIdDesc wasmTableSigId() const {
         MOZ_ASSERT(which_ == WasmTable);
         return u.table.sigId_;
-    }
-    uint32_t wasmTableMinLength() const {
-        MOZ_ASSERT(which_ == WasmTable);
-        return u.table.minLength_;
     }
     SymbolicAddress builtin() const {
         MOZ_ASSERT(which_ == Builtin || which_ == BuiltinInstanceMethod);
@@ -1437,6 +1409,32 @@ ComputeMappedSize(uint32_t maxSize);
 
 #endif // WASM_HUGE_MEMORY
 
+// Metadata for bounds check instructions that are patched at runtime with the
+// appropriate bounds check limit. On WASM_HUGE_MEMORY platforms for wasm (and
+// SIMD/Atomic) bounds checks, no BoundsCheck is created: the signal handler
+// catches everything. On !WASM_HUGE_MEMORY, a BoundsCheck is created for each
+// memory access (except when statically eliminated by optimizations) so that
+// the length can be patched in as an immediate. This requires that the bounds
+// check limit IsValidBoundsCheckImmediate.
+
+class BoundsCheck
+{
+  public:
+    BoundsCheck() = default;
+
+    explicit BoundsCheck(uint32_t cmpOffset)
+      : cmpOffset_(cmpOffset)
+    { }
+
+    uint8_t* patchAt(uint8_t* code) const { return code + cmpOffset_; }
+    void offsetBy(uint32_t offset) { cmpOffset_ += offset; }
+
+  private:
+    uint32_t cmpOffset_;
+};
+
+WASM_DECLARE_POD_VECTOR(BoundsCheck, BoundsCheckVector)
+
 // Metadata for memory accesses. On WASM_HUGE_MEMORY platforms, only
 // (non-SIMD/Atomic) asm.js loads and stores create a MemoryAccess so that the
 // signal handler can implement the semantically-correct wraparound logic; the
@@ -1476,6 +1474,26 @@ class MemoryAccess
 };
 
 WASM_DECLARE_POD_VECTOR(MemoryAccess, MemoryAccessVector)
+
+// Metadata for the offset of an instruction to patch with the base address of
+// memory. In practice, this is only used for x86 where the offset points to the
+// *end* of the instruction (which is a non-fixed offset from the beginning of
+// the instruction). As part of the move away from code patching, this should be
+// removed.
+
+struct MemoryPatch
+{
+    uint32_t offset;
+
+    MemoryPatch() = default;
+    explicit MemoryPatch(uint32_t offset) : offset(offset) {}
+
+    void offsetBy(uint32_t delta) {
+        offset += delta;
+    }
+};
+
+WASM_DECLARE_POD_VECTOR(MemoryPatch, MemoryPatchVector)
 
 // As an invariant across architectures, within wasm code:
 //   $sp % WasmStackAlignment = (sizeof(wasm::Frame) + masm.framePushed) % WasmStackAlignment

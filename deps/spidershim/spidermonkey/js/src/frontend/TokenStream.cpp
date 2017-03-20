@@ -24,10 +24,10 @@
 #include "jsnum.h"
 
 #include "frontend/BytecodeCompiler.h"
-#include "frontend/ReservedWords.h"
 #include "js/CharacterEncoding.h"
 #include "js/UniquePtr.h"
 #include "vm/HelperThreads.h"
+#include "vm/Keywords.h"
 #include "vm/StringBuffer.h"
 #include "vm/Unicode.h"
 
@@ -40,65 +40,65 @@ using mozilla::PodAssign;
 using mozilla::PodCopy;
 using mozilla::PodZero;
 
-struct ReservedWordInfo {
-    const char* chars;         // C string with reserved word text
+struct KeywordInfo {
+    const char* chars;         // C string with keyword text
     TokenKind   tokentype;
 };
 
-static const ReservedWordInfo reservedWords[] = {
-#define RESERVED_WORD_INFO(word, name, type) \
-    {js_##word##_str, type},
-    FOR_EACH_JAVASCRIPT_RESERVED_WORD(RESERVED_WORD_INFO)
-#undef RESERVED_WORD_INFO
+static const KeywordInfo keywords[] = {
+#define KEYWORD_INFO(keyword, name, type) \
+    {js_##keyword##_str, type},
+    FOR_EACH_JAVASCRIPT_KEYWORD(KEYWORD_INFO)
+#undef KEYWORD_INFO
 };
 
-// Returns a ReservedWordInfo for the specified characters, or nullptr if the
-// string is not a reserved word.
+// Returns a KeywordInfo for the specified characters, or nullptr if the string
+// is not a keyword.
 template <typename CharT>
-static const ReservedWordInfo*
-FindReservedWord(const CharT* s, size_t length)
+static const KeywordInfo*
+FindKeyword(const CharT* s, size_t length)
 {
     MOZ_ASSERT(length != 0);
 
     size_t i;
-    const ReservedWordInfo* rw;
+    const KeywordInfo* kw;
     const char* chars;
 
-#define JSRW_LENGTH()           length
-#define JSRW_AT(column)         s[column]
-#define JSRW_GOT_MATCH(index)   i = (index); goto got_match;
-#define JSRW_TEST_GUESS(index)  i = (index); goto test_guess;
-#define JSRW_NO_MATCH()         goto no_match;
-#include "frontend/ReservedWordsGenerated.h"
-#undef JSRW_NO_MATCH
-#undef JSRW_TEST_GUESS
-#undef JSRW_GOT_MATCH
-#undef JSRW_AT
-#undef JSRW_LENGTH
+#define JSKW_LENGTH()           length
+#define JSKW_AT(column)         s[column]
+#define JSKW_GOT_MATCH(index)   i = (index); goto got_match;
+#define JSKW_TEST_GUESS(index)  i = (index); goto test_guess;
+#define JSKW_NO_MATCH()         goto no_match;
+#include "jsautokw.h"
+#undef JSKW_NO_MATCH
+#undef JSKW_TEST_GUESS
+#undef JSKW_GOT_MATCH
+#undef JSKW_AT
+#undef JSKW_LENGTH
 
   got_match:
-    return &reservedWords[i];
+    return &keywords[i];
 
   test_guess:
-    rw = &reservedWords[i];
-    chars = rw->chars;
+    kw = &keywords[i];
+    chars = kw->chars;
     do {
         if (*s++ != (unsigned char)(*chars++))
             goto no_match;
     } while (--length != 0);
-    return rw;
+    return kw;
 
   no_match:
     return nullptr;
 }
 
-static const ReservedWordInfo*
-FindReservedWord(JSLinearString* str)
+static const KeywordInfo*
+FindKeyword(JSLinearString* str)
 {
     JS::AutoCheckCannotGC nogc;
     return str->hasLatin1Chars()
-           ? FindReservedWord(str->latin1Chars(nogc), str->length())
-           : FindReservedWord(str->twoByteChars(nogc), str->length());
+           ? FindKeyword(str->latin1Chars(nogc), str->length())
+           : FindKeyword(str->twoByteChars(nogc), str->length());
 }
 
 template <typename CharT>
@@ -174,12 +174,6 @@ frontend::IsIdentifier(JSLinearString* str)
 }
 
 bool
-frontend::IsIdentifier(const char* chars, size_t length)
-{
-    return ::IsIdentifier(chars, length);
-}
-
-bool
 frontend::IsIdentifier(const char16_t* chars, size_t length)
 {
     return ::IsIdentifier(chars, length);
@@ -188,71 +182,10 @@ frontend::IsIdentifier(const char16_t* chars, size_t length)
 bool
 frontend::IsKeyword(JSLinearString* str)
 {
-    if (const ReservedWordInfo* rw = FindReservedWord(str))
-        return TokenKindIsKeyword(rw->tokentype);
-
-    return false;
+    return FindKeyword(str) != nullptr;
 }
 
-bool
-frontend::IsFutureReservedWord(JSLinearString* str)
-{
-    if (const ReservedWordInfo* rw = FindReservedWord(str))
-        return TokenKindIsFutureReservedWord(rw->tokentype);
-
-    return false;
-}
-
-bool
-frontend::IsStrictReservedWord(JSLinearString* str)
-{
-    if (const ReservedWordInfo* rw = FindReservedWord(str))
-        return TokenKindIsStrictReservedWord(rw->tokentype);
-
-    return false;
-}
-
-bool
-frontend::IsReservedWordLiteral(JSLinearString* str)
-{
-    if (const ReservedWordInfo* rw = FindReservedWord(str))
-        return TokenKindIsReservedWordLiteral(rw->tokentype);
-
-    return false;
-}
-
-const char*
-frontend::ReservedWordToCharZ(PropertyName* str)
-{
-    const ReservedWordInfo* rw = FindReservedWord(str);
-    if (rw == nullptr)
-        return nullptr;
-
-    switch (rw->tokentype) {
-#define EMIT_CASE(word, name, type) case type: return js_##word##_str;
-      FOR_EACH_JAVASCRIPT_RESERVED_WORD(EMIT_CASE)
-#undef EMIT_CASE
-      default:
-        MOZ_ASSERT_UNREACHABLE("Not a reserved word PropertyName.");
-    }
-    return nullptr;
-}
-
-PropertyName*
-TokenStream::reservedWordToPropertyName(TokenKind tt) const
-{
-    MOZ_ASSERT(tt != TOK_NAME);
-    switch (tt) {
-#define EMIT_CASE(word, name, type) case type: return cx->names().name;
-      FOR_EACH_JAVASCRIPT_RESERVED_WORD(EMIT_CASE)
-#undef EMIT_CASE
-      default:
-        MOZ_ASSERT_UNREACHABLE("Not a reserved word TokenKind.");
-    }
-    return nullptr;
-}
-
-TokenStream::SourceCoords::SourceCoords(JSContext* cx, uint32_t ln)
+TokenStream::SourceCoords::SourceCoords(ExclusiveContext* cx, uint32_t ln)
   : lineStartOffsets_(cx), initialLineNum_(ln), lastLineIndex_(0)
 {
     // This is actually necessary!  Removing it causes compile errors on
@@ -406,7 +339,7 @@ TokenStream::SourceCoords::lineNumAndColumnIndex(uint32_t offset, uint32_t* line
 #pragma warning(disable:4351)
 #endif
 
-TokenStream::TokenStream(JSContext* cx, const ReadOnlyCompileOptions& options,
+TokenStream::TokenStream(ExclusiveContext* cx, const ReadOnlyCompileOptions& options,
                          const char16_t* base, size_t length, StrictModeGetter* smg)
   : srcCoords(cx, options.lineno),
     options_(options),
@@ -667,8 +600,8 @@ TokenStream::seek(const Position& pos, const TokenStream& other)
 }
 
 bool
-TokenStream::reportStrictModeErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t offset,
-                                           bool strictMode, unsigned errorNumber, va_list args)
+TokenStream::reportStrictModeErrorNumberVA(uint32_t offset, bool strictMode, unsigned errorNumber,
+                                           va_list args)
 {
     // In strict mode code, this is an error, not merely a warning.
     unsigned flags;
@@ -679,7 +612,7 @@ TokenStream::reportStrictModeErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32
     else
         return true;
 
-    return reportCompileErrorNumberVA(Move(notes), offset, flags, errorNumber, args);
+    return reportCompileErrorNumberVA(offset, flags, errorNumber, args);
 }
 
 void
@@ -705,8 +638,8 @@ CompileError::throwError(JSContext* cx)
 }
 
 bool
-TokenStream::reportCompileErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t offset,
-                                        unsigned flags, unsigned errorNumber, va_list args)
+TokenStream::reportCompileErrorNumberVA(uint32_t offset, unsigned flags, unsigned errorNumber,
+                                        va_list args)
 {
     bool warning = JSREPORT_IS_WARNING(flags);
 
@@ -715,16 +648,14 @@ TokenStream::reportCompileErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t 
         warning = false;
     }
 
-    // On the active thread, report the error immediately. When compiling off
-    // thread, save the error so that the thread finishing the parse can report
-    // it later.
+    // On the main thread, report the error immediately. When compiling off
+    // thread, save the error so that the main thread can report it later.
     CompileError tempErr;
     CompileError* tempErrPtr = &tempErr;
-    if (cx->helperThread() && !cx->addPendingCompileError(&tempErrPtr))
+    if (!cx->isJSContext() && !cx->addPendingCompileError(&tempErrPtr))
         return false;
     CompileError& err = *tempErrPtr;
 
-    err.notes = Move(notes);
     err.flags = flags;
     err.errorNumber = errorNumber;
     err.filename = filename;
@@ -739,8 +670,8 @@ TokenStream::reportCompileErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t 
 
     // If we have no location information, try to get one from the caller.
     bool callerFilename = false;
-    if (offset != NoOffset && !err.filename && !cx->helperThread()) {
-        NonBuiltinFrameIter iter(cx,
+    if (offset != NoOffset && !err.filename && cx->isJSContext()) {
+        NonBuiltinFrameIter iter(cx->asJSContext(),
                                  FrameIter::FOLLOW_DEBUGGER_EVAL_PREV_LINK,
                                  cx->compartment()->principals());
         if (!iter.done() && iter.filename()) {
@@ -805,8 +736,8 @@ TokenStream::reportCompileErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t 
         err.initOwnedLinebuf(linebuf.release(), windowLength, offset - windowStart);
     }
 
-    if (!cx->helperThread())
-        err.throwError(cx);
+    if (cx->isJSContext())
+        err.throwError(cx->asJSContext());
 
     return warning;
 }
@@ -816,7 +747,7 @@ TokenStream::reportStrictModeError(unsigned errorNumber, ...)
 {
     va_list args;
     va_start(args, errorNumber);
-    bool result = reportStrictModeErrorNumberVA(nullptr, currentToken().pos.begin, strictMode(),
+    bool result = reportStrictModeErrorNumberVA(currentToken().pos.begin, strictMode(),
                                                 errorNumber, args);
     va_end(args);
     return result;
@@ -827,8 +758,8 @@ TokenStream::reportError(unsigned errorNumber, ...)
 {
     va_list args;
     va_start(args, errorNumber);
-    bool result = reportCompileErrorNumberVA(nullptr, currentToken().pos.begin, JSREPORT_ERROR,
-                                             errorNumber, args);
+    bool result = reportCompileErrorNumberVA(currentToken().pos.begin, JSREPORT_ERROR, errorNumber,
+                                             args);
     va_end(args);
     return result;
 }
@@ -838,8 +769,8 @@ TokenStream::reportErrorNoOffset(unsigned errorNumber, ...)
 {
     va_list args;
     va_start(args, errorNumber);
-    bool result = reportCompileErrorNumberVA(nullptr, NoOffset, JSREPORT_ERROR,
-                                             errorNumber, args);
+    bool result = reportCompileErrorNumberVA(NoOffset, JSREPORT_ERROR, errorNumber,
+                                             args);
     va_end(args);
     return result;
 }
@@ -849,21 +780,19 @@ TokenStream::warning(unsigned errorNumber, ...)
 {
     va_list args;
     va_start(args, errorNumber);
-    bool result = reportCompileErrorNumberVA(nullptr, currentToken().pos.begin, JSREPORT_WARNING,
+    bool result = reportCompileErrorNumberVA(currentToken().pos.begin, JSREPORT_WARNING,
                                              errorNumber, args);
     va_end(args);
     return result;
 }
 
 bool
-TokenStream::reportExtraWarningErrorNumberVA(UniquePtr<JSErrorNotes> notes, uint32_t offset,
-                                             unsigned errorNumber, va_list args)
+TokenStream::reportExtraWarningErrorNumberVA(uint32_t offset, unsigned errorNumber, va_list args)
 {
     if (!options().extraWarningsOption)
         return true;
 
-    return reportCompileErrorNumberVA(Move(notes), offset, JSREPORT_STRICT|JSREPORT_WARNING,
-                                      errorNumber, args);
+    return reportCompileErrorNumberVA(offset, JSREPORT_STRICT|JSREPORT_WARNING, errorNumber, args);
 }
 
 void
@@ -874,7 +803,7 @@ TokenStream::reportAsmJSError(uint32_t offset, unsigned errorNumber, ...)
     unsigned flags = options().throwOnAsmJSValidationFailureOption
                      ? JSREPORT_ERROR
                      : JSREPORT_WARNING;
-    reportCompileErrorNumberVA(nullptr, offset, flags, errorNumber, args);
+    reportCompileErrorNumberVA(offset, flags, errorNumber, args);
     va_end(args);
 }
 
@@ -886,8 +815,7 @@ TokenStream::error(unsigned errorNumber, ...)
 #ifdef DEBUG
     bool result =
 #endif
-        reportCompileErrorNumberVA(nullptr, currentToken().pos.begin, JSREPORT_ERROR,
-                                   errorNumber, args);
+        reportCompileErrorNumberVA(currentToken().pos.begin, JSREPORT_ERROR, errorNumber, args);
     MOZ_ASSERT(!result, "reporting an error returned true?");
     va_end(args);
 }
@@ -900,7 +828,7 @@ TokenStream::errorAt(uint32_t offset, unsigned errorNumber, ...)
 #ifdef DEBUG
     bool result =
 #endif
-        reportCompileErrorNumberVA(nullptr, offset, JSREPORT_ERROR, errorNumber, args);
+        reportCompileErrorNumberVA(offset, JSREPORT_ERROR, errorNumber, args);
     MOZ_ASSERT(!result, "reporting an error returned true?");
     va_end(args);
 }
@@ -1141,7 +1069,7 @@ TokenStream::newToken(ptrdiff_t adjust)
 }
 
 MOZ_ALWAYS_INLINE JSAtom*
-TokenStream::atomize(JSContext* cx, CharBuffer& cb)
+TokenStream::atomize(ExclusiveContext* cx, CharBuffer& cb)
 {
     return AtomizeChars(cx, cb.begin(), cb.length());
 }
@@ -1228,6 +1156,38 @@ TokenStream::putIdentInTokenbuf(const char16_t* identStart)
     }
     userbuf.setAddressOfNextRawChar(tmp);
     return true;
+}
+
+bool
+TokenStream::checkForKeyword(const KeywordInfo* kw, TokenKind* ttp)
+{
+    if (!awaitIsKeyword && kw->tokentype == TOK_AWAIT) {
+        if (ttp)
+            *ttp = TOK_NAME;
+        return true;
+    }
+
+    if (kw->tokentype == TOK_RESERVED) {
+        error(JSMSG_RESERVED_ID, kw->chars);
+        return false;
+    }
+
+    if (kw->tokentype == TOK_STRICT_RESERVED)
+        return reportStrictModeError(JSMSG_RESERVED_ID, kw->chars);
+
+    // Working keyword.
+    *ttp = kw->tokentype;
+    return true;
+}
+
+bool
+TokenStream::checkForKeyword(JSAtom* atom, TokenKind* ttp)
+{
+    const KeywordInfo* kw = FindKeyword(atom);
+    if (!kw)
+        return true;
+
+    return checkForKeyword(kw, ttp);
 }
 
 enum FirstCharKind {
@@ -1453,11 +1413,30 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
             length = userbuf.addressOfNextRawChar() - identStart;
         }
 
-        // Represent reserved words as reserved word tokens.
-        if (!hadUnicodeEscape) {
-            if (const ReservedWordInfo* rw = FindReservedWord(chars, length)) {
-                tp->type = rw->tokentype;
-                goto out;
+        // Represent keywords as keyword tokens unless told otherwise.
+        if (modifier != KeywordIsName) {
+            if (const KeywordInfo* kw = FindKeyword(chars, length)) {
+                // That said, keywords can't contain escapes.  (Contexts where
+                // keywords are treated as names, that also sometimes treat
+                // keywords as keywords, must manually check this requirement.)
+                // There are two exceptions
+                // 1) StrictReservedWords: These keywords need to be treated as
+                //    names in non-strict mode.
+                // 2) yield is also treated as a name if it contains an escape
+                //    sequence. The parser must handle this case separately.
+                if (hadUnicodeEscape && !(
+                        (kw->tokentype == TOK_STRICT_RESERVED && !strictMode()) ||
+                         kw->tokentype == TOK_YIELD))
+                {
+                    reportError(JSMSG_ESCAPED_KEYWORD);
+                    goto error;
+                }
+
+                tp->type = TOK_NAME;
+                if (!checkForKeyword(kw, &tp->type))
+                    goto error;
+                if (tp->type != TOK_NAME && !hadUnicodeEscape)
+                    goto out;
             }
         }
 
@@ -1725,16 +1704,14 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
         goto out;
 
       case '<':
-        if (options().allowHTMLComments) {
-            // Treat HTML begin-comment as comment-till-end-of-line.
-            if (matchChar('!')) {
-                if (matchChar('-')) {
-                    if (matchChar('-'))
-                        goto skipline;
-                    ungetChar('-');
-                }
-                ungetChar('!');
+        // NB: treat HTML begin-comment as comment-till-end-of-line.
+        if (matchChar('!')) {
+            if (matchChar('-')) {
+                if (matchChar('-'))
+                    goto skipline;
+                ungetChar('-');
             }
+            ungetChar('!');
         }
         if (matchChar('<')) {
             tp->type = matchChar('=') ? TOK_LSHASSIGN : TOK_LSH;
@@ -1874,14 +1851,12 @@ TokenStream::getTokenInternal(TokenKind* ttp, Modifier modifier)
 
       case '-':
         if (matchChar('-')) {
-            if (options().allowHTMLComments && !flags.isDirtyLine) {
-                int32_t c2;
-                if (!peekChar(&c2))
-                    goto error;
+            int32_t c2;
+            if (!peekChar(&c2))
+                goto error;
 
-                if (c2 == '>')
-                    goto skipline;
-            }
+            if (c2 == '>' && !flags.isDirtyLine)
+                goto skipline;
 
             tp->type = TOK_DEC;
         } else {

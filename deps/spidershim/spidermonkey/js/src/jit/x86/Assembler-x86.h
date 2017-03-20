@@ -18,14 +18,14 @@
 namespace js {
 namespace jit {
 
-static constexpr Register eax { X86Encoding::rax };
-static constexpr Register ecx { X86Encoding::rcx };
-static constexpr Register edx { X86Encoding::rdx };
-static constexpr Register ebx { X86Encoding::rbx };
-static constexpr Register esp { X86Encoding::rsp };
-static constexpr Register ebp { X86Encoding::rbp };
-static constexpr Register esi { X86Encoding::rsi };
-static constexpr Register edi { X86Encoding::rdi };
+static constexpr Register eax = { X86Encoding::rax };
+static constexpr Register ecx = { X86Encoding::rcx };
+static constexpr Register edx = { X86Encoding::rdx };
+static constexpr Register ebx = { X86Encoding::rbx };
+static constexpr Register esp = { X86Encoding::rsp };
+static constexpr Register ebp = { X86Encoding::rbp };
+static constexpr Register esi = { X86Encoding::rsi };
+static constexpr Register edi = { X86Encoding::rdi };
 
 static constexpr FloatRegister xmm0 = FloatRegister(X86Encoding::xmm0, FloatRegisters::Double);
 static constexpr FloatRegister xmm1 = FloatRegister(X86Encoding::xmm1, FloatRegisters::Double);
@@ -36,7 +36,7 @@ static constexpr FloatRegister xmm5 = FloatRegister(X86Encoding::xmm5, FloatRegi
 static constexpr FloatRegister xmm6 = FloatRegister(X86Encoding::xmm6, FloatRegisters::Double);
 static constexpr FloatRegister xmm7 = FloatRegister(X86Encoding::xmm7, FloatRegisters::Double);
 
-static constexpr Register InvalidReg { X86Encoding::invalid_reg };
+static constexpr Register InvalidReg = { X86Encoding::invalid_reg };
 static constexpr FloatRegister InvalidFloatReg = FloatRegister();
 
 static constexpr Register JSReturnReg_Type = ecx;
@@ -197,7 +197,7 @@ PatchJump(CodeLocationJump jump, CodeLocationLabel label, ReprotectCode reprotec
     X86Encoding::SetRel32(jump.raw(), label.raw());
 }
 static inline void
-PatchBackedge(CodeLocationJump& jump_, CodeLocationLabel label, JitZoneGroup::BackedgeTarget target)
+PatchBackedge(CodeLocationJump& jump_, CodeLocationLabel label, JitRuntime::BackedgeTarget target)
 {
     PatchJump(jump_, label);
 }
@@ -616,22 +616,6 @@ class Assembler : public AssemblerX86Shared
         }
         return CodeOffset(masm.currentOffset());
     }
-    void vmovss(const Operand& src, FloatRegister dest) {
-        MOZ_ASSERT(HasSSE2());
-        switch (src.kind()) {
-          case Operand::MEM_REG_DISP:
-            masm.vmovss_mr_disp32(src.disp(), src.base(), dest.encoding());
-            break;
-          case Operand::MEM_ADDRESS32:
-            masm.vmovss_mr(src.address(), dest.encoding());
-            break;
-          case Operand::MEM_SCALE:
-            masm.vmovss_mr(src.disp(), src.base(), src.index(), src.scale(), dest.encoding());
-            break;
-          default:
-            MOZ_CRASH("unexpected operand kind");
-        }
-    }
     CodeOffset vmovdWithPatch(const Operand& src, FloatRegister dest) {
         MOZ_ASSERT(HasSSE2());
         switch (src.kind()) {
@@ -673,22 +657,6 @@ class Assembler : public AssemblerX86Shared
             MOZ_CRASH("unexpected operand kind");
         }
         return CodeOffset(masm.currentOffset());
-    }
-    void vmovsd(const Operand& src, FloatRegister dest) {
-        MOZ_ASSERT(HasSSE2());
-        switch (src.kind()) {
-          case Operand::MEM_REG_DISP:
-            masm.vmovsd_mr_disp32(src.disp(), src.base(), dest.encoding());
-            break;
-          case Operand::MEM_ADDRESS32:
-            masm.vmovsd_mr(src.address(), dest.encoding());
-            break;
-          case Operand::MEM_SCALE:
-            masm.vmovsd_mr(src.disp(), src.base(), src.index(), src.scale(), dest.encoding());
-            break;
-          default:
-            MOZ_CRASH("unexpected operand kind");
-        }
     }
     CodeOffset vmovupsWithPatch(const Operand& src, FloatRegister dest) {
         MOZ_ASSERT(HasSSE2());
@@ -831,22 +799,6 @@ class Assembler : public AssemblerX86Shared
         }
         return CodeOffset(masm.currentOffset());
     }
-    void vmovss(FloatRegister src, const Operand& dest) {
-        MOZ_ASSERT(HasSSE2());
-        switch (dest.kind()) {
-          case Operand::MEM_REG_DISP:
-            masm.vmovss_rm_disp32(src.encoding(), dest.disp(), dest.base());
-            break;
-          case Operand::MEM_ADDRESS32:
-            masm.vmovss_rm(src.encoding(), dest.address());
-            break;
-          case Operand::MEM_SCALE:
-            masm.vmovss_rm(src.encoding(), dest.disp(), dest.base(), dest.index(), dest.scale());
-            break;
-          default:
-            MOZ_CRASH("unexpected operand kind");
-        }
-    }
     CodeOffset vmovsdWithPatch(FloatRegister src, const Operand& dest) {
         MOZ_ASSERT(HasSSE2());
         switch (dest.kind()) {
@@ -860,22 +812,6 @@ class Assembler : public AssemblerX86Shared
             MOZ_CRASH("unexpected operand kind");
         }
         return CodeOffset(masm.currentOffset());
-    }
-    void vmovsd(FloatRegister src, const Operand& dest) {
-        MOZ_ASSERT(HasSSE2());
-        switch (dest.kind()) {
-          case Operand::MEM_REG_DISP:
-            masm.vmovsd_rm_disp32(src.encoding(), dest.disp(), dest.base());
-            break;
-          case Operand::MEM_ADDRESS32:
-            masm.vmovsd_rm(src.encoding(), dest.address());
-            break;
-          case Operand::MEM_SCALE:
-            masm.vmovsd_rm(src.encoding(), dest.disp(), dest.base(), dest.index(), dest.scale());
-            break;
-          default:
-            MOZ_CRASH("unexpected operand kind");
-        }
     }
     CodeOffset vmovupsWithPatch(FloatRegister src, const Operand& dest) {
         MOZ_ASSERT(HasSSE2());

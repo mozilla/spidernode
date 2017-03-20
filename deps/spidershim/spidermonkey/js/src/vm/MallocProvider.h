@@ -34,7 +34,8 @@
  *
  *       - gc::Zone:  Automatically triggers zone GC.
  *       - JSRuntime: Automatically triggers full GC.
- *       - JSContext: Dispatches directly to the runtime.
+ *       - ThreadsafeContext > ExclusiveContext > JSContext:
+ *                    Dispatches directly to the runtime.
  */
 
 #ifndef vm_MallocProvider_h

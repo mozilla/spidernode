@@ -22,10 +22,6 @@ function IsObject(o) {
     return Object(o) === o;
 }
 
-function IsPrimitive(o) {
-    return Object(o) !== o;
-}
-
 function intlObjects(ctor) {
     return [
         // Instance of an Intl constructor.
@@ -96,8 +92,8 @@ for (let numberFormatFunction of numberFormatFunctions) {
     }
 
     // Ensure [[FallbackSymbol]] is only retrieved for objects inheriting from Intl.NumberFormat.prototype.
-    for (let thisValue of thisValues(Intl.NumberFormat).filter(IsObject)) {
-        if (Intl.NumberFormat.prototype.isPrototypeOf(thisValue))
+    for (let thisValue of thisValues(Intl.NumberFormat)) {
+        if (!IsObject(thisValue) || Intl.NumberFormat.prototype.isPrototypeOf(thisValue))
             continue;
         Object.defineProperty(thisValue, intlFallbackSymbol, {
             get() { assertEq(false, true); }
@@ -107,7 +103,7 @@ for (let numberFormatFunction of numberFormatFunctions) {
 
     // Repeat the test from above, but also change Intl.NumberFormat[@@hasInstance]
     // so it always returns |null|.
-    for (let thisValue of thisValues(Intl.NumberFormat).filter(IsObject)) {
+    for (let thisValue of thisValues(Intl.NumberFormat)) {
         let hasInstanceCalled = false, symbolGetterCalled = false;
         Object.defineProperty(Intl.NumberFormat, Symbol.hasInstance, {
             value() {
@@ -116,43 +112,27 @@ for (let numberFormatFunction of numberFormatFunctions) {
                 return true;
             }, configurable: true
         });
-        Object.defineProperty(thisValue, intlFallbackSymbol, {
-            get() {
-                assertEq(symbolGetterCalled, false);
-                symbolGetterCalled = true;
-                return null;
-            }, configurable: true
-        });
-
-        assertThrowsInstanceOf(() => numberFormatFunction.call(thisValue), TypeError);
-
-        delete Intl.NumberFormat[Symbol.hasInstance];
-
-        assertEq(hasInstanceCalled, true);
-        assertEq(symbolGetterCalled, true);
-    }
-
-    // Test with primitive values.
-    for (let thisValue of thisValues(Intl.NumberFormat).filter(IsPrimitive)) {
-        // Ensure @@hasInstance is not called.
-        Object.defineProperty(Intl.NumberFormat, Symbol.hasInstance, {
-            value() { assertEq(true, false); }, configurable: true
-        });
-        let isUndefinedOrNull = thisValue === undefined || thisValue === null;
+        let isUndefinedOrNull = thisValue !== undefined || thisValue !== null;
         let symbolHolder;
         if (!isUndefinedOrNull) {
-            // Ensure the fallback symbol isn't retrieved from the primitive wrapper prototype.
-            symbolHolder = Object.getPrototypeOf(thisValue);
+            symbolHolder = IsObject(thisValue) ? thisValue : Object.getPrototypeOf(thisValue);
             Object.defineProperty(symbolHolder, intlFallbackSymbol, {
-                get() { assertEq(true, false); }, configurable: true
+                get() {
+                    assertEq(symbolGetterCalled, false);
+                    symbolGetterCalled = true;
+                    return null;
+                }, configurable: true
             });
         }
 
         assertThrowsInstanceOf(() => numberFormatFunction.call(thisValue), TypeError);
 
         delete Intl.NumberFormat[Symbol.hasInstance];
-        if (!isUndefinedOrNull)
+        if (!isUndefinedOrNull && !IsObject(thisValue))
             delete symbolHolder[intlFallbackSymbol];
+
+        assertEq(hasInstanceCalled, true);
+        assertEq(symbolGetterCalled, !isUndefinedOrNull);
     }
 }
 

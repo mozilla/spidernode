@@ -34,7 +34,7 @@ using mozilla::CheckedInt;
 // Decoder implementation.
 
 bool
-Decoder::failf(const char* msg, ...)
+Decoder::fail(const char* msg, ...)
 {
     va_list ap;
     va_start(ap, msg);
@@ -43,14 +43,14 @@ Decoder::failf(const char* msg, ...)
     if (!str)
         return false;
 
-    return fail(str.get());
+    return fail(Move(str));
 }
 
 bool
-Decoder::fail(size_t errorOffset, const char* msg)
+Decoder::fail(UniqueChars msg)
 {
     MOZ_ASSERT(error_);
-    UniqueChars strWithOffset(JS_smprintf("at offset %" PRIuSIZE ": %s", errorOffset, msg));
+    UniqueChars strWithOffset(JS_smprintf("at offset %" PRIuSIZE ": %s", currentOffset(), msg.get()));
     if (!strWithOffset)
         return false;
 
@@ -110,7 +110,7 @@ Decoder::startSection(SectionId id, ModuleEnvironment* env, uint32_t* sectionSta
     return true;
 
   fail:
-    return failf("failed to start %s section", sectionName);
+    return fail("failed to start %s section", sectionName);
 }
 
 bool
@@ -119,7 +119,7 @@ Decoder::finishSection(uint32_t sectionStart, uint32_t sectionSize, const char* 
     if (resilientMode_)
         return true;
     if (sectionSize != (cur_ - beg_) - sectionStart)
-        return failf("byte size mismatch in %s section", sectionName);
+        return fail("byte size mismatch in %s section", sectionName);
     return true;
 }
 
@@ -308,74 +308,170 @@ struct ValidatingPolicy : OpIterPolicy
 
 typedef OpIter<ValidatingPolicy> ValidatingOpIter;
 
-static bool
-DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValTypeVector& locals,
-                        Decoder* d)
+class FunctionDecoder
 {
-    ValidatingOpIter iter(env, *d);
+    const ModuleEnvironment& env_;
+    const ValTypeVector& locals_;
+    ValidatingOpIter iter_;
 
-    if (!iter.readFunctionStart(sig.ret()))
+  public:
+    FunctionDecoder(const ModuleEnvironment& env, const ValTypeVector& locals, Decoder& d)
+      : env_(env), locals_(locals), iter_(d)
+    {}
+
+    const ModuleEnvironment& env() const { return env_; }
+    ValidatingOpIter& iter() { return iter_; }
+    const ValTypeVector& locals() const { return locals_; }
+
+    bool checkHasMemory() {
+        if (!env().usesMemory())
+            return iter().fail("can't touch memory without memory");
+        return true;
+    }
+};
+
+static bool
+DecodeCallArgs(FunctionDecoder& f, const Sig& sig)
+{
+    const ValTypeVector& args = sig.args();
+    uint32_t numArgs = args.length();
+    for (size_t i = 0; i < numArgs; ++i) {
+        ValType argType = args[i];
+        if (!f.iter().readCallArg(argType, numArgs, i, nullptr))
+            return false;
+    }
+
+    return f.iter().readCallArgsEnd(numArgs);
+}
+
+static bool
+DecodeCallReturn(FunctionDecoder& f, const Sig& sig)
+{
+    return f.iter().readCallReturn(sig.ret());
+}
+
+static bool
+DecodeCall(FunctionDecoder& f)
+{
+    uint32_t funcIndex;
+    if (!f.iter().readCall(&funcIndex))
         return false;
 
+    if (funcIndex >= f.env().numFuncs())
+        return f.iter().fail("callee index out of range");
+
+    if (!f.iter().inReachableCode())
+        return true;
+
+    const Sig* sig = f.env().funcSigs[funcIndex];
+
+    return DecodeCallArgs(f, *sig) &&
+           DecodeCallReturn(f, *sig);
+}
+
+static bool
+DecodeCallIndirect(FunctionDecoder& f)
+{
+    if (!f.env().numTables())
+        return f.iter().fail("can't call_indirect without a table");
+
+    uint32_t sigIndex;
+    if (!f.iter().readCallIndirect(&sigIndex, nullptr))
+        return false;
+
+    if (sigIndex >= f.env().numSigs())
+        return f.iter().fail("signature index out of range");
+
+    if (!f.iter().inReachableCode())
+        return true;
+
+    const Sig& sig = f.env().sigs[sigIndex];
+    if (!DecodeCallArgs(f, sig))
+        return false;
+
+    return DecodeCallReturn(f, sig);
+}
+
+static bool
+DecodeBrTable(FunctionDecoder& f)
+{
+    uint32_t tableLength;
+    ExprType type = ExprType::Limit;
+    if (!f.iter().readBrTable(&tableLength, &type, nullptr, nullptr))
+        return false;
+
+    uint32_t depth;
+    for (size_t i = 0, e = tableLength; i < e; ++i) {
+        if (!f.iter().readBrTableEntry(&type, nullptr, &depth))
+            return false;
+    }
+
+    // Read the default label.
+    return f.iter().readBrTableDefault(&type, nullptr, &depth);
+}
+
+static bool
+DecodeFunctionBodyExprs(FunctionDecoder& f)
+{
 #define CHECK(c) if (!(c)) return false; break
 
     while (true) {
         uint16_t op;
-        if (!iter.readOp(&op))
+        if (!f.iter().readOp(&op))
             return false;
 
         switch (op) {
           case uint16_t(Op::End):
-            if (!iter.readEnd(nullptr, nullptr, nullptr))
+            if (!f.iter().readEnd(nullptr, nullptr, nullptr))
                 return false;
-            iter.popEnd();
-            if (iter.controlStackEmpty())
-                return iter.readFunctionEnd();
+            f.iter().popEnd();
+            if (f.iter().controlStackEmpty())
+                return true;
             break;
           case uint16_t(Op::Nop):
-            CHECK(iter.readNop());
+            CHECK(f.iter().readNop());
           case uint16_t(Op::Drop):
-            CHECK(iter.readDrop());
+            CHECK(f.iter().readDrop());
           case uint16_t(Op::Call):
-            CHECK(iter.readCall(nullptr, nullptr));
+            CHECK(DecodeCall(f));
           case uint16_t(Op::CallIndirect):
-            CHECK(iter.readCallIndirect(nullptr, nullptr, nullptr));
+            CHECK(DecodeCallIndirect(f));
           case uint16_t(Op::I32Const):
-            CHECK(iter.readI32Const(nullptr));
+            CHECK(f.iter().readI32Const(nullptr));
           case uint16_t(Op::I64Const):
-            CHECK(iter.readI64Const(nullptr));
+            CHECK(f.iter().readI64Const(nullptr));
           case uint16_t(Op::F32Const):
-            CHECK(iter.readF32Const(nullptr));
+            CHECK(f.iter().readF32Const(nullptr));
           case uint16_t(Op::F64Const):
-            CHECK(iter.readF64Const(nullptr));
+            CHECK(f.iter().readF64Const(nullptr));
           case uint16_t(Op::GetLocal):
-            CHECK(iter.readGetLocal(locals, nullptr));
+            CHECK(f.iter().readGetLocal(f.locals(), nullptr));
           case uint16_t(Op::SetLocal):
-            CHECK(iter.readSetLocal(locals, nullptr, nullptr));
+            CHECK(f.iter().readSetLocal(f.locals(), nullptr, nullptr));
           case uint16_t(Op::TeeLocal):
-            CHECK(iter.readTeeLocal(locals, nullptr, nullptr));
+            CHECK(f.iter().readTeeLocal(f.locals(), nullptr, nullptr));
           case uint16_t(Op::GetGlobal):
-            CHECK(iter.readGetGlobal(nullptr));
+            CHECK(f.iter().readGetGlobal(f.env().globals, nullptr));
           case uint16_t(Op::SetGlobal):
-            CHECK(iter.readSetGlobal(nullptr, nullptr));
+            CHECK(f.iter().readSetGlobal(f.env().globals, nullptr, nullptr));
           case uint16_t(Op::Select):
-            CHECK(iter.readSelect(nullptr, nullptr, nullptr, nullptr));
+            CHECK(f.iter().readSelect(nullptr, nullptr, nullptr, nullptr));
           case uint16_t(Op::Block):
-            CHECK(iter.readBlock());
+            CHECK(f.iter().readBlock());
           case uint16_t(Op::Loop):
-            CHECK(iter.readLoop());
+            CHECK(f.iter().readLoop());
           case uint16_t(Op::If):
-            CHECK(iter.readIf(nullptr));
+            CHECK(f.iter().readIf(nullptr));
           case uint16_t(Op::Else):
-            CHECK(iter.readElse(nullptr, nullptr));
+            CHECK(f.iter().readElse(nullptr, nullptr));
           case uint16_t(Op::I32Clz):
           case uint16_t(Op::I32Ctz):
           case uint16_t(Op::I32Popcnt):
-            CHECK(iter.readUnary(ValType::I32, nullptr));
+            CHECK(f.iter().readUnary(ValType::I32, nullptr));
           case uint16_t(Op::I64Clz):
           case uint16_t(Op::I64Ctz):
           case uint16_t(Op::I64Popcnt):
-            CHECK(iter.readUnary(ValType::I64, nullptr));
+            CHECK(f.iter().readUnary(ValType::I64, nullptr));
           case uint16_t(Op::F32Abs):
           case uint16_t(Op::F32Neg):
           case uint16_t(Op::F32Ceil):
@@ -383,7 +479,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::F32Sqrt):
           case uint16_t(Op::F32Trunc):
           case uint16_t(Op::F32Nearest):
-            CHECK(iter.readUnary(ValType::F32, nullptr));
+            CHECK(f.iter().readUnary(ValType::F32, nullptr));
           case uint16_t(Op::F64Abs):
           case uint16_t(Op::F64Neg):
           case uint16_t(Op::F64Ceil):
@@ -391,7 +487,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::F64Sqrt):
           case uint16_t(Op::F64Trunc):
           case uint16_t(Op::F64Nearest):
-            CHECK(iter.readUnary(ValType::F64, nullptr));
+            CHECK(f.iter().readUnary(ValType::F64, nullptr));
           case uint16_t(Op::I32Add):
           case uint16_t(Op::I32Sub):
           case uint16_t(Op::I32Mul):
@@ -407,7 +503,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::I32ShrU):
           case uint16_t(Op::I32Rotl):
           case uint16_t(Op::I32Rotr):
-            CHECK(iter.readBinary(ValType::I32, nullptr, nullptr));
+            CHECK(f.iter().readBinary(ValType::I32, nullptr, nullptr));
           case uint16_t(Op::I64Add):
           case uint16_t(Op::I64Sub):
           case uint16_t(Op::I64Mul):
@@ -423,7 +519,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::I64ShrU):
           case uint16_t(Op::I64Rotl):
           case uint16_t(Op::I64Rotr):
-            CHECK(iter.readBinary(ValType::I64, nullptr, nullptr));
+            CHECK(f.iter().readBinary(ValType::I64, nullptr, nullptr));
           case uint16_t(Op::F32Add):
           case uint16_t(Op::F32Sub):
           case uint16_t(Op::F32Mul):
@@ -431,7 +527,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::F32Min):
           case uint16_t(Op::F32Max):
           case uint16_t(Op::F32CopySign):
-            CHECK(iter.readBinary(ValType::F32, nullptr, nullptr));
+            CHECK(f.iter().readBinary(ValType::F32, nullptr, nullptr));
           case uint16_t(Op::F64Add):
           case uint16_t(Op::F64Sub):
           case uint16_t(Op::F64Mul):
@@ -439,7 +535,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::F64Min):
           case uint16_t(Op::F64Max):
           case uint16_t(Op::F64CopySign):
-            CHECK(iter.readBinary(ValType::F64, nullptr, nullptr));
+            CHECK(f.iter().readBinary(ValType::F64, nullptr, nullptr));
           case uint16_t(Op::I32Eq):
           case uint16_t(Op::I32Ne):
           case uint16_t(Op::I32LtS):
@@ -450,7 +546,7 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::I32GtU):
           case uint16_t(Op::I32GeS):
           case uint16_t(Op::I32GeU):
-            CHECK(iter.readComparison(ValType::I32, nullptr, nullptr));
+            CHECK(f.iter().readComparison(ValType::I32, nullptr, nullptr));
           case uint16_t(Op::I64Eq):
           case uint16_t(Op::I64Ne):
           case uint16_t(Op::I64LtS):
@@ -461,118 +557,118 @@ DecodeFunctionBodyExprs(const ModuleEnvironment& env, const Sig& sig, const ValT
           case uint16_t(Op::I64GtU):
           case uint16_t(Op::I64GeS):
           case uint16_t(Op::I64GeU):
-            CHECK(iter.readComparison(ValType::I64, nullptr, nullptr));
+            CHECK(f.iter().readComparison(ValType::I64, nullptr, nullptr));
           case uint16_t(Op::F32Eq):
           case uint16_t(Op::F32Ne):
           case uint16_t(Op::F32Lt):
           case uint16_t(Op::F32Le):
           case uint16_t(Op::F32Gt):
           case uint16_t(Op::F32Ge):
-            CHECK(iter.readComparison(ValType::F32, nullptr, nullptr));
+            CHECK(f.iter().readComparison(ValType::F32, nullptr, nullptr));
           case uint16_t(Op::F64Eq):
           case uint16_t(Op::F64Ne):
           case uint16_t(Op::F64Lt):
           case uint16_t(Op::F64Le):
           case uint16_t(Op::F64Gt):
           case uint16_t(Op::F64Ge):
-            CHECK(iter.readComparison(ValType::F64, nullptr, nullptr));
+            CHECK(f.iter().readComparison(ValType::F64, nullptr, nullptr));
           case uint16_t(Op::I32Eqz):
-            CHECK(iter.readConversion(ValType::I32, ValType::I32, nullptr));
+            CHECK(f.iter().readConversion(ValType::I32, ValType::I32, nullptr));
           case uint16_t(Op::I64Eqz):
           case uint16_t(Op::I32WrapI64):
-            CHECK(iter.readConversion(ValType::I64, ValType::I32, nullptr));
+            CHECK(f.iter().readConversion(ValType::I64, ValType::I32, nullptr));
           case uint16_t(Op::I32TruncSF32):
           case uint16_t(Op::I32TruncUF32):
           case uint16_t(Op::I32ReinterpretF32):
-            CHECK(iter.readConversion(ValType::F32, ValType::I32, nullptr));
+            CHECK(f.iter().readConversion(ValType::F32, ValType::I32, nullptr));
           case uint16_t(Op::I32TruncSF64):
           case uint16_t(Op::I32TruncUF64):
-            CHECK(iter.readConversion(ValType::F64, ValType::I32, nullptr));
+            CHECK(f.iter().readConversion(ValType::F64, ValType::I32, nullptr));
           case uint16_t(Op::I64ExtendSI32):
           case uint16_t(Op::I64ExtendUI32):
-            CHECK(iter.readConversion(ValType::I32, ValType::I64, nullptr));
+            CHECK(f.iter().readConversion(ValType::I32, ValType::I64, nullptr));
           case uint16_t(Op::I64TruncSF32):
           case uint16_t(Op::I64TruncUF32):
-            CHECK(iter.readConversion(ValType::F32, ValType::I64, nullptr));
+            CHECK(f.iter().readConversion(ValType::F32, ValType::I64, nullptr));
           case uint16_t(Op::I64TruncSF64):
           case uint16_t(Op::I64TruncUF64):
           case uint16_t(Op::I64ReinterpretF64):
-            CHECK(iter.readConversion(ValType::F64, ValType::I64, nullptr));
+            CHECK(f.iter().readConversion(ValType::F64, ValType::I64, nullptr));
           case uint16_t(Op::F32ConvertSI32):
           case uint16_t(Op::F32ConvertUI32):
           case uint16_t(Op::F32ReinterpretI32):
-            CHECK(iter.readConversion(ValType::I32, ValType::F32, nullptr));
+            CHECK(f.iter().readConversion(ValType::I32, ValType::F32, nullptr));
           case uint16_t(Op::F32ConvertSI64):
           case uint16_t(Op::F32ConvertUI64):
-            CHECK(iter.readConversion(ValType::I64, ValType::F32, nullptr));
+            CHECK(f.iter().readConversion(ValType::I64, ValType::F32, nullptr));
           case uint16_t(Op::F32DemoteF64):
-            CHECK(iter.readConversion(ValType::F64, ValType::F32, nullptr));
+            CHECK(f.iter().readConversion(ValType::F64, ValType::F32, nullptr));
           case uint16_t(Op::F64ConvertSI32):
           case uint16_t(Op::F64ConvertUI32):
-            CHECK(iter.readConversion(ValType::I32, ValType::F64, nullptr));
+            CHECK(f.iter().readConversion(ValType::I32, ValType::F64, nullptr));
           case uint16_t(Op::F64ConvertSI64):
           case uint16_t(Op::F64ConvertUI64):
           case uint16_t(Op::F64ReinterpretI64):
-            CHECK(iter.readConversion(ValType::I64, ValType::F64, nullptr));
+            CHECK(f.iter().readConversion(ValType::I64, ValType::F64, nullptr));
           case uint16_t(Op::F64PromoteF32):
-            CHECK(iter.readConversion(ValType::F32, ValType::F64, nullptr));
+            CHECK(f.iter().readConversion(ValType::F32, ValType::F64, nullptr));
           case uint16_t(Op::I32Load8S):
           case uint16_t(Op::I32Load8U):
-            CHECK(iter.readLoad(ValType::I32, 1, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I32, 1, nullptr));
           case uint16_t(Op::I32Load16S):
           case uint16_t(Op::I32Load16U):
-            CHECK(iter.readLoad(ValType::I32, 2, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I32, 2, nullptr));
           case uint16_t(Op::I32Load):
-            CHECK(iter.readLoad(ValType::I32, 4, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I32, 4, nullptr));
           case uint16_t(Op::I64Load8S):
           case uint16_t(Op::I64Load8U):
-            CHECK(iter.readLoad(ValType::I64, 1, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I64, 1, nullptr));
           case uint16_t(Op::I64Load16S):
           case uint16_t(Op::I64Load16U):
-            CHECK(iter.readLoad(ValType::I64, 2, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I64, 2, nullptr));
           case uint16_t(Op::I64Load32S):
           case uint16_t(Op::I64Load32U):
-            CHECK(iter.readLoad(ValType::I64, 4, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I64, 4, nullptr));
           case uint16_t(Op::I64Load):
-            CHECK(iter.readLoad(ValType::I64, 8, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::I64, 8, nullptr));
           case uint16_t(Op::F32Load):
-            CHECK(iter.readLoad(ValType::F32, 4, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::F32, 4, nullptr));
           case uint16_t(Op::F64Load):
-            CHECK(iter.readLoad(ValType::F64, 8, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readLoad(ValType::F64, 8, nullptr));
           case uint16_t(Op::I32Store8):
-            CHECK(iter.readStore(ValType::I32, 1, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I32, 1, nullptr, nullptr));
           case uint16_t(Op::I32Store16):
-            CHECK(iter.readStore(ValType::I32, 2, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I32, 2, nullptr, nullptr));
           case uint16_t(Op::I32Store):
-            CHECK(iter.readStore(ValType::I32, 4, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I32, 4, nullptr, nullptr));
           case uint16_t(Op::I64Store8):
-            CHECK(iter.readStore(ValType::I64, 1, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I64, 1, nullptr, nullptr));
           case uint16_t(Op::I64Store16):
-            CHECK(iter.readStore(ValType::I64, 2, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I64, 2, nullptr, nullptr));
           case uint16_t(Op::I64Store32):
-            CHECK(iter.readStore(ValType::I64, 4, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I64, 4, nullptr, nullptr));
           case uint16_t(Op::I64Store):
-            CHECK(iter.readStore(ValType::I64, 8, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::I64, 8, nullptr, nullptr));
           case uint16_t(Op::F32Store):
-            CHECK(iter.readStore(ValType::F32, 4, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::F32, 4, nullptr, nullptr));
           case uint16_t(Op::F64Store):
-            CHECK(iter.readStore(ValType::F64, 8, nullptr, nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readStore(ValType::F64, 8, nullptr, nullptr));
           case uint16_t(Op::GrowMemory):
-            CHECK(iter.readGrowMemory(nullptr));
+            CHECK(f.checkHasMemory() && f.iter().readGrowMemory(nullptr));
           case uint16_t(Op::CurrentMemory):
-            CHECK(iter.readCurrentMemory());
+            CHECK(f.checkHasMemory() && f.iter().readCurrentMemory());
           case uint16_t(Op::Br):
-            CHECK(iter.readBr(nullptr, nullptr, nullptr));
+            CHECK(f.iter().readBr(nullptr, nullptr, nullptr));
           case uint16_t(Op::BrIf):
-            CHECK(iter.readBrIf(nullptr, nullptr, nullptr, nullptr));
+            CHECK(f.iter().readBrIf(nullptr, nullptr, nullptr, nullptr));
           case uint16_t(Op::BrTable):
-            CHECK(iter.readBrTable(nullptr, nullptr, nullptr, nullptr, nullptr));
+            CHECK(DecodeBrTable(f));
           case uint16_t(Op::Return):
-            CHECK(iter.readReturn(nullptr));
+            CHECK(f.iter().readReturn(nullptr));
           case uint16_t(Op::Unreachable):
-            CHECK(iter.readUnreachable());
+            CHECK(f.iter().readUnreachable());
           default:
-            return iter.unrecognizedOpcode(op);
+            return f.iter().unrecognizedOpcode(op);
         }
     }
 
@@ -585,9 +681,8 @@ bool
 wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, uint32_t bodySize,
                            Decoder& d)
 {
-    const Sig& sig = *env.funcSigs[funcIndex];
-
     ValTypeVector locals;
+    const Sig& sig = *env.funcSigs[funcIndex];
     if (!locals.appendAll(sig.args()))
         return false;
 
@@ -596,7 +691,15 @@ wasm::ValidateFunctionBody(const ModuleEnvironment& env, uint32_t funcIndex, uin
     if (!DecodeLocalEntries(d, ModuleKind::Wasm, &locals))
         return false;
 
-    if (!DecodeFunctionBodyExprs(env, sig, locals, &d))
+    FunctionDecoder f(env, locals, d);
+
+    if (!f.iter().readFunctionStart(sig.ret()))
+        return false;
+
+    if (!DecodeFunctionBodyExprs(f))
+        return false;
+
+    if (!f.iter().readFunctionEnd())
         return false;
 
     if (d.currentPosition() != bodyBegin + bodySize)
@@ -617,10 +720,9 @@ DecodePreamble(Decoder& d)
     if (!d.readFixedU32(&u32) || u32 != MagicNumber)
         return d.fail("failed to match magic number");
 
-    if (!d.readFixedU32(&u32) || u32 != EncodingVersion) {
-        return d.failf("binary version 0x%" PRIx32 " does not match expected version 0x%" PRIx32,
-                       u32, EncodingVersion);
-    }
+    if (!d.readFixedU32(&u32) || u32 != EncodingVersion)
+        return d.fail("binary version 0x%" PRIx32 " does not match expected version 0x%" PRIx32,
+                      u32, EncodingVersion);
 
     return true;
 }
@@ -735,7 +837,7 @@ DecodeLimits(Decoder& d, Limits* limits)
         return d.fail("expected flags");
 
     if (flags & ~uint32_t(0x1))
-        return d.failf("unexpected bits set in flags: %" PRIu32, (flags & ~uint32_t(0x1)));
+        return d.fail("unexpected bits set in flags: %" PRIu32, (flags & ~uint32_t(0x1)));
 
     if (!d.readVarU32(&limits->initial))
         return d.fail("expected initial length");
@@ -746,9 +848,9 @@ DecodeLimits(Decoder& d, Limits* limits)
             return d.fail("expected maximum length");
 
         if (limits->initial > maximum) {
-            return d.failf("memory size minimum must not be greater than maximum; "
-                           "maximum length %" PRIu32 " is less than initial length %" PRIu32,
-                           maximum, limits->initial);
+            return d.fail("memory size minimum must not be greater than maximum; "
+                          "maximum length %" PRIu32 " is less than initial length %" PRIu32,
+                          maximum, limits->initial);
         }
 
         limits->maximum.emplace(maximum);
@@ -829,24 +931,20 @@ DecodeMemoryLimits(Decoder& d, ModuleEnvironment* env)
     if (!DecodeLimits(d, &memory))
         return false;
 
-    if (memory.initial > MaxMemoryInitialPages)
-        return d.fail("initial memory size too big");
-
     CheckedInt<uint32_t> initialBytes = memory.initial;
     initialBytes *= PageSize;
-    MOZ_ASSERT(initialBytes.isValid());
+    if (!initialBytes.isValid() || initialBytes.value() > MaxMemoryInitialBytes)
+        return d.fail("initial memory size too big");
+
     memory.initial = initialBytes.value();
 
     if (memory.maximum) {
-        if (*memory.maximum > MaxMemoryMaximumPages)
-            return d.fail("maximum memory size too big");
-
         CheckedInt<uint32_t> maximumBytes = *memory.maximum;
         maximumBytes *= PageSize;
+        if (!maximumBytes.isValid())
+            return d.fail("maximum memory size too big");
 
-        // Clamp the maximum memory value to UINT32_MAX; it's not semantically
-        // visible since growing will fail for values greater than INT32_MAX.
-        memory.maximum = Some(maximumBytes.isValid() ? maximumBytes.value() : UINT32_MAX);
+        memory.maximum = Some(maximumBytes.value());
     }
 
     env->memoryUsage = MemoryUsage::Unshared;
@@ -1466,7 +1564,7 @@ DecodeDataSection(Decoder& d, ModuleEnvironment* env)
         if (!d.readVarU32(&seg.length))
             return d.fail("expected segment size");
 
-        if (seg.length > MaxMemoryInitialPages * PageSize)
+        if (seg.length > MaxMemoryInitialBytes)
             return d.fail("segment size too big");
 
         seg.bytecodeOffset = d.currentOffset();
@@ -1584,7 +1682,7 @@ wasm::DecodeModuleTail(Decoder& d, ModuleEnvironment* env)
 bool
 wasm::Validate(const ShareableBytes& bytecode, UniqueChars* error)
 {
-    Decoder d(bytecode.bytes, error);
+    Decoder d(bytecode.begin(), bytecode.end(), error);
 
     ModuleEnvironment env;
     if (!DecodeModuleEnvironment(d, &env))

@@ -24,14 +24,14 @@ using mozilla::PodEqual;
 template<XDRMode mode>
 LifoAlloc&
 XDRState<mode>::lifoAlloc() const {
-    return buf.cx()->tempLifoAlloc();
+    return buf.cx()->asJSContext()->tempLifoAlloc();
 }
 
 template<XDRMode mode>
 void
-XDRState<mode>::postProcessContextErrors(JSContext* cx)
+XDRState<mode>::postProcessContextErrors(ExclusiveContext* cx)
 {
-    if (!cx->helperThread() && cx->isExceptionPending()) {
+    if (cx->isJSContext() && cx->asJSContext()->isExceptionPending()) {
         MOZ_ASSERT(resultCode_ == JS::TranscodeResult_Ok);
         resultCode_ = JS::TranscodeResult_Throw;
     }
@@ -121,7 +121,11 @@ template<XDRMode mode>
 bool
 XDRState<mode>::codeFunction(MutableHandleFunction funp, HandleScriptSource sourceObject)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx());
+    TraceLoggerThread* logger = nullptr;
+    if (cx()->isJSContext())
+        logger = TraceLoggerForMainThread(cx()->asJSContext()->runtime());
+    else
+        logger = TraceLoggerForCurrentThread();
     TraceLoggerTextId event =
         mode == XDR_DECODE ? TraceLogger_DecodeFunction : TraceLogger_EncodeFunction;
     AutoTraceLog tl(logger, event);
@@ -156,7 +160,11 @@ template<XDRMode mode>
 bool
 XDRState<mode>::codeScript(MutableHandleScript scriptp)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx());
+    TraceLoggerThread* logger = nullptr;
+    if (cx()->isJSContext())
+        logger = TraceLoggerForMainThread(cx()->asJSContext()->runtime());
+    else
+        logger = TraceLoggerForCurrentThread();
     TraceLoggerTextId event =
         mode == XDR_DECODE ? TraceLogger_DecodeScript : TraceLogger_EncodeScript;
     AutoTraceLog tl(logger, event);

@@ -946,17 +946,12 @@ function ResolveLocale(availableLocales, requestedLocales, options, relevantExte
     // Steps 9-11.
     var i = 0;
     var len = relevantExtensionKeys.length;
-    var foundLocaleData;
-    if (len > 0) {
-        // In this implementation, localeData is a function, not an object.
-        // Step 11.b.
-        foundLocaleData = localeData(foundLocale);
-    }
     while (i < len) {
-        // Step 11.a.
+        // Steps 11.a-c.
         var key = relevantExtensionKeys[i];
 
-        // Step 11.c.
+        // In this implementation, localeData is a function, not an object.
+        var foundLocaleData = localeData(foundLocale);
         var keyLocaleData = foundLocaleData[key];
 
         // Locale data provides default value.
@@ -1215,10 +1210,8 @@ var intlFallbackSymbolHolder = { value: undefined };
  */
 function intlFallbackSymbol() {
     var fallbackSymbol = intlFallbackSymbolHolder.value;
-    if (!fallbackSymbol) {
-        fallbackSymbol = std_Symbol("IntlLegacyConstructedSymbol");
-        intlFallbackSymbolHolder.value = fallbackSymbol;
-    }
+    if (!fallbackSymbol)
+        intlFallbackSymbolHolder.value = fallbackSymbol = std_Symbol();
     return fallbackSymbol;
 }
 
@@ -1541,7 +1534,7 @@ function InitializeCollator(collator, locales, options) {
     // Step 13, unrolled.
     var numericValue = GetOption(options, "numeric", "boolean", undefined, undefined);
     if (numericValue !== undefined)
-        numericValue = numericValue ? "true" : "false";
+        numericValue = numericValue ? 'true' : 'false';
     opt.kn = numericValue;
 
     var caseFirstValue = GetOption(options, "caseFirst", "string", ["upper", "lower", "false"], undefined);
@@ -1591,7 +1584,7 @@ var collatorInternalProperties = {
     sortLocaleData: collatorSortLocaleData,
     searchLocaleData: collatorSearchLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1601,41 +1594,16 @@ var collatorInternalProperties = {
         addSpecialMissingLanguageTags(locales);
         return (this._availableLocales = locales);
     },
-    relevantExtensionKeys: ["co", "kn", "kf"]
+    relevantExtensionKeys: ["co", "kn"]
 };
 
 
-/**
- * Returns the default caseFirst values for the given locale and usage. The
- * first element in the returned array denotes the default value per ES2017
- * Intl, 9.1 Internal slots of Service Constructors.
- */
-function collatorCaseFirst(locale, usage) {
-    assert(typeof locale === "string", "locale should be string");
-    assert(usage === "sort" || usage === "search", "invalid usage option");
-
-    if (usage === "sort") {
-        // If |locale| is the default locale (e.g. da-DK), but only supported
-        // through a fallback (da), we need to get the actual locale before we
-        // can call intl_isUpperCaseFirst. Also see BestAvailableLocaleHelper.
-        var availableLocales = callFunction(collatorInternalProperties.availableLocales,
-                                            collatorInternalProperties);
-        var actualLocale = BestAvailableLocaleIgnoringDefault(availableLocales, locale);
-
-        if (intl_isUpperCaseFirst(actualLocale))
-            return ["upper", "false", "lower"];
-    }
-
-    // Default caseFirst values for all other languages.
-    return ["false", "lower", "upper"];
-}
-
-
 function collatorSortLocaleData(locale) {
+    var collations = intl_availableCollations(locale);
+    callFunction(std_Array_unshift, collations, null);
     return {
-        co: intl_availableCollations(locale),
-        kn: ["false", "true"],
-        kf: collatorCaseFirst(locale, "sort"),
+        co: collations,
+        kn: ["false", "true"]
     };
 }
 
@@ -1644,7 +1612,6 @@ function collatorSearchLocaleData(locale) {
     return {
         co: [null],
         kn: ["false", "true"],
-        kf: collatorCaseFirst(locale, "search"),
         // In theory the default sensitivity is locale dependent;
         // in reality the CLDR/ICU default strength is always tertiary.
         sensitivity: "variant"
@@ -1740,7 +1707,7 @@ function Intl_Collator_resolvedOptions() {
 var numberFormatInternalProperties = {
     localeData: numberFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1776,8 +1743,8 @@ function resolveNumberFormatInternals(lazyNumberFormatData) {
 
     // Step 10.
     var r = ResolveLocale(callFunction(NumberFormat.availableLocales, NumberFormat),
-                          requestedLocales,
-                          opt,
+                          lazyNumberFormatData.requestedLocales,
+                          lazyNumberFormatData.opt,
                           NumberFormat.relevantExtensionKeys,
                           localeData);
 
@@ -1847,8 +1814,9 @@ function getNumberFormatInternals(obj) {
  */
 function UnwrapNumberFormat(nf, methodName) {
     // Step 1.
-    if (IsObject(nf) && !IsNumberFormat(nf) && nf instanceof GetNumberFormatConstructor())
+    if ((!IsObject(nf) || !IsNumberFormat(nf)) && nf instanceof GetNumberFormatConstructor()) {
         nf = nf[intlFallbackSymbol()];
+    }
 
     // Step 2.
     if (!IsObject(nf) || !IsNumberFormat(nf))
@@ -2018,9 +1986,10 @@ function InitializeNumberFormat(numberFormat, thisValue, locales, options) {
     // computed and install it.
     initializeIntlObject(numberFormat, "NumberFormat", lazyNumberFormatData);
 
-    if (numberFormat !== thisValue && IsObject(thisValue) &&
-        thisValue instanceof GetNumberFormatConstructor())
-    {
+    if (numberFormat !== thisValue && thisValue instanceof GetNumberFormatConstructor()) {
+        if (!IsObject(thisValue))
+            ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, typeof thisValue);
+
         _DefineDataProperty(thisValue, intlFallbackSymbol(), numberFormat,
                             ATTR_NONENUMERABLE | ATTR_NONCONFIGURABLE | ATTR_NONWRITABLE);
 
@@ -2225,18 +2194,6 @@ function resolveDateTimeFormatInternals(lazyDateTimeFormatData) {
     //       }
     //
     //     formatMatcher: "basic" / "best fit",
-    //
-    //     mozExtensions: true / false,
-    //
-    //
-    //     // If mozExtensions is true:
-    //
-    //     dateStyle: "full" / "long" / "medium" / "short" / undefined,
-    //
-    //     timeStyle: "full" / "long" / "medium" / "short" / undefined,
-    //
-    //     patternOption:
-    //       String representing LDML Date Format pattern or undefined
     //   }
     //
     // Note that lazy data is only installed as a final step of initialization,
@@ -2275,26 +2232,7 @@ function resolveDateTimeFormatInternals(lazyDateTimeFormatData) {
     var formatOpt = lazyDateTimeFormatData.formatOpt;
 
     // Steps 27-28, more or less - see comment after this function.
-    var pattern;
-    if (lazyDateTimeFormatData.mozExtensions) {
-        if (lazyDateTimeFormatData.patternOption !== undefined) {
-            pattern = lazyDateTimeFormatData.patternOption;
-
-            internalProps.patternOption = lazyDateTimeFormatData.patternOption;
-        } else if (lazyDateTimeFormatData.dateStyle || lazyDateTimeFormatData.timeStyle) {
-            pattern = intl_patternForStyle(dataLocale,
-              lazyDateTimeFormatData.dateStyle, lazyDateTimeFormatData.timeStyle,
-              lazyDateTimeFormatData.timeZone);
-
-            internalProps.dateStyle = lazyDateTimeFormatData.dateStyle;
-            internalProps.timeStyle = lazyDateTimeFormatData.timeStyle;
-        } else {
-            pattern = toBestICUPattern(dataLocale, formatOpt);
-        }
-        internalProps.mozExtensions = true;
-    } else {
-      pattern = toBestICUPattern(dataLocale, formatOpt);
-    }
+    var pattern = toBestICUPattern(dataLocale, formatOpt);
 
     // Step 29.
     internalProps.pattern = pattern;
@@ -2335,8 +2273,11 @@ function getDateTimeFormatInternals(obj) {
  */
 function UnwrapDateTimeFormat(dtf, methodName) {
     // Step 1.
-    if (IsObject(dtf) && !IsDateTimeFormat(dtf) && dtf instanceof GetDateTimeFormatConstructor())
+    if ((!IsObject(dtf) || !IsDateTimeFormat(dtf)) &&
+        dtf instanceof GetDateTimeFormatConstructor())
+    {
         dtf = dtf[intlFallbackSymbol()];
+    }
 
     // Step 2.
     if (!IsObject(dtf) || !IsDateTimeFormat(dtf)) {
@@ -2360,7 +2301,7 @@ function UnwrapDateTimeFormat(dtf, methodName) {
  *
  * Spec: ECMAScript Internationalization API Specification, 12.1.1.
  */
-function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options, mozExtensions) {
+function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options) {
     assert(IsObject(dateTimeFormat), "InitializeDateTimeFormat called with non-Object");
     assert(IsDateTimeFormat(dateTimeFormat),
            "InitializeDateTimeFormat called with non-DateTimeFormat");
@@ -2437,18 +2378,6 @@ function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options, m
     var formatOpt = new Record();
     lazyDateTimeFormatData.formatOpt = formatOpt;
 
-    lazyDateTimeFormatData.mozExtensions = mozExtensions;
-
-    if (mozExtensions) {
-        let pattern = GetOption(options, "pattern", "string", undefined, undefined);
-        lazyDateTimeFormatData.patternOption = pattern;
-
-        let dateStyle = GetOption(options, "dateStyle", "string", ["full", "long", "medium", "short"], undefined);
-        lazyDateTimeFormatData.dateStyle = dateStyle;
-        let timeStyle = GetOption(options, "timeStyle", "string", ["full", "long", "medium", "short"], undefined);
-        lazyDateTimeFormatData.timeStyle = timeStyle;
-    }
-
     // Step 19.
     // 12.1, Table 4: Components of date and time formats.
     formatOpt.weekday = GetOption(options, "weekday", "string", ["narrow", "short", "long"],
@@ -2475,7 +2404,6 @@ function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options, m
     var formatMatcher =
         GetOption(options, "formatMatcher", "string", ["basic", "best fit"],
                   "best fit");
-    void formatMatcher;
 
     // Steps 23-25 provided by ICU, more or less - see comment after this function.
 
@@ -2492,9 +2420,10 @@ function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options, m
     // computed and install it.
     initializeIntlObject(dateTimeFormat, "DateTimeFormat", lazyDateTimeFormatData);
 
-    if (dateTimeFormat !== thisValue && IsObject(thisValue) &&
-        thisValue instanceof GetDateTimeFormatConstructor())
-    {
+    if (dateTimeFormat !== thisValue && thisValue instanceof GetDateTimeFormatConstructor()) {
+        if (!IsObject(thisValue))
+            ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, typeof thisValue);
+
         _DefineDataProperty(thisValue, intlFallbackSymbol(), dateTimeFormat,
                             ATTR_NONENUMERABLE | ATTR_NONCONFIGURABLE | ATTR_NONWRITABLE);
 
@@ -2742,6 +2671,105 @@ function ToDateTimeOptions(options, required, defaults) {
     return options;
 }
 
+/**
+ * Compares the date and time components requested by options with the available
+ * date and time formats in formats, and selects the best match according
+ * to a specified basic matching algorithm.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 12.1.1.
+ */
+function BasicFormatMatcher(options, formats) {
+    // Steps 1-6.
+    var removalPenalty = 120,
+        additionPenalty = 20,
+        longLessPenalty = 8,
+        longMorePenalty = 6,
+        shortLessPenalty = 6,
+        shortMorePenalty = 3;
+
+    // Table 3.
+    var properties = ["weekday", "era", "year", "month", "day",
+        "hour", "minute", "second", "timeZoneName"];
+
+    // Step 11.c.vi.1.
+    var values = ["2-digit", "numeric", "narrow", "short", "long"];
+
+    // Steps 7-8.
+    var bestScore = -Infinity;
+    var bestFormat;
+
+    // Steps 9-11.
+    var i = 0;
+    var len = formats.length;
+    while (i < len) {
+        // Steps 11.a-b.
+        var format = formats[i];
+        var score = 0;
+
+        // Step 11.c.
+        var formatProp;
+        for (var j = 0; j < properties.length; j++) {
+            var property = properties[j];
+
+            // Step 11.c.i.
+            var optionsProp = options[property];
+            // Step missing from spec.
+            // https://bugs.ecmascript.org/show_bug.cgi?id=1254
+            formatProp = undefined;
+
+            // Steps 11.c.ii-iii.
+            if (callFunction(std_Object_hasOwnProperty, format, property))
+                formatProp = format[property];
+
+            if (optionsProp === undefined && formatProp !== undefined) {
+                // Step 11.c.iv.
+                score -= additionPenalty;
+            } else if (optionsProp !== undefined && formatProp === undefined) {
+                // Step 11.c.v.
+                score -= removalPenalty;
+            } else {
+                // Step 11.c.vi.
+                var optionsPropIndex = callFunction(ArrayIndexOf, values, optionsProp);
+                var formatPropIndex = callFunction(ArrayIndexOf, values, formatProp);
+                var delta = std_Math_max(std_Math_min(formatPropIndex - optionsPropIndex, 2), -2);
+                if (delta === 2)
+                    score -= longMorePenalty;
+                else if (delta === 1)
+                    score -= shortMorePenalty;
+                else if (delta === -1)
+                    score -= shortLessPenalty;
+                else if (delta === -2)
+                    score -= longLessPenalty;
+            }
+        }
+
+        // Step 11.d.
+        if (score > bestScore) {
+            bestScore = score;
+            bestFormat = format;
+        }
+
+        // Step 11.e.
+        i++;
+    }
+
+    // Step 12.
+    return bestFormat;
+}
+
+
+/**
+ * Compares the date and time components requested by options with the available
+ * date and time formats in formats, and selects the best match according
+ * to an unspecified best-fit matching algorithm.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 12.1.1.
+ */
+function BestFitFormatMatcher(options, formats) {
+    // this implementation doesn't have anything better
+    return BasicFormatMatcher(options, formats);
+}
+
 
 /**
  * Returns the subset of the given locale list for which this locale list has a
@@ -2768,7 +2796,7 @@ function Intl_DateTimeFormat_supportedLocalesOf(locales /*, options*/) {
 var dateTimeFormatInternalProperties = {
     localeData: dateTimeFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -2864,18 +2892,8 @@ function Intl_DateTimeFormat_resolvedOptions() {
         locale: internals.locale,
         calendar: internals.calendar,
         numberingSystem: internals.numberingSystem,
-        timeZone: internals.timeZone,
+        timeZone: internals.timeZone
     };
-
-    if (internals.mozExtensions) {
-        if (internals.patternOption !== undefined) {
-            result.pattern = internals.pattern;
-        } else if (internals.dateStyle || internals.timeStyle) {
-            result.dateStyle = internals.dateStyle;
-            result.timeStyle = internals.timeStyle;
-        }
-    }
-
     resolveICUPattern(internals.pattern, result);
     return result;
 }
@@ -2992,7 +3010,7 @@ function resolveICUPattern(pattern, result) {
  */
 var pluralRulesInternalProperties = {
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -3011,6 +3029,8 @@ function resolvePluralRulesInternals(lazyPluralRulesData) {
     assert(IsObject(lazyPluralRulesData), "lazy data not an object?");
 
     var internalProps = std_Object_create(null);
+
+    var requestedLocales = lazyPluralRulesData.requestedLocales;
 
     var PluralRules = pluralRulesInternalProperties;
 
@@ -3384,7 +3404,7 @@ function Intl_getDisplayNames(locales, options) {
     for (let i = 0; i < len; i++) {
         // a. Let processedKey be ? ToString(? Get(keys, i)).
         // b. Perform ? CreateDataPropertyOrThrow(processedKeys, i, processedKey).
-        _DefineDataProperty(processedKeys, i, ToString(keys[i]));
+        callFunction(std_Array_push, processedKeys, ToString(keys[i]));
     }
 
     // 16. Let names be ? ComputeDisplayNames(r.[[locale]], style, processedKeys).
@@ -3416,24 +3436,5 @@ function Intl_getDisplayNames(locales, options) {
 
     // 24. Return result.
     return result;
-}
-
-function Intl_getLocaleInfo(locales) {
-  const requestedLocales = CanonicalizeLocaleList(locales);
-
-  // In the future, we may want to expose uloc_getAvailable and use it here.
-  const DateTimeFormat = dateTimeFormatInternalProperties;
-  const localeData = DateTimeFormat.localeData;
-
-  const localeOpt = new Record();
-  localeOpt.localeMatcher = "best fit";
-
-  const r = ResolveLocale(callFunction(DateTimeFormat.availableLocales, DateTimeFormat),
-                          requestedLocales,
-                          localeOpt,
-                          DateTimeFormat.relevantExtensionKeys,
-                          localeData);
-
-  return intl_GetLocaleInfo(r.locale);
 }
 

@@ -30,18 +30,11 @@ template <typename V, typename E> class Result;
 
 namespace detail {
 
-enum class PackingStrategy {
-  Variant,
-  NullIsOk,
-  LowBitTagIsError,
-  PackedVariant,
-};
+enum class VEmptiness { IsEmpty, IsNotEmpty };
+enum class Alignedness { IsAligned, IsNotAligned };
 
-template <typename V, typename E, PackingStrategy Strategy>
-class ResultImplementation;
-
-template <typename V, typename E>
-class ResultImplementation<V, E, PackingStrategy::Variant>
+template <typename V, typename E, VEmptiness EmptinessOfV, Alignedness Aligned>
+class ResultImplementation
 {
   mozilla::Variant<V, E> mStorage;
 
@@ -62,8 +55,8 @@ public:
  * mozilla::Variant doesn't like storing a reference. This is a specialization
  * to store E as pointer if it's a reference.
  */
-template <typename V, typename E>
-class ResultImplementation<V, E&, PackingStrategy::Variant>
+template <typename V, typename E, VEmptiness EmptinessOfV, Alignedness Aligned>
+class ResultImplementation<V, E&, EmptinessOfV, Aligned>
 {
   mozilla::Variant<V, E*> mStorage;
 
@@ -80,8 +73,8 @@ public:
  * Specialization for when the success type is Ok (or another empty class) and
  * the error type is a reference.
  */
-template <typename V, typename E>
-class ResultImplementation<V, E&, PackingStrategy::NullIsOk>
+template <typename V, typename E, Alignedness Aligned>
+class ResultImplementation<V, E&, VEmptiness::IsEmpty, Aligned>
 {
   E* mErrorValue;
 
@@ -99,8 +92,8 @@ public:
  * Specialization for when alignment permits using the least significant bit as
  * a tag bit.
  */
-template <typename V, typename E>
-class ResultImplementation<V*, E&, PackingStrategy::LowBitTagIsError>
+template <typename V, typename E, VEmptiness EmptinessOfV>
+class ResultImplementation<V*, E&, EmptinessOfV, Alignedness::IsAligned>
 {
   uintptr_t mBits;
 
@@ -121,73 +114,7 @@ public:
   bool isOk() const { return (mBits & 1) == 0; }
 
   V* unwrap() const { return reinterpret_cast<V*>(mBits); }
-  E& unwrapErr() const { return *reinterpret_cast<E*>(mBits ^ 1); }
-};
-
-// Return true if any of the struct can fit in a word.
-template<typename V, typename E>
-struct IsPackableVariant
-{
-  struct VEbool {
-      V v;
-      E e;
-      bool ok;
-  };
-  struct EVbool {
-      E e;
-      V v;
-      bool ok;
-  };
-
-  using Impl = typename Conditional<sizeof(VEbool) <= sizeof(EVbool),
-                                    VEbool, EVbool>::Type;
-
-  static const bool value = sizeof(Impl) <= sizeof(uintptr_t);
-};
-
-/**
- * Specialization for when both type are not using all the bytes, in order to
- * use one byte as a tag.
- */
-template <typename V, typename E>
-class ResultImplementation<V, E, PackingStrategy::PackedVariant>
-{
-  using Impl = typename IsPackableVariant<V, E>::Impl;
-  Impl data;
-
-public:
-  explicit ResultImplementation(V aValue)
-  {
-    data.v = aValue;
-    data.ok = true;
-  }
-  explicit ResultImplementation(E aErrorValue)
-  {
-    data.e = aErrorValue;
-    data.ok = false;
-  }
-
-  bool isOk() const { return data.ok; }
-
-  V unwrap() const { return data.v; }
-  E unwrapErr() const { return data.e; }
-};
-
-// To use nullptr as a special value, we need the counter part to exclude zero
-// from its range of valid representations.
-//
-// By default assume that zero can be represented.
-template<typename T>
-struct UnusedZero
-{
-  static const bool value = false;
-};
-
-// References can't be null.
-template<typename T>
-struct UnusedZero<T&>
-{
-  static const bool value = true;
+  E& unwrapErr() const { return *reinterpret_cast<E*>(mBits & ~uintptr_t(1)); }
 };
 
 // A bit of help figuring out which of the above specializations to use.
@@ -206,24 +133,6 @@ template <typename T> struct HasFreeLSB<T*> {
 // have one.
 template <typename T> struct HasFreeLSB<T&> {
   static const bool value = HasFreeLSB<T*>::value;
-};
-
-// Select one of the previous result implementation based on the properties of
-// the V and E types.
-template <typename V, typename E>
-struct SelectResultImpl
-{
-  static const PackingStrategy value =
-      (IsEmpty<V>::value && UnusedZero<E>::value)
-    ? PackingStrategy::NullIsOk
-    : (detail::HasFreeLSB<V>::value && detail::HasFreeLSB<E>::value)
-    ? PackingStrategy::LowBitTagIsError
-    : (IsDefaultConstructible<V>::value && IsDefaultConstructible<E>::value &&
-       IsPackableVariant<V, E>::value)
-    ? PackingStrategy::PackedVariant
-    : PackingStrategy::Variant;
-
-  using Type = detail::ResultImplementation<V, E, value>;
 };
 
 template <typename T>
@@ -263,8 +172,15 @@ struct IsResult<Result<V, E>> : TrueType { };
 template <typename V, typename E>
 class MOZ_MUST_USE_TYPE Result final
 {
-  using Impl = typename detail::SelectResultImpl<V, E>::Type;
-
+  using Impl =
+    detail::ResultImplementation<V, E,
+                                 IsEmpty<V>::value
+                                   ? detail::VEmptiness::IsEmpty
+                                   : detail::VEmptiness::IsNotEmpty,
+                                 (detail::HasFreeLSB<V>::value &&
+                                  detail::HasFreeLSB<E>::value)
+                                   ? detail::Alignedness::IsAligned
+                                   : detail::Alignedness::IsNotAligned>;
   Impl mImpl;
 
 public:
@@ -401,7 +317,7 @@ public:
 
 template <typename E>
 inline GenericErrorResult<E>
-Err(E&& aErrorValue)
+MakeGenericErrorResult(E&& aErrorValue)
 {
   return GenericErrorResult<E>(aErrorValue);
 }
@@ -418,7 +334,7 @@ Err(E&& aErrorValue)
   do { \
     auto mozTryTempResult_ = (expr); \
     if (mozTryTempResult_.isErr()) { \
-      return ::mozilla::Err(mozTryTempResult_.unwrapErr()); \
+      return ::mozilla::MakeGenericErrorResult(mozTryTempResult_.unwrapErr()); \
     } \
   } while (0)
 
@@ -433,7 +349,7 @@ Err(E&& aErrorValue)
   do { \
     auto mozTryVarTempResult_ = (expr); \
     if (mozTryVarTempResult_.isErr()) { \
-      return ::mozilla::Err( \
+      return ::mozilla::MakeGenericErrorResult( \
           mozTryVarTempResult_.unwrapErr()); \
     } \
     (target) = mozTryVarTempResult_.unwrap(); \

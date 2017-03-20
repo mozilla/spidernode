@@ -13,8 +13,6 @@
 #include "jscompartmentinlines.h"
 #include "jsobjinlines.h"
 
-#include "gc/Nursery-inl.h"
-
 using namespace js;
 
 #define PIERCE(cx, wrapper, pre, op, post)                      \
@@ -266,18 +264,15 @@ CanReify(HandleObject obj)
 
 struct AutoCloseIterator
 {
-    AutoCloseIterator(JSContext* cx, PropertyIteratorObject* obj) : cx(cx), obj(cx, obj) {}
+    AutoCloseIterator(JSContext* cx, JSObject* obj) : cx(cx), obj(cx, obj) {}
 
-    ~AutoCloseIterator() {
-        if (obj)
-            MOZ_ALWAYS_TRUE(CloseIterator(cx, obj));
-    }
+    ~AutoCloseIterator() { if (obj) CloseIterator(cx, obj); }
 
     void clear() { obj = nullptr; }
 
   private:
     JSContext* cx;
-    Rooted<PropertyIteratorObject*> obj;
+    RootedObject obj;
 };
 
 static bool
@@ -313,7 +308,8 @@ Reify(JSContext* cx, JSCompartment* origin, MutableHandleObject objp)
     }
 
     close.clear();
-    MOZ_ALWAYS_TRUE(CloseIterator(cx, iterObj));
+    if (!CloseIterator(cx, iterObj))
+        return false;
 
     return EnumeratedIdVectorToIterator(cx, obj, ni->flags, keys, objp);
 }
@@ -469,7 +465,6 @@ CrossCompartmentWrapper::regexp_toShared(JSContext* cx, HandleObject wrapper, Re
 
     // Get an equivalent RegExpShared associated with the current compartment.
     RegExpShared* re = wrapperGuard.re();
-    cx->markAtom(re->getSource());
     return cx->compartment()->regExps.get(cx, re->getSource(), re->getFlags(), g);
 }
 
@@ -515,22 +510,19 @@ JS_FRIEND_API(bool)
 js::NukeCrossCompartmentWrappers(JSContext* cx,
                                  const CompartmentFilter& sourceFilter,
                                  const CompartmentFilter& targetFilter,
-                                 js::NukeReferencesToWindow nukeReferencesToWindow,
-                                 js::NukeReferencesFromTarget nukeReferencesFromTarget)
+                                 js::NukeReferencesToWindow nukeReferencesToWindow)
 {
     CHECK_REQUEST(cx);
     JSRuntime* rt = cx->runtime();
 
-    EvictAllNurseries(rt);
+    rt->gc.evictNursery(JS::gcreason::EVICT_NURSERY);
+
+    // Iterate through scopes looking for system cross compartment wrappers
+    // that point to an object that shares a global with obj.
 
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {
         if (!sourceFilter.match(c))
             continue;
-
-        // If the compartment matches both the source and target filter, we may
-        // want to cut both incoming and outgoing wrappers.
-        bool nukeAll = (nukeReferencesFromTarget == NukeAllReferences &&
-                        targetFilter.match(c));
 
         // Iterate the wrappers looking for anything interesting.
         for (JSCompartment::WrapperEnum e(c); !e.empty(); e.popFront()) {
@@ -543,15 +535,13 @@ js::NukeCrossCompartmentWrappers(JSContext* cx,
             AutoWrapperRooter wobj(cx, WrapperValue(e));
             JSObject* wrapped = UncheckedUnwrap(wobj);
 
-            // We only skip nuking window references that point to a target
-            // compartment, not the ones that belong to it.
             if (nukeReferencesToWindow == DontNukeWindowReferences &&
-                MOZ_LIKELY(!nukeAll) && IsWindowProxy(wrapped))
+                IsWindowProxy(wrapped))
             {
                 continue;
             }
 
-            if (MOZ_UNLIKELY(nukeAll) || targetFilter.match(wrapped->compartment())) {
+            if (targetFilter.match(wrapped->compartment())) {
                 // We found a wrapper to nuke.
                 e.removeFront();
                 NukeCrossCompartmentWrapper(cx, wobj);
@@ -582,7 +572,7 @@ js::RemapWrapper(JSContext* cx, JSObject* wobjArg, JSObject* newTargetArg)
     Value origv = ObjectValue(*origTarget);
     JSCompartment* wcompartment = wobj->compartment();
 
-    AutoDisableProxyCheck adpc;
+    AutoDisableProxyCheck adpc(cx->runtime());
 
     // If we're mapping to a different target (as opposed to just recomputing
     // for the same target), we must not have an existing wrapper for the new
@@ -604,7 +594,7 @@ js::RemapWrapper(JSContext* cx, JSObject* wobjArg, JSObject* newTargetArg)
     // wrapper, |wobj|, since it's been nuked anyway. The wrap() function has
     // the choice to reuse |wobj| or not.
     RootedObject tobj(cx, newTarget);
-    AutoCompartmentUnchecked ac(cx, wcompartment);
+    AutoCompartment ac(cx, wobj);
     if (!wcompartment->rewrap(cx, &tobj, wobj))
         MOZ_CRASH();
 
@@ -665,7 +655,7 @@ js::RecomputeWrappers(JSContext* cx, const CompartmentFilter& sourceFilter,
                       const CompartmentFilter& targetFilter)
 {
     // Drop any nursery-allocated wrappers.
-    EvictAllNurseries(cx->runtime());
+    cx->runtime()->gc.evictNursery(JS::gcreason::EVICT_NURSERY);
 
     AutoWrapperVector toRecompute(cx);
     for (CompartmentsIter c(cx->runtime(), SkipAtoms); !c.done(); c.next()) {

@@ -66,12 +66,12 @@ ReadI64Object(JSContext* cx, HandleValue v, int64_t* i64);
 // eval/compile methods.
 
 bool
-HasCompilerSupport(JSContext* cx);
+HasCompilerSupport(ExclusiveContext* cx);
 
 // Return whether WebAssembly is enabled on this platform.
 
 bool
-HasSupport(JSContext* cx);
+HasSupport(ExclusiveContext* cx);
 
 // Compiles the given binary wasm module given the ArrayBufferObject
 // and links the module's imports with the given import object.
@@ -135,7 +135,7 @@ class WasmModuleObject : public NativeObject
     static const JSFunctionSpec static_methods[];
     static bool construct(JSContext*, unsigned, Value*);
 
-    static WasmModuleObject* create(JSContext* cx,
+    static WasmModuleObject* create(ExclusiveContext* cx,
                                     wasm::Module& module,
                                     HandleObject proto = nullptr);
     wasm::Module& module() const;
@@ -185,7 +185,6 @@ class WasmInstanceObject : public NativeObject
 
     static WasmInstanceObject* create(JSContext* cx,
                                       UniquePtr<wasm::Code> code,
-                                      UniquePtr<wasm::GlobalSegment> globals,
                                       HandleWasmMemoryObject memory,
                                       Vector<RefPtr<wasm::Table>, 0, SystemAllocPolicy>&& tables,
                                       Handle<FunctionVector> funcImports,
@@ -235,7 +234,7 @@ class WasmMemoryObject : public NativeObject
     static const JSFunctionSpec static_methods[];
     static bool construct(JSContext*, unsigned, Value*);
 
-    static WasmMemoryObject* create(JSContext* cx,
+    static WasmMemoryObject* create(ExclusiveContext* cx,
                                     Handle<ArrayBufferObjectMaybeShared*> buffer,
                                     HandleObject proto);
     ArrayBufferObjectMaybeShared& buffer() const;
@@ -276,7 +275,7 @@ class WasmTableObject : public NativeObject
     // Note that, after creation, a WasmTableObject's table() is not initialized
     // and must be initialized before use.
 
-    static WasmTableObject* create(JSContext* cx, const wasm::Limits& limits);
+    static WasmTableObject* create(JSContext* cx, wasm::Limits limits);
     wasm::Table& table() const;
 };
 

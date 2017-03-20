@@ -53,8 +53,9 @@ function asyncFunDecl(id, params, body) {
                      params: params,
                      defaults: [],
                      body: body,
-                     generator: false,
-                     async: true });
+                     generator: true,
+                     async: true,
+                     style: "es6" });
 }
 function varDecl(decls) {
     return Pattern({ type: "VariableDeclaration", declarations: decls, kind: "var" });
@@ -180,8 +181,9 @@ function asyncFunExpr(id, args, body) {
                      id: id,
                      params: args,
                      body: body,
-                     generator: false,
-                     async: true });
+                     generator: true,
+                     async: true,
+                     style: "es6" });
 }
 function arrowExpr(args, body) {
     return Pattern({ type: "ArrowFunctionExpression",
@@ -192,9 +194,10 @@ function asyncArrowExpr(isExpression, args, body) {
     return Pattern({ type: "ArrowFunctionExpression",
                      params: args,
                      body: body,
-                     generator: false,
+                     generator: true,
                      async: true,
-                     expression: isExpression });
+                     expression: isExpression,
+                     style: "es6" });
 }
 
 function metaProperty(meta, property) {

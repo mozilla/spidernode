@@ -167,7 +167,7 @@ ifndef GNU_CC
 ifdef SIMPLE_PROGRAMS
 COMPILE_PDB_FLAG ?= -Fd$(basename $(@F)).pdb
 else
-COMPILE_PDB_FLAG ?= -Fdgenerated.pdb -FS
+COMPILE_PDB_FLAG ?= -Fdgenerated.pdb
 endif
 COMPILE_CFLAGS += $(COMPILE_PDB_FLAG)
 COMPILE_CXXFLAGS += $(COMPILE_PDB_FLAG)
@@ -206,11 +206,8 @@ HOST_CFLAGS += $(HOST_PDB_FLAG)
 HOST_CXXFLAGS += $(HOST_PDB_FLAG)
 endif
 
-# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass, and do not
-# attempt to install them
+# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass
 ifdef MOZ_PROFILE_GENERATE
-$(foreach category,$(INSTALL_TARGETS),\
-  $(eval $(category)_FILES := $(foreach file,$($(category)_FILES),$(if $(filter $(SIMPLE_PROGRAMS),$(notdir $(file))),,$(file)))))
 SIMPLE_PROGRAMS :=
 endif
 
@@ -601,12 +598,10 @@ endif
 endif
 
 ifneq (,$(MOZ_PROFILE_GENERATE)$(MOZ_PROFILE_USE))
-ifneq (,$(filter target,$(MAKECMDGOALS)))
 ifdef GNU_CC
 # Force rebuilding libraries and programs in both passes because each
 # pass uses different object files.
 $(PROGRAM) $(SHARED_LIBRARY) $(LIBRARY): FORCE
-endif
 endif
 endif
 
@@ -916,9 +911,11 @@ cargo_target_flag := --target=$(RUST_TARGET)
 # Permit users to pass flags to cargo from their mozconfigs (e.g. --color=always).
 cargo_build_flags = $(CARGOFLAGS)
 ifndef MOZ_DEBUG
-cargo_build_flags += --release
+cargo_build_flags = --release
 endif
+ifdef MOZ_CARGO_SUPPORTS_FROZEN
 cargo_build_flags += --frozen
+endif
 
 cargo_build_flags += --manifest-path $(CARGO_FILE)
 ifdef BUILD_VERBOSE_LOG
@@ -943,22 +940,15 @@ endif
 # optimization level here, if necessary.  (The Cargo.toml files already
 # specify debug-assertions appropriately for --{disable,enable}-debug.)
 ifndef MOZ_OPTIMIZE
-rustflags = -C opt-level=0
-# Unfortunately, -C opt-level=0 implies -C debug-assertions, so we need
-# to explicitly disable them when MOZ_DEBUG is not set.
-ifndef MOZ_DEBUG
-rustflags += -C debug-assertions=no
-endif
-rustflags_override = RUSTFLAGS='$(rustflags)'
+rustflags_override = RUSTFLAGS='-C opt-level=0'
 endif
 
 CARGO_BUILD = env $(rustflags_override) \
-	CARGO_TARGET_DIR=$(CARGO_TARGET_DIR) \
+	CARGO_TARGET_DIR=. \
 	RUSTC=$(RUSTC) \
 	MOZ_DIST=$(ABS_DIST) \
 	LIBCLANG_PATH=$(MOZ_LIBCLANG_PATH) \
 	CLANG_PATH=$(MOZ_CLANG_PATH) \
-	PKG_CONFIG_ALLOW_CROSS=1 \
 	$(CARGO) build $(cargo_build_flags)
 
 ifdef RUST_LIBRARY_FILE
@@ -1550,6 +1540,12 @@ endif #}
 documentation:
 	@cd $(DEPTH)
 	$(DOXYGEN) $(DEPTH)/config/doxygen.cfg
+
+ifdef ENABLE_TESTS
+check::
+	$(LOOP_OVER_DIRS)
+endif
+
 
 FREEZE_VARIABLES = \
   CSRCS \

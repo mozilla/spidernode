@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 let bodies = [
     `
     i32.const 1
@@ -23,7 +25,7 @@ for (let body of bodies) {
     wasmFullPass(`
     (module
         (func $f (param $x i32) (result i32)
-            loop $top i32
+            loop $top
                 get_local $x
                 if
                     get_local $x

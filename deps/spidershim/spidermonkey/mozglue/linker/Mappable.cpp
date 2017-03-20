@@ -13,7 +13,6 @@
 
 #include "Mappable.h"
 
-#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/UniquePtr.h"
 
 #ifdef ANDROID
@@ -150,10 +149,6 @@ MappableExtractFile::Create(const char *name, Zip *zip, Zip::Stream *stream)
         "not extracting");
     return nullptr;
   }
-
-  // Ensure that the cache dir is private.
-  chmod(cachePath, 0770);
-
   UniquePtr<char[]> path =
     MakeUnique<char[]>(strlen(cachePath) + strlen(name) + 2);
   sprintf(path.get(), "%s/%s", cachePath, name);
@@ -644,11 +639,11 @@ MappableSeekableZStream::ensure(const void *addr)
            - reinterpret_cast<uintptr_t>(start);
 
   if (mprotect(const_cast<void *>(start), length, map->prot) == 0) {
-    DEBUG_LOG("mprotect @%p, 0x%" PRIxSIZE ", 0x%x", start, length, map->prot);
+    DEBUG_LOG("mprotect @%p, 0x%" PRIxSize ", 0x%x", start, length, map->prot);
     return true;
   }
 
-  ERROR("mprotect @%p, 0x%" PRIxSIZE ", 0x%x failed with errno %d",
+  ERROR("mprotect @%p, 0x%" PRIxSize ", 0x%x failed with errno %d",
       start, length, map->prot, errno);
   return false;
 }
@@ -657,7 +652,7 @@ void
 MappableSeekableZStream::stats(const char *when, const char *name) const
 {
   size_t nEntries = zStream.GetChunksNum();
-  DEBUG_LOG("%s: %s; %" PRIuSIZE "/%" PRIuSIZE " chunks decompressed",
+  DEBUG_LOG("%s: %s; %" PRIdSize "/%" PRIdSize " chunks decompressed",
             name, when, static_cast<size_t>(chunkAvailNum), nEntries);
 
   size_t len = 64;

@@ -137,8 +137,6 @@ struct BaselineStackBuilder
         header_->resumeFramePtr = nullptr;
         header_->resumeAddr = nullptr;
         header_->resumePC = nullptr;
-        header_->tryPC = nullptr;
-        header_->faultPC = nullptr;
         header_->monitorStub = nullptr;
         header_->numFrames = 0;
         header_->checkGlobalDeclarationConflicts = false;
@@ -511,10 +509,16 @@ HasLiveStackValueAtDepth(JSScript* script, jsbytecode* pc, uint32_t stackDepth)
             break;
 
           case JSTRY_FOR_OF:
-            // For-of loops have the iterator, the result object, and the value
-            // of the result object on stack. The iterator is below the result
-            // object and the value.
-            if (stackDepth == tn->stackDepth - 2)
+            // For-of loops have both the iterator and the result object on
+            // stack. The iterator is below the result object.
+            if (stackDepth == tn->stackDepth - 1)
+                return true;
+            break;
+
+          case JSTRY_ITERCLOSE:
+            // Code that need to call IteratorClose have the iterator on the
+            // stack.
+            if (stackDepth == tn->stackDepth)
                 return true;
             break;
 
@@ -628,7 +632,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
 {
     // The Baseline frames we will reconstruct on the heap are not rooted, so GC
     // must be suppressed here.
-    MOZ_ASSERT(cx->suppressGC);
+    MOZ_ASSERT(cx->mainThread().suppressGC);
 
     MOZ_ASSERT(script->hasBaselineScript());
 
@@ -725,32 +729,19 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
         Value v = iter.read();
         if (v.isObject()) {
             envChain = &v.toObject();
-
-            // If Ion has updated env slot from UndefinedValue, it will be the
-            // complete initial environment, so we can set the HAS_INITIAL_ENV
-            // flag if needed.
-            if (fun && fun->needsFunctionEnvironmentObjects()) {
-                MOZ_ASSERT(fun->nonLazyScript()->initialEnvironmentShape());
+            if (fun &&
+                ((fun->needsCallObject() && envChain->is<CallObject>()) ||
+                 (fun->needsNamedLambdaEnvironment() &&
+                  !fun->needsCallObject() &&
+                  envChain->is<LexicalEnvironmentObject>() &&
+                  &envChain->as<LexicalEnvironmentObject>().scope() ==
+                  script->maybeNamedLambdaScope())))
+            {
                 MOZ_ASSERT(!fun->needsExtraBodyVarEnvironment());
                 flags |= BaselineFrame::HAS_INITIAL_ENV;
             }
         } else {
             MOZ_ASSERT(v.isUndefined() || v.isMagic(JS_OPTIMIZED_OUT));
-
-#ifdef DEBUG
-            // The |envChain| slot must not be optimized out if the currently
-            // active scope requires any EnvironmentObjects beyond what is
-            // available at body scope. This checks that scope chain does not
-            // require any such EnvironmentObjects.
-            // See also: |CompileInfo::isObservableFrameSlot|
-            jsbytecode* pc = script->offsetToPC(iter.pcOffset());
-            Scope* scopeIter = script->innermostScope(pc);
-            while (scopeIter != script->bodyScope()) {
-                MOZ_ASSERT(scopeIter);
-                MOZ_ASSERT(!scopeIter->hasEnvironment());
-                scopeIter = scopeIter->enclosing();
-            }
-#endif
 
             // Get env chain from function or script.
             if (fun) {
@@ -955,7 +946,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
         Value v;
 
         if (!iter.moreFrames() && i == exprStackSlots - 1 &&
-            cx->hasIonReturnOverride())
+            cx->runtime()->jitRuntime()->hasIonReturnOverride())
         {
             // If coming from an invalidation bailout, and this is the topmost
             // value, and a value override has been specified, don't read from the
@@ -963,7 +954,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
             MOZ_ASSERT(invalidate);
             iter.skip();
             JitSpew(JitSpew_BaselineBailouts, "      [Return Override]");
-            v = cx->takeIonReturnOverride();
+            v = cx->runtime()->jitRuntime()->takeIonReturnOverride();
         } else if (excInfo && excInfo->propagatingIonExceptionForDebugMode()) {
             // If we are in the middle of propagating an exception from Ion by
             // bailing to baseline due to debug mode, we might not have all
@@ -1211,7 +1202,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
             JitSpew(JitSpew_BaselineBailouts, "      Set resumeAddr=%p", opReturnAddr);
         }
 
-        if (cx->runtime()->geckoProfiler().enabled()) {
+        if (cx->runtime()->geckoProfiler.enabled()) {
             // Register bailout with profiler.
             const char* filename = script->filename();
             if (filename == nullptr)
@@ -1229,7 +1220,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
                      PCToLineNumber(script, pc),
                      filename,
                      script->lineno());
-            cx->runtime()->geckoProfiler().markEvent(buf);
+            cx->runtime()->geckoProfiler.markEvent(buf);
             js_free(buf);
         }
 
@@ -1490,7 +1481,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
     MOZ_ASSERT(bailoutInfo != nullptr);
     MOZ_ASSERT(*bailoutInfo == nullptr);
 
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     TraceLogStopEvent(logger, TraceLogger_IonMonkey);
     TraceLogStartEvent(logger, TraceLogger_Baseline);
 
@@ -1615,7 +1606,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
             // TraceLogger doesn't create entries for inlined frames. But we
             // see them in Baseline. Here we create the start events of those
             // entries. So they correspond to what we will see in Baseline.
-            TraceLoggerEvent scriptEvent(TraceLogger_Scripts, scr);
+            TraceLoggerEvent scriptEvent(logger, TraceLogger_Scripts, scr);
             TraceLogStartEvent(logger, scriptEvent);
             TraceLogStartEvent(logger, TraceLogger_Baseline);
         }
@@ -1676,8 +1667,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
     if (Simulator::Current()->overRecursed(uintptr_t(newsp)))
         overRecursed = true;
 #else
-    if (!CheckRecursionLimitWithStackPointerDontReport(cx, newsp))
-        overRecursed = true;
+    JS_CHECK_RECURSION_WITH_SP_DONT_REPORT(cx, newsp, overRecursed = true);
 #endif
     if (overRecursed) {
         JitSpew(JitSpew_BaselineBailouts, "  Overrecursion check failed!");
@@ -1820,7 +1810,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
 {
     // The caller pushes R0 and R1 on the stack without rooting them.
     // Since GC here is very unlikely just suppress it.
-    JSContext* cx = TlsContext.get();
+    JSContext* cx = GetJSContextFromMainThread();
     js::gc::AutoSuppressGC suppressGC(cx);
 
     JitSpew(JitSpew_BaselineBailouts, "  Done restoring frames");
@@ -1832,8 +1822,6 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
     BaselineFrame* topFrame = GetTopBaselineFrame(cx);
     topFrame->setOverridePc(bailoutInfo->resumePC);
 
-    jsbytecode* faultPC = bailoutInfo->faultPC;
-    jsbytecode* tryPC = bailoutInfo->tryPC;
     uint32_t numFrames = bailoutInfo->numFrames;
     MOZ_ASSERT(numFrames > 0);
     BailoutKind bailoutKind = bailoutInfo->bailoutKind;
@@ -1874,7 +1862,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
     // (which must be a baseline frame), and set it as the last profiling
     // frame.
     if (cx->runtime()->jitRuntime()->isProfilerInstrumentationEnabled(cx->runtime()))
-        cx->jitActivation->setLastProfilingFrame(iter.prevFp());
+        cx->runtime()->jitActivation->setLastProfilingFrame(iter.prevFp());
 
     uint32_t frameno = 0;
     while (frameno < numFrames) {
@@ -1927,7 +1915,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
     // values into the baseline frame. We need to do this even when debug mode
     // is off, as we should respect the mutations made while debug mode was
     // on.
-    JitActivation* act = cx->activation()->asJit();
+    JitActivation* act = cx->runtime()->activation()->asJit();
     if (act->hasRematerializedFrame(outerFp)) {
         JitFrameIterator iter(cx);
         size_t inlineDepth = numFrames;
@@ -1949,13 +1937,6 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
 
         if (!ok)
             return false;
-    }
-
-    // If we are catching an exception, we need to unwind scopes.
-    // See |SettleOnTryNote|
-    if (cx->isExceptionPending() && faultPC) {
-        EnvironmentIter ei(cx, topFrame, faultPC);
-        UnwindEnvironment(cx, ei, tryPC);
     }
 
     JitSpew(JitSpew_BaselineBailouts,
