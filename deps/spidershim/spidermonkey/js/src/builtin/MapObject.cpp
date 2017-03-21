@@ -102,9 +102,9 @@ HashableValue::operator==(const HashableValue& other) const
 
 #ifdef DEBUG
     bool same;
-    JSContext* cx = TlsContext.get();
-    RootedValue valueRoot(cx, value);
-    RootedValue otherRoot(cx, other.value);
+    JS::RootingContext* rcx = GetJSContextFromMainThread();
+    RootedValue valueRoot(rcx, value);
+    RootedValue otherRoot(rcx, other.value);
     MOZ_ASSERT(SameValue(nullptr, valueRoot, otherRoot, &same));
     MOZ_ASSERT(same == b);
 #endif
@@ -209,7 +209,7 @@ MapIteratorObject::create(JSContext* cx, HandleObject mapobj, ValueMap* data,
 void
 MapIteratorObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
     fop->delete_(MapIteratorObjectRange(static_cast<NativeObject*>(obj)));
 }
 
@@ -464,7 +464,7 @@ WriteBarrierPostImpl(JSRuntime* rt, ObjectT* obj, const Value& keyValue)
         if (!keys)
             return false;
 
-        key->zone()->group()->storeBuffer().putGeneric(OrderedHashTableRef<ObjectT>(obj));
+        rt->gc.storeBuffer.putGeneric(OrderedHashTableRef<ObjectT>(obj));
     }
 
     if (!keys->append(key))
@@ -548,7 +548,7 @@ MapObject::create(JSContext* cx, HandleObject proto /* = nullptr */)
 void
 MapObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
     if (ValueMap* map = obj->as<MapObject>().getData())
         fop->delete_(map);
 }
@@ -946,7 +946,7 @@ SetIteratorObject::create(JSContext* cx, HandleObject setobj, ValueSet* data,
 void
 SetIteratorObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
     fop->delete_(SetIteratorObjectRange(static_cast<NativeObject*>(obj)));
 }
 
@@ -1140,7 +1140,7 @@ SetObject::trace(JSTracer* trc, JSObject* obj)
 void
 SetObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
     SetObject* setobj = static_cast<SetObject*>(obj);
     if (ValueSet* set = setobj->getData())
         fop->delete_(set);

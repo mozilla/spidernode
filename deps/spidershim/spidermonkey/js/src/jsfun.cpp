@@ -131,11 +131,7 @@ IsFunctionInStrictMode(JSFunction* fun)
 
 static bool
 IsNewerTypeFunction(JSFunction* fun) {
-    return fun->isArrow() ||
-           fun->isStarGenerator() ||
-           fun->isLegacyGenerator() ||
-           fun->isAsync() ||
-           fun->isMethod();
+    return fun->isArrow() || fun->isGenerator() || fun->isAsync() || fun->isMethod();
 }
 
 // Beware: this function can be invoked on *any* function! That includes
@@ -484,12 +480,8 @@ fun_resolve(JSContext* cx, HandleObject obj, HandleId id, bool* resolvedp)
          * - Arrow functions
          * - Function.prototype
          */
-        if (fun->isBuiltin())
+        if (fun->isBuiltin() || (!fun->isConstructor() && !fun->isGenerator()))
             return true;
-        if (!fun->isConstructor()) {
-            if (!fun->isStarGenerator() && !fun->isLegacyGenerator() && !fun->isAsync())
-                return true;
-        }
 
         if (!ResolveInterpretedFunctionPrototype(cx, fun, id))
             return false;
@@ -561,7 +553,7 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
 {
     enum FirstWordFlag {
         HasAtom             = 0x1,
-        HasStarGeneratorProto = 0x2,
+        IsStarGenerator     = 0x2,
         IsLazy              = 0x4,
         HasSingletonType    = 0x8
     };
@@ -571,7 +563,7 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
     uint32_t firstword = 0;        /* bitmask of FirstWordFlag */
     uint32_t flagsword = 0;        /* word for argument count and fun->flags */
 
-    JSContext* cx = xdr->cx();
+    ExclusiveContext* cx = xdr->cx();
     RootedFunction fun(cx);
     RootedScript script(cx);
     Rooted<LazyScript*> lazy(cx);
@@ -584,8 +576,8 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
         if (fun->explicitName() || fun->hasCompileTimeName() || fun->hasGuessedAtom())
             firstword |= HasAtom;
 
-        if (fun->isStarGenerator() || fun->isAsync())
-            firstword |= HasStarGeneratorProto;
+        if (fun->isStarGenerator())
+            firstword |= IsStarGenerator;
 
         if (fun->isInterpretedLazy()) {
             // Encode a lazy script.
@@ -625,11 +617,11 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
 
     if (mode == XDR_DECODE) {
         RootedObject proto(cx);
-        if (firstword & HasStarGeneratorProto) {
-            // If we are off thread, the generator meta-objects have
+        if (firstword & IsStarGenerator) {
+            // If we are off the main thread, the generator meta-objects have
             // already been created by js::StartOffThreadParseTask, so
             // JSContext* will not be necessary.
-            JSContext* context = cx->helperThread() ? nullptr : cx;
+            JSContext* context = cx->maybeJSContext();
             proto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(context, cx->global());
             if (!proto)
                 return false;
@@ -840,10 +832,8 @@ CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
 
     RootedFunction functionProto(cx, &functionProto_->as<JSFunction>());
 
-    const char* rawSource = "function () {\n}";
+    const char* rawSource = "() {\n}";
     size_t sourceLen = strlen(rawSource);
-    size_t begin = 9;
-    MOZ_ASSERT(rawSource[begin] == '(');
     mozilla::UniquePtr<char16_t[], JS::FreePolicy> source(InflateString(cx, rawSource, &sourceLen));
     if (!source)
         return nullptr;
@@ -856,11 +846,8 @@ CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
         return nullptr;
 
     CompileOptions options(cx);
-    options.setIntroductionType("Function.prototype")
-           .setNoScriptRval(true)
+    options.setNoScriptRval(true)
            .setVersion(JSVERSION_DEFAULT);
-    if (!ss->initFromOptions(cx, options))
-        return nullptr;
     RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
     if (!sourceObject || !ScriptSourceObject::initFromOptions(cx, sourceObject, options))
         return nullptr;
@@ -868,9 +855,8 @@ CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
     RootedScript script(cx, JSScript::Create(cx,
                                              options,
                                              sourceObject,
-                                             begin,
-                                             ss->length(),
-                                             0));
+                                             0,
+                                             ss->length()));
     if (!script || !JSScript::initFunctionPrototype(cx, script, functionProto))
         return nullptr;
 
@@ -1002,13 +988,30 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
         }
     }
 
-    bool funIsNonArrowLambda = fun->isLambda() && !fun->isArrow();
+    bool funIsMethodOrNonArrowLambda = (fun->isLambda() && !fun->isArrow()) || fun->isMethod() ||
+                                        fun->isGetter() || fun->isSetter();
     bool haveSource = fun->isInterpreted() && !fun->isSelfHostedBuiltin();
 
-    // If we're not in pretty mode, put parentheses around lambda functions
-    // so that eval returns lambda, not function statement.
-    if (haveSource && !prettyPrint && funIsNonArrowLambda) {
+    // If we're not in pretty mode, put parentheses around lambda functions and methods.
+    if (haveSource && !prettyPrint && funIsMethodOrNonArrowLambda) {
         if (!out.append("("))
+            return nullptr;
+    }
+    if (fun->isAsync()) {
+        if (!out.append("async "))
+            return nullptr;
+    }
+    if (!fun->isArrow()) {
+        bool ok;
+        if (fun->isStarGenerator() && !fun->isAsync())
+            ok = out.append("function* ");
+        else
+            ok = out.append("function ");
+        if (!ok)
+            return nullptr;
+    }
+    if (fun->explicitName()) {
+        if (!out.append(fun->explicitName()))
             return nullptr;
     }
 
@@ -1017,47 +1020,20 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
     {
         return nullptr;
     }
-
-    auto AppendPrelude = [&out, &fun]() {
-        if (fun->isAsync()) {
-            if (!out.append("async "))
-                return false;
-        }
-
-        if (!fun->isArrow()) {
-            if (!out.append("function"))
-                return false;
-
-            if (fun->isStarGenerator()) {
-                if (!out.append('*'))
-                    return false;
-            }
-        }
-
-        if (fun->explicitName()) {
-            if (!out.append(' '))
-                return false;
-            if (!out.append(fun->explicitName()))
-                return false;
-        }
-        return true;
-    };
-
     if (haveSource) {
-        Rooted<JSFlatString*> src(cx, JSScript::sourceDataWithPrelude(cx, script));
+        Rooted<JSFlatString*> src(cx, JSScript::sourceData(cx, script));
         if (!src)
             return nullptr;
 
         if (!out.append(src))
             return nullptr;
 
-        if (!prettyPrint && funIsNonArrowLambda) {
+        if (!prettyPrint && funIsMethodOrNonArrowLambda) {
             if (!out.append(")"))
                 return nullptr;
         }
     } else if (fun->isInterpreted() && !fun->isSelfHostedBuiltin()) {
-        if (!AppendPrelude() ||
-            !out.append("() {\n    ") ||
+        if (!out.append("() {\n    ") ||
             !out.append("[sourceless code]") ||
             !out.append("\n}"))
         {
@@ -1066,15 +1042,13 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
     } else {
         bool derived = fun->infallibleIsDefaultClassConstructor(cx);
         if (derived && fun->isDerivedClassConstructor()) {
-            if (!AppendPrelude() ||
-                !out.append("(...args) {\n    ") ||
+            if (!out.append("(...args) {\n    ") ||
                 !out.append("super(...args);\n}"))
             {
                 return nullptr;
             }
         } else {
-            if (!AppendPrelude() ||
-                !out.append("() {\n    "))
+            if (!out.append("() {\n    "))
                 return nullptr;
 
             if (!derived) {
@@ -1456,7 +1430,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
         // has started.
         if (canRelazify && !JS::IsIncrementalGCInProgress(cx)) {
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches().lazyScriptCache.lookup(lookup, script.address());
+            cx->caches.lazyScriptCache.lookup(lookup, script.address());
         }
 
         if (script) {
@@ -1508,7 +1482,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             script->setColumn(lazy->column());
 
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches().lazyScriptCache.insert(lookup, script);
+            cx->caches.lazyScriptCache.insert(lookup, script);
 
             // Remember the lazy script on the compiled script, so it can be
             // stored on the function again in case of re-lazification.
@@ -1595,7 +1569,7 @@ fun_isGenerator(JSContext* cx, unsigned argc, Value* vp)
         return true;
     }
 
-    args.rval().setBoolean(fun->isStarGenerator() || fun->isLegacyGenerator());
+    args.rval().setBoolean(fun->isGenerator());
     return true;
 }
 
@@ -1627,6 +1601,8 @@ FunctionConstructor(JSContext* cx, const CallArgs& args, GeneratorKind generator
     bool isStarGenerator = generatorKind == StarGenerator;
     bool isAsync = asyncKind == AsyncFunction;
     MOZ_ASSERT(generatorKind != LegacyGenerator);
+    MOZ_ASSERT_IF(isAsync, isStarGenerator);
+    MOZ_ASSERT_IF(!isStarGenerator, !isAsync);
 
     RootedScript maybeScript(cx);
     const char* filename;
@@ -1647,25 +1623,15 @@ FunctionConstructor(JSContext* cx, const CallArgs& args, GeneratorKind generator
         introducerFilename = maybeScript->scriptSource()->introducerFilename();
 
     CompileOptions options(cx);
+    // Use line 0 to make the function body starts from line 1.
     options.setMutedErrors(mutedErrors)
-           .setFileAndLine(filename, 1)
+           .setFileAndLine(filename, 0)
            .setNoScriptRval(false)
            .setIntroductionInfo(introducerFilename, introductionType, lineno, maybeScript, pcOffset);
 
     StringBuffer sb(cx);
 
-    if (isAsync) {
-        if (!sb.append("async "))
-            return false;
-    }
-    if (!sb.append("function"))
-         return false;
-    if (isStarGenerator && !isAsync) {
-        if (!sb.append('*'))
-            return false;
-    }
-
-    if (!sb.append(" anonymous("))
+    if (!sb.append('('))
         return false;
 
     if (args.length() > 1) {
@@ -1686,14 +1652,11 @@ FunctionConstructor(JSContext* cx, const CallArgs& args, GeneratorKind generator
 
             if (i < args.length() - 2) {
                 // Step 9.d.iii.
-                if (!sb.append(","))
+                if (!sb.append(", "))
                     return false;
             }
         }
     }
-
-    if (!sb.append('\n'))
-        return false;
 
     // Remember the position of ")".
     Maybe<uint32_t> parameterListEnd = Some(uint32_t(sb.length()));
@@ -1737,7 +1700,7 @@ FunctionConstructor(JSContext* cx, const CallArgs& args, GeneratorKind generator
 
     // Step 4.d, use %Generator% as the fallback prototype.
     // Also use %Generator% for the unwrapped function of async functions.
-    if (!proto && (isStarGenerator || isAsync)) {
+    if (!proto && isStarGenerator) {
         proto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(cx, global);
         if (!proto)
             return false;
@@ -1805,7 +1768,7 @@ js::AsyncFunctionConstructor(JSContext* cx, unsigned argc, Value* vp)
     else
         newTarget = &args.callee();
 
-    if (!FunctionConstructor(cx, args, NotGenerator, AsyncFunction))
+    if (!FunctionConstructor(cx, args, StarGenerator, AsyncFunction))
         return false;
 
     // ES2017, draft rev 0f10dba4ad18de92d47d421f378233a2eae8f077
@@ -1866,7 +1829,7 @@ JSFunction::needsNamedLambdaEnvironment() const
 }
 
 JSFunction*
-js::NewNativeFunction(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeFunction(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
                       gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                       NewObjectKind newKind /* = SingletonObject */)
 {
@@ -1876,7 +1839,7 @@ js::NewNativeFunction(JSContext* cx, Native native, unsigned nargs, HandleAtom a
 }
 
 JSFunction*
-js::NewNativeConstructor(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeConstructor(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                          NewObjectKind newKind /* = SingletonObject */,
                          JSFunction::Flags flags /* = JSFunction::NATIVE_CTOR */)
@@ -1888,7 +1851,7 @@ js::NewNativeConstructor(JSContext* cx, Native native, unsigned nargs, HandleAto
 }
 
 JSFunction*
-js::NewScriptedFunction(JSContext* cx, unsigned nargs,
+js::NewScriptedFunction(ExclusiveContext* cx, unsigned nargs,
                         JSFunction::Flags flags, HandleAtom atom,
                         HandleObject proto /* = nullptr */,
                         gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -1904,7 +1867,7 @@ js::NewScriptedFunction(JSContext* cx, unsigned nargs,
 
 #ifdef DEBUG
 static bool
-NewFunctionEnvironmentIsWellFormed(JSContext* cx, HandleObject env)
+NewFunctionEnvironmentIsWellFormed(ExclusiveContext* cx, HandleObject env)
 {
     // Assert that the terminating environment is null, global, or a debug
     // scope proxy. All other cases of polluting global scope behavior are
@@ -1917,7 +1880,7 @@ NewFunctionEnvironmentIsWellFormed(JSContext* cx, HandleObject env)
 #endif
 
 JSFunction*
-js::NewFunctionWithProto(JSContext* cx, Native native,
+js::NewFunctionWithProto(ExclusiveContext* cx, Native native,
                          unsigned nargs, JSFunction::Flags flags, HandleObject enclosingEnv,
                          HandleAtom atom, HandleObject proto,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -2001,7 +1964,7 @@ NewFunctionClone(JSContext* cx, HandleFunction fun, NewObjectKind newKind,
                  gc::AllocKind allocKind, HandleObject proto)
 {
     RootedObject cloneProto(cx, proto);
-    if (!proto && (fun->isStarGenerator() || fun->isAsync())) {
+    if (!proto && fun->isStarGenerator()) {
         cloneProto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(cx, cx->global());
         if (!cloneProto)
             return nullptr;
@@ -2183,7 +2146,7 @@ js::IdToFunctionName(JSContext* cx, HandleId id,
 }
 
 JSAtom*
-js::NameToFunctionName(JSContext* cx, HandleAtom name,
+js::NameToFunctionName(ExclusiveContext* cx, HandleAtom name,
                        FunctionPrefixKind prefixKind /* = FunctionPrefixKind::None */)
 {
     if (prefixKind == FunctionPrefixKind::None)

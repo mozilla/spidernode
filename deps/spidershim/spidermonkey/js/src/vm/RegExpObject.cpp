@@ -51,7 +51,7 @@ JS_STATIC_ASSERT(StickyFlag == JSREG_STICKY);
 JS_STATIC_ASSERT(UnicodeFlag == JSREG_UNICODE);
 
 RegExpObject*
-js::RegExpAlloc(JSContext* cx, HandleObject proto /* = nullptr */)
+js::RegExpAlloc(ExclusiveContext* cx, HandleObject proto /* = nullptr */)
 {
     // Note: RegExp objects are always allocated in the tenured heap. This is
     // not strictly required, but simplifies embedding them in jitcode.
@@ -120,28 +120,26 @@ VectorMatchPairs::allocOrExpandArray(size_t pairCount)
 /* RegExpObject */
 
 static inline void
-RegExpSharedReadBarrier(JSContext* cx, RegExpShared* shared)
+MaybeTraceRegExpShared(JSContext* cx, RegExpShared* shared)
 {
     Zone* zone = cx->zone();
     if (zone->needsIncrementalBarrier())
         shared->trace(zone->barrierTracer());
-    if (shared->isMarkedGray())
-        shared->unmarkGray();
 }
 
-/* static */ bool
-RegExpObject::getShared(JSContext* cx, Handle<RegExpObject*> regexp, RegExpGuard* g)
+bool
+RegExpObject::getShared(JSContext* cx, RegExpGuard* g)
 {
-    if (RegExpShared* shared = regexp->maybeShared()) {
+    if (RegExpShared* shared = maybeShared()) {
         // Fetching a RegExpShared from an object requires a read
         // barrier, as the shared pointer might be weak.
-        RegExpSharedReadBarrier(cx, shared);
+        MaybeTraceRegExpShared(cx, shared);
 
         g->init(*shared);
         return true;
     }
 
-    return createShared(cx, regexp, g);
+    return createShared(cx, g);
 }
 
 /* static */ bool
@@ -182,11 +180,11 @@ RegExpObject::trace(JSTracer* trc, JSObject* obj)
     // unlinking the object from its RegExpShared so that the RegExpShared may
     // be collected. To detect this we need to test all the following
     // conditions, since:
-    //   1. During TraceRuntime, CurrentThreadIsHeapBusy() is true, but the
-    //      tracer might not be a marking tracer.
+    //   1. During TraceRuntime, isHeapBusy() is true, but the tracer might not
+    //      be a marking tracer.
     //   2. When a write barrier executes, IsMarkingTracer is true, but
-    //      CurrentThreadIsHeapBusy() will be false.
-    if (JS::CurrentThreadIsHeapCollecting() &&
+    //      isHeapBusy() will be false.
+    if (trc->runtime()->isHeapCollecting() &&
         trc->isMarkingTracer() &&
         !obj->asTenured().zone()->isPreservingCode())
     {
@@ -243,7 +241,7 @@ const Class RegExpObject::protoClass_ = {
 };
 
 RegExpObject*
-RegExpObject::create(JSContext* cx, const char16_t* chars, size_t length, RegExpFlag flags,
+RegExpObject::create(ExclusiveContext* cx, const char16_t* chars, size_t length, RegExpFlag flags,
                      TokenStream* tokenStream, LifoAlloc& alloc)
 {
     RootedAtom source(cx, AtomizeChars(cx, chars, length));
@@ -254,13 +252,13 @@ RegExpObject::create(JSContext* cx, const char16_t* chars, size_t length, RegExp
 }
 
 RegExpObject*
-RegExpObject::create(JSContext* cx, HandleAtom source, RegExpFlag flags,
+RegExpObject::create(ExclusiveContext* cx, HandleAtom source, RegExpFlag flags,
                      TokenStream* tokenStream, LifoAlloc& alloc)
 {
     Maybe<CompileOptions> dummyOptions;
     Maybe<TokenStream> dummyTokenStream;
     if (!tokenStream) {
-        dummyOptions.emplace(cx);
+        dummyOptions.emplace(cx->asJSContext());
         dummyTokenStream.emplace(cx, *dummyOptions,
                                    (const char16_t*) nullptr, 0,
                                    (frontend::StrictModeGetter*) nullptr);
@@ -279,19 +277,21 @@ RegExpObject::create(JSContext* cx, HandleAtom source, RegExpFlag flags,
     return regexp;
 }
 
-/* static */ bool
-RegExpObject::createShared(JSContext* cx, Handle<RegExpObject*> regexp, RegExpGuard* g)
+bool
+RegExpObject::createShared(JSContext* cx, RegExpGuard* g)
 {
-    MOZ_ASSERT(!regexp->maybeShared());
-    if (!cx->compartment()->regExps.get(cx, regexp->getSource(), regexp->getFlags(), g))
+    Rooted<RegExpObject*> self(cx, this);
+
+    MOZ_ASSERT(!maybeShared());
+    if (!cx->compartment()->regExps.get(cx, getSource(), getFlags(), g))
         return false;
 
-    regexp->setShared(**g);
+    self->setShared(**g);
     return true;
 }
 
 Shape*
-RegExpObject::assignInitialShape(JSContext* cx, Handle<RegExpObject*> self)
+RegExpObject::assignInitialShape(ExclusiveContext* cx, Handle<RegExpObject*> self)
 {
     MOZ_ASSERT(self->empty());
 
@@ -314,7 +314,7 @@ RegExpObject::initIgnoringLastIndex(HandleAtom source, RegExpFlag flags)
 }
 
 void
-RegExpObject::initAndZeroLastIndex(HandleAtom source, RegExpFlag flags, JSContext* cx)
+RegExpObject::initAndZeroLastIndex(HandleAtom source, RegExpFlag flags, ExclusiveContext* cx)
 {
     initIgnoringLastIndex(source, flags);
     zeroLastIndex(cx);
@@ -890,12 +890,11 @@ RegExpShared::dumpBytecode(JSContext* cx, bool match_only, HandleLinearString in
     return true;
 }
 
-/* static */ bool
-RegExpObject::dumpBytecode(JSContext* cx, Handle<RegExpObject*> regexp,
-                           bool match_only, HandleLinearString input)
+bool
+RegExpObject::dumpBytecode(JSContext* cx, bool match_only, HandleLinearString input)
 {
     RegExpGuard g(cx);
-    if (!getShared(cx, regexp, &g))
+    if (!getShared(cx, &g))
         return false;
 
     return g.re()->dumpBytecode(cx, match_only, input);
@@ -963,30 +962,10 @@ RegExpShared::trace(JSTracer* trc)
         marked_ = true;
 
     TraceNullableEdge(trc, &source, "RegExpShared source");
-    for (auto& comp : compilationArray)
-        TraceNullableEdge(trc, &comp.jitCode, "RegExpShared code");
-}
 
-bool
-RegExpShared::isMarkedGray() const
-{
-    if (source && source->isMarked(gc::GRAY))
-        return true;
-    for (const auto& comp : compilationArray) {
-        if (comp.jitCode && comp.jitCode->isMarked(gc::GRAY))
-            return true;
-    }
-    return false;
-}
-
-void
-RegExpShared::unmarkGray()
-{
-    if (source)
-        JS::UnmarkGrayGCThingRecursively(JS::GCCellPtr(source));
-    for (const auto& comp : compilationArray) {
-        if (comp.jitCode)
-            JS::UnmarkGrayGCThingRecursively(JS::GCCellPtr(comp.jitCode.get()));
+    for (size_t i = 0; i < ArrayLength(compilationArray); i++) {
+        RegExpCompilation& compilation = compilationArray[i];
+        TraceNullableEdge(trc, &compilation.jitCode, "RegExpShared code");
     }
 }
 
@@ -994,7 +973,7 @@ bool
 RegExpShared::compile(JSContext* cx, HandleLinearString input,
                       CompilationMode mode, ForceByteCodeEnum force)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     AutoTraceLog logCompile(logger, TraceLogger_IrregexpCompile);
 
     RootedAtom pattern(cx, source);
@@ -1061,7 +1040,7 @@ RegExpShared::execute(JSContext* cx, HandleLinearString input, size_t start,
 {
     MOZ_ASSERT_IF(matches, !endIndex);
     MOZ_ASSERT_IF(!matches, endIndex);
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
 
     CompilationMode mode = matches ? Normal : MatchOnly;
 
@@ -1081,7 +1060,7 @@ RegExpShared::execute(JSContext* cx, HandleLinearString input, size_t start,
     size_t length = input->length();
 
     // Reset the Irregexp backtrack stack if it grows during execution.
-    irregexp::RegExpStackScope stackScope(cx);
+    irregexp::RegExpStackScope stackScope(cx->runtime());
 
     if (canStringMatch) {
         MOZ_ASSERT(pairCount() == 1);
@@ -1304,7 +1283,7 @@ RegExpShared::needsSweep(JSRuntime* rt)
             keep = false;
     }
 
-    MOZ_ASSERT(JS::CurrentThreadIsHeapMajorCollecting());
+    MOZ_ASSERT(rt->isHeapMajorCollecting());
     if (keep || rt->gc.isHeapCompacting()) {
         clearMarked();
         return false;
@@ -1365,7 +1344,7 @@ RegExpCompartment::get(JSContext* cx, JSAtom* source, RegExpFlag flags, RegExpGu
     if (p) {
         // Trigger a read barrier on existing RegExpShared instances fetched
         // from the table (which only holds weak references).
-        RegExpSharedReadBarrier(cx, *p);
+        MaybeTraceRegExpShared(cx, *p);
 
         g->init(**p);
         return true;
@@ -1381,7 +1360,7 @@ RegExpCompartment::get(JSContext* cx, JSAtom* source, RegExpFlag flags, RegExpGu
     }
 
     // Trace RegExpShared instances created during an incremental GC.
-    RegExpSharedReadBarrier(cx, shared);
+    MaybeTraceRegExpShared(cx, shared);
 
     g->init(*shared.forget());
     return true;
@@ -1430,7 +1409,7 @@ js::CloneRegExpObject(JSContext* cx, JSObject* obj_)
     Rooted<JSAtom*> source(cx, regex->getSource());
 
     RegExpGuard g(cx);
-    if (!RegExpObject::getShared(cx, regex, &g))
+    if (!regex->getShared(cx, &g))
         return nullptr;
 
     clone->initAndZeroLastIndex(source, g->getFlags(), cx);

@@ -41,17 +41,17 @@ GenericPrinter::hadOutOfMemory() const
     return hadOOM_;
 }
 
-bool
+int
 GenericPrinter::printf(const char* fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
-    bool r = vprintf(fmt, va);
+    int i = vprintf(fmt, va);
     va_end(va);
-    return r;
+    return i;
 }
 
-bool
+int
 GenericPrinter::vprintf(const char* fmt, va_list ap)
 {
     // Simple shortcut to avoid allocating strings.
@@ -62,11 +62,11 @@ GenericPrinter::vprintf(const char* fmt, va_list ap)
     bp = JS_vsmprintf(fmt, ap);      /* XXX vsaprintf */
     if (!bp) {
         reportOutOfMemory();
-        return false;
+        return -1;
     }
-    bool r = put(bp);
+    int i = put(bp);
     js_free(bp);
-    return r;
+    return i;
 }
 
 const size_t Sprinter::DefaultSize = 64;
@@ -86,7 +86,7 @@ Sprinter::realloc_(size_t newSize)
     return true;
 }
 
-Sprinter::Sprinter(JSContext* cx, bool shouldReportOOM)
+Sprinter::Sprinter(ExclusiveContext* cx, bool shouldReportOOM)
   : context(cx),
 #ifdef DEBUG
     initialized(false),
@@ -171,7 +171,7 @@ Sprinter::reserve(size_t len)
     return sb;
 }
 
-bool
+int
 Sprinter::put(const char* s, size_t len)
 {
     InvariantChecker ic(this);
@@ -179,9 +179,10 @@ Sprinter::put(const char* s, size_t len)
     const char* oldBase = base;
     const char* oldEnd = base + size;
 
+    ptrdiff_t oldOffset = offset;
     char* bp = reserve(len);
     if (!bp)
-        return false;
+        return -1;
 
     /* s is within the buffer already */
     if (s >= oldBase && s < oldEnd) {
@@ -194,10 +195,10 @@ Sprinter::put(const char* s, size_t len)
     }
 
     bp[len] = 0;
-    return true;
+    return oldOffset;
 }
 
-bool
+int
 Sprinter::vprintf(const char* fmt, va_list ap)
 {
     InvariantChecker ic(this);
@@ -209,14 +210,14 @@ Sprinter::vprintf(const char* fmt, va_list ap)
         va_end(aq);
         if (i > -1 && (size_t) i < size - offset) {
             offset += i;
-            return true;
+            return i;
         }
     } while (realloc_(size * 2));
 
-    return false;
+    return -1;
 }
 
-bool
+int
 Sprinter::putString(JSString* s)
 {
     InvariantChecker ic(this);
@@ -224,13 +225,14 @@ Sprinter::putString(JSString* s)
     size_t length = s->length();
     size_t size = length;
 
+    ptrdiff_t oldOffset = offset;
     char* buffer = reserve(size);
     if (!buffer)
-        return false;
+        return -1;
 
     JSLinearString* linear = s->ensureLinear(context);
     if (!linear)
-        return false;
+        return -1;
 
     JS::AutoCheckCannotGC nogc;
     if (linear->hasLatin1Chars())
@@ -239,7 +241,7 @@ Sprinter::putString(JSString* s)
         DeflateStringToBuffer(nullptr, linear->twoByteChars(nogc), length, buffer, &size);
 
     buffer[size] = 0;
-    return true;
+    return oldOffset;
 }
 
 ptrdiff_t
@@ -271,7 +273,7 @@ Sprinter::jsprintf(const char* format, ...)
         return false;
     }
 
-    return put(chars.get());
+    return put(chars.get()) >= 0;
 }
 
 const char js_EscapeMap[] = {
@@ -289,10 +291,8 @@ const char js_EscapeMap[] = {
 
 template <typename CharT>
 static char*
-QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quote)
+QuoteString(Sprinter* sp, const CharT* s, size_t length, char16_t quote)
 {
-    using CharPtr = mozilla::RangedPtr<const CharT>;
-
     /* Sample off first for later return value pointer computation. */
     ptrdiff_t offset = sp->getOffset();
 
@@ -301,18 +301,16 @@ QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quot
             return nullptr;
     }
 
-    const CharPtr end = chars.end();
+    const CharT* end = s + length;
 
     /* Loop control variables: end points at end of string sentinel. */
-    for (CharPtr t = chars.begin(); t < end; ++t) {
+    for (const CharT* t = s; t < end; s = ++t) {
         /* Move t forward from s past un-quote-worthy characters. */
-        const CharPtr s = t;
         char16_t c = *t;
         while (c < 127 && isprint(c) && c != quote && c != '\\' && c != '\t') {
-            ++t;
+            c = *++t;
             if (t == end)
                 break;
-            c = *t;
         }
 
         {
@@ -322,7 +320,7 @@ QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quot
                 return nullptr;
 
             for (ptrdiff_t i = 0; i < len; ++i)
-                (*sp)[base + i] = char(s[i]);
+                (*sp)[base + i] = char(*s++);
             (*sp)[base + len] = 0;
         }
 
@@ -356,7 +354,7 @@ QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quot
      * the return below gives a valid result.
      */
     if (offset == sp->getOffset()) {
-        if (!sp->put(""))
+        if (sp->put("") < 0)
             return nullptr;
     }
 
@@ -372,12 +370,12 @@ QuoteString(Sprinter* sp, JSString* str, char16_t quote)
 
     JS::AutoCheckCannotGC nogc;
     return linear->hasLatin1Chars()
-           ? QuoteString(sp, linear->latin1Range(nogc), quote)
-           : QuoteString(sp, linear->twoByteRange(nogc), quote);
+           ? QuoteString(sp, linear->latin1Chars(nogc), linear->length(), quote)
+           : QuoteString(sp, linear->twoByteChars(nogc), linear->length(), quote);
 }
 
 JSString*
-QuoteString(JSContext* cx, JSString* str, char16_t quote)
+QuoteString(ExclusiveContext* cx, JSString* str, char16_t quote)
 {
     Sprinter sprinter(cx);
     if (!sprinter.init())
@@ -440,39 +438,39 @@ Fprinter::finish()
     file_ = nullptr;
 }
 
-bool
+int
 Fprinter::put(const char* s, size_t len)
 {
     MOZ_ASSERT(file_);
     int i = fwrite(s, len, 1, file_);
     if (size_t(i) != len) {
         reportOutOfMemory();
-        return false;
+        return -1;
     }
-    return true;
+    return i;
 }
 
-bool
+int
 Fprinter::printf(const char* fmt, ...)
 {
     MOZ_ASSERT(file_);
     va_list ap;
     va_start(ap, fmt);
-    bool r = vfprintf(file_, fmt, ap);
-    if (!r)
+    int i = vfprintf(file_, fmt, ap);
+    if (i == -1)
         reportOutOfMemory();
     va_end(ap);
-    return r;
+    return i;
 }
 
-bool
+int
 Fprinter::vprintf(const char* fmt, va_list ap)
 {
     MOZ_ASSERT(file_);
-    bool r = vfprintf(file_, fmt, ap);
-    if (!r)
+    int i = vfprintf(file_, fmt, ap);
+    if (i == -1)
         reportOutOfMemory();
-    return r;
+    return i;
 }
 
 LSprinter::LSprinter(LifoAlloc* lifoAlloc)
@@ -508,7 +506,7 @@ LSprinter::clear()
     hadOOM_ = false;
 }
 
-bool
+int
 LSprinter::put(const char* s, size_t len)
 {
     // Compute how much data will fit in the current chunk.
@@ -529,7 +527,7 @@ LSprinter::put(const char* s, size_t len)
         last = reinterpret_cast<Chunk*>(alloc_->alloc(allocLength));
         if (!last) {
             reportOutOfMemory();
-            return false;
+            return -1;
         }
     }
 
@@ -572,20 +570,20 @@ LSprinter::put(const char* s, size_t len)
     }
 
     MOZ_ASSERT(len <= INT_MAX);
-    return true;
+    return int(len);
 }
 
-bool
+int
 LSprinter::printf(const char* fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
-    bool r = vprintf(fmt, va);
+    int i = vprintf(fmt, va);
     va_end(va);
-    return r;
+    return i;
 }
 
-bool
+int
 LSprinter::vprintf(const char* fmt, va_list ap)
 {
     // Simple shortcut to avoid allocating strings.
@@ -596,11 +594,11 @@ LSprinter::vprintf(const char* fmt, va_list ap)
     bp = JS_vsmprintf(fmt, ap);      /* XXX vsaprintf */
     if (!bp) {
         reportOutOfMemory();
-        return false;
+        return -1;
     }
-    bool r = put(bp);
+    int i = put(bp);
     js_free(bp);
-    return r;
+    return i;
 }
 
 void

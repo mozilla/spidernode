@@ -26,10 +26,10 @@ namespace frontend {
 //    if (!FoldConstants(cx, &pn, parser))
 //        return false;
 MOZ_MUST_USE bool
-FoldConstants(JSContext* cx, ParseNode** pnp, Parser<FullParseHandler>* parser);
+FoldConstants(ExclusiveContext* cx, ParseNode** pnp, Parser<FullParseHandler>* parser);
 
 inline MOZ_MUST_USE bool
-FoldConstants(JSContext* cx, SyntaxParseHandler::Node* pnp,
+FoldConstants(ExclusiveContext* cx, SyntaxParseHandler::Node* pnp,
               Parser<SyntaxParseHandler>* parser)
 {
     return true;

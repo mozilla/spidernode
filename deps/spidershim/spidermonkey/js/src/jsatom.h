@@ -28,7 +28,7 @@ namespace js {
  * The lifetime of the result matches the lifetime of bytes.
  */
 extern const char*
-AtomToPrintableString(JSContext* cx, JSAtom* atom, JSAutoByteString* bytes);
+AtomToPrintableString(ExclusiveContext* cx, JSAtom* atom, JSAutoByteString* bytes);
 
 class AtomStateEntry
 {
@@ -57,7 +57,7 @@ class AtomStateEntry
         const_cast<AtomStateEntry*>(this)->bits |= uintptr_t(pinned);
     }
 
-    JSAtom* asPtr(JSContext* cx) const;
+    JSAtom* asPtr(ExclusiveContext* cx) const;
     JSAtom* asPtrUnbarriered() const;
 
     bool needsSweep() {
@@ -150,9 +150,44 @@ FOR_EACH_COMMON_PROPERTYNAME(DECLARE_CONST_CHAR_STR)
 #undef DECLARE_CONST_CHAR_STR
 
 /* Constant strings that are not atomized. */
+extern const char js_break_str[];
+extern const char js_case_str[];
+extern const char js_catch_str[];
+extern const char js_class_str[];
+extern const char js_close_str[];
+extern const char js_const_str[];
+extern const char js_continue_str[];
+extern const char js_debugger_str[];
+extern const char js_default_str[];
+extern const char js_do_str[];
+extern const char js_else_str[];
+extern const char js_enum_str[];
+extern const char js_export_str[];
+extern const char js_extends_str[];
+extern const char js_finally_str[];
+extern const char js_for_str[];
 extern const char js_getter_str[];
+extern const char js_if_str[];
+extern const char js_implements_str[];
+extern const char js_import_str[];
+extern const char js_in_str[];
+extern const char js_instanceof_str[];
+extern const char js_interface_str[];
+extern const char js_package_str[];
+extern const char js_private_str[];
+extern const char js_protected_str[];
+extern const char js_public_str[];
 extern const char js_send_str[];
 extern const char js_setter_str[];
+extern const char js_static_str[];
+extern const char js_super_str[];
+extern const char js_switch_str[];
+extern const char js_this_str[];
+extern const char js_try_str[];
+extern const char js_typeof_str[];
+extern const char js_void_str[];
+extern const char js_while_str[];
+extern const char js_with_str[];
 
 namespace js {
 
@@ -178,23 +213,23 @@ enum PinningBehavior
 };
 
 extern JSAtom*
-Atomize(JSContext* cx, const char* bytes, size_t length,
+Atomize(ExclusiveContext* cx, const char* bytes, size_t length,
         js::PinningBehavior pin = js::DoNotPinAtom);
 
 template <typename CharT>
 extern JSAtom*
-AtomizeChars(JSContext* cx, const CharT* chars, size_t length,
+AtomizeChars(ExclusiveContext* cx, const CharT* chars, size_t length,
              js::PinningBehavior pin = js::DoNotPinAtom);
 
 extern JSAtom*
 AtomizeUTF8Chars(JSContext* cx, const char* utf8Chars, size_t utf8ByteLength);
 
 extern JSAtom*
-AtomizeString(JSContext* cx, JSString* str, js::PinningBehavior pin = js::DoNotPinAtom);
+AtomizeString(ExclusiveContext* cx, JSString* str, js::PinningBehavior pin = js::DoNotPinAtom);
 
 template <AllowGC allowGC>
 extern JSAtom*
-ToAtom(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v);
+ToAtom(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v);
 
 enum XDRMode {
     XDR_ENCODE,

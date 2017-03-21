@@ -35,7 +35,7 @@ class ICStubSpace
 
     JS_DECLARE_NEW_METHODS(allocate, alloc, inline)
 
-    void freeAllAfterMinorGC(JS::Zone* zone);
+    void freeAllAfterMinorGC(JSRuntime* rt);
 
 #ifdef DEBUG
     bool isEmpty() const {

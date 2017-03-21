@@ -13,7 +13,6 @@
 
 #include "jit/CompileInfo.h"
 #include "jit/JitFrames.h"
-#include "vm/Interpreter.h"
 
 namespace js {
 
@@ -279,7 +278,6 @@ template <> struct TypeToDataType<NativeObject*> { static const DataType result 
 template <> struct TypeToDataType<PlainObject*> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<InlineTypedObject*> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<NamedLambdaObject*> { static const DataType result = Type_Object; };
-template <> struct TypeToDataType<LexicalEnvironmentObject*> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<ArrayObject*> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<TypedArrayObject*> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<JSString*> { static const DataType result = Type_Object; };
@@ -461,6 +459,9 @@ template <> struct OutParamToRootType<MutableHandleString> {
 
 template <class> struct MatchContext { };
 template <> struct MatchContext<JSContext*> {
+    static const bool valid = true;
+};
+template <> struct MatchContext<ExclusiveContext*> {
     static const bool valid = true;
 };
 
@@ -681,8 +682,6 @@ void PostGlobalWriteBarrier(JSRuntime* rt, JSObject* obj);
 // is not an index in this range, return -1.
 int32_t GetIndexFromString(JSString* str);
 
-JSObject* WrapObjectPure(JSContext* cx, JSObject* obj);
-
 MOZ_MUST_USE bool
 DebugPrologue(JSContext* cx, BaselineFrame* frame, jsbytecode* pc, bool* mustReturn);
 MOZ_MUST_USE bool
@@ -716,8 +715,6 @@ InitFunctionEnvironmentObjects(JSContext* cx, BaselineFrame* frame);
 
 MOZ_MUST_USE bool
 NewArgumentsObject(JSContext* cx, BaselineFrame* frame, MutableHandleValue res);
-
-JSObject* CopyLexicalEnvironmentObject(JSContext* cx, HandleObject env, bool copySlots);
 
 JSObject* InitRestParameter(JSContext* cx, uint32_t length, Value* rest, HandleObject templateObj,
                             HandleObject res);
@@ -838,9 +835,6 @@ CallNativeSetter(JSContext* cx, HandleFunction callee, HandleObject obj,
 
 MOZ_MUST_USE bool
 EqualStringsHelper(JSString* str1, JSString* str2);
-
-MOZ_MUST_USE bool
-CheckIsCallable(JSContext* cx, HandleValue v, CheckIsCallableKind kind);
 
 } // namespace jit
 } // namespace js

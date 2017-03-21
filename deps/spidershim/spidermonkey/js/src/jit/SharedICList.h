@@ -29,7 +29,6 @@ namespace jit {
     _(Compare_Double)                            \
     _(Compare_NumberWithUndefined)               \
     _(Compare_String)                            \
-    _(Compare_Symbol)                            \
     _(Compare_Boolean)                           \
     _(Compare_Object)                            \
     _(Compare_ObjectWithUndefined)               \
@@ -38,7 +37,6 @@ namespace jit {
     _(GetProp_Fallback)                          \
     _(GetProp_Generic)                           \
                                                  \
-    _(CacheIR_Regular)                           \
     _(CacheIR_Monitored)                         \
     _(CacheIR_Updated)                           \
                                                  \

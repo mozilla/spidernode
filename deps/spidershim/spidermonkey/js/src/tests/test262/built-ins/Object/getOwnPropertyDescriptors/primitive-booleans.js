@@ -3,7 +3,7 @@
 
 /*---
 description: Object.getOwnPropertyDescriptors accepts boolean primitives.
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 ---*/
 
@@ -14,5 +14,3 @@ assert.sameValue(Object.keys(trueResult).length, 0, 'trueResult has 0 items');
 var falseResult = Object.getOwnPropertyDescriptors(false);
 
 assert.sameValue(Object.keys(falseResult).length, 0, 'falseResult has 0 items');
-
-reportCompare(0, 0);

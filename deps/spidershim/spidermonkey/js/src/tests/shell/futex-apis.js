@@ -99,8 +99,9 @@ let sab = new SharedArrayBuffer(16);
     let indices = [ (view) => -1,
 		    (view) => view.length,
 		    (view) => view.length*2,
-		    (view) => '-3.5',
-	            (view) => ({ valueOf: () => -8 }) ];
+		    (view) => undefined,
+		    (view) => '3.5',
+		    (view) => { password: "qumquat" } ];
 
     for ( let iidx=0 ; iidx < indices.length ; iidx++ ) {
 	let Idx = indices[iidx](view);

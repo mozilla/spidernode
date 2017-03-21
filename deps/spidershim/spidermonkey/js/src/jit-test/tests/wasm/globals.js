@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 const { Instance, Module } = WebAssembly;
 
 // Locally-defined globals

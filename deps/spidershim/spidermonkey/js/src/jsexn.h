@@ -18,9 +18,6 @@
 namespace js {
 class ErrorObject;
 
-JSErrorNotes::Note*
-CopyErrorNote(JSContext* cx, JSErrorNotes::Note* note);
-
 JSErrorReport*
 CopyErrorReport(JSContext* cx, JSErrorReport* report);
 
@@ -71,8 +68,7 @@ static_assert(JSEXN_ERR == 0 &&
               JSProto_Error + JSEXN_WASMLINKERROR == JSProto_LinkError &&
               JSProto_Error + JSEXN_WASMRUNTIMEERROR == JSProto_RuntimeError &&
               JSEXN_WASMRUNTIMEERROR + 1 == JSEXN_WARN &&
-              JSEXN_WARN + 1 == JSEXN_NOTE &&
-              JSEXN_NOTE + 1 == JSEXN_LIMIT,
+              JSEXN_WARN + 1 == JSEXN_LIMIT,
               "GetExceptionProtoKey and ExnTypeFromProtoKey require that "
               "each corresponding JSExnType and JSProtoKey value be separated "
               "by the same constant value");
@@ -131,11 +127,6 @@ class AutoAssertNoPendingException
 
 extern const char*
 ValueToSourceForError(JSContext* cx, HandleValue val, JSAutoByteString& bytes);
-
-bool
-GetInternalError(JSContext* cx, unsigned errorNumber, MutableHandleValue error);
-bool
-GetTypeError(JSContext* cx, unsigned errorNumber, MutableHandleValue error);
 
 } // namespace js
 

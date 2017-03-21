@@ -586,29 +586,23 @@ RegionMatches(const char* s1, int s1off, const CharT* s2, int s2off, int count)
     return count == 0;
 }
 
-// ES2017 draft rev (TODO: Add git hash when PR 642 is merged.)
-// 20.3.3.4
-// Date.UTC(year [, month [, date [, hours [, minutes [, seconds [, ms]]]]]])
+/* ES6 20.3.3.4. */
 static bool
 date_UTC(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    // Step 1.
+    // Steps 1-2.
     double y;
     if (!ToNumber(cx, args.get(0), &y))
         return false;
 
-    // Step 2.
+    // Steps 3-4.
     double m;
-    if (args.length() >= 2) {
-        if (!ToNumber(cx, args[1], &m))
-            return false;
-    } else {
-        m = 0;
-    }
+    if (!ToNumber(cx, args.get(1), &m))
+        return false;
 
-    // Step 3.
+    // Steps 5-6.
     double dt;
     if (args.length() >= 3) {
         if (!ToNumber(cx, args[2], &dt))
@@ -617,7 +611,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
         dt = 1;
     }
 
-    // Step 4.
+    // Steps 7-8.
     double h;
     if (args.length() >= 4) {
         if (!ToNumber(cx, args[3], &h))
@@ -626,7 +620,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
         h = 0;
     }
 
-    // Step 5.
+    // Steps 9-10.
     double min;
     if (args.length() >= 5) {
         if (!ToNumber(cx, args[4], &min))
@@ -635,7 +629,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
         min = 0;
     }
 
-    // Step 6.
+    // Steps 11-12.
     double s;
     if (args.length() >= 6) {
         if (!ToNumber(cx, args[5], &s))
@@ -644,7 +638,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
         s = 0;
     }
 
-    // Step 7.
+    // Steps 13-14.
     double milli;
     if (args.length() >= 7) {
         if (!ToNumber(cx, args[6], &milli))
@@ -653,7 +647,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
         milli = 0;
     }
 
-    // Step 8.
+    // Step 15.
     double yr = y;
     if (!IsNaN(y)) {
         double yint = ToInteger(y);
@@ -661,7 +655,7 @@ date_UTC(JSContext* cx, unsigned argc, Value* vp)
             yr = 1900 + yint;
     }
 
-    // Step 9.
+    // Step 16.
     ClippedTime time = TimeClip(MakeDate(MakeDay(yr, m, dt), MakeTime(h, min, s, milli)));
     args.rval().set(TimeValue(time));
     return true;
@@ -2822,17 +2816,6 @@ date_toLocaleFormat_impl(JSContext* cx, const CallArgs& args)
 {
     Rooted<DateObject*> dateObj(cx, &args.thisv().toObject().as<DateObject>());
 
-#if EXPOSE_INTL_API
-    if (!cx->compartment()->warnedAboutDateToLocaleFormat) {
-        if (!JS_ReportErrorFlagsAndNumberASCII(cx, JSREPORT_WARNING, GetErrorMessage, nullptr,
-                                               JSMSG_DEPRECATED_TOLOCALEFORMAT))
-        {
-            return false;
-        }
-        cx->compartment()->warnedAboutDateToLocaleFormat = true;
-    }
-#endif
-
     if (args.length() == 0) {
         /*
          * Use '%#c' for windows, because '%c' is backward-compatible and non-y2k
@@ -2998,7 +2981,7 @@ date_toPrimitive(JSContext* cx, unsigned argc, Value* vp)
     JSType hint;
     if (!GetFirstArgumentAsTypeHint(cx, args, &hint))
         return false;
-    if (hint == JSTYPE_UNDEFINED)
+    if (hint == JSTYPE_VOID)
         hint = JSTYPE_STRING;
 
     args.rval().set(args.thisv());

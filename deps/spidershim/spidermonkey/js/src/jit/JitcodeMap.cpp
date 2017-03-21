@@ -25,7 +25,6 @@
 
 #include "jsscriptinlines.h"
 
-#include "vm/GeckoProfiler-inl.h"
 #include "vm/TypeInference-inl.h"
 
 using mozilla::Maybe;
@@ -454,7 +453,8 @@ JitcodeGlobalTable::lookupForSamplerInfallible(void* ptr, JSRuntime* rt, uint32_
     // barrier is not needed. Any JS frames sampled during the sweep phase of
     // the GC must be on stack, and on-stack frames must already be marked at
     // the beginning of the sweep phase. It's not possible to assert this here
-    // as we may not be off thread when called from the gecko profiler.
+    // as we may not be running on the main thread when called from the gecko
+    // profiler.
 
     return *entry;
 }
@@ -510,7 +510,7 @@ JitcodeGlobalTable::addEntry(const JitcodeGlobalEntry& entry, JSRuntime* rt)
     newEntry->tower_ = newTower;
 
     // Suppress profiler sampling while skiplist is being mutated.
-    AutoSuppressProfilerSampling suppressSampling(TlsContext.get());
+    AutoSuppressProfilerSampling suppressSampling(rt);
 
     // Link up entry with forward entries taken from tower.
     for (int level = newTower->height() - 1; level >= 0; level--) {
@@ -537,7 +537,7 @@ void
 JitcodeGlobalTable::removeEntry(JitcodeGlobalEntry& entry, JitcodeGlobalEntry** prevTower,
                                 JSRuntime* rt)
 {
-    MOZ_ASSERT(!TlsContext.get()->isProfilerSamplingEnabled());
+    MOZ_ASSERT(!rt->isProfilerSamplingEnabled());
 
     // Unlink query entry.
     for (int level = entry.tower_->height() - 1; level >= 0; level--) {
@@ -716,7 +716,7 @@ JitcodeGlobalTable::verifySkiplist()
 void
 JitcodeGlobalTable::setAllEntriesAsExpired(JSRuntime* rt)
 {
-    AutoSuppressProfilerSampling suppressSampling(TlsContext.get());
+    AutoSuppressProfilerSampling suppressSampling(rt);
     for (Range r(*this); !r.empty(); r.popFront())
         r.front()->setAsExpired();
 }
@@ -733,9 +733,9 @@ JitcodeGlobalTable::trace(JSTracer* trc)
     // Trace all entries unconditionally. This is done during minor collection
     // to tenure and update object pointers.
 
-    MOZ_ASSERT(trc->runtime()->geckoProfiler().enabled());
+    MOZ_ASSERT(trc->runtime()->geckoProfiler.enabled());
 
-    AutoSuppressProfilerSampling suppressSampling(TlsContext.get());
+    AutoSuppressProfilerSampling suppressSampling(trc->runtime());
     for (Range r(*this); !r.empty(); r.popFront())
         r.front()->trace<Unconditionally>(trc);
 }
@@ -777,14 +777,14 @@ JitcodeGlobalTable::markIteratively(GCMarker* marker)
     // The approach above obviates the need for read barriers. The assumption
     // above is checked in JitcodeGlobalTable::lookupForSampler.
 
-    MOZ_ASSERT(!JS::CurrentThreadIsHeapMinorCollecting());
+    MOZ_ASSERT(!marker->runtime()->isHeapMinorCollecting());
 
-    AutoSuppressProfilerSampling suppressSampling(TlsContext.get());
+    AutoSuppressProfilerSampling suppressSampling(marker->runtime());
     uint32_t gen = marker->runtime()->profilerSampleBufferGen();
     uint32_t lapCount = marker->runtime()->profilerSampleBufferLapCount();
 
     // If the profiler is off, all entries are considered to be expired.
-    if (!marker->runtime()->geckoProfiler().enabled())
+    if (!marker->runtime()->geckoProfiler.enabled())
         gen = UINT32_MAX;
 
     bool markedAny = false;
@@ -818,7 +818,7 @@ JitcodeGlobalTable::markIteratively(GCMarker* marker)
 void
 JitcodeGlobalTable::sweep(JSRuntime* rt)
 {
-    AutoSuppressProfilerSampling suppressSampling(TlsContext.get());
+    AutoSuppressProfilerSampling suppressSampling(rt);
     for (Enum e(*this, rt); !e.empty(); e.popFront()) {
         JitcodeGlobalEntry* entry = e.front();
 
@@ -1648,15 +1648,15 @@ JS::ForEachProfiledFrameOp::FrameHandle::frameKind() const
 JS_PUBLIC_API(void)
 JS::ForEachProfiledFrame(JSContext* cx, void* addr, ForEachProfiledFrameOp& op)
 {
-    js::jit::JitcodeGlobalTable* table = cx->runtime()->jitRuntime()->getJitcodeGlobalTable();
+    js::jit::JitcodeGlobalTable* table = cx->jitRuntime()->getJitcodeGlobalTable();
     js::jit::JitcodeGlobalEntry& entry = table->lookupInfallible(addr);
 
     // Extract the stack for the entry.  Assume maximum inlining depth is <64
     const char* labels[64];
-    uint32_t depth = entry.callStackAtAddr(cx->runtime(), addr, labels, 64);
+    uint32_t depth = entry.callStackAtAddr(cx, addr, labels, 64);
     MOZ_ASSERT(depth < 64);
     for (uint32_t i = depth; i != 0; i--) {
-        JS::ForEachProfiledFrameOp::FrameHandle handle(cx->runtime(), entry, addr, labels[i - 1], i - 1);
+        JS::ForEachProfiledFrameOp::FrameHandle handle(cx, entry, addr, labels[i - 1], i - 1);
         op(handle);
     }
 }

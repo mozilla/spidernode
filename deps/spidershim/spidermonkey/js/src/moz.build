@@ -176,7 +176,6 @@ UNIFIED_SOURCES += [
     'builtin/WeakMapObject.cpp',
     'builtin/WeakSetObject.cpp',
     'devtools/sharkctl.cpp',
-    'ds/Bitmap.cpp',
     'ds/LifoAlloc.cpp',
     'ds/MemoryProtectionExceptionHandler.cpp',
     'frontend/BytecodeCompiler.cpp',
@@ -199,7 +198,6 @@ UNIFIED_SOURCES += [
     'gc/Tracer.cpp',
     'gc/Verifier.cpp',
     'gc/Zone.cpp',
-    'gc/ZoneGroup.cpp',
     'irregexp/NativeRegExpMacroAssembler.cpp',
     'irregexp/RegExpAST.cpp',
     'irregexp/RegExpCharacters.cpp',
@@ -227,7 +225,6 @@ UNIFIED_SOURCES += [
     'jit/C1Spewer.cpp',
     'jit/CacheIR.cpp',
     'jit/CacheIRCompiler.cpp',
-    'jit/CacheIRSpewer.cpp',
     'jit/CodeGenerator.cpp',
     'jit/CompileWrappers.cpp',
     'jit/Disassembler.cpp',
@@ -250,7 +247,6 @@ UNIFIED_SOURCES += [
     'jit/JitFrames.cpp',
     'jit/JitOptions.cpp',
     'jit/JitSpewer.cpp',
-    'jit/JSONPrinter.cpp',
     'jit/JSONSpewer.cpp',
     'jit/LICM.cpp',
     'jit/Linker.cpp',
@@ -264,7 +260,6 @@ UNIFIED_SOURCES += [
     'jit/MoveResolver.cpp',
     'jit/OptimizationTracking.cpp',
     'jit/PerfSpewer.cpp',
-    'jit/ProcessExecutableMemory.cpp',
     'jit/RangeAnalysis.cpp',
     'jit/Recover.cpp',
     'jit/RegisterAllocator.cpp',
@@ -315,7 +310,6 @@ UNIFIED_SOURCES += [
     'proxy/SecurityWrapper.cpp',
     'proxy/Wrapper.cpp',
     'threading/Mutex.cpp',
-    'threading/ProtectedData.cpp',
     'vm/ArgumentsObject.cpp',
     'vm/ArrayBufferObject.cpp',
     'vm/AsyncFunction.cpp',
@@ -593,14 +587,20 @@ elif CONFIG['JS_CODEGEN_MIPS32'] or CONFIG['JS_CODEGEN_MIPS64']:
 
 if CONFIG['OS_ARCH'] == 'WINNT':
     SOURCES += [
+        'jit/ExecutableAllocatorWin.cpp',
+        'threading/windows/ConditionVariable.cpp',
         'threading/windows/CpuCount.cpp',
+        'threading/windows/MutexImpl.cpp',
         'threading/windows/Thread.cpp',
     ]
     # _CRT_RAND_S must be #defined before #including stdlib.h to get rand_s()
     DEFINES['_CRT_RAND_S'] = True
 else:
     SOURCES += [
+        'jit/ExecutableAllocatorPosix.cpp',
+        'threading/posix/ConditionVariable.cpp',
         'threading/posix/CpuCount.cpp',
+        'threading/posix/MutexImpl.cpp',
         'threading/posix/Thread.cpp',
     ]
 
@@ -617,9 +617,7 @@ if CONFIG['JS_HAS_CTYPES']:
 
 if CONFIG['MOZ_VTUNE']:
     SOURCES += [
-        'vtune/ittnotify_static.c',
-        'vtune/jitprofiling.c',
-        'vtune/VTuneWrapper.cpp',
+        'vtune/jitprofiling.c'
     ]
 
 if CONFIG['HAVE_LINUX_PERF_EVENT_H']:
@@ -633,11 +631,11 @@ else:
         'perf/pm_stub.cpp'
     ]
 
-GENERATED_FILES += ['frontend/ReservedWordsGenerated.h']
-ReservedWordsGenerated = GENERATED_FILES['frontend/ReservedWordsGenerated.h']
-ReservedWordsGenerated.script = 'frontend/GenerateReservedWords.py'
-ReservedWordsGenerated.inputs += [
-    'frontend/ReservedWords.h'
+GENERATED_FILES += ['jsautokw.h']
+jsautokw = GENERATED_FILES['jsautokw.h']
+jsautokw.script = 'jsautokw.py'
+jsautokw.inputs += [
+    'vm/Keywords.h'
 ]
 
 # JavaScript must be built shared, even for static builds, as it is used by

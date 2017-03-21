@@ -395,13 +395,12 @@ class IonBuilder
                                             MDefinition* index, MDefinition* value);
     AbortReasonOr<Ok> setElemTryTypedStatic(bool* emitted, MDefinition* object,
                                             MDefinition* index, MDefinition* value);
-    AbortReasonOr<Ok> initOrSetElemTryDense(bool* emitted, MDefinition* object,
-                                            MDefinition* index, MDefinition* value,
-                                            bool writeHole);
+    AbortReasonOr<Ok> setElemTryDense(bool* emitted, MDefinition* object,
+                                      MDefinition* index, MDefinition* value, bool writeHole);
     AbortReasonOr<Ok> setElemTryArguments(bool* emitted, MDefinition* object,
                                           MDefinition* index, MDefinition* value);
-    AbortReasonOr<Ok> initOrSetElemTryCache(bool* emitted, MDefinition* object,
-                                            MDefinition* index, MDefinition* value);
+    AbortReasonOr<Ok> setElemTryCache(bool* emitted, MDefinition* object,
+                                      MDefinition* index, MDefinition* value);
     AbortReasonOr<Ok> setElemTryReferenceElemOfTypedObject(bool* emitted,
                                                            MDefinition* obj,
                                                            MDefinition* index,
@@ -529,7 +528,7 @@ class IonBuilder
     AbortReasonOr<Ok> jsop_getelem_typed(MDefinition* obj, MDefinition* index,
                                          ScalarTypeDescr::Type arrayType);
     AbortReasonOr<Ok> jsop_setelem();
-    AbortReasonOr<Ok> initOrSetElemDense(TemporaryTypeSet::DoubleConversion conversion,
+    AbortReasonOr<Ok> jsop_setelem_dense(TemporaryTypeSet::DoubleConversion conversion,
                                          MDefinition* object, MDefinition* index,
                                          MDefinition* value, JSValueType unboxedType,
                                          bool writeHole, bool* emitted);
@@ -562,8 +561,6 @@ class IonBuilder
     AbortReasonOr<Ok> jsop_lambda(JSFunction* fun);
     AbortReasonOr<Ok> jsop_lambda_arrow(JSFunction* fun);
     AbortReasonOr<Ok> jsop_setfunname(uint8_t prefixKind);
-    AbortReasonOr<Ok> jsop_pushlexicalenv(uint32_t index);
-    AbortReasonOr<Ok> jsop_copylexicalenv(bool copySlots);
     AbortReasonOr<Ok> jsop_functionthis();
     AbortReasonOr<Ok> jsop_globalthis();
     AbortReasonOr<Ok> jsop_typeof();
@@ -580,7 +577,6 @@ class IonBuilder
     AbortReasonOr<Ok> jsop_debugger();
     AbortReasonOr<Ok> jsop_newtarget();
     AbortReasonOr<Ok> jsop_checkisobj(uint8_t kind);
-    AbortReasonOr<Ok> jsop_checkiscallable(uint8_t kind);
     AbortReasonOr<Ok> jsop_checkobjcoercible();
     AbortReasonOr<Ok> jsop_pushcallobj();
 
@@ -817,16 +813,17 @@ class IonBuilder
                                      MBasicBlock* bottom);
     MDefinition* specializeInlinedReturn(MDefinition* rdef, MBasicBlock* exit);
 
-    NativeObject* commonPrototypeWithGetterSetter(TemporaryTypeSet* types, PropertyName* name,
-                                                  bool isGetter, JSFunction* getterOrSetter,
-                                                  bool* guardGlobal);
+    bool objectsHaveCommonPrototype(TemporaryTypeSet* types, PropertyName* name,
+                                    bool isGetter, JSObject* foundProto,
+                                    bool* guardGlobal);
     void freezePropertiesForCommonPrototype(TemporaryTypeSet* types, PropertyName* name,
                                             JSObject* foundProto, bool allowEmptyTypesForGlobal = false);
     /*
      * Callers must pass a non-null globalGuard if they pass a non-null globalShape.
      */
     bool testCommonGetterSetter(TemporaryTypeSet* types, PropertyName* name,
-                                bool isGetter, JSFunction* getterOrSetter,
+                                bool isGetter, JSObject* foundProto,
+                                Shape* lastProperty, JSFunction* getterOrSetter,
                                 MDefinition** guard, Shape* globalShape = nullptr,
                                 MDefinition** globalGuard = nullptr);
     AbortReasonOr<bool> testShouldDOMCall(TypeSet* inTypes,
@@ -947,7 +944,8 @@ class IonBuilder
     }
 
     TraceLoggerThread *traceLogger() {
-        return TraceLoggerForCurrentThread();
+        // Currently ionbuilder only runs on the main thread.
+        return TraceLoggerForMainThread(compartment->runtime()->mainThread()->runtimeFromMainThread());
     }
 
     void actionableAbortLocationAndMessage(JSScript** abortScript, jsbytecode** abortPc,
@@ -1071,10 +1069,9 @@ class IonBuilder
     // Has an iterator other than 'for in'.
     bool nonStringIteration_;
 
-#ifdef DEBUG
-    // If this script uses the lazy arguments object.
-    bool hasLazyArguments_;
-#endif
+    // If this script can use a lazy arguments object, it will be pre-created
+    // here.
+    MInstruction* lazyArguments_;
 
     // If this is an inline builder, the call info for the builder.
     const CallInfo* inlineCallInfo_;

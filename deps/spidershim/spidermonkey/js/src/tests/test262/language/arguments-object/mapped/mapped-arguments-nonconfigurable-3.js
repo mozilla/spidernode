@@ -17,5 +17,3 @@ function argumentsAndDefineOwnProperty(a) {
   assert.sameValue(arguments[0], 2);
 }
 argumentsAndDefineOwnProperty(1);
-
-reportCompare(0, 0);

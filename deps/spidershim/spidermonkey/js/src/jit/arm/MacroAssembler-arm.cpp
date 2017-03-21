@@ -4747,8 +4747,8 @@ MacroAssemblerARMCompat::atomicExchangeToTypedIntArray(Scalar::Type arrayType, c
 void
 MacroAssemblerARMCompat::profilerEnterFrame(Register framePtr, Register scratch)
 {
-    asMasm().loadJSContext(scratch);
-    loadPtr(Address(scratch, offsetof(JSContext, profilingActivation_)), scratch);
+    AbsoluteAddress activation(GetJitContext()->runtime->addressOfProfilingActivation());
+    loadPtr(activation, scratch);
     storePtr(framePtr, Address(scratch, JitActivation::offsetOfLastProfilingFrame()));
     storePtr(ImmPtr(nullptr), Address(scratch, JitActivation::offsetOfLastProfilingCallSite()));
 }
@@ -4841,6 +4841,8 @@ MacroAssembler::PushRegsInMask(LiveRegisterSet set)
 void
 MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
 {
+    MOZ_ASSERT(!set.has(scratch));
+
     int32_t diffF = set.fpus().getPushSizeInBytes();
     int32_t diffG = set.gprs().size() * sizeof(intptr_t);
 

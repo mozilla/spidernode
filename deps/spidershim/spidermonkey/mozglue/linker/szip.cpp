@@ -14,7 +14,6 @@
 #include <errno.h>
 #include "mozilla/Assertions.h"
 #include "mozilla/Scoped.h"
-#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/UniquePtr.h"
 #include "SeekableZStream.h"
 #include "Utils.h"
@@ -251,7 +250,7 @@ int SzipCompress::run(const char *name, Buffer &origBuf,
     return 0;
   }
   bool compressed = false;
-  LOG("Size = %" PRIuSIZE, origSize);
+  LOG("Size = %" PRIuSize, origSize);
 
   /* Allocate a buffer the size of the uncompressed data: we don't want
    * a compressed file larger than that anyways. */
@@ -319,7 +318,7 @@ int SzipCompress::run(const char *name, Buffer &origBuf,
 
     Buffer tmpBuf;
     for (size_t d = firstDictSize; d <= lastDictSize; d += 4096) {
-      DEBUG_LOG("Compressing with dictionary of size %" PRIuSIZE, d);
+      DEBUG_LOG("Compressing with dictionary of size %" PRIuSize, d);
       if (do_compress(*origData, tmpBuf, static_cast<unsigned char *>(dict)
                       + SzipCompress::winSize - d, d, filter))
         continue;
@@ -340,9 +339,9 @@ int SzipCompress::run(const char *name, Buffer &origBuf,
   if (dictSize == (size_t) -1)
     dictSize = 0;
 
-  DEBUG_LOG("Used filter \"%s\" and dictionary size of %" PRIuSIZE,
+  DEBUG_LOG("Used filter \"%s\" and dictionary size of %" PRIuSize,
             filterName[filter], dictSize);
-  LOG("Compressed size is %" PRIuSIZE, outBuf.GetLength());
+  LOG("Compressed size is %" PRIuSize, outBuf.GetLength());
 
   /* Sanity check */
   Buffer tmpBuf;
@@ -352,7 +351,7 @@ int SzipCompress::run(const char *name, Buffer &origBuf,
 
   size_t size = tmpBuf.GetLength();
   if (size != origSize) {
-    ERROR("Compression error: %" PRIuSIZE " != %" PRIuSIZE, size, origSize);
+    ERROR("Compression error: %" PRIuSize " != %" PRIuSize, size, origSize);
     return 1;
   }
   if (memcmp(static_cast<void *>(origBuf), static_cast<void *>(tmpBuf), size)) {

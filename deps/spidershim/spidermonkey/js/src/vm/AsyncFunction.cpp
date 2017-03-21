@@ -112,7 +112,7 @@ WrappedAsyncFunction(JSContext* cx, unsigned argc, Value* vp)
 JSObject*
 js::WrapAsyncFunctionWithProto(JSContext* cx, HandleFunction unwrapped, HandleObject proto)
 {
-    MOZ_ASSERT(unwrapped->isAsync());
+    MOZ_ASSERT(unwrapped->isStarGenerator());
     MOZ_ASSERT(proto, "We need an explicit prototype to avoid the default"
                       "%FunctionPrototype% fallback in NewFunctionWithProto().");
 
@@ -174,14 +174,22 @@ AsyncFunctionResume(JSContext* cx, Handle<PromiseObject*> resultPromise, HandleV
                                  : cx->names().StarGeneratorThrow;
     FixedInvokeArgs<1> args(cx);
     args[0].set(valueOrReason);
-    RootedValue value(cx);
-    if (!CallSelfHostedFunction(cx, funName, generatorVal, args, &value))
+    RootedValue result(cx);
+    if (!CallSelfHostedFunction(cx, funName, generatorVal, args, &result))
         return AsyncFunctionThrown(cx, resultPromise);
 
-    if (generatorVal.toObject().as<GeneratorObject>().isAfterAwait())
-        return AsyncFunctionAwait(cx, resultPromise, value);
+    RootedObject resultObj(cx, &result.toObject());
+    RootedValue doneVal(cx);
+    RootedValue value(cx);
+    if (!GetProperty(cx, resultObj, resultObj, cx->names().done, &doneVal))
+        return false;
+    if (!GetProperty(cx, resultObj, resultObj, cx->names().value, &value))
+        return false;
 
-    return AsyncFunctionReturned(cx, resultPromise, value);
+    if (doneVal.toBoolean())
+        return AsyncFunctionReturned(cx, resultPromise, value);
+
+    return AsyncFunctionAwait(cx, resultPromise, value);
 }
 
 // Async Functions proposal 2.2 steps 3-8.
@@ -236,4 +244,10 @@ bool
 js::IsWrappedAsyncFunction(JSFunction* fun)
 {
     return fun->maybeNative() == WrappedAsyncFunction;
+}
+
+MOZ_MUST_USE bool
+js::CheckAsyncResumptionValue(JSContext* cx, HandleValue v)
+{
+    return CheckStarGeneratorResumptionValue(cx, v);
 }

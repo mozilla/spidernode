@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 function linearModule(min, max, ops) {
   var opsText = ops.map(function (op) {
     if (op[0] == "CM") {

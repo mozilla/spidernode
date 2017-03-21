@@ -91,7 +91,7 @@ DecodeCodeSection(Decoder& d, ModuleGenerator& mg)
 }
 
 bool
-CompileArgs::initFromContext(JSContext* cx, ScriptedCaller&& scriptedCaller)
+CompileArgs::initFromContext(ExclusiveContext* cx, ScriptedCaller&& scriptedCaller)
 {
     alwaysBaseline = cx->options().wasmAlwaysBaseline();
 
@@ -110,7 +110,7 @@ wasm::Compile(const ShareableBytes& bytecode, const CompileArgs& args, UniqueCha
 {
     MOZ_RELEASE_ASSERT(wasm::HaveSignalHandlers());
 
-    Decoder d(bytecode.bytes, error);
+    Decoder d(bytecode.begin(), bytecode.end(), error);
 
     auto env = js::MakeUnique<ModuleEnvironment>();
     if (!env)

@@ -37,7 +37,7 @@ using mozilla::ArrayLength;
 using mozilla::RangedPtr;
 
 const char*
-js::AtomToPrintableString(JSContext* cx, JSAtom* atom, JSAutoByteString* bytes)
+js::AtomToPrintableString(ExclusiveContext* cx, JSAtom* atom, JSAutoByteString* bytes)
 {
     JSString* str = QuoteString(cx, atom, 0);
     if (!str)
@@ -54,9 +54,41 @@ FOR_EACH_COMMON_PROPERTYNAME(CONST_CHAR_STR)
 #undef CONST_CHAR_STR
 
 /* Constant strings that are not atomized. */
+const char js_break_str[]           = "break";
+const char js_case_str[]            = "case";
+const char js_catch_str[]           = "catch";
+const char js_class_str[]           = "class";
+const char js_const_str[]           = "const";
+const char js_continue_str[]        = "continue";
+const char js_debugger_str[]        = "debugger";
+const char js_default_str[]         = "default";
+const char js_do_str[]              = "do";
+const char js_else_str[]            = "else";
+const char js_enum_str[]            = "enum";
+const char js_export_str[]          = "export";
+const char js_extends_str[]         = "extends";
+const char js_finally_str[]         = "finally";
+const char js_for_str[]             = "for";
 const char js_getter_str[]          = "getter";
+const char js_if_str[]              = "if";
+const char js_implements_str[]      = "implements";
+const char js_import_str[]          = "import";
+const char js_in_str[]              = "in";
+const char js_instanceof_str[]      = "instanceof";
+const char js_interface_str[]       = "interface";
+const char js_package_str[]         = "package";
+const char js_private_str[]         = "private";
+const char js_protected_str[]       = "protected";
+const char js_public_str[]          = "public";
 const char js_send_str[]            = "send";
 const char js_setter_str[]          = "setter";
+const char js_switch_str[]          = "switch";
+const char js_this_str[]            = "this";
+const char js_try_str[]             = "try";
+const char js_typeof_str[]          = "typeof";
+const char js_void_str[]            = "void";
+const char js_while_str[]           = "while";
+const char js_with_str[]            = "with";
 
 // Use a low initial capacity for atom hash tables to avoid penalizing runtimes
 // which create a small number of atoms.
@@ -114,7 +146,7 @@ JSRuntime::initializeAtoms(JSContext* cx)
     if (!commonNames)
         return false;
 
-    ImmutablePropertyNamePtr* names = reinterpret_cast<ImmutablePropertyNamePtr*>(commonNames.ref());
+    ImmutablePropertyNamePtr* names = reinterpret_cast<ImmutablePropertyNamePtr*>(commonNames);
     for (size_t i = 0; i < ArrayLength(cachedNames); i++, names++) {
         JSAtom* atom = Atomize(cx, cachedNames[i].str, cachedNames[i].length, PinAtom);
         if (!atom)
@@ -131,7 +163,7 @@ JSRuntime::initializeAtoms(JSContext* cx)
         return false;
 
     ImmutablePropertyNamePtr* descriptions = commonNames->wellKnownSymbolDescriptions();
-    ImmutableSymbolPtr* symbols = reinterpret_cast<ImmutableSymbolPtr*>(wellKnownSymbols.ref());
+    ImmutableSymbolPtr* symbols = reinterpret_cast<ImmutableSymbolPtr*>(wellKnownSymbols);
     for (size_t i = 0; i < JS::WellKnownSymbolLimit; i++) {
         JS::Symbol* symbol = JS::Symbol::new_(cx, JS::SymbolCode(i), descriptions[i]);
         if (!symbol) {
@@ -147,13 +179,13 @@ JSRuntime::initializeAtoms(JSContext* cx)
 void
 JSRuntime::finishAtoms()
 {
-    js_delete(atoms_.ref());
+    js_delete(atoms_);
 
     if (!parentRuntime) {
-        js_delete(staticStrings.ref());
-        js_delete(commonNames.ref());
-        js_delete(permanentAtoms.ref());
-        js_delete(wellKnownSymbols.ref());
+        js_delete(staticStrings);
+        js_delete(commonNames);
+        js_delete(permanentAtoms);
+        js_delete(wellKnownSymbols);
     }
 
     atoms_ = nullptr;
@@ -298,7 +330,7 @@ AtomIsPinnedInRuntime(JSRuntime* rt, JSAtom* atom)
 template <typename CharT>
 MOZ_ALWAYS_INLINE
 static JSAtom*
-AtomizeAndCopyChars(JSContext* cx, const CharT* tbchars, size_t length, PinningBehavior pin)
+AtomizeAndCopyChars(ExclusiveContext* cx, const CharT* tbchars, size_t length, PinningBehavior pin)
 {
     if (JSAtom* s = cx->staticStrings().lookup(tbchars, length))
          return s;
@@ -329,7 +361,7 @@ AtomizeAndCopyChars(JSContext* cx, const CharT* tbchars, size_t length, PinningB
 
     JSAtom* atom;
     {
-        AutoAtomsCompartment ac(cx, lock);
+        AutoCompartment ac(cx, cx->atomsCompartment(lock), &lock);
 
         JSFlatString* flat = NewStringCopyN<NoGC>(cx, tbchars, length);
         if (!flat) {
@@ -357,13 +389,13 @@ AtomizeAndCopyChars(JSContext* cx, const CharT* tbchars, size_t length, PinningB
 }
 
 template JSAtom*
-AtomizeAndCopyChars(JSContext* cx, const char16_t* tbchars, size_t length, PinningBehavior pin);
+AtomizeAndCopyChars(ExclusiveContext* cx, const char16_t* tbchars, size_t length, PinningBehavior pin);
 
 template JSAtom*
-AtomizeAndCopyChars(JSContext* cx, const Latin1Char* tbchars, size_t length, PinningBehavior pin);
+AtomizeAndCopyChars(ExclusiveContext* cx, const Latin1Char* tbchars, size_t length, PinningBehavior pin);
 
 JSAtom*
-js::AtomizeString(JSContext* cx, JSString* str,
+js::AtomizeString(ExclusiveContext* cx, JSString* str,
                   js::PinningBehavior pin /* = js::DoNotPinAtom */)
 {
     if (str->isAtom()) {
@@ -401,7 +433,7 @@ js::AtomizeString(JSContext* cx, JSString* str,
 }
 
 JSAtom*
-js::Atomize(JSContext* cx, const char* bytes, size_t length, PinningBehavior pin)
+js::Atomize(ExclusiveContext* cx, const char* bytes, size_t length, PinningBehavior pin)
 {
     CHECK_REQUEST(cx);
 
@@ -414,7 +446,7 @@ js::Atomize(JSContext* cx, const char* bytes, size_t length, PinningBehavior pin
 
 template <typename CharT>
 JSAtom*
-js::AtomizeChars(JSContext* cx, const CharT* chars, size_t length, PinningBehavior pin)
+js::AtomizeChars(ExclusiveContext* cx, const CharT* chars, size_t length, PinningBehavior pin)
 {
     CHECK_REQUEST(cx);
 
@@ -425,17 +457,17 @@ js::AtomizeChars(JSContext* cx, const CharT* chars, size_t length, PinningBehavi
 }
 
 template JSAtom*
-js::AtomizeChars(JSContext* cx, const Latin1Char* chars, size_t length, PinningBehavior pin);
+js::AtomizeChars(ExclusiveContext* cx, const Latin1Char* chars, size_t length, PinningBehavior pin);
 
 template JSAtom*
-js::AtomizeChars(JSContext* cx, const char16_t* chars, size_t length, PinningBehavior pin);
+js::AtomizeChars(ExclusiveContext* cx, const char16_t* chars, size_t length, PinningBehavior pin);
 
 JSAtom*
 js::AtomizeUTF8Chars(JSContext* cx, const char* utf8Chars, size_t utf8ByteLength)
 {
     // This could be optimized to hand the char16_t's directly to the JSAtom
     // instead of making a copy. UTF8CharsToNewTwoByteCharsZ should be
-    // refactored to take an JSContext so that this function could also.
+    // refactored to take an ExclusiveContext so that this function could also.
 
     UTF8Chars utf8(utf8Chars, utf8ByteLength);
 
@@ -448,7 +480,7 @@ js::AtomizeUTF8Chars(JSContext* cx, const char* utf8Chars, size_t utf8ByteLength
 }
 
 bool
-js::IndexToIdSlow(JSContext* cx, uint32_t index, MutableHandleId idp)
+js::IndexToIdSlow(ExclusiveContext* cx, uint32_t index, MutableHandleId idp)
 {
     MOZ_ASSERT(index > JSID_INT_MAX);
 
@@ -466,17 +498,16 @@ js::IndexToIdSlow(JSContext* cx, uint32_t index, MutableHandleId idp)
 
 template <AllowGC allowGC>
 static JSAtom*
-ToAtomSlow(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
+ToAtomSlow(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
 {
     MOZ_ASSERT(!arg.isString());
 
     Value v = arg;
     if (!v.isPrimitive()) {
-        MOZ_ASSERT(!cx->helperThread());
-        if (!allowGC)
+        if (!cx->shouldBeJSContext() || !allowGC)
             return nullptr;
         RootedValue v2(cx, v);
-        if (!ToPrimitive(cx, JSTYPE_STRING, &v2))
+        if (!ToPrimitive(cx->asJSContext(), JSTYPE_STRING, &v2))
             return nullptr;
         v = v2;
     }
@@ -504,9 +535,8 @@ ToAtomSlow(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
     if (v.isNull())
         return cx->names().null;
     if (v.isSymbol()) {
-        MOZ_ASSERT(!cx->helperThread());
-        if (allowGC) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+        if (cx->shouldBeJSContext() && allowGC) {
+            JS_ReportErrorNumberASCII(cx->asJSContext(), GetErrorMessage, nullptr,
                                       JSMSG_SYMBOL_TO_STRING);
         }
         return nullptr;
@@ -517,7 +547,7 @@ ToAtomSlow(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
 
 template <AllowGC allowGC>
 JSAtom*
-js::ToAtom(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v)
+js::ToAtom(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v)
 {
     if (!v.isString())
         return ToAtomSlow<allowGC>(cx, v);
@@ -528,17 +558,17 @@ js::ToAtom(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v)
 
     JSAtom* atom = AtomizeString(cx, str);
     if (!atom && !allowGC) {
-        MOZ_ASSERT_IF(!cx->helperThread(), cx->isThrowingOutOfMemory());
+        MOZ_ASSERT_IF(cx->isJSContext(), cx->asJSContext()->isThrowingOutOfMemory());
         cx->recoverFromOutOfMemory();
     }
     return atom;
 }
 
 template JSAtom*
-js::ToAtom<CanGC>(JSContext* cx, HandleValue v);
+js::ToAtom<CanGC>(ExclusiveContext* cx, HandleValue v);
 
 template JSAtom*
-js::ToAtom<NoGC>(JSContext* cx, const Value& v);
+js::ToAtom<NoGC>(ExclusiveContext* cx, const Value& v);
 
 template<XDRMode mode>
 bool
@@ -565,7 +595,7 @@ js::XDRAtom(XDRState<mode>* xdr, MutableHandleAtom atomp)
     uint32_t length = lengthAndEncoding >> 1;
     bool latin1 = lengthAndEncoding & 0x1;
 
-    JSContext* cx = xdr->cx();
+    ExclusiveContext* cx = xdr->cx();
     JSAtom* atom;
     if (latin1) {
         const Latin1Char* chars = nullptr;

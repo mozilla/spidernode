@@ -20,7 +20,7 @@ using JS::Symbol;
 using namespace js;
 
 Symbol*
-Symbol::newInternal(JSContext* cx, JS::SymbolCode code, uint32_t hash, JSAtom* description,
+Symbol::newInternal(ExclusiveContext* cx, JS::SymbolCode code, uint32_t hash, JSAtom* description,
                     AutoLockForExclusiveAccess& lock)
 {
     MOZ_ASSERT(cx->compartment() == cx->atomsCompartment(lock));
@@ -35,7 +35,7 @@ Symbol::newInternal(JSContext* cx, JS::SymbolCode code, uint32_t hash, JSAtom* d
 }
 
 Symbol*
-Symbol::new_(JSContext* cx, JS::SymbolCode code, JSString* description)
+Symbol::new_(ExclusiveContext* cx, JS::SymbolCode code, JSString* description)
 {
     JSAtom* atom = nullptr;
     if (description) {
@@ -45,11 +45,11 @@ Symbol::new_(JSContext* cx, JS::SymbolCode code, JSString* description)
     }
 
     // Lock to allocate. If symbol allocation becomes a bottleneck, this can
-    // probably be replaced with an assertion that we're on the active thread.
+    // probably be replaced with an assertion that we're on the main thread.
     AutoLockForExclusiveAccess lock(cx);
     Symbol* sym;
     {
-        AutoAtomsCompartment ac(cx, lock);
+        AutoCompartment ac(cx, cx->atomsCompartment(lock), &lock);
         sym = newInternal(cx, code, cx->compartment()->randomHashCode(), atom, lock);
     }
     cx->markAtom(sym);
@@ -57,7 +57,7 @@ Symbol::new_(JSContext* cx, JS::SymbolCode code, JSString* description)
 }
 
 Symbol*
-Symbol::for_(JSContext* cx, HandleString description)
+Symbol::for_(js::ExclusiveContext* cx, HandleString description)
 {
     JSAtom* atom = AtomizeString(cx, description);
     if (!atom)
@@ -74,7 +74,7 @@ Symbol::for_(JSContext* cx, HandleString description)
 
     Symbol* sym;
     {
-        AutoAtomsCompartment ac(cx, lock);
+        AutoCompartment ac(cx, cx->atomsCompartment(lock), &lock);
         sym = newInternal(cx, SymbolCode::InSymbolRegistry, atom->hash(), atom, lock);
         if (!sym)
             return nullptr;

@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 var exp = wasmEvalText(`(module
     (memory 1)
     (export "mem" memory)

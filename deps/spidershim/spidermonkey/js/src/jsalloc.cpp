@@ -13,11 +13,11 @@ using namespace js;
 void*
 TempAllocPolicy::onOutOfMemory(AllocFunction allocFunc, size_t nbytes, void* reallocPtr)
 {
-    return cx_->onOutOfMemory(allocFunc, nbytes, reallocPtr);
+    return static_cast<ExclusiveContext*>(cx_)->onOutOfMemory(allocFunc, nbytes, reallocPtr);
 }
 
 void
 TempAllocPolicy::reportAllocOverflow() const
 {
-    ReportAllocationOverflow(cx_);
+    ReportAllocationOverflow(static_cast<ExclusiveContext*>(cx_));
 }

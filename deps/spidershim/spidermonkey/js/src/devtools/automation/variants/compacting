@@ -1,6 +1,5 @@
 {
-    "configure-args": "--enable-debug --enable-stdcxx-compat --enable-ctypes",
-    "optimize": true,
+    "configure-args": "--enable-optimize --enable-debug --enable-stdcxx-compat --enable-ctypes",
     "env": {
         "JS_GC_ZEAL": "Compact",
         "JITTEST_EXTRA_ARGS": "--jitflags=debug --ignore-timeouts={DIR}/cgc-jittest-timeouts.txt",

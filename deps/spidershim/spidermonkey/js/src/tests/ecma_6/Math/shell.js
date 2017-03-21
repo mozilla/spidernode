@@ -3,7 +3,7 @@ const ONE_PLUS_EPSILON = 1 + Math.pow(2, -52);  // 0.9999999999999999
 const ONE_MINUS_EPSILON = 1 - Math.pow(2, -53);  // 1.0000000000000002
 
 {
-    const fail = function (msg) {
+    var fail = function (msg) {
         var exc = new Error(msg);
         try {
             // Try to improve on exc.fileName and .lineNumber; leave exc.stack
@@ -21,7 +21,7 @@ const ONE_MINUS_EPSILON = 1 - Math.pow(2, -53);  // 1.0000000000000002
         throw exc;
     };
 
-    let ENDIAN;  // 0 for little-endian, 1 for big-endian.
+    var ENDIAN;  // 0 for little-endian, 1 for big-endian.
 
     // Return the difference between the IEEE 754 bit-patterns for a and b.
     //
@@ -33,9 +33,9 @@ const ONE_MINUS_EPSILON = 1 - Math.pow(2, -53);  // 1.0000000000000002
     //   * If a !== b, then diff(a, b) === 1 + the number of representable values
     //                                         between a and b.
     //
-    const f = new Float64Array([0, 0]);
-    const u = new Uint32Array(f.buffer);
-    const diff = function (a, b) {
+    var f = new Float64Array([0, 0]);
+    var u = new Uint32Array(f.buffer);
+    var diff = function (a, b) {
         f[0] = a;
         f[1] = b;
         //print(u[1].toString(16) + u[0].toString(16) + " " + u[3].toString(16) + u[2].toString(16));

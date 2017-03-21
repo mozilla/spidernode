@@ -183,7 +183,7 @@ LIRGenerator::visitTableSwitch(MTableSwitch* tableswitch)
 void
 LIRGenerator::visitCheckOverRecursed(MCheckOverRecursed* ins)
 {
-    LCheckOverRecursed* lir = new(alloc()) LCheckOverRecursed(temp());
+    LCheckOverRecursed* lir = new(alloc()) LCheckOverRecursed();
     add(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -779,40 +779,6 @@ LIRGenerator::visitTest(MTest* test)
         return;
     }
 
-    if (opd->isCompare() && opd->isEmittedAtUses()) {
-        // Emit LBitAndBranch for cases like |if ((x & y) === 0)|.
-        MCompare* comp = opd->toCompare();
-        if ((comp->isInt32Comparison() ||
-             comp->compareType() == MCompare::Compare_UInt32) &&
-            comp->getOperand(1)->isConstant() &&
-            comp->getOperand(1)->toConstant()->isInt32(0) &&
-            comp->getOperand(0)->isBitAnd() &&
-            comp->getOperand(0)->isEmittedAtUses())
-        {
-            MDefinition* bitAnd = opd->getOperand(0);
-            MDefinition* lhs = bitAnd->getOperand(0);
-            MDefinition* rhs = bitAnd->getOperand(1);
-
-            Assembler::Condition cond = JSOpToCondition(comp->compareType(),
-                                                        comp->jsop());
-
-            if (lhs->type() == MIRType::Int32 && rhs->type() == MIRType::Int32 &&
-                (cond == Assembler::Equal || cond == Assembler::NotEqual))
-            {
-                ReorderCommutative(&lhs, &rhs, test);
-                if (cond == Assembler::Equal)
-                    cond = Assembler::Zero;
-                else if(cond == Assembler::NotEqual)
-                    cond = Assembler::NonZero;
-                else
-                    MOZ_ASSERT_UNREACHABLE("inequality operators cannot be folded");
-                lowerForBitAndAndBranch(new(alloc()) LBitAndAndBranch(ifTrue, ifFalse, cond),
-                                        test, lhs, rhs);
-                return;
-            }
-        }
-    }
-
     // Check if the operand for this test is a compare operation. If it is, we want
     // to emit an LCompare*AndBranch rather than an LTest*AndBranch, to fuse the
     // compare and jump instructions.
@@ -878,11 +844,10 @@ LIRGenerator::visitTest(MTest* test)
             return;
         }
 
-        // Compare and branch Int32, Symbol or Object pointers.
+        // Compare and branch Int32 or Object pointers.
         if (comp->isInt32Comparison() ||
             comp->compareType() == MCompare::Compare_UInt32 ||
-            comp->compareType() == MCompare::Compare_Object ||
-            comp->compareType() == MCompare::Compare_Symbol)
+            comp->compareType() == MCompare::Compare_Object)
         {
             JSOp op = ReorderComparison(comp->jsop(), &left, &right);
             LAllocation lhs = useRegister(left);
@@ -1124,11 +1089,10 @@ LIRGenerator::visitCompare(MCompare* comp)
         return;
     }
 
-    // Compare Int32, Symbol or Object pointers.
+    // Compare Int32 or Object pointers.
     if (comp->isInt32Comparison() ||
         comp->compareType() == MCompare::Compare_UInt32 ||
-        comp->compareType() == MCompare::Compare_Object ||
-        comp->compareType() == MCompare::Compare_Symbol)
+        comp->compareType() == MCompare::Compare_Object)
     {
         JSOp op = ReorderComparison(comp->jsop(), &left, &right);
         LAllocation lhs = useRegister(left);
@@ -1257,11 +1221,10 @@ CanEmitBitAndAtUses(MInstruction* ins)
         return false;
 
     MNode* node = iter->consumer();
-    if (!node->isDefinition() || !node->toDefinition()->isInstruction())
+    if (!node->isDefinition())
         return false;
 
-    MInstruction* use = node->toDefinition()->toInstruction();
-    if (!use->isTest() && !(use->isCompare() && CanEmitCompareAtUses(use)))
+    if (!node->toDefinition()->isTest())
         return false;
 
     iter++;
@@ -1429,22 +1392,6 @@ LIRGenerator::visitRound(MRound* ins)
         lir = new (alloc()) LRoundF(useRegister(ins->input()), tempFloat32());
 
     assignSnapshot(lir, Bailout_Round);
-    define(lir, ins);
-}
-
-void
-LIRGenerator::visitNearbyInt(MNearbyInt* ins)
-{
-    MIRType inputType = ins->input()->type();
-    MOZ_ASSERT(IsFloatingPointType(inputType));
-    MOZ_ASSERT(ins->type() == inputType);
-
-    LInstructionHelper<1, 1, 0>* lir;
-    if (inputType == MIRType::Double)
-        lir = new(alloc()) LNearbyInt(useRegisterAtStart(ins->input()));
-    else
-        lir = new(alloc()) LNearbyIntF(useRegisterAtStart(ins->input()));
-
     define(lir, ins);
 }
 
@@ -2534,32 +2481,6 @@ LIRGenerator::visitSetFunName(MSetFunName* ins)
 }
 
 void
-LIRGenerator::visitNewLexicalEnvironmentObject(MNewLexicalEnvironmentObject* ins)
-{
-    MDefinition* enclosing = ins->enclosing();
-    MOZ_ASSERT(enclosing->type() == MIRType::Object);
-
-    LNewLexicalEnvironmentObject* lir =
-        new(alloc()) LNewLexicalEnvironmentObject(useRegisterAtStart(enclosing));
-
-    defineReturn(lir, ins);
-    assignSafepoint(lir, ins);
-}
-
-void
-LIRGenerator::visitCopyLexicalEnvironmentObject(MCopyLexicalEnvironmentObject* ins)
-{
-    MDefinition* env = ins->env();
-    MOZ_ASSERT(env->type() == MIRType::Object);
-
-    LCopyLexicalEnvironmentObject* lir =
-        new(alloc()) LCopyLexicalEnvironmentObject(useRegisterAtStart(env));
-
-    defineReturn(lir, ins);
-    assignSafepoint(lir, ins);
-}
-
-void
 LIRGenerator::visitKeepAliveObject(MKeepAliveObject* ins)
 {
     MDefinition* obj = ins->object();
@@ -2643,7 +2564,7 @@ LIRGenerator::visitFunctionEnvironment(MFunctionEnvironment* ins)
 void
 LIRGenerator::visitInterruptCheck(MInterruptCheck* ins)
 {
-    LInstruction* lir = new(alloc()) LInterruptCheck(temp());
+    LInstruction* lir = new(alloc()) LInterruptCheck();
     add(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -3991,11 +3912,15 @@ LIRGenerator::visitSetPropertyCache(MSetPropertyCache* ins)
     // that calls this script recursively.
     gen->setPerformsCall();
 
-    // We need a double/float32 temp register for typed array stubs if this is
-    // a SETELEM.
+    // If the index might be an integer, we need some extra temp registers for
+    // the dense and typed array element stubs.
+    LDefinition tempToUnboxIndex = LDefinition::BogusTemp();
     LDefinition tempD = LDefinition::BogusTemp();
     LDefinition tempF32 = LDefinition::BogusTemp();
-    if (IsSetElemPC(ins->resumePoint()->pc())) {
+
+    if (id->mightBeType(MIRType::Int32)) {
+        if (id->type() != MIRType::Int32)
+            tempToUnboxIndex = tempToUnbox();
         tempD = tempDouble();
         tempF32 = hasUnaliasedDouble() ? tempFloat32() : LDefinition::BogusTemp();
     }
@@ -4004,7 +3929,8 @@ LIRGenerator::visitSetPropertyCache(MSetPropertyCache* ins)
         new(alloc()) LSetPropertyCache(useRegister(ins->object()),
                                        useBoxOrTypedOrConstant(id, useConstId),
                                        useBoxOrTypedOrConstant(ins->value(), useConstValue),
-                                       temp(), tempD, tempF32);
+                                       temp(),
+                                       tempToUnboxIndex, tempD, tempF32);
     add(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -4271,74 +4197,37 @@ LIRGenerator::visitWasmAddOffset(MWasmAddOffset* ins)
 }
 
 void
-LIRGenerator::visitWasmLoadTls(MWasmLoadTls* ins)
-{
-#ifdef WASM_HUGE_MEMORY
-    // This will disappear once we remove HeapReg and replace it with a load
-    // from Tls, but in the mean time it keeps us sane.
-    MOZ_CRASH("No WasmLoadTls here at the moment");
-#endif
-    auto* lir = new(alloc()) LWasmLoadTls(useRegisterAtStart(ins->tlsPtr()));
-    define(lir, ins);
-}
-
-void
 LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 {
-#ifdef WASM_HUGE_MEMORY
-    MOZ_CRASH("No bounds checking on huge memory");
-#else
     if (ins->isRedundant()) {
         if (MOZ_LIKELY(!JitOptions.wasmAlwaysCheckBounds))
             return;
     }
 
-    MDefinition* index = ins->index();
-    MOZ_ASSERT(index->type() == MIRType::Int32);
+    MDefinition* input = ins->input();
+    MOZ_ASSERT(input->type() == MIRType::Int32);
 
-    MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
-    MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
-
-    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(index),
-                                              useRegisterAtStart(boundsCheckLimit));
+    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(input));
     add(lir, ins);
-#endif
 }
 
 void
 LIRGenerator::visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins)
 {
-    if (ins->type() == MIRType::Int64) {
-#ifdef JS_PUNBOX64
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-#else
-        LAllocation tlsPtr = useRegister(ins->tlsPtr());
-#endif
-        defineInt64(new(alloc()) LWasmLoadGlobalVarI64(tlsPtr), ins);
-    } else {
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        define(new(alloc()) LWasmLoadGlobalVar(tlsPtr), ins);
-    }
+    if (ins->type() == MIRType::Int64)
+        defineInt64(new(alloc()) LWasmLoadGlobalVarI64, ins);
+    else
+        define(new(alloc()) LWasmLoadGlobalVar, ins);
 }
 
 void
 LIRGenerator::visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins)
 {
     MDefinition* value = ins->value();
-    if (value->type() == MIRType::Int64) {
-#ifdef JS_PUNBOX64
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        LInt64Allocation valueAlloc = useInt64RegisterAtStart(value);
-#else
-        LAllocation tlsPtr = useRegister(ins->tlsPtr());
-        LInt64Allocation valueAlloc = useInt64Register(value);
-#endif
-        add(new(alloc()) LWasmStoreGlobalVarI64(valueAlloc, tlsPtr), ins);
-    } else {
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        LAllocation valueAlloc = useRegisterAtStart(value);
-        add(new(alloc()) LWasmStoreGlobalVar(valueAlloc, tlsPtr), ins);
-    }
+    if (value->type() == MIRType::Int64)
+        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value)), ins);
+    else
+        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value)), ins);
 }
 
 void
@@ -4447,23 +4336,14 @@ LIRGenerator::visitWasmCall(MWasmCall* ins)
     for (unsigned i = 0; i < ins->numArgs(); i++)
         args[i] = useFixedAtStart(ins->getOperand(i), ins->registerForArg(i));
 
-    bool needsBoundsCheck = true;
-    if (ins->callee().isTable()) {
-        MDefinition* index = ins->getOperand(ins->numArgs());
-
-        if (ins->callee().which() == wasm::CalleeDesc::WasmTable && index->isConstant()) {
-            if (uint32_t(index->toConstant()->toInt32()) < ins->callee().wasmTableMinLength())
-                needsBoundsCheck = false;
-        }
-
-        args[ins->numArgs()] = useFixedAtStart(index, WasmTableCallIndexReg);
-    }
+    if (ins->callee().isTable())
+        args[ins->numArgs()] = useFixedAtStart(ins->getOperand(ins->numArgs()), WasmTableCallIndexReg);
 
     LInstruction* lir;
     if (ins->type() == MIRType::Int64)
-        lir = new(alloc()) LWasmCallI64(args, ins->numOperands(), needsBoundsCheck);
+        lir = new(alloc()) LWasmCallI64(args, ins->numOperands());
     else
-        lir = new(alloc()) LWasmCall(args, ins->numOperands(), needsBoundsCheck);
+        lir = new(alloc()) LWasmCall(args, ins->numOperands());
 
     if (ins->type() == MIRType::None)
         add(lir, ins);
@@ -4827,19 +4707,6 @@ LIRGenerator::visitCheckIsObj(MCheckIsObj* ins)
 }
 
 void
-LIRGenerator::visitCheckIsCallable(MCheckIsCallable* ins)
-{
-    MDefinition* checkVal = ins->checkValue();
-    MOZ_ASSERT(checkVal->type() == MIRType::Value);
-
-    LCheckIsCallable* lir = new(alloc()) LCheckIsCallable(useBox(checkVal),
-                                                          temp());
-    redefine(ins, checkVal);
-    add(lir, ins);
-    assignSafepoint(lir, ins);
-}
-
-void
 LIRGenerator::visitCheckObjCoercible(MCheckObjCoercible* ins)
 {
     MDefinition* checkVal = ins->checkValue();
@@ -4992,9 +4859,6 @@ LIRGenerator::visitBlock(MBasicBlock* block)
         uint32_t position = block->positionInPhiSuccessor();
         size_t lirIndex = 0;
         for (MPhiIterator phi(successor->phisBegin()); phi != successor->phisEnd(); phi++) {
-            if (!gen->ensureBallast())
-                return false;
-
             MDefinition* opd = phi->getOperand(position);
             ensureDefined(opd);
 

@@ -21,7 +21,6 @@
 #include "vm/GlobalObject.h"
 #include "vm/PIC.h"
 #include "vm/SavedStacks.h"
-#include "vm/TemplateRegistry.h"
 #include "vm/Time.h"
 #include "wasm/WasmCompartment.h"
 
@@ -68,52 +67,6 @@ class DtoaCache {
 #ifdef JSGC_HASH_TABLE_CHECKS
     void checkCacheAfterMovingGC() { MOZ_ASSERT(!s || !IsForwarded(s)); }
 #endif
-};
-
-// Cache to speed up the group/shape lookup in ProxyObject::create. A proxy's
-// group/shape is only determined by the Class + proto, so a small cache for
-// this is very effective in practice.
-class NewProxyCache
-{
-    struct Entry {
-        ObjectGroup* group;
-        Shape* shape;
-    };
-    static const size_t NumEntries = 4;
-    mozilla::UniquePtr<Entry[], JS::FreePolicy> entries_;
-
-  public:
-    MOZ_ALWAYS_INLINE bool lookup(const Class* clasp, TaggedProto proto,
-                                  ObjectGroup** group, Shape** shape) const
-    {
-        if (!entries_)
-            return false;
-        for (size_t i = 0; i < NumEntries; i++) {
-            const Entry& entry = entries_[i];
-            if (entry.group && entry.group->clasp() == clasp && entry.group->proto() == proto) {
-                *group = entry.group;
-                *shape = entry.shape;
-                return true;
-            }
-        }
-        return false;
-    }
-    void add(ObjectGroup* group, Shape* shape) {
-        MOZ_ASSERT(group && shape);
-        if (!entries_) {
-            entries_.reset(js_pod_calloc<Entry>(NumEntries));
-            if (!entries_)
-                return;
-        } else {
-            for (size_t i = NumEntries - 1; i > 0; i--)
-                entries_[i] = entries_[i - 1];
-        }
-        entries_[0].group = group;
-        entries_[0].shape = shape;
-    }
-    void purge() {
-        entries_.reset();
-    }
 };
 
 class CrossCompartmentKey
@@ -320,7 +273,7 @@ class MOZ_RAII AutoSetNewObjectMetadata : private JS::CustomAutoRooter
     }
 
   public:
-    explicit AutoSetNewObjectMetadata(JSContext* cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
+    explicit AutoSetNewObjectMetadata(ExclusiveContext* ecx MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
     ~AutoSetNewObjectMetadata();
 };
 
@@ -406,7 +359,6 @@ struct JSCompartment
   public:
     bool                         isSelfHosting;
     bool                         marked;
-    bool                         warnedAboutDateToLocaleFormat;
     bool                         warnedAboutExprClosure;
     bool                         warnedAboutForEach;
     uint32_t                     warnedAboutStringGenericsMethods;
@@ -420,9 +372,11 @@ struct JSCompartment
   private:
     friend struct JSRuntime;
     friend struct JSContext;
+    friend class js::ExclusiveContext;
     js::ReadBarrieredGlobalObject global_;
 
     unsigned                     enterCompartmentDepth;
+    int64_t                      startInterval;
 
   public:
     js::PerformanceGroupHolder performanceMonitoring;
@@ -442,7 +396,7 @@ struct JSCompartment
     JS::CompartmentBehaviors& behaviors() { return behaviors_; }
     const JS::CompartmentBehaviors& behaviors() const { return behaviors_; }
 
-    JSRuntime* runtimeFromActiveCooperatingThread() const {
+    JSRuntime* runtimeFromMainThread() const {
         MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime_));
         return runtime_;
     }
@@ -451,6 +405,10 @@ struct JSCompartment
     // thread can easily lead to races. Use this method very carefully.
     JSRuntime* runtimeFromAnyThread() const {
         return runtime_;
+    }
+
+    JSContext* contextFromMainThread() const {
+        return runtime_->contextFromMainThread();
     }
 
     /*
@@ -526,10 +484,13 @@ struct JSCompartment
     bool hasObjectPendingMetadata() const { return objectMetadataState.is<js::PendingMetadata>(); }
 
     void setObjectPendingMetadata(JSContext* cx, JSObject* obj) {
-        if (!cx->helperThread()) {
-            MOZ_ASSERT(objectMetadataState.is<js::DelayMetadata>());
-            objectMetadataState = js::NewObjectMetadataState(js::PendingMetadata(obj));
-        }
+        MOZ_ASSERT(objectMetadataState.is<js::DelayMetadata>());
+        objectMetadataState = js::NewObjectMetadataState(js::PendingMetadata(obj));
+    }
+
+    void setObjectPendingMetadata(js::ExclusiveContext* ecx, JSObject* obj) {
+        if (JSContext* cx = ecx->maybeJSContext())
+            setObjectPendingMetadata(cx, obj);
     }
 
   public:
@@ -547,7 +508,6 @@ struct JSCompartment
                                 size_t* savedStacksSet,
                                 size_t* varNamesSet,
                                 size_t* nonSyntacticLexicalScopes,
-                                size_t* templateLiteralMap,
                                 size_t* jitCompartment,
                                 size_t* privateData);
 
@@ -589,12 +549,6 @@ struct JSCompartment
     // to use the same lexical environment to persist lexical bindings.
     js::ObjectWeakMap* nonSyntacticLexicalEnvironments_;
 
-    // The realm's [[TemplateMap]], used for mapping template literals to
-    // unique template objects used in evaluation of tagged template literals.
-    //
-    // See ES 12.2.9.3.
-    js::TemplateRegistry templateLiteralMap_;
-
   public:
     /* During GC, stores the index of this compartment in rt->compartments. */
     unsigned                     gcIndex;
@@ -630,16 +584,6 @@ struct JSCompartment
     bool getNonWrapperObjectForCurrentCompartment(JSContext* cx, js::MutableHandleObject obj);
     bool getOrCreateWrapper(JSContext* cx, js::HandleObject existing, js::MutableHandleObject obj);
 
-  private:
-    // This pointer is controlled by the embedder. If it is non-null, and if
-    // cx->enableAccessValidation is true, then we assert that *validAccessPtr
-    // is true before running any code in this compartment.
-    bool* validAccessPtr;
-
-  public:
-    bool isAccessValid() const { return validAccessPtr ? *validAccessPtr : true; }
-    void setValidAccessPtr(bool* accessp) { validAccessPtr = accessp; }
-
   public:
     JSCompartment(JS::Zone* zone, const JS::CompartmentOptions& options);
     ~JSCompartment();
@@ -659,10 +603,6 @@ struct JSCompartment
 
     js::WrapperMap::Ptr lookupWrapper(const js::Value& wrapped) const {
         return crossCompartmentWrappers.lookup(js::CrossCompartmentKey(wrapped));
-    }
-
-    js::WrapperMap::Ptr lookupWrapper(JSObject* obj) const {
-        return crossCompartmentWrappers.lookup(js::CrossCompartmentKey(obj));
     }
 
     void removeWrapper(js::WrapperMap::Ptr p) {
@@ -752,22 +692,9 @@ struct JSCompartment
         return varNames_.has(name);
     }
 
-    // Get a unique template object given a JS array of raw template strings
-    // and a template object. If a template object is found in template
-    // registry, that object is returned. Otherwise, the passed-in templateObj
-    // is added to the registry.
-    bool getTemplateLiteralObject(JSContext* cx, js::HandleObject rawStrings,
-                                  js::MutableHandleObject templateObj);
-
-    // Per above, but an entry must already exist in the template registry.
-    JSObject* getExistingTemplateLiteralObject(JSObject* rawStrings);
-
     void findOutgoingEdges(js::gc::ZoneComponentFinder& finder);
 
-    MOZ_MUST_USE bool findDeadProxyZoneEdges(bool* foundAny);
-
     js::DtoaCache dtoaCache;
-    js::NewProxyCache newProxyCache;
 
     // Random number generator for Math.random().
     mozilla::Maybe<mozilla::non_crypto::XorShift128PlusRNG> randomNumberGenerator;
@@ -936,8 +863,6 @@ struct JSCompartment
         compartmentStats_ = newStats;
     }
 
-    MOZ_ALWAYS_INLINE bool objectMaybeInIteration(JSObject* obj);
-
     // These flags help us to discover if a compartment that shouldn't be alive
     // manages to outlive a GC.
     bool scheduledForDestruction;
@@ -989,6 +914,12 @@ struct JSCompartment
     js::coverage::LCovCompartment lcovOutput;
 };
 
+inline bool
+JSRuntime::isAtomsZone(const JS::Zone* zone) const
+{
+    return zone == atomsCompartment_->zone();
+}
+
 namespace js {
 
 // We only set the maybeAlive flag for objects and scripts. It's assumed that,
@@ -1000,10 +931,8 @@ template<typename T> inline void SetMaybeAliveFlag(T* thing) {}
 template<> inline void SetMaybeAliveFlag(JSObject* thing) {thing->compartment()->maybeAlive = true;}
 template<> inline void SetMaybeAliveFlag(JSScript* thing) {thing->compartment()->maybeAlive = true;}
 
-} // namespace js
-
 inline js::Handle<js::GlobalObject*>
-JSContext::global() const
+ExclusiveContext::global() const
 {
     /*
      * It's safe to use |unsafeGet()| here because any compartment that is
@@ -1012,10 +941,8 @@ JSContext::global() const
      * safe to use.
      */
     MOZ_ASSERT(compartment_, "Caller needs to enter a compartment first");
-    return js::Handle<js::GlobalObject*>::fromMarkedLocation(compartment_->global_.unsafeGet());
+    return Handle<GlobalObject*>::fromMarkedLocation(compartment_->global_.unsafeGet());
 }
-
-namespace js {
 
 class MOZ_RAII AssertCompartmentUnchanged
 {
@@ -1039,40 +966,23 @@ class MOZ_RAII AssertCompartmentUnchanged
 
 class AutoCompartment
 {
-    JSContext * const cx_;
+    ExclusiveContext * const cx_;
     JSCompartment * const origin_;
-    const AutoLockForExclusiveAccess* maybeLock_;
+    const js::AutoLockForExclusiveAccess* maybeLock_;
 
   public:
-    template <typename T>
-    inline AutoCompartment(JSContext* cx, const T& target);
+    inline AutoCompartment(ExclusiveContext* cx, JSObject* target,
+                           js::AutoLockForExclusiveAccess* maybeLock = nullptr);
+    inline AutoCompartment(ExclusiveContext* cx, JSCompartment* target,
+                           js::AutoLockForExclusiveAccess* maybeLock = nullptr);
     inline ~AutoCompartment();
 
-    JSContext* context() const { return cx_; }
+    ExclusiveContext* context() const { return cx_; }
     JSCompartment* origin() const { return origin_; }
-
-  protected:
-    inline AutoCompartment(JSContext* cx, JSCompartment* target,
-                           AutoLockForExclusiveAccess* maybeLock = nullptr);
 
   private:
     AutoCompartment(const AutoCompartment&) = delete;
     AutoCompartment & operator=(const AutoCompartment&) = delete;
-};
-
-class AutoAtomsCompartment : protected AutoCompartment
-{
-  public:
-    inline AutoAtomsCompartment(JSContext* cx, AutoLockForExclusiveAccess& lock);
-};
-
-// Enter a compartment directly. Only use this where there's no target GC thing
-// to pass to AutoCompartment or where you need to avoid the assertions in
-// JS::Compartment::enterCompartmentOf().
-class AutoCompartmentUnchecked : protected AutoCompartment
-{
-  public:
-    inline AutoCompartmentUnchecked(JSContext* cx, JSCompartment* target);
 };
 
 /*
@@ -1173,7 +1083,7 @@ class MOZ_RAII AutoSuppressAllocationMetadataBuilder {
     bool saved;
 
   public:
-    explicit AutoSuppressAllocationMetadataBuilder(JSContext* cx)
+    explicit AutoSuppressAllocationMetadataBuilder(ExclusiveContext* cx)
       : AutoSuppressAllocationMetadataBuilder(cx->compartment()->zone())
     { }
 

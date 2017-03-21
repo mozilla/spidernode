@@ -97,7 +97,7 @@ class FullParseHandler
                isParenthesizedDestructuringPattern(node);
     }
 
-    FullParseHandler(JSContext* cx, LifoAlloc& alloc,
+    FullParseHandler(ExclusiveContext* cx, LifoAlloc& alloc,
                      TokenStream& tokenStream, Parser<SyntaxParseHandler>* syntaxParser,
                      LazyScript* lazyOuterFunction)
       : allocator(cx, alloc),
@@ -114,7 +114,7 @@ class FullParseHandler
     void prepareNodeForMutation(ParseNode* pn) { return allocator.prepareNodeForMutation(pn); }
     const Token& currentToken() { return tokenStream.currentToken(); }
 
-    ParseNode* newName(PropertyName* name, const TokenPos& pos, JSContext* cx)
+    ParseNode* newName(PropertyName* name, const TokenPos& pos, ExclusiveContext* cx)
     {
         return new_<NameNode>(PNK_NAME, JSOP_GETNAME, name, pos);
     }
@@ -427,24 +427,20 @@ class FullParseHandler
         return true;
     }
 
-    ParseNode* newInitialYieldExpression(uint32_t begin, ParseNode* gen) {
-        TokenPos pos(begin, begin + 1);
-        return new_<UnaryNode>(PNK_INITIALYIELD, JSOP_INITIALYIELD, pos, gen);
-    }
-
-    ParseNode* newYieldExpression(uint32_t begin, ParseNode* value) {
+    ParseNode* newYieldExpression(uint32_t begin, ParseNode* value, ParseNode* gen,
+                                  JSOp op = JSOP_YIELD) {
         TokenPos pos(begin, value ? value->pn_pos.end : begin + 1);
-        return new_<UnaryNode>(PNK_YIELD, JSOP_YIELD, pos, value);
+        return new_<BinaryNode>(PNK_YIELD, op, pos, value, gen);
     }
 
-    ParseNode* newYieldStarExpression(uint32_t begin, ParseNode* value) {
+    ParseNode* newYieldStarExpression(uint32_t begin, ParseNode* value, ParseNode* gen) {
         TokenPos pos(begin, value->pn_pos.end);
-        return new_<UnaryNode>(PNK_YIELD_STAR, JSOP_NOP, pos, value);
+        return new_<BinaryNode>(PNK_YIELD_STAR, JSOP_NOP, pos, value, gen);
     }
 
-    ParseNode* newAwaitExpression(uint32_t begin, ParseNode* value) {
+    ParseNode* newAwaitExpression(uint32_t begin, ParseNode* value, ParseNode* gen) {
         TokenPos pos(begin, value ? value->pn_pos.end : begin + 1);
-        return new_<UnaryNode>(PNK_AWAIT, JSOP_AWAIT, pos, value);
+        return new_<BinaryNode>(PNK_AWAIT, JSOP_YIELD, pos, value, gen);
     }
 
     // Statements
@@ -497,7 +493,8 @@ class FullParseHandler
         if (!genInit)
             return false;
 
-        ParseNode* initialYield = newInitialYieldExpression(yieldPos.begin, genInit);
+        ParseNode* initialYield = newYieldExpression(yieldPos.begin, nullptr, genInit,
+                                                     JSOP_INITIALYIELD);
         if (!initialYield)
             return false;
 
@@ -879,11 +876,11 @@ class FullParseHandler
         return node->isKind(PNK_NAME);
     }
 
-    bool isEvalAnyParentheses(ParseNode* node, JSContext* cx) {
+    bool isEvalAnyParentheses(ParseNode* node, ExclusiveContext* cx) {
         return node->isKind(PNK_NAME) && node->pn_atom == cx->names().eval;
     }
 
-    const char* nameIsArgumentsEvalAnyParentheses(ParseNode* node, JSContext* cx) {
+    const char* nameIsArgumentsEvalAnyParentheses(ParseNode* node, ExclusiveContext* cx) {
         MOZ_ASSERT(isNameAnyParentheses(node),
                    "must only call this function on known names");
 
@@ -894,7 +891,7 @@ class FullParseHandler
         return nullptr;
     }
 
-    bool isAsyncKeyword(ParseNode* node, JSContext* cx) {
+    bool isAsyncKeyword(ParseNode* node, ExclusiveContext* cx) {
         return node->isKind(PNK_NAME) &&
                node->pn_pos.begin + strlen("async") == node->pn_pos.end &&
                node->pn_atom == cx->names().async;

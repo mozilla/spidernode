@@ -206,8 +206,8 @@ ComparePolicy::adjustInputs(TempAllocator& alloc, MInstruction* def)
 
     // Convert all inputs to the right input type
     MIRType type = compare->inputType();
-    MOZ_ASSERT(type == MIRType::Int32 || type == MIRType::Double || type == MIRType::Float32 ||
-               type == MIRType::Object || type == MIRType::String || type == MIRType::Symbol);
+    MOZ_ASSERT(type == MIRType::Int32 || type == MIRType::Double ||
+               type == MIRType::Object || type == MIRType::String || type == MIRType::Float32);
     for (size_t i = 0; i < 2; i++) {
         MDefinition* in = def->getOperand(i);
         if (in->type() == type)
@@ -250,9 +250,6 @@ ComparePolicy::adjustInputs(TempAllocator& alloc, MInstruction* def)
             break;
           case MIRType::String:
             replace = MUnbox::New(alloc, in, MIRType::String, MUnbox::Infallible);
-            break;
-          case MIRType::Symbol:
-            replace = MUnbox::New(alloc, in, MIRType::Symbol, MUnbox::Infallible);
             break;
           default:
             MOZ_CRASH("Unknown compare specialization");

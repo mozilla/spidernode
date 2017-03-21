@@ -1,5 +1,7 @@
 // Bug 1319415
 
+load(libdir + "wasm.js");
+
 var src =
 `(module
   (func (result i32)

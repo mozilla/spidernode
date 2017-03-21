@@ -206,6 +206,9 @@ class CodeGeneratorARM64 : public CodeGeneratorShared
     void visitAsmJSAtomicBinopHeap(LAsmJSAtomicBinopHeap* ins);
     void visitWasmStackArg(LWasmStackArg* ins);
 
+    void visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins);
+    void visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins);
+
     void generateInvalidateEpilogue();
 
     void setReturnDoubleRegs(LiveRegisterSet* regs);

@@ -168,8 +168,6 @@ BytecodeAnalysis::init(TempAllocator& alloc, GSNCache& gsn)
           case JSOP_LAMBDA_ARROW:
           case JSOP_DEFFUN:
           case JSOP_DEFVAR:
-          case JSOP_PUSHLEXICALENV:
-          case JSOP_POPLEXICALENV:
             usesEnvironmentChain_ = true;
             break;
 

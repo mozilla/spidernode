@@ -336,7 +336,7 @@ StatsCompartmentCallback(JSContext* cx, void* data, JSCompartment* compartment)
     // CollectRuntimeStats reserves enough space.
     MOZ_ALWAYS_TRUE(rtStats->compartmentStatsVector.growBy(1));
     CompartmentStats& cStats = rtStats->compartmentStatsVector.back();
-    if (!cStats.initClasses(cx->runtime()))
+    if (!cStats.initClasses(cx))
         MOZ_CRASH("oom");
     rtStats->initExtraCompartmentStats(compartment, &cStats);
 
@@ -357,7 +357,6 @@ StatsCompartmentCallback(JSContext* cx, void* data, JSCompartment* compartment)
                                         &cStats.savedStacksSet,
                                         &cStats.varNamesSet,
                                         &cStats.nonSyntacticLexicalScopesTable,
-                                        &cStats.templateLiteralMap,
                                         &cStats.jitCompartment,
                                         &cStats.privateData);
 }
@@ -738,14 +737,11 @@ static bool
 CollectRuntimeStatsHelper(JSContext* cx, RuntimeStats* rtStats, ObjectPrivateVisitor* opv,
                           bool anonymize, IterateCellCallback statsCellCallback)
 {
-    JSRuntime* rt = cx->runtime();
+    JSRuntime* rt = cx;
     if (!rtStats->compartmentStatsVector.reserve(rt->numCompartments))
         return false;
 
-    size_t totalZones = 1; // For the atoms zone.
-    for (ZoneGroupsIter group(rt); !group.done(); group.next())
-        totalZones += group->zones().length();
-    if (!rtStats->zoneStatsVector.reserve(totalZones))
+    if (!rtStats->zoneStatsVector.reserve(rt->gc.zones.length()))
         return false;
 
     rtStats->gcHeapChunkTotal =
@@ -761,11 +757,11 @@ CollectRuntimeStatsHelper(JSContext* cx, RuntimeStats* rtStats, ObjectPrivateVis
     StatsClosure closure(rtStats, opv, anonymize);
     if (!closure.init())
         return false;
-    IterateHeapUnbarriered(cx, &closure,
-                                                   StatsZoneCallback,
-                                                   StatsCompartmentCallback,
-                                                   StatsArenaCallback,
-                                                   statsCellCallback);
+    IterateZonesCompartmentsArenasCells(cx, &closure,
+                                        StatsZoneCallback,
+                                        StatsCompartmentCallback,
+                                        StatsArenaCallback,
+                                        statsCellCallback);
 
     // Take the "explicit/js/runtime/" measurements.
     rt->addSizeOfIncludingThis(rtStats->mallocSizeOf_, &rtStats->runtime);
@@ -846,7 +842,7 @@ JS_PUBLIC_API(size_t)
 JS::SystemCompartmentCount(JSContext* cx)
 {
     size_t n = 0;
-    for (CompartmentsIter comp(cx->runtime(), WithAtoms); !comp.done(); comp.next()) {
+    for (CompartmentsIter comp(cx, WithAtoms); !comp.done(); comp.next()) {
         if (comp->isSystem())
             ++n;
     }
@@ -857,7 +853,7 @@ JS_PUBLIC_API(size_t)
 JS::UserCompartmentCount(JSContext* cx)
 {
     size_t n = 0;
-    for (CompartmentsIter comp(cx->runtime(), WithAtoms); !comp.done(); comp.next()) {
+    for (CompartmentsIter comp(cx, WithAtoms); !comp.done(); comp.next()) {
         if (!comp->isSystem())
             ++n;
     }
@@ -867,7 +863,7 @@ JS::UserCompartmentCount(JSContext* cx)
 JS_PUBLIC_API(size_t)
 JS::PeakSizeOfTemporary(const JSContext* cx)
 {
-    return cx->tempLifoAlloc().peakSizeOfExcludingThis();
+    return cx->JSRuntime::tempLifoAlloc.peakSizeOfExcludingThis();
 }
 
 namespace JS {
@@ -896,7 +892,7 @@ AddSizeOfTab(JSContext* cx, HandleObject obj, MallocSizeOf mallocSizeOf, ObjectP
 
     JS::Zone* zone = GetObjectZone(obj);
 
-    if (!rtStats.compartmentStatsVector.reserve(zone->compartments().length()))
+    if (!rtStats.compartmentStatsVector.reserve(zone->compartments.length()))
         return false;
 
     if (!rtStats.zoneStatsVector.reserve(1))
@@ -907,11 +903,11 @@ AddSizeOfTab(JSContext* cx, HandleObject obj, MallocSizeOf mallocSizeOf, ObjectP
     StatsClosure closure(&rtStats, opv, /* anonymize = */ false);
     if (!closure.init())
         return false;
-    IterateHeapUnbarrieredForZone(cx, zone, &closure,
-                                                  StatsZoneCallback,
-                                                  StatsCompartmentCallback,
-                                                  StatsArenaCallback,
-                                                  StatsCellCallback<CoarseGrained>);
+    IterateZoneCompartmentsArenasCells(cx, zone, &closure,
+                                       StatsZoneCallback,
+                                       StatsCompartmentCallback,
+                                       StatsArenaCallback,
+                                       StatsCellCallback<CoarseGrained>);
 
     MOZ_ASSERT(rtStats.zoneStatsVector.length() == 1);
     rtStats.zTotals.addSizes(rtStats.zoneStatsVector[0]);

@@ -161,10 +161,11 @@ class DataViewObject : public NativeObject
     static bool initClass(JSContext* cx);
     static void notifyBufferDetached(JSObject* view);
     template<typename NativeType>
-    static bool read(JSContext* cx, Handle<DataViewObject*> obj, const CallArgs& args,
-                     NativeType* val);
+    static bool read(JSContext* cx, Handle<DataViewObject*> obj,
+                     const CallArgs& args, NativeType* val, const char* method);
     template<typename NativeType>
-    static bool write(JSContext* cx, Handle<DataViewObject*> obj, const CallArgs& args);
+    static bool write(JSContext* cx, Handle<DataViewObject*> obj,
+                      const CallArgs& args, const char* method);
 
     void notifyBufferDetached(void* newData);
 

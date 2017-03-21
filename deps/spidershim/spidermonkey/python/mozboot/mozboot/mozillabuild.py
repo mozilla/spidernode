@@ -2,7 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import errno
 import os
 import sys
 import subprocess
@@ -46,11 +45,8 @@ class MozillaBuildBootstrapper(BaseBootstrapper):
         finally:
             try:
                 os.remove(rustup_init)
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    pass
-                else:
-                    raise
+            except FileNotFoundError:
+                pass
 
     def upgrade_mercurial(self, current):
         self.pip_install('mercurial')

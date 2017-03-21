@@ -38,18 +38,24 @@ struct Metadata;
 class FrameIterator;
 
 // A wasm CodeSegment owns the allocated executable code for a wasm module.
+// This allocation also currently includes the global data segment, which allows
+// RIP-relative access to global data on some architectures, but this will
+// change in the future to give global data its own allocation.
 
 class CodeSegment;
 typedef UniquePtr<CodeSegment> UniqueCodeSegment;
 
 class CodeSegment
 {
-    // bytes_ points to a single allocation of executable machine code in
-    // the range [0, length_).  The range [0, functionLength_) is
-    // the subrange of [0, length_) which contains function code.
+    // bytes_ points to a single allocation with two contiguous ranges:
+    // executable machine code in the range [0, codeLength) and global data in
+    // the range [codeLength, codeLength + globalDataLength). The range
+    // [0, functionCodeLength) is the subrange of [0, codeLength) which contains
+    // function code.
     uint8_t* bytes_;
-    uint32_t functionLength_;
-    uint32_t length_;
+    uint32_t functionCodeLength_;
+    uint32_t codeLength_;
+    uint32_t globalDataLength_;
 
     // These are pointers into code for stubs used for asynchronous
     // signal-handler control-flow transfer.
@@ -60,12 +66,6 @@ class CodeSegment
     // The profiling mode may be changed dynamically.
     bool profilingEnabled_;
 
-  public:
-#ifdef MOZ_VTUNE
-    unsigned vtune_method_id_; // Zero if unset.
-#endif
-
-  protected:
     CodeSegment() { PodZero(this); }
     template <class> friend struct js::MallocProvider;
 
@@ -83,7 +83,10 @@ class CodeSegment
     ~CodeSegment();
 
     uint8_t* base() const { return bytes_; }
-    uint32_t length() const { return length_; }
+    uint8_t* globalData() const { return bytes_ + codeLength_; }
+    uint32_t codeLength() const { return codeLength_; }
+    uint32_t globalDataLength() const { return globalDataLength_; }
+    uint32_t totalLength() const { return codeLength_ + globalDataLength_; }
 
     uint8_t* interruptCode() const { return interruptCode_; }
     uint8_t* outOfBoundsCode() const { return outOfBoundsCode_; }
@@ -96,11 +99,16 @@ class CodeSegment
     // enter/exit.
 
     bool containsFunctionPC(const void* pc) const {
-        return pc >= base() && pc < (base() + functionLength_);
+        return pc >= base() && pc < (base() + functionCodeLength_);
     }
     bool containsCodePC(const void* pc) const {
-        return pc >= base() && pc < (base() + length_);
+        return pc >= base() && pc < (base() + codeLength_);
     }
+
+    // onMovingGrow must be called if the memory passed to 'create' performs a
+    // moving grow operation.
+
+    void onMovingGrow(uint8_t* prevMemoryBase, const Metadata& metadata, ArrayBufferObject& buffer);
 };
 
 // ShareableBytes is a ref-counted vector of bytes which are incrementally built
@@ -422,8 +430,6 @@ struct CustomSection
 };
 
 typedef Vector<CustomSection, 0, SystemAllocPolicy> CustomSectionVector;
-typedef Vector<ValTypeVector, 0, SystemAllocPolicy> FuncArgTypesVector;
-typedef Vector<ExprType, 0, SystemAllocPolicy> FuncReturnTypesVector;
 
 // Metadata holds all the data that is needed to describe compiled wasm code
 // at runtime (as opposed to data that is only used to statically link or
@@ -461,6 +467,8 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     GlobalDescVector      globals;
     TableDescVector       tables;
     MemoryAccessVector    memoryAccesses;
+    MemoryPatchVector     memoryPatches;
+    BoundsCheckVector     boundsChecks;
     CodeRangeVector       codeRanges;
     CallSiteVector        callSites;
     CallThunkVector       callThunks;
@@ -471,9 +479,6 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     // Debug-enabled code is not serialized.
     bool                  debugEnabled;
     Uint32Vector          debugTrapFarJumpOffsets;
-    Uint32Vector          debugFuncToCodeRange;
-    FuncArgTypesVector    debugFuncArgTypes;
-    FuncReturnTypesVector debugFuncReturnTypes;
 
     bool usesMemory() const { return UsesMemory(memoryUsage); }
     bool hasSharedMemory() const { return memoryUsage == MemoryUsage::Shared; }
@@ -524,6 +529,25 @@ struct ExprLoc
 };
 
 typedef Vector<ExprLoc, 0, SystemAllocPolicy> ExprLocVector;
+
+// The generated source WebAssembly function lines and expressions ranges.
+
+struct FunctionLoc
+{
+    size_t startExprsIndex;
+    size_t endExprsIndex;
+    uint32_t startLineno;
+    uint32_t endLineno;
+    FunctionLoc(size_t startExprsIndex_, size_t endExprsIndex_, uint32_t startLineno_, uint32_t endLineno_)
+      : startExprsIndex(startExprsIndex_),
+        endExprsIndex(endExprsIndex_),
+        startLineno(startLineno_),
+        endLineno(endLineno_)
+    {}
+};
+
+typedef Vector<FunctionLoc, 0, SystemAllocPolicy> FunctionLocVector;
+
 typedef Vector<uint32_t, 0, SystemAllocPolicy> ExprLocIndexVector;
 
 // The generated source map for WebAssembly binary file. This map is generated during
@@ -532,12 +556,18 @@ typedef Vector<uint32_t, 0, SystemAllocPolicy> ExprLocIndexVector;
 class GeneratedSourceMap
 {
     ExprLocVector exprlocs_;
+    FunctionLocVector functionlocs_;
     UniquePtr<ExprLocIndexVector> sortedByOffsetExprLocIndices_;
     uint32_t totalLines_;
 
   public:
-    explicit GeneratedSourceMap() : totalLines_(0) {}
+    explicit GeneratedSourceMap()
+     : exprlocs_(),
+       functionlocs_(),
+       totalLines_(0)
+    {}
     ExprLocVector& exprlocs() { return exprlocs_; }
+    FunctionLocVector& functionlocs() { return functionlocs_; }
 
     uint32_t totalLines() { return totalLines_; }
     void setTotalLines(uint32_t val) { totalLines_ = val; }
@@ -546,7 +576,9 @@ class GeneratedSourceMap
 };
 
 typedef UniquePtr<GeneratedSourceMap> UniqueGeneratedSourceMap;
+
 typedef HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> StepModeCounters;
+
 typedef HashMap<uint32_t, WasmBreakpointSite*, DefaultHasher<uint32_t>, SystemAllocPolicy> WasmBreakpointSiteMap;
 
 // Code objects own executable code and the metadata that describes it. At the
@@ -585,6 +617,7 @@ class Code
 
     const CallSite* lookupCallSite(void* returnAddress) const;
     const CodeRange* lookupRange(void* pc) const;
+    const CodeRange* lookupRangeByFuncIndexSlow(uint32_t funcIndex) const;
     const MemoryAccess* lookupMemoryAccess(void* pc) const;
 
     // Return the name associated with a given function index, or generate one
@@ -635,11 +668,6 @@ class Code
     bool stepModeEnabled(uint32_t funcIndex) const;
     bool incrementStepModeCount(JSContext* cx, uint32_t funcIndex);
     bool decrementStepModeCount(JSContext* cx, uint32_t funcIndex);
-
-    // Stack inspection helpers.
-
-    bool debugGetLocalTypes(uint32_t funcIndex, ValTypeVector* locals, size_t* argsLength);
-    ExprType debugGetResultType(uint32_t funcIndex);
 
     // about:memory reporting:
 

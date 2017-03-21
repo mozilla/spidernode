@@ -16,7 +16,6 @@
 #include "jsobjinlines.h"
 
 #include "gc/Nursery-inl.h"
-#include "vm/NativeObject-inl.h"
 #include "vm/Stack-inl.h"
 
 using namespace js;
@@ -230,8 +229,7 @@ ArgumentsObject::createTemplateObject(JSContext* cx, bool mapped)
 
     AutoSetNewObjectMetadata metadata(cx);
     JSObject* base;
-    JS_TRY_VAR_OR_RETURN_NULL(cx, base, NativeObject::create(cx, FINALIZE_KIND, gc::TenuredHeap,
-                                                             shape, group));
+    JS_TRY_VAR_OR_RETURN_NULL(cx, base, JSObject::create(cx, FINALIZE_KIND, gc::TenuredHeap, shape, group));
 
     ArgumentsObject* obj = &base->as<js::ArgumentsObject>();
     obj->initFixedSlot(ArgumentsObject::DATA_SLOT, PrivateValue(nullptr));
@@ -286,8 +284,7 @@ ArgumentsObject::create(JSContext* cx, HandleFunction callee, unsigned numActual
         AutoSetNewObjectMetadata metadata(cx);
 
         JSObject* base;
-        JS_TRY_VAR_OR_RETURN_NULL(cx, base, NativeObject::create(cx, FINALIZE_KIND,
-                                                                 gc::DefaultHeap, shape, group));
+        JS_TRY_VAR_OR_RETURN_NULL(cx, base, JSObject::create(cx, FINALIZE_KIND, gc::DefaultHeap, shape, group));
         obj = &base->as<ArgumentsObject>();
 
         data =
@@ -429,21 +426,6 @@ ArgumentsObject::obj_delProperty(JSContext* cx, HandleObject obj, HandleId id,
         argsobj.markIteratorOverridden();
     }
     return result.succeed();
-}
-
-/* static */ bool
-ArgumentsObject::obj_mayResolve(const JSAtomState& names, jsid id, JSObject*)
-{
-    // Arguments might resolve indexes or Symbol.iterator.
-    if (!JSID_IS_ATOM(id))
-        return true;
-
-    JSAtom* atom = JSID_TO_ATOM(id);
-    uint32_t index;
-    if (atom->isIndex(&index))
-        return true;
-
-    return atom == names.length || atom == names.callee;
 }
 
 static bool
@@ -821,7 +803,7 @@ ArgumentsObject::objectMovedDuringMinorGC(JSTracer* trc, JSObject* dst, JSObject
     ArgumentsObject* nsrc = &src->as<ArgumentsObject>();
     MOZ_ASSERT(ndst->data() == nsrc->data());
 
-    Nursery& nursery = dst->zone()->group()->nursery();
+    Nursery& nursery = trc->runtime()->gc.nursery;
 
     size_t nbytesTotal = 0;
     if (!nursery.isInside(nsrc->data())) {
@@ -870,7 +852,7 @@ const ClassOps MappedArgumentsObject::classOps_ = {
     nullptr,                 /* setProperty */
     MappedArgumentsObject::obj_enumerate,
     MappedArgumentsObject::obj_resolve,
-    ArgumentsObject::obj_mayResolve,
+    nullptr,                 /* mayResolve  */
     ArgumentsObject::finalize,
     nullptr,                 /* call        */
     nullptr,                 /* hasInstance */
@@ -907,7 +889,7 @@ const ClassOps UnmappedArgumentsObject::classOps_ = {
     nullptr,                 /* setProperty */
     UnmappedArgumentsObject::obj_enumerate,
     UnmappedArgumentsObject::obj_resolve,
-    ArgumentsObject::obj_mayResolve,
+    nullptr,                 /* mayResolve  */
     ArgumentsObject::finalize,
     nullptr,                 /* call        */
     nullptr,                 /* hasInstance */

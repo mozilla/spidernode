@@ -30,7 +30,7 @@ MemProfiler::GetGCHeapProfiler(JSRuntime* runtime)
 MemProfiler*
 MemProfiler::GetMemProfiler(JSContext* context)
 {
-    return &context->runtime()->gc.mMemProfiler;
+    return &context->gc.mMemProfiler;
 }
 
 void

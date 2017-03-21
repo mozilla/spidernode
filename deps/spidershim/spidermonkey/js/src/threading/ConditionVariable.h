@@ -9,7 +9,6 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/Move.h"
-#include "mozilla/PlatformConditionVariable.h"
 #include "mozilla/TimeStamp.h"
 
 #include <stdint.h>
@@ -22,12 +21,12 @@
 
 namespace js {
 
+template <typename T> using UniqueLock = LockGuard<T>;
+
 enum class CVStatus {
   NoTimeout,
   Timeout
 };
-
-template <typename T> using UniqueLock = LockGuard<T>;
 
 // A poly-fill for std::condition_variable.
 class ConditionVariable
@@ -35,24 +34,18 @@ class ConditionVariable
 public:
   struct PlatformData;
 
-  ConditionVariable() = default;
-  ~ConditionVariable() = default;
+  ConditionVariable();
+  ~ConditionVariable();
 
   // Wake one thread that is waiting on this condition.
-  void notify_one() {
-    impl_.notify_one();
-  }
+  void notify_one();
 
   // Wake all threads that are waiting on this condition.
-  void notify_all() {
-    impl_.notify_all();
-  }
+  void notify_all();
 
   // Block the current thread of execution until this condition variable is
   // woken from another thread via notify_one or notify_all.
-  void wait(UniqueLock<Mutex>& lock) {
-    impl_.wait(lock.lock);
-  }
+  void wait(UniqueLock<Mutex>& lock);
 
   // As with |wait|, block the current thread of execution until woken from
   // another thread. This method will resume waiting once woken until the given
@@ -70,9 +63,7 @@ public:
   // independent of system clock changes. While insulated from clock changes,
   // this API is succeptible to the issues discussed above wait_for.
   CVStatus wait_until(UniqueLock<Mutex>& lock,
-                      const mozilla::TimeStamp& abs_time) {
-    return wait_for(lock, abs_time - mozilla::TimeStamp::Now());
-  }
+                      const mozilla::TimeStamp& abs_time);
 
   // As with |wait_until|, block the current thread of execution until woken
   // from another thread, or the given absolute time is reached. This method
@@ -95,10 +86,7 @@ public:
   // has a minimum granularity of the system's scheduling interval, and may
   // encounter substantially longer delays, depending on system load.
   CVStatus wait_for(UniqueLock<Mutex>& lock,
-                    const mozilla::TimeDuration& rel_time) {
-    return impl_.wait_for(lock.lock, rel_time) == mozilla::detail::CVStatus::Timeout
-      ? CVStatus::Timeout : CVStatus::NoTimeout;
-  }
+                    const mozilla::TimeDuration& rel_time);
 
   // As with |wait_for|, block the current thread of execution until woken from
   // another thread or the given time duration has elapsed. This method will
@@ -116,7 +104,16 @@ private:
   ConditionVariable(const ConditionVariable&) = delete;
   ConditionVariable& operator=(const ConditionVariable&) = delete;
 
-  mozilla::detail::ConditionVariableImpl impl_;
+  PlatformData* platformData();
+
+#ifndef XP_WIN
+  void* platformData_[sizeof(pthread_cond_t) / sizeof(void*)];
+  static_assert(sizeof(pthread_cond_t) / sizeof(void*) != 0 &&
+                sizeof(pthread_cond_t) % sizeof(void*) == 0,
+                "pthread_cond_t must have pointer alignment");
+#else
+  void* platformData_[4];
+#endif
 };
 
 } // namespace js

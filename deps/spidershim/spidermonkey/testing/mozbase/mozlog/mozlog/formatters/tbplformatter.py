@@ -72,10 +72,7 @@ class TbplFormatter(BaseFormatter):
 
     @output_subtests
     def process_output(self, data):
-        pid = data['process']
-        if pid.isdigit():
-            pid = 'PID %s' % pid
-        return "%s | %s\n" % (pid, data['data'])
+        return "PROCESS | %(process)s | %(data)s\n" % data
 
     @output_subtests
     def process_start(self, data):
@@ -120,8 +117,7 @@ class TbplFormatter(BaseFormatter):
 
     def suite_start(self, data):
         self.suite_start_time = data["time"]
-        num_tests = reduce(lambda x, y: x + len(y), data['tests'].itervalues(), 0)
-        return "SUITE-START | Running %i tests\n" % num_tests
+        return "SUITE-START | Running %i tests\n" % len(data["tests"])
 
     def test_start(self, data):
         self.test_start_times[self.test_id(data["test"])] = data["time"]

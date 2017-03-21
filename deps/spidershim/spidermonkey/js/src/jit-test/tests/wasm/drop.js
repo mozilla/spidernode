@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 for (let type of ['i32', 'f32', 'f64']) {
     assertEq(wasmEvalText(`
         (module

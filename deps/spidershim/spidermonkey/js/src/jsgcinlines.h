@@ -102,12 +102,6 @@ class ArenaIter
     }
 };
 
-enum CellIterNeedsBarrier : uint8_t
-{
-    CellIterDoesntNeedBarrier = 0,
-    CellIterMayNeedBarrier = 1
-};
-
 class ArenaCellIterImpl
 {
     size_t firstThingOffset;
@@ -115,8 +109,6 @@ class ArenaCellIterImpl
     Arena* arenaAddr;
     FreeSpan span;
     uint_fast16_t thing;
-    JS::TraceKind traceKind;
-    bool needsBarrier;
     mozilla::DebugOnly<bool> initialized;
 
     // Upon entry, |thing| points to any thing (free or used) and finds the
@@ -136,30 +128,17 @@ class ArenaCellIterImpl
 
   public:
     ArenaCellIterImpl()
-      : firstThingOffset(0),
-        thingSize(0),
-        arenaAddr(nullptr),
-        thing(0),
-        traceKind(JS::TraceKind::Null),
-        needsBarrier(false),
-        initialized(false)
-    {}
+      : firstThingOffset(0), thingSize(0), arenaAddr(nullptr), thing(0), initialized(false) {}
 
-    explicit ArenaCellIterImpl(Arena* arena, CellIterNeedsBarrier mayNeedBarrier)
-      : initialized(false)
-    {
-        init(arena, mayNeedBarrier);
-    }
+    explicit ArenaCellIterImpl(Arena* arena) : initialized(false) { init(arena); }
 
-    void init(Arena* arena, CellIterNeedsBarrier mayNeedBarrier) {
+    void init(Arena* arena) {
         MOZ_ASSERT(!initialized);
         MOZ_ASSERT(arena);
         initialized = true;
         AllocKind kind = arena->getAllocKind();
         firstThingOffset = Arena::firstThingOffset(kind);
         thingSize = Arena::thingSize(kind);
-        traceKind = MapAllocToTraceKind(kind);
-        needsBarrier = mayNeedBarrier && !JS::CurrentThreadIsHeapCollecting();
         reset(arena);
     }
 
@@ -182,20 +161,11 @@ class ArenaCellIterImpl
 
     TenuredCell* getCell() const {
         MOZ_ASSERT(!done());
-        TenuredCell* cell = reinterpret_cast<TenuredCell*>(uintptr_t(arenaAddr) + thing);
-
-        // This can result in a a new reference being created to an object that
-        // an ongoing incremental GC may find to be unreachable, so we may need
-        // a barrier here.
-        if (needsBarrier)
-            ExposeGCThingToActiveJS(JS::GCCellPtr(cell, traceKind));
-
-        return cell;
+        return reinterpret_cast<TenuredCell*>(uintptr_t(arenaAddr) + thing);
     }
 
     template<typename T> T* get() const {
         MOZ_ASSERT(!done());
-        MOZ_ASSERT(JS::MapTypeToTraceKind<T>::kind == traceKind);
         return static_cast<T*>(getCell());
     }
 
@@ -215,9 +185,9 @@ class ArenaCellIter : public ArenaCellIterImpl
 {
   public:
     explicit ArenaCellIter(Arena* arena)
-      : ArenaCellIterImpl(arena, CellIterMayNeedBarrier)
+      : ArenaCellIterImpl(arena)
     {
-        MOZ_ASSERT(JS::CurrentThreadIsHeapTracing());
+        MOZ_ASSERT(arena->zone->runtimeFromMainThread()->isHeapTracing());
     }
 };
 
@@ -225,7 +195,7 @@ class ArenaCellIterUnderGC : public ArenaCellIterImpl
 {
   public:
     explicit ArenaCellIterUnderGC(Arena* arena)
-      : ArenaCellIterImpl(arena, CellIterDoesntNeedBarrier)
+      : ArenaCellIterImpl(arena)
     {
         MOZ_ASSERT(CurrentThreadIsPerformingGC());
     }
@@ -235,18 +205,10 @@ class ArenaCellIterUnderFinalize : public ArenaCellIterImpl
 {
   public:
     explicit ArenaCellIterUnderFinalize(Arena* arena)
-      : ArenaCellIterImpl(arena, CellIterDoesntNeedBarrier)
+      : ArenaCellIterImpl(arena)
     {
         MOZ_ASSERT(CurrentThreadIsGCSweeping());
     }
-};
-
-class ArenaCellIterUnbarriered : public ArenaCellIterImpl
-{
-  public:
-    explicit ArenaCellIterUnbarriered(Arena* arena)
-      : ArenaCellIterImpl(arena, CellIterDoesntNeedBarrier)
-    {}
 };
 
 template <typename T>
@@ -264,7 +226,7 @@ class ZoneCellIter<TenuredCell> {
 
     void init(JS::Zone* zone, AllocKind kind) {
         MOZ_ASSERT_IF(IsNurseryAllocable(kind),
-                      zone->isAtomsZone() || zone->group()->nursery().isEmpty());
+                      zone->runtimeFromAnyThread()->gc.nursery.isEmpty());
         initForTenuredIteration(zone, kind);
     }
 
@@ -273,9 +235,9 @@ class ZoneCellIter<TenuredCell> {
 
         // If called from outside a GC, ensure that the heap is in a state
         // that allows us to iterate.
-        if (!JS::CurrentThreadIsHeapBusy()) {
+        if (!rt->isHeapBusy()) {
             // Assert that no GCs can occur while a ZoneCellIter is live.
-            nogc.emplace();
+            nogc.emplace(rt);
         }
 
         // We have a single-threaded runtime, so there's no need to protect
@@ -286,15 +248,17 @@ class ZoneCellIter<TenuredCell> {
             rt->gc.waitBackgroundSweepEnd();
         arenaIter.init(zone, kind);
         if (!arenaIter.done())
-            cellIter.init(arenaIter.get(), CellIterMayNeedBarrier);
+            cellIter.init(arenaIter.get());
     }
 
   public:
     ZoneCellIter(JS::Zone* zone, AllocKind kind) {
         // If we are iterating a nursery-allocated kind then we need to
         // evict first so that we can see all things.
-        if (IsNurseryAllocable(kind))
-            zone->runtimeFromActiveCooperatingThread()->gc.evictNursery();
+        if (IsNurseryAllocable(kind)) {
+            JSRuntime* rt = zone->runtimeFromMainThread();
+            rt->gc.evictNursery();
+        }
 
         init(zone, kind);
     }
@@ -420,7 +384,8 @@ class GCZonesIter
 
   public:
     explicit GCZonesIter(JSRuntime* rt, ZoneSelector selector = WithAtoms) : zone(rt, selector) {
-        MOZ_ASSERT(JS::CurrentThreadIsHeapBusy());
+        MOZ_ASSERT((CurrentThreadCanAccessRuntime(rt) && rt->isHeapBusy()) ||
+                   CurrentThreadIsPerformingGC());
         if (!zone->isCollectingFromAnyThread())
             next();
     }

@@ -9,7 +9,6 @@
 
 #include "jsatom.h"
 #include "jsbytecode.h"
-#include "jsmath.h"
 #include "jsobj.h"
 #include "jsscript.h"
 
@@ -275,7 +274,9 @@ class NewObjectCache
     }
 };
 
-class RuntimeCaches
+class MathCache;
+
+class ContextCaches
 {
     UniquePtr<js::MathCache> mathCache_;
 
@@ -288,7 +289,7 @@ class RuntimeCaches
     js::NativeIterCache nativeIterCache;
     js::UncompressedSourceCache uncompressedSourceCache;
     js::EvalCache evalCache;
-    LazyScriptCache lazyScriptCache;
+    js::LazyScriptCache lazyScriptCache;
 
     bool init();
 

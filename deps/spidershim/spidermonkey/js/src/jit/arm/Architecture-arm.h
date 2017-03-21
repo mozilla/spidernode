@@ -414,10 +414,9 @@ class VFPRegister
       : kind(Double), code_(id), _isInvalid(false), _isMissing(false)
     { }
     bool operator==(const VFPRegister& other) const {
-        return kind == other.kind && code_ == other.code_ && isInvalid() == other.isInvalid();
-    }
-    bool operator!=(const VFPRegister& other) const {
-        return !operator==(other);
+        MOZ_ASSERT(!isInvalid());
+        MOZ_ASSERT(!other.isInvalid());
+        return kind == other.kind && code_ == other.code_;
     }
 
     bool isSingle() const { return kind == Single; }
@@ -488,6 +487,9 @@ class VFPRegister
         if (isDouble())
             return FloatRegisters::GetDoubleName(Encoding(code_));
         return FloatRegisters::GetSingleName(Encoding(code_));
+    }
+    bool operator != (const VFPRegister& other) const {
+        return other.kind != kind || code_ != other.code_;
     }
     bool aliases(const VFPRegister& other) {
         if (kind == other.kind)
@@ -774,8 +776,6 @@ static inline bool UseHardFpABI()
 #endif
 }
 #endif
-
-bool ForceDoubleCacheFlush();
 
 // In order to handle SoftFp ABI calls, we need to be able to express that we
 // have ABIArg which are represented by pair of general purpose registers.

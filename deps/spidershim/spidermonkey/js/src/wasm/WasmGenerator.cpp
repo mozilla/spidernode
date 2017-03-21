@@ -201,18 +201,6 @@ ModuleGenerator::initWasm(const CompileArgs& args)
             return false;
     }
 
-    if (metadata_->debugEnabled) {
-        if (!debugFuncArgTypes_.resize(env_->funcSigs.length()))
-            return false;
-        if (!debugFuncReturnTypes_.resize(env_->funcSigs.length()))
-            return false;
-        for (size_t i = 0; i < debugFuncArgTypes_.length(); i++) {
-            if (!debugFuncArgTypes_[i].appendAll(env_->funcSigs[i]->args()))
-                return false;
-            debugFuncReturnTypes_[i] = env_->funcSigs[i]->ret();
-        }
-    }
-
     return true;
 }
 
@@ -222,7 +210,7 @@ ModuleGenerator::init(UniqueModuleEnvironment env, const CompileArgs& args,
 {
     env_ = Move(env);
 
-    linkData_.globalDataLength = 0;
+    linkData_.globalDataLength = AlignBytes(InitialGlobalDataBytes, sizeof(void*));
 
     if (!funcToCodeRange_.appendN(BAD_CODE_RANGE, env_->funcSigs.length()))
         return false;
@@ -689,6 +677,30 @@ ModuleGenerator::finishLinkData(Bytes& code)
             return false;
     }
 
+#if defined(JS_CODEGEN_X86)
+    // Global data accesses in x86 need to be patched with the absolute
+    // address of the global. Globals are allocated sequentially after the
+    // code section so we can just use an InternalLink.
+    for (GlobalAccess a : masm_.globalAccesses()) {
+        LinkData::InternalLink inLink(LinkData::InternalLink::RawPointer);
+        inLink.patchAtOffset = masm_.labelToPatchOffset(a.patchAt);
+        inLink.targetOffset = code.length() + a.globalDataOffset;
+        if (!linkData_.internalLinks.append(inLink))
+            return false;
+    }
+#elif defined(JS_CODEGEN_X64)
+    // Global data accesses on x64 use rip-relative addressing and thus we can
+    // patch here, now that we know the final codeLength.
+    for (GlobalAccess a : masm_.globalAccesses()) {
+        void* from = code.begin() + a.patchAt.offset();
+        void* to = code.end() + a.globalDataOffset;
+        X86Encoding::SetRel32(from, to);
+    }
+#else
+    // Global access is performed using the GlobalReg and requires no patching.
+    MOZ_ASSERT(masm_.globalAccesses().length() == 0);
+#endif
+
     return true;
 }
 
@@ -1149,6 +1161,8 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
 
     // The MacroAssembler has accumulated all the memory accesses during codegen.
     metadata_->memoryAccesses = masm_.extractMemoryAccesses();
+    metadata_->memoryPatches = masm_.extractMemoryPatches();
+    metadata_->boundsChecks = masm_.extractBoundsChecks();
 
     // Copy over data from the ModuleEnvironment.
     metadata_->memoryUsage = env_->memoryUsage;
@@ -1159,20 +1173,15 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
     metadata_->funcNames = Move(env_->funcNames);
     metadata_->customSections = Move(env_->customSections);
 
-    // Additional debug information to copy.
-    metadata_->debugFuncArgTypes = Move(debugFuncArgTypes_);
-    metadata_->debugFuncReturnTypes = Move(debugFuncReturnTypes_);
-    if (metadata_->debugEnabled)
-        metadata_->debugFuncToCodeRange = Move(funcToCodeRange_);
-
     // These Vectors can get large and the excess capacity can be significant,
     // so realloc them down to size.
     metadata_->memoryAccesses.podResizeToFit();
+    metadata_->memoryPatches.podResizeToFit();
+    metadata_->boundsChecks.podResizeToFit();
     metadata_->codeRanges.podResizeToFit();
     metadata_->callSites.podResizeToFit();
     metadata_->callThunks.podResizeToFit();
     metadata_->debugTrapFarJumpOffsets.podResizeToFit();
-    metadata_->debugFuncToCodeRange.podResizeToFit();
 
     // For asm.js, the tables vector is over-allocated (to avoid resize during
     // parallel copilation). Shrink it back down to fit.

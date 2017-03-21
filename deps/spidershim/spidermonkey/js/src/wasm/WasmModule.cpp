@@ -604,8 +604,8 @@ Module::instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) 
 }
 
 static bool
-CheckLimits(JSContext* cx, uint32_t declaredMin, const Maybe<uint32_t>& declaredMax, uint32_t actualLength,
-            const Maybe<uint32_t>& actualMax, bool isAsmJS, const char* kind)
+CheckLimits(JSContext* cx, uint32_t declaredMin, Maybe<uint32_t> declaredMax, uint32_t actualLength,
+            Maybe<uint32_t> actualMax, bool isAsmJS, const char* kind)
 {
     if (isAsmJS) {
         MOZ_ASSERT(actualLength >= declaredMin);
@@ -903,17 +903,12 @@ Module::instantiate(JSContext* cx,
     if (!codeSegment)
         return false;
 
-    auto globalSegment = GlobalSegment::create(linkData_.globalDataLength);
-    if (!globalSegment)
-        return false;
-
     auto code = cx->make_unique<Code>(Move(codeSegment), *metadata_, maybeBytecode);
     if (!code)
         return false;
 
     instance.set(WasmInstanceObject::create(cx,
                                             Move(code),
-                                            Move(globalSegment),
                                             memory,
                                             Move(tables),
                                             funcImports,

@@ -1,5 +1,5 @@
 {
-    "configure-args": "--enable-debug --enable-warnings-as-errors",
+    "configure-args": "--enable-debug",
     "skip-tests": {
         "all": ["jstests", "jittest", "checks"]
     },

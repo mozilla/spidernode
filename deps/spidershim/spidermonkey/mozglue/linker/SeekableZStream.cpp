@@ -5,7 +5,6 @@
 #include <algorithm>
 #include "SeekableZStream.h"
 #include "Logging.h"
-#include "mozilla/SizePrintfMacros.h"
 
 bool
 SeekableZStream::Init(const void *buf, size_t length)
@@ -59,7 +58,7 @@ bool
 SeekableZStream::DecompressChunk(void *where, size_t chunk, size_t length)
 {
   if (chunk >= offsetTable.numElements()) {
-    ERROR("DecompressChunk: chunk #%" PRIuSIZE " out of range [0-%" PRIuSIZE ")",
+    ERROR("DecompressChunk: chunk #%" PRIdSize " out of range [0-%" PRIdSize ")",
         chunk, offsetTable.numElements());
     return false;
   }
@@ -71,7 +70,7 @@ SeekableZStream::DecompressChunk(void *where, size_t chunk, size_t length)
   if (length == 0 || length > chunkLen)
     length = chunkLen;
 
-  DEBUG_LOG("DecompressChunk #%" PRIuSIZE " @%p (%" PRIuSIZE "/%" PRIuSIZE ")",
+  DEBUG_LOG("DecompressChunk #%" PRIdSize " @%p (%" PRIdSize "/% " PRIdSize ")",
         chunk, where, length, chunkLen);
   zxx_stream zStream(&allocator);
   zStream.avail_in = (isLastChunk ? totalSize : uint32_t(offsetTable[chunk + 1]))

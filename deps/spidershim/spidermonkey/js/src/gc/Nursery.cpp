@@ -46,7 +46,7 @@ static const uintptr_t CanaryMagicValue = 0xDEADB15D;
 
 struct js::Nursery::FreeMallocedBuffersTask : public GCParallelTask
 {
-    explicit FreeMallocedBuffersTask(FreeOp* fop) : GCParallelTask(fop->runtime()), fop_(fop) {}
+    explicit FreeMallocedBuffersTask(FreeOp* fop) : fop_(fop) {}
     bool init() { return buffers_.init(); }
     void transferBuffersToFree(MallocedBuffersSet& buffersToFree,
                                const AutoLockHelperThreadState& lock);
@@ -93,7 +93,7 @@ js::Nursery::NurseryChunk::poisonAndInit(JSRuntime* rt, uint8_t poison)
 inline void
 js::Nursery::NurseryChunk::init(JSRuntime* rt)
 {
-    new (&trailer) gc::ChunkTrailer(rt, &rt->gc.storeBuffer());
+    new (&trailer) gc::ChunkTrailer(rt, &rt->gc.storeBuffer);
 }
 
 /* static */ inline js::Nursery::NurseryChunk*
@@ -122,7 +122,6 @@ js::Nursery::Nursery(JSRuntime* rt)
   , profileThreshold_(0)
   , enableProfiling_(false)
   , reportTenurings_(0)
-  , minorGCTriggerReason_(JS::gcreason::NO_REASON)
   , minorGcCount_(0)
   , freeMallocedBuffersTask(nullptr)
   , sweepActions_(nullptr)
@@ -137,11 +136,14 @@ js::Nursery::init(uint32_t maxNurseryBytes, AutoLockGC& lock)
     /* maxNurseryBytes parameter is rounded down to a multiple of chunk size. */
     maxNurseryChunks_ = maxNurseryBytes >> ChunkShift;
 
-    /* If no chunks are specified then the nursery is permanently disabled. */
+    /* If no chunks are specified then the nursery is permenantly disabled. */
     if (maxNurseryChunks_ == 0)
         return true;
 
     if (!mallocedBuffers.init())
+        return false;
+
+    if (!cellsWithUid_.init())
         return false;
 
     freeMallocedBuffersTask = js_new<FreeMallocedBuffersTask>(runtime()->defaultFreeOp());
@@ -177,7 +179,7 @@ js::Nursery::init(uint32_t maxNurseryBytes, AutoLockGC& lock)
         reportTenurings_ = atoi(env);
     }
 
-    if (!runtime()->gc.storeBuffer().enable())
+    if (!runtime()->gc.storeBuffer.enable())
         return false;
 
     MOZ_ASSERT(isEnabled());
@@ -195,7 +197,7 @@ js::Nursery::enable()
 {
     MOZ_ASSERT(isEmpty());
     MOZ_ASSERT(!runtime()->gc.isVerifyPreBarriersEnabled());
-    if (isEnabled() || !maxChunks())
+    if (isEnabled())
         return;
 
     updateNumChunks(1);
@@ -209,7 +211,7 @@ js::Nursery::enable()
         enterZealMode();
 #endif
 
-    MOZ_ALWAYS_TRUE(runtime()->gc.storeBuffer().enable());
+    MOZ_ALWAYS_TRUE(runtime()->gc.storeBuffer.enable());
     return;
 }
 
@@ -221,16 +223,17 @@ js::Nursery::disable()
         return;
     updateNumChunks(0);
     currentEnd_ = 0;
-    runtime()->gc.storeBuffer().disable();
+    runtime()->gc.storeBuffer.disable();
 }
 
 bool
 js::Nursery::isEmpty() const
 {
+    MOZ_ASSERT(runtime_);
     if (!isEnabled())
         return true;
 
-    if (!runtime()->hasZealMode(ZealMode::GenerationalGC)) {
+    if (!runtime_->hasZealMode(ZealMode::GenerationalGC)) {
         MOZ_ASSERT(currentStartChunk_ == 0);
         MOZ_ASSERT(currentStartPosition_ == chunk(0).start());
     }
@@ -294,8 +297,7 @@ void*
 js::Nursery::allocate(size_t size)
 {
     MOZ_ASSERT(isEnabled());
-    MOZ_ASSERT(!JS::CurrentThreadIsHeapBusy());
-    MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime()));
+    MOZ_ASSERT(!runtime()->isHeapBusy());
     MOZ_ASSERT_IF(currentChunk_ == currentStartChunk_, position() >= currentStartPosition_);
     MOZ_ASSERT(position() % gc::CellSize == 0);
     MOZ_ASSERT(size % gc::CellSize == 0);
@@ -483,9 +485,12 @@ js::TenuringTracer::TenuringTracer(JSRuntime* rt, Nursery* nursery)
 {
 }
 
-/* static */ void
+void
 js::Nursery::printProfileHeader()
 {
+    if (!enableProfiling_)
+        return;
+
     fprintf(stderr, "MinorGC:               Reason  PRate Size ");
 #define PRINT_HEADER(name, text)                                              \
     fprintf(stderr, " %6s", text);
@@ -508,15 +513,6 @@ js::Nursery::printTotalProfileTimes()
     if (enableProfiling_) {
         fprintf(stderr, "MinorGC TOTALS: %7" PRIu64 " collections:      ", minorGcCount_);
         printProfileDurations(totalDurations_);
-    }
-}
-
-void
-js::Nursery::maybeClearProfileDurations()
-{
-    if (enableProfiling_) {
-        for (auto& duration : profileDurations_)
-            duration = mozilla::TimeDuration();
     }
 }
 
@@ -548,22 +544,22 @@ js::Nursery::maybeEndProfile(ProfileKey key)
 }
 
 void
-js::Nursery::collect(JS::gcreason::Reason reason)
+js::Nursery::collect(JSRuntime* rt, JS::gcreason::Reason reason)
 {
-    MOZ_ASSERT(!TlsContext.get()->suppressGC);
+    MOZ_ASSERT(!rt->mainThread.suppressGC);
+    MOZ_RELEASE_ASSERT(CurrentThreadCanAccessRuntime(rt));
 
     if (!isEnabled() || isEmpty()) {
         // Our barriers are not always exact, and there may be entries in the
         // storebuffer even when the nursery is disabled or empty. It's not safe
         // to keep these entries as they may refer to tenured cells which may be
         // freed after this point.
-        runtime()->gc.storeBuffer().clear();
+        rt->gc.storeBuffer.clear();
     }
 
     if (!isEnabled())
         return;
 
-    JSRuntime* rt = runtime();
     rt->gc.incMinorGcNumber();
 
 #ifdef JS_GC_ZEAL
@@ -574,10 +570,9 @@ js::Nursery::collect(JS::gcreason::Reason reason)
     lastCanary_ = nullptr;
 #endif
 
-    rt->gc.stats().beginNurseryCollection(reason);
+    rt->gc.stats.beginNurseryCollection(reason);
     TraceMinorGCStart();
 
-    maybeClearProfileDurations();
     startProfile(ProfileKey::Total);
 
     // The hazard analysis thinks doCollection can invalidate pointers in
@@ -587,7 +582,7 @@ js::Nursery::collect(JS::gcreason::Reason reason)
     TenureCountCache tenureCounts;
     double promotionRate = 0;
     if (!isEmpty())
-        promotionRate = doCollection(reason, tenureCounts);
+        promotionRate = doCollection(rt, reason, tenureCounts);
 
     // Resize the nursery.
     maybeStartProfile(ProfileKey::Resize);
@@ -601,12 +596,12 @@ js::Nursery::collect(JS::gcreason::Reason reason)
     maybeStartProfile(ProfileKey::Pretenure);
     uint32_t pretenureCount = 0;
     if (promotionRate > 0.8 || reason == JS::gcreason::FULL_STORE_BUFFER) {
-        JSContext* cx = TlsContext.get();
+        JSContext* cx = rt->contextFromMainThread();
         for (auto& entry : tenureCounts.entries) {
             if (entry.count >= 3000) {
                 ObjectGroup* group = entry.group;
                 if (group->canPreTenure()) {
-                    AutoCompartment ac(cx, group);
+                    AutoCompartment ac(cx, group->compartment());
                     group->setShouldPreTenure(cx);
                     pretenureCount++;
                 }
@@ -632,11 +627,11 @@ js::Nursery::collect(JS::gcreason::Reason reason)
     rt->addTelemetry(JS_TELEMETRY_GC_NURSERY_BYTES, sizeOfHeapCommitted());
     rt->addTelemetry(JS_TELEMETRY_GC_PRETENURE_COUNT, pretenureCount);
 
-    rt->gc.stats().endNurseryCollection(reason);
+    rt->gc.stats.endNurseryCollection(reason);
     TraceMinorGCEnd();
 
     if (enableProfiling_ && totalTime >= profileThreshold_) {
-        rt->gc.stats().maybePrintProfileHeaders();
+        rt->gc.stats.maybePrintProfileHeaders();
 
         fprintf(stderr, "MinorGC: %20s %5.1f%% %4u ",
                 JS::gcreason::ExplainReason(reason),
@@ -647,7 +642,7 @@ js::Nursery::collect(JS::gcreason::Reason reason)
         if (reportTenurings_) {
             for (auto& entry : tenureCounts.entries) {
                 if (entry.count >= reportTenurings_) {
-                    fprintf(stderr, "  %d x ", entry.count);
+                    fprintf(stderr, "%d x ", entry.count);
                     entry.group->print();
                 }
             }
@@ -656,14 +651,13 @@ js::Nursery::collect(JS::gcreason::Reason reason)
 }
 
 double
-js::Nursery::doCollection(JS::gcreason::Reason reason,
+js::Nursery::doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
                           TenureCountCache& tenureCounts)
 {
-    JSRuntime* rt = runtime();
     AutoTraceSession session(rt, JS::HeapState::MinorCollecting);
     AutoSetThreadIsPerformingGC performingGC;
     AutoStopVerifyingBarriers av(rt, false);
-    AutoDisableProxyCheck disableStrictProxyChecking;
+    AutoDisableProxyCheck disableStrictProxyChecking(rt);
     mozilla::DebugOnly<AutoEnterOOMUnsafeRegion> oomUnsafeRegion;
 
     size_t initialNurserySize = spaceToEnd();
@@ -672,7 +666,7 @@ js::Nursery::doCollection(JS::gcreason::Reason reason,
     TenuringTracer mover(rt, this);
 
     // Mark the store buffer. This must happen first.
-    StoreBuffer& sb = runtime()->gc.storeBuffer();
+    StoreBuffer& sb = rt->gc.storeBuffer;
 
     // The MIR graph only contains nursery pointers if cancelIonCompilations()
     // is set on the store buffer, in which case we cancel all compilations.
@@ -707,13 +701,13 @@ js::Nursery::doCollection(JS::gcreason::Reason reason,
 
     maybeStartProfile(ProfileKey::MarkDebugger);
     {
-        gcstats::AutoPhase ap(rt->gc.stats(), gcstats::PHASE_MARK_ROOTS);
-        Debugger::traceAllForMovingGC(&mover);
+        gcstats::AutoPhase ap(rt->gc.stats, gcstats::PHASE_MARK_ROOTS);
+        Debugger::traceAll(&mover);
     }
     maybeEndProfile(ProfileKey::MarkDebugger);
 
     maybeStartProfile(ProfileKey::ClearNewObjectCache);
-    rt->caches().newObjectCache.clearNurseryObjects(rt);
+    rt->contextFromMainThread()->caches.newObjectCache.clearNurseryObjects(rt);
     maybeEndProfile(ProfileKey::ClearNewObjectCache);
 
     // Most of the work is done here. This loop iterates over objects that have
@@ -750,7 +744,7 @@ js::Nursery::doCollection(JS::gcreason::Reason reason,
     maybeEndProfile(ProfileKey::Sweep);
 
     maybeStartProfile(ProfileKey::ClearStoreBuffer);
-    runtime()->gc.storeBuffer().clear();
+    rt->gc.storeBuffer.clear();
     maybeEndProfile(ProfileKey::ClearStoreBuffer);
 
     // Make sure hashtables have been updated after the collection.
@@ -799,7 +793,7 @@ js::Nursery::freeMallocedBuffers()
     }
 
     if (!started)
-        freeMallocedBuffersTask->runFromActiveCooperatingThread(runtime());
+        freeMallocedBuffersTask->runFromMainThread(runtime());
 
     MOZ_ASSERT(mallocedBuffers.empty());
 }
@@ -819,8 +813,8 @@ void
 js::Nursery::sweep()
 {
     /* Sweep unique id's in all in-use chunks. */
-    for (Cell* cell : cellsWithUid_) {
-        JSObject* obj = static_cast<JSObject*>(cell);
+    for (CellsWithUniqueIdSet::Enum e(cellsWithUid_); !e.empty(); e.popFront()) {
+        JSObject* obj = static_cast<JSObject*>(e.front());
         if (!IsForwarded(obj))
             obj->zone()->removeUniqueId(obj);
         else
@@ -953,8 +947,6 @@ js::Nursery::updateNumChunksLocked(unsigned newCount,
 {
     // The GC nursery is an optimization and so if we fail to allocate nursery
     // chunks we do not report an error.
-
-    MOZ_ASSERT(newCount <= maxChunks());
 
     unsigned priorCount = numChunks();
     MOZ_ASSERT(priorCount != newCount);

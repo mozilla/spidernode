@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 // Ensures that the postorder allows us to have very deep expression trees.
 
 var expr = '(get_local 0)';

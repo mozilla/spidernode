@@ -7,7 +7,6 @@
 var bug = 355569;
 var actual = '';
 var expect = '';
-var summary = '';
 
 printBugNumber (bug);
 printStatus (summary);

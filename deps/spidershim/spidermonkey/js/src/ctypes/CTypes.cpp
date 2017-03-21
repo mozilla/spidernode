@@ -44,7 +44,6 @@
 #include "ctypes/Library.h"
 #include "gc/Policy.h"
 #include "gc/Zone.h"
-#include "jit/AtomicOperations.h"
 #include "js/Vector.h"
 
 #include "jsatominlines.h"
@@ -4571,8 +4570,8 @@ CType::Trace(JSTracer* trc, JSObject* obj)
     // Identify our objects to the tracer.
     JS::TraceEdge(trc, &fninfo->mABI, "abi");
     JS::TraceEdge(trc, &fninfo->mReturnType, "returnType");
-    for (auto& argType : fninfo->mArgTypes)
-      JS::TraceEdge(trc, &argType, "argType");
+    for (size_t i = 0; i < fninfo->mArgTypes.length(); ++i)
+      JS::TraceEdge(trc, &fninfo->mArgTypes[i], "argType");
 
     break;
   }

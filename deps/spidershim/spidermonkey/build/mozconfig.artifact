@@ -11,4 +11,3 @@ unset HOST_CXX
 unset RUSTC
 unset CARGO
 unset MAKECAB
-unset TOOLCHAIN_PREFIX

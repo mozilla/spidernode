@@ -16,7 +16,6 @@ UNIFIED_SOURCES += [
     'KungFuDeathGripChecker.cpp',
     'MozCheckAction.cpp',
     'MustOverrideChecker.cpp',
-    'MustReturnFromCallerChecker.cpp',
     'MustUseChecker.cpp',
     'NaNExprChecker.cpp',
     'NeedsNoVTableTypeChecker.cpp',

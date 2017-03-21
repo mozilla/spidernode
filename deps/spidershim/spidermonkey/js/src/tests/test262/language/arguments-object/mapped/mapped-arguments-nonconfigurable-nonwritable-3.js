@@ -26,5 +26,3 @@ function argumentsNonConfigurableThenNonWritableWithInterveningSetMutableBinding
   assert.sameValue(arguments[0], 2);
 }
 argumentsNonConfigurableThenNonWritableWithInterveningSetMutableBinding(1);
-
-reportCompare(0, 0);

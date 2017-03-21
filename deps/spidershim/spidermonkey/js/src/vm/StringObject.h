@@ -38,7 +38,7 @@ class StringObject : public NativeObject
      * |obj|'s last property to it.
      */
     static Shape*
-    assignInitialShape(JSContext* cx, Handle<StringObject*> obj);
+    assignInitialShape(ExclusiveContext* cx, Handle<StringObject*> obj);
 
     JSString* unbox() const {
         return getFixedSlot(PRIMITIVE_VALUE_SLOT).toString();

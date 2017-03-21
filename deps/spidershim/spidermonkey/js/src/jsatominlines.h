@@ -18,10 +18,10 @@
 #include "vm/String.h"
 
 inline JSAtom*
-js::AtomStateEntry::asPtr(JSContext* cx) const
+js::AtomStateEntry::asPtr(js::ExclusiveContext* cx) const
 {
     JSAtom* atom = asPtrUnbarriered();
-    if (!cx->helperThread())
+    if (cx->isJSContext())
         JSString::readBarrier(atom);
     return atom;
 }
@@ -70,7 +70,7 @@ ValueToIdPure(const Value& v, jsid* id)
 
 template <AllowGC allowGC>
 inline bool
-ValueToId(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v,
+ValueToId(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType v,
           typename MaybeRooted<jsid, allowGC>::MutableHandleType idp)
 {
     int32_t i;
@@ -122,10 +122,10 @@ BackfillIndexInCharBuffer(uint32_t index, mozilla::RangedPtr<T> end)
 }
 
 bool
-IndexToIdSlow(JSContext* cx, uint32_t index, MutableHandleId idp);
+IndexToIdSlow(ExclusiveContext* cx, uint32_t index, MutableHandleId idp);
 
 inline bool
-IndexToId(JSContext* cx, uint32_t index, MutableHandleId idp)
+IndexToId(ExclusiveContext* cx, uint32_t index, MutableHandleId idp)
 {
     if (index <= JSID_INT_MAX) {
         idp.set(INT_TO_JSID(index));
@@ -195,7 +195,7 @@ TypeName(JSType type, const JSAtomState& names)
     JS_STATIC_ASSERT(offsetof(JSAtomState, undefined) +
                      JSTYPE_LIMIT * sizeof(ImmutablePropertyNamePtr) <=
                      sizeof(JSAtomState));
-    JS_STATIC_ASSERT(JSTYPE_UNDEFINED == 0);
+    JS_STATIC_ASSERT(JSTYPE_VOID == 0);
     return (&names.undefined)[type];
 }
 
@@ -211,7 +211,7 @@ ClassName(JSProtoKey key, JSAtomState& atomState)
 }
 
 inline Handle<PropertyName*>
-ClassName(JSProtoKey key, JSContext* cx)
+ClassName(JSProtoKey key, ExclusiveContext* cx)
 {
     return ClassName(key, cx->names());
 }

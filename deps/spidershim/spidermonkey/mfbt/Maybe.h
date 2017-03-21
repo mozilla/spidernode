@@ -13,7 +13,6 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Move.h"
-#include "mozilla/OperatorNewExtensions.h"
 #include "mozilla/TypeTraits.h"
 
 #include <new>  // for placement new
@@ -83,18 +82,13 @@ struct Nothing { };
  * whether or not this is still a problem.
  */
 template<class T>
-class MOZ_NON_PARAM Maybe
+class Maybe
 {
-  alignas(T) unsigned char mStorage[sizeof(T)];
-  char mIsSome; // not bool -- guarantees minimal space consumption
-
-  // GCC fails due to -Werror=strict-aliasing if |mStorage| is directly cast to
-  // T*.  Indirecting through these functions addresses the problem.
-  void* data() { return mStorage; }
-  const void* data() const { return mStorage; }
+  bool mIsSome;
+  AlignedStorage2<T> mStorage;
 
 public:
-  using ValueType = T;
+  typedef T ValueType;
 
   Maybe() : mIsSome(false) { }
   ~Maybe() { reset(); }
@@ -328,13 +322,13 @@ public:
   T& ref()
   {
     MOZ_ASSERT(mIsSome);
-    return *static_cast<T*>(data());
+    return *mStorage.addr();
   }
 
   const T& ref() const
   {
     MOZ_ASSERT(mIsSome);
-    return *static_cast<const T*>(data());
+    return *mStorage.addr();
   }
 
   /*
@@ -456,7 +450,7 @@ public:
   void emplace(Args&&... aArgs)
   {
     MOZ_ASSERT(!mIsSome);
-    ::new (KnownNotNull, data()) T(Forward<Args>(aArgs)...);
+    ::new (mStorage.addr()) T(Forward<Args>(aArgs)...);
     mIsSome = true;
   }
 

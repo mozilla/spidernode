@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 const { validate } = WebAssembly;
 
 assertErrorMessage(() => validate(), Error, /requires more than 0 arguments/);

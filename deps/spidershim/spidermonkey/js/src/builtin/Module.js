@@ -65,12 +65,12 @@ function ModuleGetExportedNames(exportStarSet = [])
     return exportedNames;
 }
 
-// 15.2.1.16.3 ResolveExport(exportName, resolveSet)
-function ModuleResolveExport(exportName, resolveSet = [])
+// 15.2.1.16.3 ResolveExport(exportName, resolveSet, exportStarSet)
+function ModuleResolveExport(exportName, resolveSet = [], exportStarSet = [])
 {
     if (!IsObject(this) || !IsModule(this)) {
         return callFunction(CallModuleMethodIfWrapped, this, exportName, resolveSet,
-                            "ModuleResolveExport");
+                            exportStarSet, "ModuleResolveExport");
     }
 
     // Step 1
@@ -84,14 +84,14 @@ function ModuleResolveExport(exportName, resolveSet = [])
     }
 
     // Step 3
-    _DefineDataProperty(resolveSet, resolveSet.length, {module, exportName});
+    _DefineDataProperty(resolveSet, resolveSet.length, {module: module, exportName: exportName});
 
     // Step 4
     let localExportEntries = module.localExportEntries;
     for (let i = 0; i < localExportEntries.length; i++) {
         let e = localExportEntries[i];
         if (exportName === e.exportName)
-            return {module, bindingName: e.localName};
+            return {module: module, bindingName: e.localName};
     }
 
     // Step 5
@@ -100,29 +100,38 @@ function ModuleResolveExport(exportName, resolveSet = [])
         let e = indirectExportEntries[i];
         if (exportName === e.exportName) {
             let importedModule = CallModuleResolveHook(module, e.moduleRequest,
-                                                       MODULE_STATE_PARSED);
-            return callFunction(importedModule.resolveExport, importedModule, e.importName,
-                                resolveSet);
+                                                       MODULE_STATE_INSTANTIATED);
+            let indirectResolution = callFunction(importedModule.resolveExport, importedModule,
+                                                  e.importName, resolveSet, exportStarSet);
+            if (indirectResolution !== null)
+                return indirectResolution;
         }
     }
 
     // Step 6
     if (exportName === "default") {
         // A default export cannot be provided by an export *.
-        return null;
+        ThrowSyntaxError(JSMSG_BAD_DEFAULT_EXPORT);
     }
 
     // Step 7
-    let starResolution = null;
+    if (callFunction(ArrayIncludes, exportStarSet, module))
+        return null;
 
     // Step 8
+    _DefineDataProperty(exportStarSet, exportStarSet.length, module);
+
+    // Step 9
+    let starResolution = null;
+
+    // Step 10
     let starExportEntries = module.starExportEntries;
     for (let i = 0; i < starExportEntries.length; i++) {
         let e = starExportEntries[i];
         let importedModule = CallModuleResolveHook(module, e.moduleRequest,
-                                                   MODULE_STATE_PARSED);
+                                                   MODULE_STATE_INSTANTIATED);
         let resolution = callFunction(importedModule.resolveExport, importedModule,
-                                      exportName, resolveSet);
+                                      exportName, resolveSet, exportStarSet);
         if (resolution === "ambiguous")
             return resolution;
 
@@ -139,7 +148,6 @@ function ModuleResolveExport(exportName, resolveSet = [])
         }
     }
 
-    // Step 9
     return starResolution;
 }
 
@@ -205,8 +213,8 @@ function GetModuleEnvironment(module)
 
 function RecordInstantationFailure(module)
 {
-    // Set the module's state to 'failed' to indicate a failed module
-    // instantiation and reset the environment slot to 'undefined'.
+    // Set the module's environment slot to 'null' to indicate a failed module
+    // instantiation.
     assert(IsModule(module), "Non-module passed to RecordInstantationFailure");
     SetModuleState(module, MODULE_STATE_FAILED);
     UnsafeSetReservedSlot(module, MODULE_OBJECT_ENVIRONMENT_SLOT, undefined);
@@ -223,7 +231,7 @@ function ModuleDeclarationInstantiation()
 
     // Step 5
     if (GetModuleEnvironment(module) !== undefined)
-        return undefined;
+        return;
 
     // Step 7
     CreateModuleEnvironment(module);
@@ -267,13 +275,11 @@ function ModuleDeclarationInstantiation()
                     ThrowSyntaxError(JSMSG_MISSING_IMPORT, imp.importName);
                 if (resolution === "ambiguous")
                     ThrowSyntaxError(JSMSG_AMBIGUOUS_IMPORT, imp.importName);
-                if (resolution.module.state < MODULE_STATE_INSTANTIATED)
-                    ThrowInternalError(JSMSG_BAD_MODULE_STATE);
                 CreateImportBinding(env, imp.localName, resolution.module, resolution.bindingName);
             }
         }
 
-        // Step 17.a.iii
+        // Step 16.iv
         InstantiateModuleFunctionDeclarations(module);
     } catch (e) {
         RecordInstantationFailure(module);

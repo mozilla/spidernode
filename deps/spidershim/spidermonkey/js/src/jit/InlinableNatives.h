@@ -119,6 +119,7 @@
     _(IntrinsicToString)            \
     _(IntrinsicIsConstructing)      \
     _(IntrinsicSubstringKernel)     \
+    _(IntrinsicDefineDataProperty)  \
     _(IntrinsicObjectHasPrototype)  \
                                     \
     _(IntrinsicIsArrayIterator)     \

@@ -13,12 +13,10 @@ class FreeBSDBootstrapper(BaseBootstrapper):
 
         self.packages = [
             'autoconf213',
-            'cargo',
             'gmake',
             'gtar',
             'mercurial',
             'pkgconf',
-            'rust',
             'watchman',
             'zip',
         ]

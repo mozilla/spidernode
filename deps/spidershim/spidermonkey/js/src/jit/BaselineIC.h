@@ -431,17 +431,15 @@ class ICSetElem_Fallback : public ICFallbackStub
       : ICFallbackStub(ICStub::SetElem_Fallback, stubCode)
     { }
 
-    static const size_t HasDenseAddFlag = 0x1;
-    static const size_t HasTypedArrayOOBFlag = 0x2;
-
   public:
     static const uint32_t MAX_OPTIMIZED_STUBS = 8;
 
-    void noteHasDenseAdd() { extra_ |= HasDenseAddFlag; }
-    bool hasDenseAdd() const { return extra_ & HasDenseAddFlag; }
-
-    void noteHasTypedArrayOOB() { extra_ |= HasTypedArrayOOBFlag; }
-    bool hasTypedArrayOOB() const { return extra_ & HasTypedArrayOOBFlag; }
+    void noteArrayWriteHole() {
+        extra_ = 1;
+    }
+    bool hasArrayWriteHole() const {
+        return extra_;
+    }
 
     // Compiler for this stub kind.
     class Compiler : public ICStubCompiler {
@@ -455,6 +453,234 @@ class ICSetElem_Fallback : public ICFallbackStub
 
         ICStub* getStub(ICStubSpace* space) {
             return newStub<ICSetElem_Fallback>(space, getStubCode());
+        }
+    };
+};
+
+class ICSetElem_DenseOrUnboxedArray : public ICUpdatedStub
+{
+    friend class ICStubSpace;
+
+    GCPtrShape shape_; // null for unboxed arrays
+    GCPtrObjectGroup group_;
+
+    ICSetElem_DenseOrUnboxedArray(JitCode* stubCode, Shape* shape, ObjectGroup* group);
+
+  public:
+    static size_t offsetOfShape() {
+        return offsetof(ICSetElem_DenseOrUnboxedArray, shape_);
+    }
+    static size_t offsetOfGroup() {
+        return offsetof(ICSetElem_DenseOrUnboxedArray, group_);
+    }
+
+    GCPtrShape& shape() {
+        return shape_;
+    }
+    GCPtrObjectGroup& group() {
+        return group_;
+    }
+
+    class Compiler : public ICStubCompiler {
+        RootedShape shape_;
+        RootedObjectGroup group_;
+        JSValueType unboxedType_;
+
+        MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+      public:
+        virtual int32_t getKey() const {
+            return static_cast<int32_t>(engine_) |
+                  (static_cast<int32_t>(kind) << 1) |
+                  (static_cast<int32_t>(unboxedType_) << 17);
+        }
+
+        Compiler(JSContext* cx, Shape* shape, HandleObjectGroup group)
+          : ICStubCompiler(cx, ICStub::SetElem_DenseOrUnboxedArray, Engine::Baseline),
+            shape_(cx, shape),
+            group_(cx, group),
+            unboxedType_(shape
+                         ? JSVAL_TYPE_MAGIC
+                         : group->unboxedLayoutDontCheckGeneration().elementType())
+        {}
+
+        ICUpdatedStub* getStub(ICStubSpace* space) {
+            ICSetElem_DenseOrUnboxedArray* stub =
+                newStub<ICSetElem_DenseOrUnboxedArray>(space, getStubCode(), shape_, group_);
+            if (!stub || !stub->initUpdatingChain(cx, space))
+                return nullptr;
+            return stub;
+        }
+
+        bool needsUpdateStubs() {
+            return unboxedType_ == JSVAL_TYPE_MAGIC || unboxedType_ == JSVAL_TYPE_OBJECT;
+        }
+    };
+};
+
+template <size_t ProtoChainDepth> class ICSetElem_DenseOrUnboxedArrayAddImpl;
+
+class ICSetElem_DenseOrUnboxedArrayAdd : public ICUpdatedStub
+{
+    friend class ICStubSpace;
+
+  public:
+    static const size_t MAX_PROTO_CHAIN_DEPTH = 4;
+
+  protected:
+    GCPtrObjectGroup group_;
+
+    ICSetElem_DenseOrUnboxedArrayAdd(JitCode* stubCode, ObjectGroup* group, size_t protoChainDepth);
+
+  public:
+    static size_t offsetOfGroup() {
+        return offsetof(ICSetElem_DenseOrUnboxedArrayAdd, group_);
+    }
+
+    GCPtrObjectGroup& group() {
+        return group_;
+    }
+    size_t protoChainDepth() const {
+        MOZ_ASSERT(extra_ <= MAX_PROTO_CHAIN_DEPTH);
+        return extra_;
+    }
+
+    template <size_t ProtoChainDepth>
+    ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>* toImplUnchecked() {
+        return static_cast<ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>*>(this);
+    }
+
+    template <size_t ProtoChainDepth>
+    ICSetElem_DenseOrUnboxedArrayAddImpl<ProtoChainDepth>* toImpl() {
+        MOZ_ASSERT(ProtoChainDepth == protoChainDepth());
+        return toImplUnchecked<ProtoChainDepth>();
+    }
+};
+
+template <size_t ProtoChainDepth>
+class ICSetElem_DenseOrUnboxedArrayAddImpl : public ICSetElem_DenseOrUnboxedArrayAdd
+{
+    friend class ICStubSpace;
+
+    // Note: for unboxed arrays, the first shape is null.
+    static const size_t NumShapes = ProtoChainDepth + 1;
+    mozilla::Array<GCPtrShape, NumShapes> shapes_;
+
+    ICSetElem_DenseOrUnboxedArrayAddImpl(JitCode* stubCode, ObjectGroup* group,
+                                         Handle<ShapeVector> shapes)
+      : ICSetElem_DenseOrUnboxedArrayAdd(stubCode, group, ProtoChainDepth)
+    {
+        MOZ_ASSERT(shapes.length() == NumShapes);
+        for (size_t i = 0; i < NumShapes; i++)
+            shapes_[i].init(shapes[i]);
+    }
+
+  public:
+    void traceShapes(JSTracer* trc) {
+        for (size_t i = 0; i < NumShapes; i++)
+            TraceNullableEdge(trc, &shapes_[i], "baseline-setelem-denseadd-stub-shape");
+    }
+    Shape* shape(size_t i) const {
+        MOZ_ASSERT(i < NumShapes);
+        return shapes_[i];
+    }
+    static size_t offsetOfShape(size_t idx) {
+        return offsetof(ICSetElem_DenseOrUnboxedArrayAddImpl, shapes_) + idx * sizeof(GCPtrShape);
+    }
+};
+
+class ICSetElemDenseOrUnboxedArrayAddCompiler : public ICStubCompiler {
+    RootedObject obj_;
+    size_t protoChainDepth_;
+    JSValueType unboxedType_;
+
+    MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+  protected:
+    virtual int32_t getKey() const {
+        return static_cast<int32_t>(engine_) |
+              (static_cast<int32_t>(kind) << 1) |
+              (static_cast<int32_t>(protoChainDepth_) << 17) |
+              (static_cast<int32_t>(unboxedType_) << 20);
+    }
+
+  public:
+    ICSetElemDenseOrUnboxedArrayAddCompiler(JSContext* cx, HandleObject obj, size_t protoChainDepth)
+        : ICStubCompiler(cx, ICStub::SetElem_DenseOrUnboxedArrayAdd, Engine::Baseline),
+          obj_(cx, obj),
+          protoChainDepth_(protoChainDepth),
+          unboxedType_(obj->is<UnboxedArrayObject>()
+                       ? obj->as<UnboxedArrayObject>().elementType()
+                       : JSVAL_TYPE_MAGIC)
+    {}
+
+    template <size_t ProtoChainDepth>
+    ICUpdatedStub* getStubSpecific(ICStubSpace* space, Handle<ShapeVector> shapes);
+
+    ICUpdatedStub* getStub(ICStubSpace* space);
+
+    bool needsUpdateStubs() {
+        return unboxedType_ == JSVAL_TYPE_MAGIC || unboxedType_ == JSVAL_TYPE_OBJECT;
+    }
+};
+
+// Accesses scalar elements of a typed array or typed object.
+class ICSetElem_TypedArray : public ICStub
+{
+    friend class ICStubSpace;
+
+  protected: // Protected to silence Clang warning.
+    GCPtrShape shape_;
+
+    ICSetElem_TypedArray(JitCode* stubCode, Shape* shape, Scalar::Type type,
+                         bool expectOutOfBounds);
+
+  public:
+    Scalar::Type type() const {
+        return (Scalar::Type) (extra_ & 0xff);
+    }
+
+    bool expectOutOfBounds() const {
+        return (extra_ >> 8) & 1;
+    }
+
+    static size_t offsetOfShape() {
+        return offsetof(ICSetElem_TypedArray, shape_);
+    }
+
+    GCPtrShape& shape() {
+        return shape_;
+    }
+
+    class Compiler : public ICStubCompiler {
+        RootedShape shape_;
+        Scalar::Type type_;
+        TypedThingLayout layout_;
+        bool expectOutOfBounds_;
+
+      protected:
+        MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+        virtual int32_t getKey() const {
+            return static_cast<int32_t>(engine_) |
+                  (static_cast<int32_t>(kind) << 1) |
+                  (static_cast<int32_t>(type_) << 17) |
+                  (static_cast<int32_t>(layout_) << 25) |
+                  (static_cast<int32_t>(expectOutOfBounds_) << 29);
+        }
+
+      public:
+        Compiler(JSContext* cx, Shape* shape, Scalar::Type type, bool expectOutOfBounds)
+          : ICStubCompiler(cx, ICStub::SetElem_TypedArray, Engine::Baseline),
+            shape_(cx, shape),
+            type_(type),
+            layout_(GetTypedThingLayout(shape->getObjectClass())),
+            expectOutOfBounds_(expectOutOfBounds)
+        {}
+
+        ICStub* getStub(ICStubSpace* space) {
+            return newStub<ICSetElem_TypedArray>(space, getStubCode(), shape_, type_,
+                                                 expectOutOfBounds_);
         }
     };
 };
@@ -487,6 +713,225 @@ class ICIn_Fallback : public ICFallbackStub
     };
 };
 
+// Base class for In_Native and In_NativePrototype stubs.
+class ICInNativeStub : public ICStub
+{
+    GCPtrShape shape_;
+    GCPtrPropertyName name_;
+
+  protected:
+    ICInNativeStub(ICStub::Kind kind, JitCode* stubCode, HandleShape shape,
+                   HandlePropertyName name);
+
+  public:
+    GCPtrShape& shape() {
+        return shape_;
+    }
+    static size_t offsetOfShape() {
+        return offsetof(ICInNativeStub, shape_);
+    }
+
+    GCPtrPropertyName& name() {
+        return name_;
+    }
+    static size_t offsetOfName() {
+        return offsetof(ICInNativeStub, name_);
+    }
+};
+
+// Stub for confirming an own property on a native object.
+class ICIn_Native : public ICInNativeStub
+{
+    friend class ICStubSpace;
+
+    ICIn_Native(JitCode* stubCode, HandleShape shape, HandlePropertyName name)
+      : ICInNativeStub(In_Native, stubCode, shape, name)
+    {}
+};
+
+// Stub for confirming a property on a native object's prototype. Note that due to
+// the shape teleporting optimization, we only have to guard on the object's shape
+// and the holder's shape.
+class ICIn_NativePrototype : public ICInNativeStub
+{
+    friend class ICStubSpace;
+
+    GCPtrObject holder_;
+    GCPtrShape holderShape_;
+
+    ICIn_NativePrototype(JitCode* stubCode, HandleShape shape, HandlePropertyName name,
+                         HandleObject holder, HandleShape holderShape);
+
+  public:
+    GCPtrObject& holder() {
+        return holder_;
+    }
+    GCPtrShape& holderShape() {
+        return holderShape_;
+    }
+    static size_t offsetOfHolder() {
+        return offsetof(ICIn_NativePrototype, holder_);
+    }
+    static size_t offsetOfHolderShape() {
+        return offsetof(ICIn_NativePrototype, holderShape_);
+    }
+};
+
+// Compiler for In_Native and In_NativePrototype stubs.
+class ICInNativeCompiler : public ICStubCompiler
+{
+    RootedObject obj_;
+    RootedObject holder_;
+    RootedPropertyName name_;
+
+    MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+  public:
+    ICInNativeCompiler(JSContext* cx, ICStub::Kind kind, HandleObject obj, HandleObject holder,
+                       HandlePropertyName name)
+      : ICStubCompiler(cx, kind, Engine::Baseline),
+        obj_(cx, obj),
+        holder_(cx, holder),
+        name_(cx, name)
+    {}
+
+    ICStub* getStub(ICStubSpace* space) {
+        RootedShape shape(cx, obj_->as<NativeObject>().lastProperty());
+        if (kind == ICStub::In_Native) {
+            MOZ_ASSERT(obj_ == holder_);
+            return newStub<ICIn_Native>(space, getStubCode(), shape, name_);
+        }
+
+        MOZ_ASSERT(obj_ != holder_);
+        MOZ_ASSERT(kind == ICStub::In_NativePrototype);
+        RootedShape holderShape(cx, holder_->as<NativeObject>().lastProperty());
+        return newStub<ICIn_NativePrototype>(space, getStubCode(), shape, name_, holder_,
+                                             holderShape);
+    }
+};
+
+template <size_t ProtoChainDepth> class ICIn_NativeDoesNotExistImpl;
+
+class ICIn_NativeDoesNotExist : public ICStub
+{
+    friend class ICStubSpace;
+
+    GCPtrPropertyName name_;
+
+  public:
+    static const size_t MAX_PROTO_CHAIN_DEPTH = 8;
+
+  protected:
+    ICIn_NativeDoesNotExist(JitCode* stubCode, size_t protoChainDepth,
+                            HandlePropertyName name);
+
+  public:
+    size_t protoChainDepth() const {
+        MOZ_ASSERT(extra_ <= MAX_PROTO_CHAIN_DEPTH);
+        return extra_;
+    }
+    GCPtrPropertyName& name() {
+        return name_;
+    }
+
+    template <size_t ProtoChainDepth>
+    ICIn_NativeDoesNotExistImpl<ProtoChainDepth>* toImpl() {
+        MOZ_ASSERT(ProtoChainDepth == protoChainDepth());
+        return static_cast<ICIn_NativeDoesNotExistImpl<ProtoChainDepth>*>(this);
+    }
+
+    static size_t offsetOfShape(size_t idx);
+    static size_t offsetOfName() {
+        return offsetof(ICIn_NativeDoesNotExist, name_);
+    }
+};
+
+template <size_t ProtoChainDepth>
+class ICIn_NativeDoesNotExistImpl : public ICIn_NativeDoesNotExist
+{
+    friend class ICStubSpace;
+
+  public:
+    static const size_t MAX_PROTO_CHAIN_DEPTH = 8;
+    static const size_t NumShapes = ProtoChainDepth + 1;
+
+  private:
+    mozilla::Array<GCPtrShape, NumShapes> shapes_;
+
+    ICIn_NativeDoesNotExistImpl(JitCode* stubCode, Handle<ShapeVector> shapes,
+                                HandlePropertyName name);
+
+  public:
+    void traceShapes(JSTracer* trc) {
+        for (size_t i = 0; i < NumShapes; i++)
+            TraceEdge(trc, &shapes_[i], "baseline-innativedoesnotexist-stub-shape");
+    }
+
+    static size_t offsetOfShape(size_t idx) {
+        return offsetof(ICIn_NativeDoesNotExistImpl, shapes_) + (idx * sizeof(GCPtrShape));
+    }
+};
+
+class ICInNativeDoesNotExistCompiler : public ICStubCompiler
+{
+    RootedObject obj_;
+    RootedPropertyName name_;
+    size_t protoChainDepth_;
+
+  protected:
+    virtual int32_t getKey() const {
+        return static_cast<int32_t>(engine_) |
+              (static_cast<int32_t>(kind) << 1) |
+              (static_cast<int32_t>(protoChainDepth_) << 17);
+    }
+
+    MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+  public:
+    ICInNativeDoesNotExistCompiler(JSContext* cx, HandleObject obj, HandlePropertyName name,
+                                   size_t protoChainDepth);
+
+    template <size_t ProtoChainDepth>
+    ICStub* getStubSpecific(ICStubSpace* space, Handle<ShapeVector> shapes) {
+        return newStub<ICIn_NativeDoesNotExistImpl<ProtoChainDepth>>(space, getStubCode(), shapes,
+                                                                     name_);}
+
+    ICStub* getStub(ICStubSpace* space);
+};
+
+class ICIn_Dense : public ICStub
+{
+    friend class ICStubSpace;
+
+    GCPtrShape shape_;
+
+    ICIn_Dense(JitCode* stubCode, HandleShape shape);
+
+  public:
+    GCPtrShape& shape() {
+        return shape_;
+    }
+    static size_t offsetOfShape() {
+        return offsetof(ICIn_Dense, shape_);
+    }
+
+    class Compiler : public ICStubCompiler {
+      RootedShape shape_;
+
+      protected:
+        MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+      public:
+        Compiler(JSContext* cx, Shape* shape)
+          : ICStubCompiler(cx, ICStub::In_Dense, Engine::Baseline),
+            shape_(cx, shape)
+        {}
+
+        ICStub* getStub(ICStubSpace* space) {
+            return newStub<ICIn_Dense>(space, getStubCode(), shape_);
+        }
+    };
+};
 
 // GetName
 //      JSOP_GETNAME
@@ -1711,16 +2156,17 @@ IsCacheableDOMProxy(JSObject* obj)
 
 struct IonOsrTempData;
 
-template <typename T>
-void EmitICUnboxedPreBarrier(MacroAssembler &masm, const T& address, JSValueType type);
+void EmitUnboxedPreBarrierForBaseline(MacroAssembler &masm, const BaseIndex& address,
+                                      JSValueType type);
 
 // Write an arbitrary value to a typed array or typed object address at dest.
 // If the value could not be converted to the appropriate format, jump to
-// failure.
-template <typename T>
-void StoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type,
-                       const ValueOperand& value, const T& dest, Register scratch,
-                       Label* failure);
+// failure or failureModifiedScratch.
+template <typename S, typename T>
+void
+BaselineStoreToTypedArray(JSContext* cx, MacroAssembler& masm, Scalar::Type type, const S& value,
+                          const T& dest, Register scratch, Label* failure,
+                          Label* failureModifiedScratch);
 
 } // namespace jit
 } // namespace js

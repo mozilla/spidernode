@@ -1,3 +1,5 @@
+load(libdir + "wasm.js");
+
 const Module = WebAssembly.Module;
 
 // Create cross-compartment wrappers to typed arrays and array buffers.

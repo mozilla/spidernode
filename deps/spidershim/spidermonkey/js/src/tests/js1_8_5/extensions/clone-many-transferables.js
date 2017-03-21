@@ -1,4 +1,4 @@
-// |reftest| slow skip-if(!xulRuntime.shell) -- requires serialize()
+// |reftest| skip-if(!xulRuntime.shell) -- requires serialize()
 // Any copyright is dedicated to the Public Domain.
 // http://creativecommons.org/licenses/publicdomain/
 

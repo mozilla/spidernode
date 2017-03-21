@@ -32,14 +32,11 @@
 #include "threading/LockGuard.h"
 #include "vm/Runtime.h"
 
-js::jit::SimulatorProcess* js::jit::SimulatorProcess::singleton_ = nullptr;
-
 namespace vixl {
 
 
 using mozilla::DebugOnly;
 using js::jit::ABIFunctionType;
-using js::jit::SimulatorProcess;
 
 Simulator::Simulator(Decoder* decoder, FILE* stream)
   : stream_(nullptr)
@@ -49,6 +46,7 @@ Simulator::Simulator(Decoder* decoder, FILE* stream)
   , stack_limit_(nullptr)
   , decoder_(nullptr)
   , oom_(false)
+  , lock_(js::mutexid::Arm64SimulatorLock)
 {
     this->init(decoder, stream);
 }
@@ -146,13 +144,13 @@ void Simulator::init(Decoder* decoder, FILE* stream) {
   // time they are encountered. This warning can be silenced using
   // SilenceExclusiveAccessWarning().
   print_exclusive_access_warning_ = true;
+
+  redirection_ = nullptr;
 }
 
 
 Simulator* Simulator::Current() {
-  JSContext* cx = js::TlsContext.get();
-  MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(cx->runtime()));
-  return cx->simulator();
+  return js::TlsPerThreadData.get()->simulator();
 }
 
 
@@ -193,7 +191,7 @@ void Simulator::ExecuteInstruction() {
   increment_pc();
 
   if (MOZ_UNLIKELY(rpc)) {
-    JSContext::innermostWasmActivation()->setResumePC((void*)pc());
+    JSRuntime::innermostWasmActivation()->setResumePC((void*)pc());
     set_pc(rpc);
     // Just calling set_pc turns the pc_modified_ flag on, which means it doesn't
     // auto-step after executing the next instruction.  Force that to off so it
@@ -296,8 +294,8 @@ class AutoLockSimulatorCache : public js::LockGuard<js::Mutex>
   using Base = js::LockGuard<js::Mutex>;
 
  public:
-  explicit AutoLockSimulatorCache()
-    : Base(SimulatorProcess::singleton_->lock_)
+  explicit AutoLockSimulatorCache(Simulator* sim)
+    : Base(sim->lock_)
   {
   }
 };
@@ -313,14 +311,14 @@ class Redirection
 {
   friend class Simulator;
 
-  Redirection(void* nativeFunction, ABIFunctionType type)
+  Redirection(void* nativeFunction, ABIFunctionType type, Simulator* sim)
     : nativeFunction_(nativeFunction),
     type_(type),
     next_(nullptr)
   {
-    next_ = SimulatorProcess::redirection();
+    next_ = sim->redirection();
     // TODO: Flush ICache?
-    SimulatorProcess::setRedirection(this);
+    sim->setRedirection(this);
 
     Instruction* instr = (Instruction*)(&svcInstruction_);
     vixl::Assembler::svc(instr, kCallRtRedirected);
@@ -332,12 +330,13 @@ class Redirection
   ABIFunctionType type() const { return type_; }
 
   static Redirection* Get(void* nativeFunction, ABIFunctionType type) {
-    AutoLockSimulatorCache alsr;
+    Simulator* sim = Simulator::Current();
+    AutoLockSimulatorCache alsr(sim);
 
     // TODO: Store srt_ in the simulator for this assertion.
     // VIXL_ASSERT_IF(pt->simulator(), pt->simulator()->srt_ == srt);
 
-    Redirection* current = SimulatorProcess::redirection();
+    Redirection* current = sim->redirection();
     for (; current != nullptr; current = current->next_) {
       if (current->nativeFunction_ == nativeFunction) {
         VIXL_ASSERT(current->type() == type);
@@ -349,7 +348,7 @@ class Redirection
     Redirection* redir = (Redirection*)js_malloc(sizeof(Redirection));
     if (!redir)
         oomUnsafe.crash("Simulator redirection");
-    new(redir) Redirection(nativeFunction, type);
+    new(redir) Redirection(nativeFunction, type, sim);
     return redir;
   }
 
@@ -367,6 +366,14 @@ class Redirection
 };
 
 
+void Simulator::setRedirection(Redirection* redirection) {
+  redirection_ = redirection;
+}
+
+
+Redirection* Simulator::redirection() const {
+  return redirection_;
+}
 
 
 void* Simulator::RedirectNativeFunction(void* nativeFunction, ABIFunctionType type) {
@@ -686,11 +693,16 @@ Simulator::VisitCallRedirection(const Instruction* instr)
 }  // namespace vixl
 
 
-vixl::Simulator* JSContext::simulator() const {
+vixl::Simulator* js::PerThreadData::simulator() const {
+  return runtime_->simulator();
+}
+
+
+vixl::Simulator* JSRuntime::simulator() const {
   return simulator_;
 }
 
 
-uintptr_t* JSContext::addressOfSimulatorStackLimit() {
+uintptr_t* JSRuntime::addressOfSimulatorStackLimit() {
   return simulator_->addressOfStackLimit();
 }
