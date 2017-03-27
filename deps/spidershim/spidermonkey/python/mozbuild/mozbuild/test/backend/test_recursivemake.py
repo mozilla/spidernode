@@ -158,38 +158,6 @@ class TestRecursiveMakeTraversal(unittest.TestCase):
             'I': ('H',),
         })
 
-    def test_traversal_parallel(self):
-        traversal = RecursiveMakeTraversal()
-        traversal.add('', dirs=['A', 'B', 'C'])
-        traversal.add('A')
-        traversal.add('B', dirs=['D', 'E', 'F'])
-        traversal.add('C', dirs=['G', 'H', 'I'])
-        traversal.add('D')
-        traversal.add('E')
-        traversal.add('F')
-        traversal.add('G')
-        traversal.add('H')
-        traversal.add('I')
-        traversal.add('J')
-
-        def filter(current, subdirs):
-            return current, subdirs.dirs, []
-
-        start, deps = traversal.compute_dependencies(filter)
-        self.assertEqual(start, ('A', 'D', 'E', 'F', 'G', 'H', 'I', 'J'))
-        self.assertEqual(deps, {
-            'A': ('',),
-            'B': ('',),
-            'C': ('',),
-            'D': ('B',),
-            'E': ('B',),
-            'F': ('B',),
-            'G': ('C',),
-            'H': ('C',),
-            'I': ('C',),
-            'J': ('',),
-        })
-
 class TestRecursiveMakeBackend(BackendTester):
     def test_basic(self):
         """Ensure the RecursiveMakeBackend works without error."""
@@ -637,16 +605,6 @@ class TestRecursiveMakeBackend(BackendTester):
         self.assertTrue(os.path.isdir(p))
 
         self.assertTrue(os.path.isfile(mozpath.join(p, 'Makefile')))
-
-    def test_test_support_files_tracked(self):
-        env = self._consume('test-support-binaries-tracked', RecursiveMakeBackend)
-        m = InstallManifest(path=mozpath.join(env.topobjdir,
-            '_build_manifests', 'install', '_tests'))
-        self.assertEqual(len(m), 4)
-        self.assertIn('xpcshell/tests/mozbuildtest/test-library.dll', m)
-        self.assertIn('xpcshell/tests/mozbuildtest/test-one.exe', m)
-        self.assertIn('xpcshell/tests/mozbuildtest/test-two.exe', m)
-        self.assertIn('xpcshell/tests/mozbuildtest/host-test-library.dll', m)
 
     def test_old_install_manifest_deleted(self):
         # Simulate an install manifest from a previous backend version. Ensure

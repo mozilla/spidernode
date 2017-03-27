@@ -35,9 +35,6 @@
 #include "jit/MacroAssembler-inl.h"
 #include "vm/Interpreter-inl.h"
 #include "vm/NativeObject-inl.h"
-#ifdef MOZ_VTUNE
-# include "vtune/VTuneWrapper.h"
-#endif
 
 using namespace js;
 using namespace js::jit;
@@ -54,7 +51,7 @@ BaselineCompiler::BaselineCompiler(JSContext* cx, TempAllocator& alloc, JSScript
 bool
 BaselineCompiler::init()
 {
-    if (!analysis_.init(alloc_, cx->caches().gsnCache))
+    if (!analysis_.init(alloc_, cx->caches.gsnCache))
         return false;
 
     if (!labels_.init(alloc_, script->length()))
@@ -95,8 +92,8 @@ BaselineCompiler::compile()
     JitSpew(JitSpew_Codegen, "# Emitting baseline code for script %s:%" PRIuSIZE,
             script->filename(), script->lineno());
 
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
-    TraceLoggerEvent scriptEvent(TraceLogger_AnnotateScripts, script);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerEvent scriptEvent(logger, TraceLogger_AnnotateScripts, script);
     AutoTraceLog logScript(logger, scriptEvent);
     AutoTraceLog logCompile(logger, TraceLogger_BaselineCompilation);
 
@@ -228,6 +225,10 @@ BaselineCompiler::compile()
             (void*) baselineScript.get(), (void*) code->raw(),
             script->filename(), script->lineno());
 
+#ifdef JS_ION_PERF
+    writePerfSpewerBaselineProfile(script, code);
+#endif
+
     MOZ_ASSERT(pcMappingIndexEntries.length() > 0);
     baselineScript->copyPCMappingIndexEntries(&pcMappingIndexEntries[0]);
 
@@ -305,14 +306,6 @@ BaselineCompiler::compile()
     }
 
     script->setBaselineScript(cx->runtime(), baselineScript.release());
-
-#ifdef JS_ION_PERF
-    writePerfSpewerBaselineProfile(script, code);
-#endif
-
-#ifdef MOZ_VTUNE
-    vtune::MarkScript(code, script, "baseline");
-#endif
 
     return Method_Compiled;
 }
@@ -532,6 +525,7 @@ bool
 BaselineCompiler::emitStackCheck(bool earlyCheck)
 {
     Label skipCall;
+    void* limitAddr = cx->runtime()->addressOfJitStackLimit();
     uint32_t slotsSize = script->nslots() * sizeof(Value);
     uint32_t tolerance = earlyCheck ? slotsSize : 0;
 
@@ -557,10 +551,7 @@ BaselineCompiler::emitStackCheck(bool earlyCheck)
                           &forceCall);
     }
 
-    void* contextAddr = cx->zone()->group()->addressOfOwnerContext();
-    masm.loadPtr(AbsoluteAddress(contextAddr), R0.scratchReg());
-    masm.branchPtr(Assembler::BelowOrEqual,
-                   Address(R0.scratchReg(), offsetof(JSContext, jitStackLimit)), R1.scratchReg(),
+    masm.branchPtr(Assembler::BelowOrEqual, AbsoluteAddress(limitAddr), R1.scratchReg(),
                    &skipCall);
 
     if (!earlyCheck && needsEarlyStackCheck())
@@ -706,11 +697,8 @@ BaselineCompiler::emitInterruptCheck()
     frame.syncStack(0);
 
     Label done;
-    void* context = cx->zone()->group()->addressOfOwnerContext();
-    masm.loadPtr(AbsoluteAddress(context), R0.scratchReg());
-    masm.branch32(Assembler::Equal,
-                  Address(R0.scratchReg(), offsetof(JSContext, interrupt_)), Imm32(0),
-                  &done);
+    void* interrupt = cx->runtimeAddressOfInterruptUint32();
+    masm.branch32(Assembler::Equal, AbsoluteAddress(interrupt), Imm32(0), &done);
 
     prepareVMCall();
     if (!callVM(InterruptCheckInfo))
@@ -850,6 +838,7 @@ BaselineCompiler::emitDebugTrap()
 bool
 BaselineCompiler::emitTraceLoggerEnter()
 {
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     AllocatableRegisterSet regs(RegisterSet::Volatile());
     Register loggerReg = regs.takeAnyGeneral();
     Register scriptReg = regs.takeAnyGeneral();
@@ -861,7 +850,7 @@ BaselineCompiler::emitTraceLoggerEnter()
     masm.Push(loggerReg);
     masm.Push(scriptReg);
 
-    masm.loadTraceLogger(loggerReg);
+    masm.movePtr(ImmPtr(logger), loggerReg);
 
     // Script start.
     masm.movePtr(ImmGCPtr(script), scriptReg);
@@ -884,6 +873,7 @@ BaselineCompiler::emitTraceLoggerEnter()
 bool
 BaselineCompiler::emitTraceLoggerExit()
 {
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     AllocatableRegisterSet regs(RegisterSet::Volatile());
     Register loggerReg = regs.takeAnyGeneral();
 
@@ -892,7 +882,7 @@ BaselineCompiler::emitTraceLoggerExit()
         return false;
 
     masm.Push(loggerReg);
-    masm.loadTraceLogger(loggerReg);
+    masm.movePtr(ImmPtr(logger), loggerReg);
 
     masm.tracelogStopId(loggerReg, TraceLogger_Baseline, /* force = */ true);
     masm.tracelogStopId(loggerReg, TraceLogger_Scripts, /* force = */ true);
@@ -914,7 +904,8 @@ BaselineCompiler::emitTraceLoggerResume(Register baselineScript, AllocatableGene
     if (!traceLoggerToggleOffsets_.append(masm.toggledJump(&noTraceLogger)))
         return false;
 
-    masm.loadTraceLogger(loggerReg);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    masm.movePtr(ImmPtr(logger), loggerReg);
 
     Address scriptEvent(baselineScript, BaselineScript::offsetOfTraceLoggerScriptEvent());
     masm.computeEffectiveAddress(scriptEvent, scriptId);
@@ -4427,9 +4418,9 @@ BaselineCompiler::emit_JSOP_RESUME()
     {
         Register scratchReg = scratch2;
         Label skip;
-        AbsoluteAddress addressOfEnabled(cx->runtime()->geckoProfiler().addressOfEnabled());
+        AbsoluteAddress addressOfEnabled(cx->runtime()->geckoProfiler.addressOfEnabled());
         masm.branch32(Assembler::Equal, addressOfEnabled, Imm32(0), &skip);
-        masm.loadPtr(AbsoluteAddress(cx->addressOfProfilingActivation()), scratchReg);
+        masm.loadPtr(AbsoluteAddress(cx->runtime()->addressOfProfilingActivation()), scratchReg);
         masm.storePtr(masm.getStackPointer(),
                       Address(scratchReg, JitActivation::offsetOfLastProfilingFrame()));
         masm.bind(&skip);

@@ -23,6 +23,57 @@ CompileRuntime::get(JSRuntime* rt)
     return reinterpret_cast<CompileRuntime*>(rt);
 }
 
+bool
+CompileRuntime::onMainThread()
+{
+    return js::CurrentThreadCanAccessRuntime(runtime());
+}
+
+js::PerThreadData*
+CompileRuntime::mainThread()
+{
+    MOZ_ASSERT(onMainThread());
+    return &runtime()->mainThread;
+}
+
+const void*
+CompileRuntime::addressOfJitTop()
+{
+    return &runtime()->jitTop;
+}
+
+const void*
+CompileRuntime::addressOfJitActivation()
+{
+    return &runtime()->jitActivation;
+}
+
+const void*
+CompileRuntime::addressOfProfilingActivation()
+{
+    return (const void*) &runtime()->profilingActivation_;
+}
+
+const void*
+CompileRuntime::addressOfJitStackLimit()
+{
+    return runtime()->addressOfJitStackLimit();
+}
+
+#ifdef DEBUG
+const void*
+CompileRuntime::addressOfIonBailAfter()
+{
+    return runtime()->addressOfIonBailAfter();
+}
+#endif
+
+const void*
+CompileRuntime::addressOfActivation()
+{
+    return runtime()->addressOfActivation();
+}
+
 #ifdef JS_GC_ZEAL
 const void*
 CompileRuntime::addressOfGCZealModeBits()
@@ -30,6 +81,18 @@ CompileRuntime::addressOfGCZealModeBits()
     return runtime()->gc.addressOfZealModeBits();
 }
 #endif
+
+const void*
+CompileRuntime::addressOfInterruptUint32()
+{
+    return runtime()->addressOfInterruptUint32();
+}
+
+const void*
+CompileRuntime::getJSContext()
+{
+    return runtime()->unsafeContextFromAnyThread();
+}
 
 const JitRuntime*
 CompileRuntime::jitRuntime()
@@ -40,7 +103,7 @@ CompileRuntime::jitRuntime()
 GeckoProfiler&
 CompileRuntime::geckoProfiler()
 {
-    return runtime()->geckoProfiler();
+    return runtime()->geckoProfiler;
 }
 
 bool
@@ -94,13 +157,8 @@ CompileRuntime::positiveInfinityValue()
 const WellKnownSymbols&
 CompileRuntime::wellKnownSymbols()
 {
+    MOZ_ASSERT(onMainThread());
     return *runtime()->wellKnownSymbols;
-}
-
-const void*
-CompileRuntime::addressOfActiveJSContext()
-{
-    return runtime()->addressOfActiveContext();
 }
 
 #ifdef DEBUG
@@ -115,6 +173,19 @@ const DOMCallbacks*
 CompileRuntime::DOMcallbacks()
 {
     return runtime()->DOMcallbacks;
+}
+
+const Nursery&
+CompileRuntime::gcNursery()
+{
+    return runtime()->gc.nursery;
+}
+
+void
+CompileRuntime::setMinorGCShouldCancelIonCompilations()
+{
+    MOZ_ASSERT(onMainThread());
+    runtime()->gc.storeBuffer.setShouldCancelIonCompilations();
 }
 
 bool
@@ -135,32 +206,6 @@ CompileZone::get(Zone* zone)
     return reinterpret_cast<CompileZone*>(zone);
 }
 
-CompileRuntime*
-CompileZone::runtime()
-{
-    return CompileRuntime::get(zone()->runtimeFromAnyThread());
-}
-
-bool
-CompileZone::isAtomsZone()
-{
-    return zone()->isAtomsZone();
-}
-
-#ifdef DEBUG
-const void*
-CompileZone::addressOfIonBailAfter()
-{
-    return zone()->group()->addressOfIonBailAfter();
-}
-#endif
-
-const void*
-CompileZone::addressOfJSContext()
-{
-    return zone()->group()->addressOfOwnerContext();
-}
-
 const void*
 CompileZone::addressOfNeedsIncrementalBarrier()
 {
@@ -171,32 +216,6 @@ const void*
 CompileZone::addressOfFreeList(gc::AllocKind allocKind)
 {
     return zone()->arenas.addressOfFreeList(allocKind);
-}
-
-const void*
-CompileZone::addressOfNurseryPosition()
-{
-    return zone()->group()->addressOfNurseryPosition();
-}
-
-const void*
-CompileZone::addressOfNurseryCurrentEnd()
-{
-    return zone()->group()->addressOfNurseryCurrentEnd();
-}
-
-bool
-CompileZone::nurseryExists()
-{
-    MOZ_ASSERT(CurrentThreadCanAccessZone(zone()));
-    return zone()->group()->nursery().exists();
-}
-
-void
-CompileZone::setMinorGCShouldCancelIonCompilations()
-{
-    MOZ_ASSERT(CurrentThreadCanAccessZone(zone()));
-    zone()->group()->storeBuffer().setShouldCancelIonCompilations();
 }
 
 JSCompartment*
@@ -251,7 +270,7 @@ const GlobalObject*
 CompileCompartment::maybeGlobal()
 {
     // This uses unsafeUnbarrieredMaybeGlobal() so as not to trigger the read
-    // barrier on the global from off thread.  This is safe because we
+    // barrier on the global from off the main thread.  This is safe because we
     // abort Ion compilation when we GC.
     return compartment()->unsafeUnbarrieredMaybeGlobal();
 }
@@ -285,7 +304,7 @@ JitCompileOptions::JitCompileOptions()
 JitCompileOptions::JitCompileOptions(JSContext* cx)
 {
     cloneSingletons_ = cx->compartment()->creationOptions().cloneSingletons();
-    profilerSlowAssertionsEnabled_ = cx->runtime()->geckoProfiler().enabled() &&
-                                     cx->runtime()->geckoProfiler().slowAssertionsEnabled();
+    profilerSlowAssertionsEnabled_ = cx->runtime()->geckoProfiler.enabled() &&
+                                     cx->runtime()->geckoProfiler.slowAssertionsEnabled();
     offThreadCompilationAvailable_ = OffThreadCompilationAvailable(cx);
 }

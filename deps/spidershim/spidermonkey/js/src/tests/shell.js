@@ -38,8 +38,6 @@
 
   var runningInShell = typeof window === "undefined";
 
-  var evaluate = global.evaluate;
-
   /****************************
    * GENERAL HELPER FUNCTIONS *
    ****************************/
@@ -218,17 +216,6 @@
     }
 
     global.gczeal = gczeal;
-  }
-
-  // Evaluates the given source code as global script code. browser.js provides
-  // a different implementation for this function.
-  var evaluateScript = global.evaluateScript;
-  if (typeof evaluate === "function" && typeof evaluateScript !== "function") {
-    evaluateScript = function evaluateScript(code) {
-      evaluate(String(code));
-    };
-
-    global.evaluateScript = evaluateScript;
   }
 
   /******************************************************

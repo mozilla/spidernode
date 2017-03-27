@@ -134,13 +134,6 @@ CanonicalizeARMHwCapFlags(uint32_t flags)
     return flags;
 }
 
-volatile bool forceDoubleCacheFlush = false;
-
-bool
-ForceDoubleCacheFlush() {
-    return forceDoubleCacheFlush;
-}
-
 // The override flags parsed from the ARMHWCAP environment variable or from the
 // --arm-hwcap js shell argument.
 volatile uint32_t armHwCapFlags = HWCAP_UNINITIALIZED;
@@ -210,7 +203,7 @@ InitARMFlags()
           | HWCAP_FIXUP_FAULT;
 #else
 
-#if defined(__linux__) || defined(ANDROID)
+#if defined(__linux__)
     // This includes Android and B2G.
     bool readAuxv = false;
     int fd = open("/proc/self/auxv", O_RDONLY);
@@ -226,16 +219,15 @@ InitARMFlags()
         close(fd);
     }
 
-    FILE* fp = fopen("/proc/cpuinfo", "r");
-    if (fp) {
-        char buf[1024];
-        memset(buf, 0, sizeof(buf));
-        size_t len = fread(buf, sizeof(char), sizeof(buf) - 1, fp);
-        fclose(fp);
-        buf[len] = '\0';
-
+    if (!readAuxv) {
         // Read the cpuinfo Features if the auxv is not available.
-        if (!readAuxv) {
+        FILE* fp = fopen("/proc/cpuinfo", "r");
+        if (fp) {
+            char buf[1024];
+            memset(buf, 0, sizeof(buf));
+            size_t len = fread(buf, sizeof(char), sizeof(buf) - 1, fp);
+            fclose(fp);
+            buf[len] = '\0';
             char* featureList = strstr(buf, "Features");
             if (featureList) {
                 if (char* featuresEnd = strstr(featureList, "\n"))
@@ -245,13 +237,6 @@ InitARMFlags()
             if (strstr(buf, "ARMv7"))
                 flags |= HWCAP_ARMv7;
         }
-
-        // The exynos7420 cpu (EU galaxy S6 (Note)) has a bug where sometimes
-        // flushing doesn't invalidate the instruction cache. As a result we force
-        // it by calling the cacheFlush twice on different start addresses.
-        char* exynos7420 = strstr(buf, "Exynos7420");
-        if (exynos7420)
-            forceDoubleCacheFlush = true;
     }
 #endif
 

@@ -423,7 +423,7 @@ const Class ModuleEnvironmentObject::class_ = {
 };
 
 /* static */ ModuleEnvironmentObject*
-ModuleEnvironmentObject::create(JSContext* cx, HandleModuleObject module)
+ModuleEnvironmentObject::create(ExclusiveContext* cx, HandleModuleObject module)
 {
     RootedScript script(cx, module->script());
     RootedShape shape(cx, script->bodyScope()->as<ModuleScope>().environmentShape());
@@ -2315,9 +2315,8 @@ DebugEnvironmentProxy::isOptimizedOut() const
 
 /*****************************************************************************/
 
-DebugEnvironments::DebugEnvironments(JSContext* cx, Zone* zone)
- : zone_(zone),
-   proxiedEnvs(cx),
+DebugEnvironments::DebugEnvironments(JSContext* cx)
+ : proxiedEnvs(cx),
    missingEnvs(cx->runtime()),
    liveEnvs(cx->runtime())
 {}
@@ -2431,7 +2430,7 @@ DebugEnvironments::ensureCompartmentData(JSContext* cx)
     if (c->debugEnvs)
         return c->debugEnvs;
 
-    auto debugEnvs = cx->make_unique<DebugEnvironments>(cx, cx->zone());
+    auto debugEnvs = cx->make_unique<DebugEnvironments>(cx);
     if (!debugEnvs || !debugEnvs->init()) {
         ReportOutOfMemory(cx);
         return nullptr;
@@ -3543,7 +3542,7 @@ RemoveReferencedNames(JSContext* cx, HandleScript script, PropertyNameSet& remai
 
           case JSOP_GETALIASEDVAR:
           case JSOP_SETALIASEDVAR:
-            name = EnvironmentCoordinateName(cx->caches().envCoordinateNameCache, script, pc);
+            name = EnvironmentCoordinateName(cx->caches.envCoordinateNameCache, script, pc);
             break;
 
           default:

@@ -462,10 +462,10 @@ WasIncrementalGC(JSContext* cx);
 /** Ensure that generational GC is disabled within some scope. */
 class JS_PUBLIC_API(AutoDisableGenerationalGC)
 {
-    JSContext* cx;
+    js::gc::GCRuntime* gc;
 
   public:
-    explicit AutoDisableGenerationalGC(JSContext* cx);
+    explicit AutoDisableGenerationalGC(JSRuntime* rt);
     ~AutoDisableGenerationalGC();
 };
 
@@ -506,10 +506,13 @@ class JS_PUBLIC_API(AutoRequireNoGC)
  */
 class JS_PUBLIC_API(AutoAssertNoGC) : public AutoRequireNoGC
 {
-    JSContext* cx_;
+    js::gc::GCRuntime* gc;
+    size_t gcNumber;
 
   public:
-    explicit AutoAssertNoGC(JSContext* cx = nullptr);
+    AutoAssertNoGC();
+    explicit AutoAssertNoGC(JSRuntime* rt);
+    explicit AutoAssertNoGC(JSContext* cx);
     ~AutoAssertNoGC();
 };
 
@@ -600,13 +603,15 @@ class JS_PUBLIC_API(AutoAssertGCCallback) : public AutoSuppressGCAnalysis
 class JS_PUBLIC_API(AutoCheckCannotGC) : public AutoAssertNoGC
 {
   public:
-    explicit AutoCheckCannotGC(JSContext* cx = nullptr) : AutoAssertNoGC(cx) {}
+    AutoCheckCannotGC() : AutoAssertNoGC() {}
+    explicit AutoCheckCannotGC(JSContext* cx) : AutoAssertNoGC(cx) {}
 } JS_HAZ_GC_INVALIDATED;
 #else
 class JS_PUBLIC_API(AutoCheckCannotGC) : public AutoRequireNoGC
 {
   public:
-    explicit AutoCheckCannotGC(JSContext* cx = nullptr) {}
+    AutoCheckCannotGC() {}
+    explicit AutoCheckCannotGC(JSContext* cx) {}
 } JS_HAZ_GC_INVALIDATED;
 #endif
 
@@ -623,12 +628,11 @@ UnmarkGrayGCThingRecursively(GCCellPtr thing);
 namespace js {
 namespace gc {
 
-extern JS_FRIEND_API(bool)
-BarriersAreAllowedOnCurrentThread();
-
 static MOZ_ALWAYS_INLINE void
 ExposeGCThingToActiveJS(JS::GCCellPtr thing)
 {
+    MOZ_ASSERT(thing.kind() != JS::TraceKind::Shape);
+
     // GC things residing in the nursery cannot be gray: they have no mark bits.
     // All live objects in the nursery are moved to tenured at the beginning of
     // each GC slice, so the gray marker never sees nursery things.
@@ -640,9 +644,10 @@ ExposeGCThingToActiveJS(JS::GCCellPtr thing)
     if (thing.mayBeOwnedByOtherRuntime())
         return;
 
-    MOZ_DIAGNOSTIC_ASSERT(BarriersAreAllowedOnCurrentThread());
+    JS::shadow::Runtime* rt = detail::GetCellRuntime(thing.asCell());
+    MOZ_DIAGNOSTIC_ASSERT(rt->allowGCBarriers());
 
-    if (IsIncrementalBarrierNeededOnTenuredGCThing(thing))
+    if (IsIncrementalBarrierNeededOnTenuredGCThing(rt, thing))
         JS::IncrementalReferenceBarrier(thing);
     else if (!thing.mayBeOwnedByOtherRuntime() && js::gc::detail::CellIsMarkedGray(thing.asCell()))
         JS::UnmarkGrayGCThingRecursively(thing);
@@ -661,9 +666,10 @@ MarkGCThingAsLive(JSRuntime* aRt, JS::GCCellPtr thing)
     if (thing.mayBeOwnedByOtherRuntime())
         return;
 
-    MOZ_DIAGNOSTIC_ASSERT(BarriersAreAllowedOnCurrentThread());
+    JS::shadow::Runtime* rt = JS::shadow::Runtime::asShadowRuntime(aRt);
+    MOZ_DIAGNOSTIC_ASSERT(rt->allowGCBarriers());
 
-    if (IsIncrementalBarrierNeededOnTenuredGCThing(thing))
+    if (IsIncrementalBarrierNeededOnTenuredGCThing(rt, thing))
         JS::IncrementalReferenceBarrier(thing);
 }
 
@@ -697,7 +703,7 @@ ExposeScriptToActiveJS(JSScript* script)
 static MOZ_ALWAYS_INLINE void
 MarkStringAsLive(Zone* zone, JSString* string)
 {
-    JSRuntime* rt = JS::shadow::Zone::asShadowZone(zone)->runtimeFromActiveCooperatingThread();
+    JSRuntime* rt = JS::shadow::Zone::asShadowZone(zone)->runtimeFromMainThread();
     js::gc::MarkGCThingAsLive(rt, GCCellPtr(string));
 }
 

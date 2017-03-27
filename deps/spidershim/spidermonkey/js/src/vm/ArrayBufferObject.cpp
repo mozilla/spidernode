@@ -402,7 +402,7 @@ ArrayBufferObject::changeViewContents(JSContext* cx, ArrayBufferViewObject* view
     // Watch out for NULL data pointers in views. This means that the view
     // is not fully initialized (in which case it'll be initialized later
     // with the correct pointer).
-    JS::AutoCheckCannotGC nogc;
+    JS::AutoCheckCannotGC nogc(cx);
     uint8_t* viewDataPointer = view->dataPointerUnshared(nogc);
     if (viewDataPointer) {
         MOZ_ASSERT(newContents);
@@ -1225,16 +1225,15 @@ ArrayBufferObject::finalize(FreeOp* fop, JSObject* obj)
 }
 
 /* static */ void
-ArrayBufferObject::copyData(Handle<ArrayBufferObject*> toBuffer, uint32_t toIndex,
-                            Handle<ArrayBufferObject*> fromBuffer, uint32_t fromIndex,
-                            uint32_t count)
+ArrayBufferObject::copyData(Handle<ArrayBufferObject*> toBuffer,
+                            Handle<ArrayBufferObject*> fromBuffer,
+                            uint32_t fromIndex, uint32_t count)
 {
     MOZ_ASSERT(toBuffer->byteLength() >= count);
-    MOZ_ASSERT(toBuffer->byteLength() >= toIndex + count);
     MOZ_ASSERT(fromBuffer->byteLength() >= fromIndex);
     MOZ_ASSERT(fromBuffer->byteLength() >= fromIndex + count);
 
-    memcpy(toBuffer->dataPointer() + toIndex, fromBuffer->dataPointer() + fromIndex, count);
+    memcpy(toBuffer->dataPointer(), fromBuffer->dataPointer() + fromIndex, count);
 }
 
 /* static */ void
@@ -1484,8 +1483,8 @@ ArrayBufferViewObject::trace(JSTracer* trc, JSObject* objArg)
                 // We can't use a direct forwarding pointer here, as there might
                 // not be enough bytes available, and other views might have data
                 // pointers whose forwarding pointers would overlap this one.
-                Nursery& nursery = obj->zoneFromAnyThread()->group()->nursery();
-                nursery.maybeSetForwardingPointer(trc, srcData, dstData, /* direct = */ false);
+                trc->runtime()->gc.nursery.maybeSetForwardingPointer(trc, srcData, dstData,
+                                                                     /* direct = */ false);
             } else {
                 MOZ_ASSERT_IF(buf.dataPointer() == nullptr, offset == 0);
 
@@ -1620,7 +1619,7 @@ JS_GetArrayBufferData(JSObject* obj, bool* isSharedMemory, const JS::AutoCheckCa
 JS_FRIEND_API(bool)
 JS_DetachArrayBuffer(JSContext* cx, HandleObject obj)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, obj);
 
@@ -1658,7 +1657,7 @@ JS_IsDetachedArrayBufferObject(JSObject* obj)
 JS_FRIEND_API(JSObject*)
 JS_NewArrayBuffer(JSContext* cx, uint32_t nbytes)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_ASSERT(nbytes <= INT32_MAX);
     return ArrayBufferObject::create(cx, nbytes);
@@ -1667,7 +1666,7 @@ JS_NewArrayBuffer(JSContext* cx, uint32_t nbytes)
 JS_PUBLIC_API(JSObject*)
 JS_NewArrayBufferWithContents(JSContext* cx, size_t nbytes, void* data)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_ASSERT_IF(!data, nbytes == 0);
     ArrayBufferObject::BufferContents contents =
@@ -1679,7 +1678,7 @@ JS_NewArrayBufferWithContents(JSContext* cx, size_t nbytes, void* data)
 JS_PUBLIC_API(JSObject*)
 JS_NewArrayBufferWithExternalContents(JSContext* cx, size_t nbytes, void* data)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     MOZ_ASSERT_IF(!data, nbytes == 0);
     ArrayBufferObject::BufferContents contents =
@@ -1720,7 +1719,7 @@ js::UnwrapSharedArrayBuffer(JSObject* obj)
 JS_PUBLIC_API(void*)
 JS_ExternalizeArrayBufferContents(JSContext* cx, HandleObject obj)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, obj);
 
@@ -1752,7 +1751,7 @@ JS_ExternalizeArrayBufferContents(JSContext* cx, HandleObject obj)
 JS_PUBLIC_API(void*)
 JS_StealArrayBufferContents(JSContext* cx, HandleObject objArg)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, objArg);
 
@@ -1789,7 +1788,7 @@ JS_StealArrayBufferContents(JSContext* cx, HandleObject objArg)
 JS_PUBLIC_API(JSObject*)
 JS_NewMappedArrayBufferWithContents(JSContext* cx, size_t nbytes, void* data)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
 
     MOZ_ASSERT(data);
@@ -1841,7 +1840,7 @@ JS_GetArrayBufferViewData(JSObject* obj, bool* isSharedMemory, const JS::AutoChe
 JS_FRIEND_API(JSObject*)
 JS_GetArrayBufferViewBuffer(JSContext* cx, HandleObject objArg, bool* isSharedMemory)
 {
-    AssertHeapIsIdle();
+    AssertHeapIsIdle(cx);
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, objArg);
 

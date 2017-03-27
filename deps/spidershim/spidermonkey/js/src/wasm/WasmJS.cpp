@@ -50,7 +50,7 @@ using mozilla::Nothing;
 using mozilla::RangedPtr;
 
 bool
-wasm::HasCompilerSupport(JSContext* cx)
+wasm::HasCompilerSupport(ExclusiveContext* cx)
 {
     if (gc::SystemPageSize() > wasm::PageSize)
         return false;
@@ -79,7 +79,7 @@ wasm::HasCompilerSupport(JSContext* cx)
 }
 
 bool
-wasm::HasSupport(JSContext* cx)
+wasm::HasSupport(ExclusiveContext* cx)
 {
     return cx->options().wasm() && HasCompilerSupport(cx);
 }
@@ -754,7 +754,7 @@ WasmModuleObject::customSections(JSContext* cx, unsigned argc, Value* vp)
 }
 
 /* static */ WasmModuleObject*
-WasmModuleObject::create(JSContext* cx, Module& module, HandleObject proto)
+WasmModuleObject::create(ExclusiveContext* cx, Module& module, HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
     auto* obj = NewObjectWithGivenProto<WasmModuleObject>(cx, proto);
@@ -925,7 +925,6 @@ WasmInstanceObject::trace(JSTracer* trc, JSObject* obj)
 /* static */ WasmInstanceObject*
 WasmInstanceObject::create(JSContext* cx,
                            UniqueCode code,
-                           UniqueGlobalSegment globals,
                            HandleWasmMemoryObject memory,
                            SharedTableVector&& tables,
                            Handle<FunctionVector> funcImports,
@@ -959,7 +958,6 @@ WasmInstanceObject::create(JSContext* cx,
     auto* instance = cx->new_<Instance>(cx,
                                         obj,
                                         Move(code),
-                                        Move(globals),
                                         memory,
                                         Move(tables),
                                         funcImports,
@@ -1215,7 +1213,7 @@ WasmMemoryObject::finalize(FreeOp* fop, JSObject* obj)
 }
 
 /* static */ WasmMemoryObject*
-WasmMemoryObject::create(JSContext* cx, HandleArrayBufferObjectMaybeShared buffer,
+WasmMemoryObject::create(ExclusiveContext* cx, HandleArrayBufferObjectMaybeShared buffer,
                          HandleObject proto)
 {
     AutoSetNewObjectMetadata metadata(cx);
@@ -1859,7 +1857,7 @@ GetBufferSource(JSContext* cx, CallArgs callArgs, const char* name, MutableBytes
 static bool
 WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
+    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.compile not supported in this runtime.");
         return false;
     }
@@ -1956,7 +1954,7 @@ GetInstantiateArgs(JSContext* cx, CallArgs callArgs, MutableHandleObject firstAr
 static bool
 WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
 {
-    if (!cx->runtime()->startAsyncTaskCallback || !cx->runtime()->finishAsyncTaskCallback) {
+    if (!cx->startAsyncTaskCallback || !cx->finishAsyncTaskCallback) {
         JS_ReportErrorASCII(cx, "WebAssembly.instantiate not supported in this runtime.");
         return false;
     }

@@ -273,7 +273,7 @@ class MOZ_RAII AutoSetNewObjectMetadata : private JS::CustomAutoRooter
     }
 
   public:
-    explicit AutoSetNewObjectMetadata(JSContext* cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
+    explicit AutoSetNewObjectMetadata(ExclusiveContext* ecx MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
     ~AutoSetNewObjectMetadata();
 };
 
@@ -372,6 +372,7 @@ struct JSCompartment
   private:
     friend struct JSRuntime;
     friend struct JSContext;
+    friend class js::ExclusiveContext;
     js::ReadBarrieredGlobalObject global_;
 
     unsigned                     enterCompartmentDepth;
@@ -395,7 +396,7 @@ struct JSCompartment
     JS::CompartmentBehaviors& behaviors() { return behaviors_; }
     const JS::CompartmentBehaviors& behaviors() const { return behaviors_; }
 
-    JSRuntime* runtimeFromActiveCooperatingThread() const {
+    JSRuntime* runtimeFromMainThread() const {
         MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime_));
         return runtime_;
     }
@@ -404,6 +405,10 @@ struct JSCompartment
     // thread can easily lead to races. Use this method very carefully.
     JSRuntime* runtimeFromAnyThread() const {
         return runtime_;
+    }
+
+    JSContext* contextFromMainThread() const {
+        return runtime_->contextFromMainThread();
     }
 
     /*
@@ -479,10 +484,13 @@ struct JSCompartment
     bool hasObjectPendingMetadata() const { return objectMetadataState.is<js::PendingMetadata>(); }
 
     void setObjectPendingMetadata(JSContext* cx, JSObject* obj) {
-        if (!cx->helperThread()) {
-            MOZ_ASSERT(objectMetadataState.is<js::DelayMetadata>());
-            objectMetadataState = js::NewObjectMetadataState(js::PendingMetadata(obj));
-        }
+        MOZ_ASSERT(objectMetadataState.is<js::DelayMetadata>());
+        objectMetadataState = js::NewObjectMetadataState(js::PendingMetadata(obj));
+    }
+
+    void setObjectPendingMetadata(js::ExclusiveContext* ecx, JSObject* obj) {
+        if (JSContext* cx = ecx->maybeJSContext())
+            setObjectPendingMetadata(cx, obj);
     }
 
   public:
@@ -906,6 +914,12 @@ struct JSCompartment
     js::coverage::LCovCompartment lcovOutput;
 };
 
+inline bool
+JSRuntime::isAtomsZone(const JS::Zone* zone) const
+{
+    return zone == atomsCompartment_->zone();
+}
+
 namespace js {
 
 // We only set the maybeAlive flag for objects and scripts. It's assumed that,
@@ -917,10 +931,8 @@ template<typename T> inline void SetMaybeAliveFlag(T* thing) {}
 template<> inline void SetMaybeAliveFlag(JSObject* thing) {thing->compartment()->maybeAlive = true;}
 template<> inline void SetMaybeAliveFlag(JSScript* thing) {thing->compartment()->maybeAlive = true;}
 
-} // namespace js
-
 inline js::Handle<js::GlobalObject*>
-JSContext::global() const
+ExclusiveContext::global() const
 {
     /*
      * It's safe to use |unsafeGet()| here because any compartment that is
@@ -929,10 +941,8 @@ JSContext::global() const
      * safe to use.
      */
     MOZ_ASSERT(compartment_, "Caller needs to enter a compartment first");
-    return js::Handle<js::GlobalObject*>::fromMarkedLocation(compartment_->global_.unsafeGet());
+    return Handle<GlobalObject*>::fromMarkedLocation(compartment_->global_.unsafeGet());
 }
-
-namespace js {
 
 class MOZ_RAII AssertCompartmentUnchanged
 {
@@ -956,18 +966,18 @@ class MOZ_RAII AssertCompartmentUnchanged
 
 class AutoCompartment
 {
-    JSContext * const cx_;
+    ExclusiveContext * const cx_;
     JSCompartment * const origin_;
     const js::AutoLockForExclusiveAccess* maybeLock_;
 
   public:
-    inline AutoCompartment(JSContext* cx, JSObject* target,
+    inline AutoCompartment(ExclusiveContext* cx, JSObject* target,
                            js::AutoLockForExclusiveAccess* maybeLock = nullptr);
-    inline AutoCompartment(JSContext* cx, JSCompartment* target,
+    inline AutoCompartment(ExclusiveContext* cx, JSCompartment* target,
                            js::AutoLockForExclusiveAccess* maybeLock = nullptr);
     inline ~AutoCompartment();
 
-    JSContext* context() const { return cx_; }
+    ExclusiveContext* context() const { return cx_; }
     JSCompartment* origin() const { return origin_; }
 
   private:
@@ -1073,7 +1083,7 @@ class MOZ_RAII AutoSuppressAllocationMetadataBuilder {
     bool saved;
 
   public:
-    explicit AutoSuppressAllocationMetadataBuilder(JSContext* cx)
+    explicit AutoSuppressAllocationMetadataBuilder(ExclusiveContext* cx)
       : AutoSuppressAllocationMetadataBuilder(cx->compartment()->zone())
     { }
 

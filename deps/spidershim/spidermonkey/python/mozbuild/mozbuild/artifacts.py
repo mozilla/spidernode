@@ -63,7 +63,6 @@ import zipfile
 import pylru
 import taskcluster
 
-from mozbuild.action.test_archive import OBJDIR_TEST_FILES
 from mozbuild.util import (
     ensureParentDir,
     FileAvoidWrite,
@@ -128,7 +127,6 @@ class ArtifactJob(object):
         ('bin/pk12util', ('bin', 'bin')),
         ('bin/ssltunnel', ('bin', 'bin')),
         ('bin/xpcshell', ('bin', 'bin')),
-        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
         ('bin/components/*', ('bin/components', 'bin/components')),
     }
@@ -198,18 +196,6 @@ class ArtifactJob(object):
                     mode = entry['external_attr'] >> 16
                     writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
                     added_entry = True
-                    break
-                for files_entry in OBJDIR_TEST_FILES.values():
-                    origin_pattern = files_entry['pattern']
-                    leaf_filename = filename
-                    if 'dest' in files_entry:
-                        dest = files_entry['dest']
-                        origin_pattern = mozpath.join(dest, origin_pattern)
-                        leaf_filename = filename[len(dest) + 1:]
-                    if mozpath.match(filename, origin_pattern):
-                        destpath = mozpath.join('..', files_entry['base'], leaf_filename)
-                        mode = entry['external_attr'] >> 16
-                        writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
 
         if not added_entry:
             raise ValueError('Archive format changed! No pattern from "{patterns}"'
@@ -422,7 +408,6 @@ class WinArtifactJob(ArtifactJob):
         ('bin/pk12util.exe', ('bin', 'bin')),
         ('bin/ssltunnel.exe', ('bin', 'bin')),
         ('bin/xpcshell.exe', ('bin', 'bin')),
-        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
         ('bin/components/*', ('bin/components', 'bin/components')),
     }

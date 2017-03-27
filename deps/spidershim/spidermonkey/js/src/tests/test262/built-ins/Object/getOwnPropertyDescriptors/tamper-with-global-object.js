@@ -4,7 +4,7 @@
 /*---
 description: >
     Object.getOwnPropertyDescriptors should not have its behavior impacted by modifications to the global property Object
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 ---*/
 
@@ -19,5 +19,3 @@ global.Object = fakeObject;
 
 assert.sameValue(Object, fakeObject, 'Sanity check failed: could not modify the global Object');
 assert.sameValue(Object.keys(Object.getOwnPropertyDescriptors('a')).length, 2, 'Expected string primitive to have 2 descriptors');
-
-reportCompare(0, 0);

@@ -1476,10 +1476,10 @@ my_LargeAllocFailCallback(void* data)
     JSContext* cx = (JSContext*)data;
     JSRuntime* rt = cx->runtime();
 
-    if (cx->helperThread())
+    if (!cx->isJSContext())
         return;
 
-    MOZ_ASSERT(!JS::CurrentThreadIsHeapBusy());
+    MOZ_ASSERT(!rt->isHeapBusy());
 
     JS::PrepareForFullGC(cx);
     rt->gc.gc(GC_NORMAL, JS::gcreason::SHARED_MEMORY_LIMIT);
@@ -2255,7 +2255,7 @@ StartTimingMutator(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (!cx->runtime()->gc.stats().startTimingMutator()) {
+    if (!cx->runtime()->gc.stats.startTimingMutator()) {
         JS_ReportErrorASCII(cx, "StartTimingMutator should only be called from outside of GC");
         return false;
     }
@@ -2275,7 +2275,7 @@ StopTimingMutator(JSContext* cx, unsigned argc, Value* vp)
     }
 
     double mutator_ms, gc_ms;
-    if (!cx->runtime()->gc.stats().stopTimingMutator(mutator_ms, gc_ms)) {
+    if (!cx->runtime()->gc.stats.stopTimingMutator(mutator_ms, gc_ms)) {
         JS_ReportErrorASCII(cx, "stopTimingMutator called when not timing the mutator");
         return false;
     }
@@ -3364,12 +3364,12 @@ EvalInContext(JSContext* cx, unsigned argc, Value* vp)
 
 struct WorkerInput
 {
-    JSRuntime* parentRuntime;
+    JSContext* context;
     char16_t* chars;
     size_t length;
 
-    WorkerInput(JSRuntime* parentRuntime, char16_t* chars, size_t length)
-      : parentRuntime(parentRuntime), chars(chars), length(length)
+    WorkerInput(JSContext* context, char16_t* chars, size_t length)
+      : context(context), chars(chars), length(length)
     {}
 
     ~WorkerInput() {
@@ -3384,7 +3384,7 @@ WorkerMain(void* arg)
 {
     WorkerInput* input = (WorkerInput*) arg;
 
-    JSContext* cx = JS_NewContext(8L * 1024L * 1024L, 2L * 1024L * 1024L, input->parentRuntime);
+    JSContext* cx = JS_NewContext(8L * 1024L * 1024L, 2L * 1024L * 1024L, input->context);
     if (!cx) {
         js_delete(input);
         return;
@@ -3486,7 +3486,7 @@ EvalInWorker(JSContext* cx, unsigned argc, Value* vp)
     }
 
 #if defined(DEBUG) || defined(JS_OOM_BREAKPOINT)
-    if (cx->runningOOMTest) {
+    if (cx->runtime()->runningOOMTest) {
         JS_ReportErrorASCII(cx, "Can't create workers while running simulated OOM test");
         return false;
     }
@@ -3513,7 +3513,7 @@ EvalInWorker(JSContext* cx, unsigned argc, Value* vp)
 
     CopyChars(chars, *str);
 
-    WorkerInput* input = js_new<WorkerInput>(JS_GetParentRuntime(cx), chars, str->length());
+    WorkerInput* input = js_new<WorkerInput>(JS_GetParentContext(cx), chars, str->length());
     if (!input) {
         ReportOutOfMemory(cx);
         return false;
@@ -4328,7 +4328,7 @@ runOffThreadScript(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    if (OffThreadParsingMustWaitForGC(cx->runtime()))
+    if (OffThreadParsingMustWaitForGC(cx))
         gc::FinishGC(cx);
 
     ShellContext* sc = GetShellContext(cx);
@@ -4415,7 +4415,7 @@ FinishOffThreadModule(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    if (OffThreadParsingMustWaitForGC(cx->runtime()))
+    if (OffThreadParsingMustWaitForGC(cx))
         gc::FinishGC(cx);
 
     ShellContext* sc = GetShellContext(cx);
@@ -4519,7 +4519,7 @@ runOffThreadDecodedScript(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    if (OffThreadParsingMustWaitForGC(cx->runtime()))
+    if (OffThreadParsingMustWaitForGC(cx))
         gc::FinishGC(cx);
 
     ShellContext* sc = GetShellContext(cx);
@@ -4846,7 +4846,7 @@ NewGlobal(JSContext* cx, unsigned argc, Value* vp)
         if (!JS_GetProperty(cx, opts, "sameZoneAs", &v))
             return false;
         if (v.isObject())
-            creationOptions.setExistingZone(UncheckedUnwrap(&v.toObject()));
+            creationOptions.setSameZoneAs(UncheckedUnwrap(&v.toObject()));
 
         if (!JS_GetProperty(cx, opts, "disableLazyParsing", &v))
             return false;
@@ -5019,7 +5019,7 @@ static bool
 PrintProfilerEvents(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    if (cx->runtime()->geckoProfiler().enabled())
+    if (cx->runtime()->geckoProfiler.enabled())
         js::RegisterContextProfilingEventMarker(cx, &PrintProfilerEvents_Callback);
     args.rval().setUndefined();
     return true;
@@ -5032,7 +5032,7 @@ SingleStepCallback(void* arg, jit::Simulator* sim, void* pc)
     JSContext* cx = reinterpret_cast<JSContext*>(arg);
 
     // If profiling is not enabled, don't do anything.
-    if (!cx->runtime()->geckoProfiler().enabled())
+    if (!cx->geckoProfiler.enabled())
         return;
 
     JS::ProfilingFrameIterator::RegisterState state;
@@ -5087,7 +5087,7 @@ EnableSingleStepProfiling(JSContext* cx, unsigned argc, Value* vp)
 #ifdef SINGLESTEP_PROFILING
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    jit::Simulator* sim = cx->simulator();
+    jit::Simulator* sim = cx->runtime()->simulator();
     sim->enable_single_stepping(SingleStepCallback, cx);
 
     args.rval().setUndefined();
@@ -5104,7 +5104,7 @@ DisableSingleStepProfiling(JSContext* cx, unsigned argc, Value* vp)
 #ifdef SINGLESTEP_PROFILING
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    jit::Simulator* sim = cx->simulator();
+    jit::Simulator* sim = cx->runtime()->simulator();
     sim->disable_single_stepping();
 
     ShellContext* sc = GetShellContext(cx);
@@ -5148,13 +5148,13 @@ EnableGeckoProfiling(JSContext* cx, unsigned argc, Value* vp)
     ShellContext* sc = GetShellContext(cx);
 
     // Disable before re-enabling; see the assertion in |GeckoProfiler::setProfilingStack|.
-    if (cx->runtime()->geckoProfiler().installed())
-        cx->runtime()->geckoProfiler().enable(false);
+    if (cx->geckoProfiler.installed())
+        cx->geckoProfiler.enable(false);
 
     SetContextProfilingStack(cx, sc->geckoProfilingStack, &sc->geckoProfilingStackSize,
                              ShellContext::GeckoProfilingMaxStackSize);
-    cx->runtime()->geckoProfiler().enableSlowAssertions(false);
-    cx->runtime()->geckoProfiler().enable(true);
+    cx->geckoProfiler.enableSlowAssertions(false);
+    cx->geckoProfiler.enable(true);
 
     args.rval().setUndefined();
     return true;
@@ -5168,25 +5168,25 @@ EnableGeckoProfilingWithSlowAssertions(JSContext* cx, unsigned argc, Value* vp)
 
     ShellContext* sc = GetShellContext(cx);
 
-    if (cx->runtime()->geckoProfiler().enabled()) {
+    if (cx->geckoProfiler.enabled()) {
         // If profiling already enabled with slow assertions disabled,
         // this is a no-op.
-        if (cx->runtime()->geckoProfiler().slowAssertionsEnabled())
+        if (cx->geckoProfiler.slowAssertionsEnabled())
             return true;
 
         // Slow assertions are off.  Disable profiling before re-enabling
         // with slow assertions on.
-        cx->runtime()->geckoProfiler().enable(false);
+        cx->geckoProfiler.enable(false);
     }
 
     // Disable before re-enabling; see the assertion in |GeckoProfiler::setProfilingStack|.
-    if (cx->runtime()->geckoProfiler().installed())
-        cx->runtime()->geckoProfiler().enable(false);
+    if (cx->geckoProfiler.installed())
+        cx->geckoProfiler.enable(false);
 
     SetContextProfilingStack(cx, sc->geckoProfilingStack, &sc->geckoProfilingStackSize,
                              ShellContext::GeckoProfilingMaxStackSize);
-    cx->runtime()->geckoProfiler().enableSlowAssertions(true);
-    cx->runtime()->geckoProfiler().enable(true);
+    cx->geckoProfiler.enableSlowAssertions(true);
+    cx->geckoProfiler.enable(true);
 
     return true;
 }
@@ -5195,8 +5195,8 @@ static bool
 DisableGeckoProfiling(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    if (cx->runtime()->geckoProfiler().installed())
-        cx->runtime()->geckoProfiler().enable(false);
+    if (cx->runtime()->geckoProfiler.installed())
+        cx->runtime()->geckoProfiler.enable(false);
     args.rval().setUndefined();
     return true;
 }
@@ -5409,7 +5409,7 @@ ReflectTrackedOptimizations(JSContext* cx, unsigned argc, Value* vp)
     RootedObject callee(cx, &args.callee());
     JSRuntime* rt = cx->runtime();
 
-    if (!rt->hasJitRuntime() || !rt->jitRuntime()->isOptimizationTrackingEnabled(cx->zone()->group())) {
+    if (!rt->hasJitRuntime() || !rt->jitRuntime()->isOptimizationTrackingEnabled(rt)) {
         JS_ReportErrorASCII(cx, "Optimization tracking is off.");
         return false;
     }
@@ -7628,7 +7628,7 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
         else if (strcmp(str, "on") != 0)
             return OptionFailure("ion-offthread-compile", str);
     }
-    cx->runtime()->setOffthreadIonCompilationEnabled(offthreadCompilation);
+    cx->setOffthreadIonCompilationEnabled(offthreadCompilation);
 
     if (op.getStringOption("ion-parallel-compile")) {
         fprintf(stderr, "--ion-parallel-compile is deprecated. Please use --ion-offthread-compile instead.\n");
@@ -7661,7 +7661,7 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
 
 #if defined(JS_SIMULATOR_ARM)
     if (op.getBoolOption("arm-sim-icache-checks"))
-        jit::SimulatorProcess::ICacheCheckingDisableCount = 0;
+        jit::Simulator::ICacheCheckingEnabled = true;
 
     int32_t stopAt = op.getIntOption("arm-sim-stop-at");
     if (stopAt >= 0)
@@ -7680,7 +7680,7 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
     printTiming = op.getBoolOption('b');
     enableCodeCoverage = op.getBoolOption("code-coverage");
     enableDisassemblyDumps = op.getBoolOption('D');
-    cx->runtime()->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
+    cx->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
 
     jsCacheDir = op.getStringOption("js-cache");
     if (jsCacheDir) {
@@ -7700,10 +7700,10 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
 #ifdef JS_GC_ZEAL
     const char* zealStr = op.getStringOption("gc-zeal");
     if (zealStr) {
-        if (!cx->runtime()->gc.parseAndSetZeal(zealStr))
+        if (!cx->gc.parseAndSetZeal(zealStr))
             return false;
         uint32_t nextScheduled;
-        cx->runtime()->gc.getZealBits(&gZealBits, &gZealFrequency, &nextScheduled);
+        cx->gc.getZealBits(&gZealBits, &gZealFrequency, &nextScheduled);
     }
 #endif
 
@@ -7721,14 +7721,14 @@ SetWorkerContextOptions(JSContext* cx)
                              .setWasmAlwaysBaseline(enableWasmAlwaysBaseline)
                              .setNativeRegExp(enableNativeRegExp)
                              .setUnboxedArrays(enableUnboxedArrays);
-    cx->runtime()->setOffthreadIonCompilationEnabled(offthreadCompilation);
-    cx->runtime()->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
+    cx->setOffthreadIonCompilationEnabled(offthreadCompilation);
+    cx->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
 
 #ifdef JS_GC_ZEAL
     if (gZealBits && gZealFrequency) {
 #define ZEAL_MODE(_, value)                        \
         if (gZealBits & (1 << value))              \
-            cx->runtime()->gc.setZeal(value, gZealFrequency);
+            cx->gc.setZeal(value, gZealFrequency);
         JS_FOR_EACH_ZEAL_MODE(ZEAL_MODE)
 #undef ZEAL_MODE
     }
@@ -7742,7 +7742,7 @@ Shell(JSContext* cx, OptionParser* op, char** envp)
 {
     Maybe<JS::AutoDisableGenerationalGC> noggc;
     if (op->getBoolOption("no-ggc"))
-        noggc.emplace(cx);
+        noggc.emplace(cx->runtime());
 
     Maybe<AutoDisableCompactingGC> nocgc;
     if (op->getBoolOption("no-cgc"))
@@ -7793,13 +7793,6 @@ Shell(JSContext* cx, OptionParser* op, char** envp)
             JS_free(cx, const_cast<char*>(jsCacheDir));
         }
     }
-
-    /*
-     * Dump remaining type inference results while we still have a context.
-     * This printing depends on atoms still existing.
-     */
-    for (CompartmentsIter c(cx->runtime(), SkipAtoms); !c.done(); c.next())
-        PrintTypes(cx, c, false);
 
     return result;
 }

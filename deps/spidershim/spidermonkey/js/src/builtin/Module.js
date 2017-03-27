@@ -84,14 +84,14 @@ function ModuleResolveExport(exportName, resolveSet = [], exportStarSet = [])
     }
 
     // Step 3
-    _DefineDataProperty(resolveSet, resolveSet.length, {module, exportName});
+    _DefineDataProperty(resolveSet, resolveSet.length, {module: module, exportName: exportName});
 
     // Step 4
     let localExportEntries = module.localExportEntries;
     for (let i = 0; i < localExportEntries.length; i++) {
         let e = localExportEntries[i];
         if (exportName === e.exportName)
-            return {module, bindingName: e.localName};
+            return {module: module, bindingName: e.localName};
     }
 
     // Step 5
@@ -231,7 +231,7 @@ function ModuleDeclarationInstantiation()
 
     // Step 5
     if (GetModuleEnvironment(module) !== undefined)
-        return undefined;
+        return;
 
     // Step 7
     CreateModuleEnvironment(module);

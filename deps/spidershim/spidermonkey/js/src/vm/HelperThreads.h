@@ -5,7 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /*
- * Definitions for managing off-thread work using a process wide list
+ * Definitions for managing off-main-thread work using a process wide list
  * of worklist items and pool of threads. Worklist items are engine internal,
  * and are distinct from e.g. web workers.
  */
@@ -133,9 +133,6 @@ class GlobalHelperThreadState
 
     void lock();
     void unlock();
-#ifdef DEBUG
-    bool isLockedByCurrentThread();
-#endif
 
     enum CondVar {
         // For notifying threads waiting for work that they may be able to make progress.
@@ -229,7 +226,7 @@ class GlobalHelperThreadState
         return Move(firstWasmError);
     }
     void noteWasmFailure(const AutoLockHelperThreadState&) {
-        // Be mindful to signal the active thread after calling this function.
+        // Be mindful to signal the main thread after calling this function.
         numWasmFailedJobs++;
     }
     void setWasmError(const AutoLockHelperThreadState&, UniqueChars error) {
@@ -241,7 +238,7 @@ class GlobalHelperThreadState
     }
 
     JSScript* finishParseTask(JSContext* cx, ParseTaskKind kind, void* token);
-    void cancelParseTask(JSRuntime* rt, ParseTaskKind kind, void* token);
+    void cancelParseTask(JSContext* cx, ParseTaskKind kind, void* token);
 
     void mergeParseTaskCompartment(JSContext* cx, ParseTask* parseTask,
                                    Handle<GlobalObject*> global,
@@ -252,7 +249,7 @@ class GlobalHelperThreadState
   private:
     /*
      * Number of wasm jobs that encountered failure for the active module.
-     * Their parent is logically the active thread, and this number serves for harvesting.
+     * Their parent is logically the main thread, and this number serves for harvesting.
      */
     uint32_t numWasmFailedJobs;
     /*
@@ -309,6 +306,7 @@ HelperThreadState()
 /* Individual helper thread, one allocated per core. */
 struct HelperThread
 {
+    mozilla::Maybe<PerThreadData> threadData;
     mozilla::Maybe<Thread> thread;
 
     /*
@@ -408,10 +406,6 @@ EnsureHelperThreadsInitialized();
 // --thread-count=N option.
 void
 SetFakeCPUCount(size_t count);
-
-// Get the current helper thread, or null.
-HelperThread*
-CurrentHelperThread();
 
 // Pause the current thread until it's pause flag is unset.
 void
@@ -533,7 +527,7 @@ struct AutoEnqueuePendingParseTasksAfterGC {
 
 /* Start a compression job for the specified token. */
 bool
-StartOffThreadCompression(JSContext* cx, SourceCompressionTask* task);
+StartOffThreadCompression(ExclusiveContext* cx, SourceCompressionTask* task);
 
 class MOZ_RAII AutoLockHelperThreadState : public LockGuard<Mutex>
 {
@@ -568,7 +562,7 @@ class MOZ_RAII AutoUnlockHelperThreadState : public UnlockGuard<Mutex>
 struct ParseTask
 {
     ParseTaskKind kind;
-    JSContext* cx;
+    ExclusiveContext* cx;
     OwningCompileOptions options;
     // Anonymous union, the only correct interpretation is provided by the
     // ParseTaskKind value, or from the virtual parse function.
@@ -590,7 +584,7 @@ struct ParseTask
     // Rooted pointer to the global object used by 'cx'.
     JSObject* exclusiveContextGlobal;
 
-    // Callback invoked off thread when the parse finishes.
+    // Callback invoked off the main thread when the parse finishes.
     JS::OffThreadCompileCallback callback;
     void* callbackData;
 
@@ -608,10 +602,10 @@ struct ParseTask
     bool overRecursed;
     bool outOfMemory;
 
-    ParseTask(ParseTaskKind kind, JSContext* cx, JSObject* exclusiveContextGlobal,
+    ParseTask(ParseTaskKind kind, ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
               JSContext* initCx, const char16_t* chars, size_t length,
               JS::OffThreadCompileCallback callback, void* callbackData);
-    ParseTask(ParseTaskKind kind, JSContext* cx, JSObject* exclusiveContextGlobal,
+    ParseTask(ParseTaskKind kind, ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
               JSContext* initCx, JS::TranscodeBuffer& buffer, size_t cursor,
               JS::OffThreadCompileCallback callback, void* callbackData);
     bool init(JSContext* cx, const ReadOnlyCompileOptions& options);
@@ -631,7 +625,7 @@ struct ParseTask
 
 struct ScriptParseTask : public ParseTask
 {
-    ScriptParseTask(JSContext* cx, JSObject* exclusiveContextGlobal,
+    ScriptParseTask(ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
                     JSContext* initCx, const char16_t* chars, size_t length,
                     JS::OffThreadCompileCallback callback, void* callbackData);
     void parse() override;
@@ -639,7 +633,7 @@ struct ScriptParseTask : public ParseTask
 
 struct ModuleParseTask : public ParseTask
 {
-    ModuleParseTask(JSContext* cx, JSObject* exclusiveContextGlobal,
+    ModuleParseTask(ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
                     JSContext* initCx, const char16_t* chars, size_t length,
                     JS::OffThreadCompileCallback callback, void* callbackData);
     void parse() override;
@@ -647,7 +641,7 @@ struct ModuleParseTask : public ParseTask
 
 struct ScriptDecodeTask : public ParseTask
 {
-    ScriptDecodeTask(JSContext* cx, JSObject* exclusiveContextGlobal,
+    ScriptDecodeTask(ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
                      JSContext* initCx, JS::TranscodeBuffer& buffer, size_t cursor,
                      JS::OffThreadCompileCallback callback, void* callbackData);
     void parse() override;
@@ -671,7 +665,7 @@ struct SourceCompressionTask
 
   private:
     // Context from the triggering thread. Don't use this off thread!
-    JSContext* cx;
+    ExclusiveContext* cx;
 
     ScriptSource* ss;
 
@@ -689,7 +683,7 @@ struct SourceCompressionTask
     mozilla::Maybe<SharedImmutableString> resultString;
 
   public:
-    explicit SourceCompressionTask(JSContext* cx)
+    explicit SourceCompressionTask(ExclusiveContext* cx)
       : helperThread(nullptr)
       , cx(cx)
       , ss(nullptr)

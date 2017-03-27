@@ -183,7 +183,7 @@ LIRGenerator::visitTableSwitch(MTableSwitch* tableswitch)
 void
 LIRGenerator::visitCheckOverRecursed(MCheckOverRecursed* ins)
 {
-    LCheckOverRecursed* lir = new(alloc()) LCheckOverRecursed(temp());
+    LCheckOverRecursed* lir = new(alloc()) LCheckOverRecursed();
     add(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -2564,7 +2564,7 @@ LIRGenerator::visitFunctionEnvironment(MFunctionEnvironment* ins)
 void
 LIRGenerator::visitInterruptCheck(MInterruptCheck* ins)
 {
-    LInstruction* lir = new(alloc()) LInterruptCheck(temp());
+    LInstruction* lir = new(alloc()) LInterruptCheck();
     add(lir, ins);
     assignSafepoint(lir, ins);
 }
@@ -4214,37 +4214,20 @@ LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 void
 LIRGenerator::visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins)
 {
-    if (ins->type() == MIRType::Int64) {
-#ifdef JS_PUNBOX64
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-#else
-        LAllocation tlsPtr = useRegister(ins->tlsPtr());
-#endif
-        defineInt64(new(alloc()) LWasmLoadGlobalVarI64(tlsPtr), ins);
-    } else {
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        define(new(alloc()) LWasmLoadGlobalVar(tlsPtr), ins);
-    }
+    if (ins->type() == MIRType::Int64)
+        defineInt64(new(alloc()) LWasmLoadGlobalVarI64, ins);
+    else
+        define(new(alloc()) LWasmLoadGlobalVar, ins);
 }
 
 void
 LIRGenerator::visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins)
 {
     MDefinition* value = ins->value();
-    if (value->type() == MIRType::Int64) {
-#ifdef JS_PUNBOX64
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        LInt64Allocation valueAlloc = useInt64RegisterAtStart(value);
-#else
-        LAllocation tlsPtr = useRegister(ins->tlsPtr());
-        LInt64Allocation valueAlloc = useInt64Register(value);
-#endif
-        add(new(alloc()) LWasmStoreGlobalVarI64(valueAlloc, tlsPtr), ins);
-    } else {
-        LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
-        LAllocation valueAlloc = useRegisterAtStart(value);
-        add(new(alloc()) LWasmStoreGlobalVar(valueAlloc, tlsPtr), ins);
-    }
+    if (value->type() == MIRType::Int64)
+        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value)), ins);
+    else
+        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value)), ins);
 }
 
 void
@@ -4876,9 +4859,6 @@ LIRGenerator::visitBlock(MBasicBlock* block)
         uint32_t position = block->positionInPhiSuccessor();
         size_t lirIndex = 0;
         for (MPhiIterator phi(successor->phisBegin()); phi != successor->phisEnd(); phi++) {
-            if (!gen->ensureBallast())
-                return false;
-
             MDefinition* opd = phi->getOperand(position);
             ensureDefined(opd);
 

@@ -17,7 +17,7 @@
 #include "jit/SharedICList.h"
 #include "jit/SharedICRegisters.h"
 #include "vm/ReceiverGuard.h"
-#include "vm/TypedArrayObject.h"
+#include "vm/TypedArrayCommon.h"
 
 namespace js {
 namespace jit {
@@ -508,7 +508,7 @@ class ICStub
         return (k > INVALID) && (k < LIMIT);
     }
     static bool IsCacheIRKind(Kind k) {
-        return k == CacheIR_Regular || k == CacheIR_Monitored || k == CacheIR_Updated;
+        return k == CacheIR_Monitored || k == CacheIR_Updated;
     }
 
     static const char* KindString(Kind k) {
@@ -833,31 +833,6 @@ class ICFallbackStub : public ICStub
     void unlinkStubsWithKind(JSContext* cx, ICStub::Kind kind);
 };
 
-// Base class for Trait::Regular CacheIR stubs
-class ICCacheIR_Regular : public ICStub
-{
-    const CacheIRStubInfo* stubInfo_;
-
-  public:
-    ICCacheIR_Regular(JitCode* stubCode, const CacheIRStubInfo* stubInfo)
-      : ICStub(ICStub::CacheIR_Regular, stubCode),
-        stubInfo_(stubInfo)
-    {}
-
-    void notePreliminaryObject() {
-        extra_ = 1;
-    }
-    bool hasPreliminaryObject() const {
-        return extra_;
-    }
-
-    const CacheIRStubInfo* stubInfo() const {
-        return stubInfo_;
-    }
-
-    uint8_t* stubDataStart();
-};
-
 // Monitored stubs are IC stubs that feed a single resulting value out to a
 // type monitor operation.
 class ICMonitoredStub : public ICStub
@@ -1148,7 +1123,7 @@ class ICStubCompiler
 
 void BaselineEmitPostWriteBarrierSlot(MacroAssembler& masm, Register obj, ValueOperand val,
                                       Register scratch, LiveGeneralRegisterSet saveRegs,
-                                      JSContext* cx);
+                                      JSRuntime* rt);
 
 class SharedStubInfo
 {

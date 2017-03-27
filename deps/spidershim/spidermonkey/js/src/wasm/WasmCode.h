@@ -38,18 +38,24 @@ struct Metadata;
 class FrameIterator;
 
 // A wasm CodeSegment owns the allocated executable code for a wasm module.
+// This allocation also currently includes the global data segment, which allows
+// RIP-relative access to global data on some architectures, but this will
+// change in the future to give global data its own allocation.
 
 class CodeSegment;
 typedef UniquePtr<CodeSegment> UniqueCodeSegment;
 
 class CodeSegment
 {
-    // bytes_ points to a single allocation of executable machine code in
-    // the range [0, length_).  The range [0, functionLength_) is
-    // the subrange of [0, length_) which contains function code.
+    // bytes_ points to a single allocation with two contiguous ranges:
+    // executable machine code in the range [0, codeLength) and global data in
+    // the range [codeLength, codeLength + globalDataLength). The range
+    // [0, functionCodeLength) is the subrange of [0, codeLength) which contains
+    // function code.
     uint8_t* bytes_;
-    uint32_t functionLength_;
-    uint32_t length_;
+    uint32_t functionCodeLength_;
+    uint32_t codeLength_;
+    uint32_t globalDataLength_;
 
     // These are pointers into code for stubs used for asynchronous
     // signal-handler control-flow transfer.
@@ -60,12 +66,6 @@ class CodeSegment
     // The profiling mode may be changed dynamically.
     bool profilingEnabled_;
 
-  public:
-#ifdef MOZ_VTUNE
-    unsigned vtune_method_id_; // Zero if unset.
-#endif
-
-  protected:
     CodeSegment() { PodZero(this); }
     template <class> friend struct js::MallocProvider;
 
@@ -83,7 +83,10 @@ class CodeSegment
     ~CodeSegment();
 
     uint8_t* base() const { return bytes_; }
-    uint32_t length() const { return length_; }
+    uint8_t* globalData() const { return bytes_ + codeLength_; }
+    uint32_t codeLength() const { return codeLength_; }
+    uint32_t globalDataLength() const { return globalDataLength_; }
+    uint32_t totalLength() const { return codeLength_ + globalDataLength_; }
 
     uint8_t* interruptCode() const { return interruptCode_; }
     uint8_t* outOfBoundsCode() const { return outOfBoundsCode_; }
@@ -96,10 +99,10 @@ class CodeSegment
     // enter/exit.
 
     bool containsFunctionPC(const void* pc) const {
-        return pc >= base() && pc < (base() + functionLength_);
+        return pc >= base() && pc < (base() + functionCodeLength_);
     }
     bool containsCodePC(const void* pc) const {
-        return pc >= base() && pc < (base() + length_);
+        return pc >= base() && pc < (base() + codeLength_);
     }
 
     // onMovingGrow must be called if the memory passed to 'create' performs a

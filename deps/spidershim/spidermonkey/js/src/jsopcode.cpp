@@ -847,7 +847,8 @@ ToDisassemblySource(JSContext* cx, HandleValue v, JSAutoByteString* bytes)
         return true;
     }
 
-    if (JS::CurrentThreadIsHeapBusy() || !cx->isAllocAllowed()) {
+    JSRuntime* rt = cx->runtime();
+    if (rt->isHeapBusy() || !rt->gc.isAllocAllowed()) {
         char* source = JS_sprintf_append(nullptr, "<value>");
         if (!source) {
             ReportOutOfMemory(cx);
@@ -1018,7 +1019,7 @@ js::Disassemble1(JSContext* cx, HandleScript script, jsbytecode* pc,
 
       case JOF_ENVCOORD: {
         RootedValue v(cx,
-            StringValue(EnvironmentCoordinateName(cx->caches().envCoordinateNameCache, script, pc)));
+            StringValue(EnvironmentCoordinateName(cx->caches.envCoordinateNameCache, script, pc)));
         JSAutoByteString bytes;
         if (!ToDisassemblySource(cx, v, &bytes))
             return 0;
@@ -1287,7 +1288,7 @@ ExpressionDecompiler::decompilePC(jsbytecode* pc)
         return write(atom);
       }
       case JSOP_GETALIASEDVAR: {
-        JSAtom* atom = EnvironmentCoordinateName(cx->caches().envCoordinateNameCache, script, pc);
+        JSAtom* atom = EnvironmentCoordinateName(cx->caches.envCoordinateNameCache, script, pc);
         MOZ_ASSERT(atom);
         return write(atom);
       }
@@ -1757,7 +1758,7 @@ ReleaseScriptCounts(FreeOp* fop)
     JSRuntime* rt = fop->runtime();
     MOZ_ASSERT(rt->scriptAndCountsVector);
 
-    fop->delete_(rt->scriptAndCountsVector.ref());
+    fop->delete_(rt->scriptAndCountsVector);
     rt->scriptAndCountsVector = nullptr;
 }
 

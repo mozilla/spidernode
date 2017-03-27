@@ -57,7 +57,7 @@ bool
 InvokeFunction(JSContext* cx, HandleObject obj, bool constructing, uint32_t argc, Value* argv,
                MutableHandleValue rval)
 {
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     TraceLogStartEvent(logger, TraceLogger_Call);
 
     AutoArrayRooter argvRoot(cx, argc + 1 + constructing, argv);
@@ -136,7 +136,7 @@ CheckOverRecursed(JSContext* cx)
     JS_CHECK_RECURSION(cx, return false);
 #endif
     gc::MaybeVerifyBarriers(cx);
-    return cx->handleInterrupt();
+    return cx->runtime()->handleInterrupt(cx);
 }
 
 // This function can get called in two contexts.  In the usual context, it's
@@ -181,7 +181,7 @@ CheckOverRecursedWithExtra(JSContext* cx, BaselineFrame* frame,
 #endif
 
     gc::MaybeVerifyBarriers(cx);
-    return cx->handleInterrupt();
+    return cx->runtime()->handleInterrupt(cx);
 }
 
 JSObject*
@@ -401,25 +401,8 @@ SetArrayLength(JSContext* cx, HandleObject obj, HandleValue value, bool strict)
 
     RootedId id(cx, NameToId(cx->names().length));
     ObjectOpResult result;
-
-    // SetArrayLength is called by IC stubs for SetProp and SetElem on arrays'
-    // "length" property.
-    //
-    // ArraySetLength below coerces |value| before checking for length being
-    // writable, and in the case of illegal values, will throw RangeError even
-    // when "length" is not writable. This is incorrect observable behavior,
-    // as a regular [[Set]] operation will check for "length" being
-    // writable before attempting any assignment.
-    //
-    // So, perform ArraySetLength if and only if "length" is writable.
-    if (array->lengthIsWritable()) {
-        if (!ArraySetLength(cx, array, id, JSPROP_PERMANENT, value, result))
-            return false;
-    } else {
-        MOZ_ALWAYS_TRUE(result.fail(JSMSG_READ_ONLY));
-    }
-
-    return result.checkStrictErrorOrWarning(cx, obj, id, strict);
+    return ArraySetLength(cx, array, id, JSPROP_PERMANENT, value, result) &&
+           result.checkStrictErrorOrWarning(cx, obj, id, strict);
 }
 
 bool
@@ -498,7 +481,7 @@ InterruptCheck(JSContext* cx)
     {
         JSRuntime* rt = cx->runtime();
         JitRuntime::AutoPreventBackedgePatching apbp(rt);
-        cx->zone()->group()->jitZoneGroup->patchIonBackedges(cx, JitZoneGroup::BackedgeLoopHeader);
+        rt->jitRuntime()->patchIonBackedges(rt, JitRuntime::BackedgeLoopHeader);
     }
 
     return CheckForInterrupt(cx);
@@ -521,7 +504,7 @@ NewCallObject(JSContext* cx, HandleShape shape, HandleObjectGroup group)
     // the initializing writes. The interpreter, however, may have allocated
     // the call object tenured, so barrier as needed before re-entering.
     if (!IsInsideNursery(obj))
-        cx->zone()->group()->storeBuffer().putWholeCell(obj);
+        cx->runtime()->gc.storeBuffer.putWholeCell(obj);
 
     return obj;
 }
@@ -538,7 +521,7 @@ NewSingletonCallObject(JSContext* cx, HandleShape shape)
     // the call object tenured, so barrier as needed before re-entering.
     MOZ_ASSERT(!IsInsideNursery(obj),
                "singletons are created in the tenured heap");
-    cx->zone()->group()->storeBuffer().putWholeCell(obj);
+    cx->runtime()->gc.storeBuffer.putWholeCell(obj);
 
     return obj;
 }
@@ -643,7 +626,7 @@ void
 PostWriteBarrier(JSRuntime* rt, JSObject* obj)
 {
     MOZ_ASSERT(!IsInsideNursery(obj));
-    obj->zone()->group()->storeBuffer().putWholeCell(obj);
+    rt->gc.storeBuffer.putWholeCell(obj);
 }
 
 static const size_t MAX_WHOLE_CELL_BUFFER_SIZE = 4096;
@@ -661,11 +644,11 @@ PostWriteElementBarrier(JSRuntime* rt, JSObject* obj, int32_t index)
 #endif
         ))
     {
-        obj->zone()->group()->storeBuffer().putSlot(&obj->as<NativeObject>(), HeapSlot::Element, index, 1);
+        rt->gc.storeBuffer.putSlot(&obj->as<NativeObject>(), HeapSlot::Element, index, 1);
         return;
     }
 
-    obj->zone()->group()->storeBuffer().putWholeCell(obj);
+    rt->gc.storeBuffer.putWholeCell(obj);
 }
 
 void
@@ -725,7 +708,7 @@ DebugEpilogueOnBaselineReturn(JSContext* cx, BaselineFrame* frame, jsbytecode* p
     if (!DebugEpilogue(cx, frame, pc, true)) {
         // DebugEpilogue popped the frame by updating jitTop, so run the stop event
         // here before we enter the exception handler.
-        TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+        TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
         TraceLogStopEvent(logger, TraceLogger_Baseline);
         TraceLogStopEvent(logger, TraceLogger_Scripts);
         return false;
@@ -810,7 +793,7 @@ FinalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame, jsbytecode* 
 
     if (!GeneratorObject::finalSuspend(cx, obj)) {
 
-        TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+        TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
         TraceLogStopEvent(logger, TraceLogger_Engine);
         TraceLogStopEvent(logger, TraceLogger_Scripts);
 
@@ -1145,7 +1128,7 @@ bool
 RecompileImpl(JSContext* cx, bool force)
 {
     MOZ_ASSERT(cx->currentlyRunningInJit());
-    JitActivationIterator activations(cx);
+    JitActivationIterator activations(cx->runtime());
     JitFrameIterator iter(activations);
 
     MOZ_ASSERT(iter.type() == JitFrame_Exit);
@@ -1197,7 +1180,7 @@ SetDenseOrUnboxedArrayElement(JSContext* cx, HandleObject obj, int32_t index,
 void
 AutoDetectInvalidation::setReturnOverride()
 {
-    cx_->setIonReturnOverride(rval_.get());
+    cx_->runtime()->jitRuntime()->setIonReturnOverride(rval_.get());
 }
 
 void
@@ -1207,7 +1190,7 @@ AssertValidObjectPtr(JSContext* cx, JSObject* obj)
     // Check what we can, so that we'll hopefully assert/crash if we get a
     // bogus object (pointer).
     MOZ_ASSERT(obj->compartment() == cx->compartment());
-    MOZ_ASSERT(obj->runtimeFromActiveCooperatingThread() == cx->runtime());
+    MOZ_ASSERT(obj->runtimeFromMainThread() == cx->runtime());
 
     MOZ_ASSERT_IF(!obj->hasLazyGroup() && obj->maybeShape(),
                   obj->group()->clasp() == obj->maybeShape()->getObjectClass());

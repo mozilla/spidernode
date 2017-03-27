@@ -34,7 +34,7 @@ using mozilla::Nothing;
 class MOZ_STACK_CLASS AutoCompilationTraceLogger
 {
   public:
-    AutoCompilationTraceLogger(JSContext* cx, const TraceLoggerTextId id,
+    AutoCompilationTraceLogger(ExclusiveContext* cx, const TraceLoggerTextId id,
                                const ReadOnlyCompileOptions& options);
 
   private:
@@ -50,7 +50,7 @@ class MOZ_STACK_CLASS BytecodeCompiler
 {
   public:
     // Construct an object passing mandatory arguments.
-    BytecodeCompiler(JSContext* cx,
+    BytecodeCompiler(ExclusiveContext* cx,
                      LifoAlloc& alloc,
                      const ReadOnlyCompileOptions& options,
                      SourceBufferHolder& sourceBuffer,
@@ -86,7 +86,7 @@ class MOZ_STACK_CLASS BytecodeCompiler
     AutoCompilationTraceLogger traceLogger;
     AutoKeepAtoms keepAtoms;
 
-    JSContext* cx;
+    ExclusiveContext* cx;
     LifoAlloc& alloc;
     const ReadOnlyCompileOptions& options;
     SourceBufferHolder& sourceBuffer;
@@ -109,22 +109,23 @@ class MOZ_STACK_CLASS BytecodeCompiler
     RootedScript script;
 };
 
-AutoCompilationTraceLogger::AutoCompilationTraceLogger(JSContext* cx,
+AutoCompilationTraceLogger::AutoCompilationTraceLogger(ExclusiveContext* cx,
         const TraceLoggerTextId id, const ReadOnlyCompileOptions& options)
-  : logger(TraceLoggerForCurrentThread(cx)),
-    event(TraceLogger_AnnotateScripts, options),
+  : logger(cx->isJSContext() ? TraceLoggerForMainThread(cx->asJSContext()->runtime())
+                             : TraceLoggerForCurrentThread()),
+    event(logger, TraceLogger_AnnotateScripts, options),
     scriptLogger(logger, event),
     typeLogger(logger, id)
 {}
 
-BytecodeCompiler::BytecodeCompiler(JSContext* cx,
+BytecodeCompiler::BytecodeCompiler(ExclusiveContext* cx,
                                    LifoAlloc& alloc,
                                    const ReadOnlyCompileOptions& options,
                                    SourceBufferHolder& sourceBuffer,
                                    HandleScope enclosingScope,
                                    TraceLoggerTextId logId)
   : traceLogger(cx, logId, options),
-    keepAtoms(cx),
+    keepAtoms(cx->perThreadData),
     cx(cx),
     alloc(alloc),
     options(options),
@@ -153,8 +154,8 @@ BytecodeCompiler::checkLength()
     // JSScript as 32-bits. It could be lifted fairly easily, since the compiler
     // is using size_t internally already.
     if (sourceBuffer.length() > UINT32_MAX) {
-        if (!cx->helperThread())
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+        if (cx->isJSContext())
+            JS_ReportErrorNumberASCII(cx->asJSContext(), GetErrorMessage, nullptr,
                                       JSMSG_SOURCE_TOO_LONG);
         return false;
     }
@@ -328,12 +329,12 @@ BytecodeCompiler::compileScript(HandleObject environment, SharedContext* sc)
 
         // Successfully parsed. Emit the script.
         if (pn) {
-            if (sc->isEvalContext() && sc->hasDebuggerStatement() && !cx->helperThread()) {
+            if (sc->isEvalContext() && sc->hasDebuggerStatement() && cx->isJSContext()) {
                 // If the eval'ed script contains any debugger statement, force construction
                 // of arguments objects for the caller script and any other scripts it is
                 // transitively nested inside. The debugger can access any variable on the
                 // scope chain.
-                if (!deoptimizeArgumentsInEnclosingScripts(cx, environment))
+                if (!deoptimizeArgumentsInEnclosingScripts(cx->asJSContext(), environment))
                     return nullptr;
             }
             if (!emitter->emitScript(pn))
@@ -356,7 +357,7 @@ BytecodeCompiler::compileScript(HandleObject environment, SharedContext* sc)
     if (!maybeCompleteCompressSource())
         return nullptr;
 
-    MOZ_ASSERT_IF(!cx->helperThread(), !cx->isExceptionPending());
+    MOZ_ASSERT_IF(cx->isJSContext(), !cx->asJSContext()->isExceptionPending());
 
     return script;
 }
@@ -420,7 +421,7 @@ BytecodeCompiler::compileModule()
     if (!maybeCompleteCompressSource())
         return nullptr;
 
-    MOZ_ASSERT_IF(!cx->helperThread(), !cx->isExceptionPending());
+    MOZ_ASSERT_IF(cx->isJSContext(), !cx->asJSContext()->isExceptionPending());
     return module;
 }
 
@@ -485,7 +486,7 @@ BytecodeCompiler::sourceObjectPtr() const
 }
 
 ScriptSourceObject*
-frontend::CreateScriptSourceObject(JSContext* cx, const ReadOnlyCompileOptions& options,
+frontend::CreateScriptSourceObject(ExclusiveContext* cx, const ReadOnlyCompileOptions& options,
                                    Maybe<uint32_t> parameterListEnd /* = Nothing() */)
 {
     ScriptSource* ss = cx->new_<ScriptSource>();
@@ -509,8 +510,8 @@ frontend::CreateScriptSourceObject(JSContext* cx, const ReadOnlyCompileOptions& 
     //
     // Instead, we put off populating those SSO slots in off-thread compilations
     // until after we've merged compartments.
-    if (!cx->helperThread()) {
-        if (!ScriptSourceObject::initFromOptions(cx, sso, options))
+    if (cx->isJSContext()) {
+        if (!ScriptSourceObject::initFromOptions(cx->asJSContext(), sso, options))
             return nullptr;
     }
 
@@ -518,12 +519,12 @@ frontend::CreateScriptSourceObject(JSContext* cx, const ReadOnlyCompileOptions& 
 }
 
 // CompileScript independently returns the ScriptSourceObject (SSO) for the
-// compile.  This is used by off-thread script compilation (OT-SC).
+// compile.  This is used by off-main-thread script compilation (OMT-SC).
 //
-// OT-SC cannot initialize the SSO when it is first constructed because the
+// OMT-SC cannot initialize the SSO when it is first constructed because the
 // SSO is allocated initially in a separate compartment.
 //
-// After OT-SC, the separate compartment is merged with the main compartment,
+// After OMT-SC, the separate compartment is merged with the main compartment,
 // at which point the JSScripts created become observable by the debugger via
 // memory-space scanning.
 //
@@ -549,7 +550,7 @@ class MOZ_STACK_CLASS AutoInitializeSourceObject
 };
 
 JSScript*
-frontend::CompileGlobalScript(JSContext* cx, LifoAlloc& alloc, ScopeKind scopeKind,
+frontend::CompileGlobalScript(ExclusiveContext* cx, LifoAlloc& alloc, ScopeKind scopeKind,
                               const ReadOnlyCompileOptions& options,
                               SourceBufferHolder& srcBuf,
                               SourceCompressionTask* extraSct,
@@ -564,7 +565,7 @@ frontend::CompileGlobalScript(JSContext* cx, LifoAlloc& alloc, ScopeKind scopeKi
 }
 
 JSScript*
-frontend::CompileEvalScript(JSContext* cx, LifoAlloc& alloc,
+frontend::CompileEvalScript(ExclusiveContext* cx, LifoAlloc& alloc,
                             HandleObject environment, HandleScope enclosingScope,
                             const ReadOnlyCompileOptions& options,
                             SourceBufferHolder& srcBuf,
@@ -579,7 +580,7 @@ frontend::CompileEvalScript(JSContext* cx, LifoAlloc& alloc,
 }
 
 ModuleObject*
-frontend::CompileModule(JSContext* cx, const ReadOnlyCompileOptions& optionsInput,
+frontend::CompileModule(ExclusiveContext* cx, const ReadOnlyCompileOptions& optionsInput,
                         SourceBufferHolder& srcBuf, LifoAlloc& alloc,
                         ScriptSourceObject** sourceObjectOut /* = nullptr */)
 {
@@ -604,14 +605,14 @@ frontend::CompileModule(JSContext* cx, const ReadOnlyCompileOptions& options,
     if (!GlobalObject::ensureModulePrototypesCreated(cx, cx->global()))
         return nullptr;
 
-    LifoAlloc& alloc = cx->tempLifoAlloc();
+    LifoAlloc& alloc = cx->asJSContext()->tempLifoAlloc();
     RootedModuleObject module(cx, CompileModule(cx, options, srcBuf, alloc));
     if (!module)
         return nullptr;
 
     // This happens in GlobalHelperThreadState::finishModuleParseTask() when a
-    // module is compiled off thread.
-    if (!ModuleObject::Freeze(cx, module))
+    // module is compiled off main thread.
+    if (!ModuleObject::Freeze(cx->asJSContext(), module))
         return nullptr;
 
     return module;

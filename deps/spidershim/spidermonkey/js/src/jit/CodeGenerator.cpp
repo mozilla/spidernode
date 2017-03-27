@@ -53,9 +53,6 @@
 #include "jit/shared/CodeGenerator-shared-inl.h"
 #include "jit/shared/Lowering-shared-inl.h"
 #include "vm/Interpreter-inl.h"
-#ifdef MOZ_VTUNE
-# include "vtune/VTuneWrapper.h"
-#endif
 
 using namespace js;
 using namespace js::jit;
@@ -261,8 +258,6 @@ CodeGenerator::visitOutOfLineICFallback(OutOfLineICFallback* ool)
       }
       case CacheKind::GetName:
       case CacheKind::SetProp:
-      case CacheKind::SetElem:
-      case CacheKind::In:
         MOZ_CRASH("Baseline-specific for now");
     }
     MOZ_CRASH();
@@ -288,7 +283,7 @@ CodeGenerator::~CodeGenerator()
     js_delete(scriptCounts_);
 }
 
-typedef bool (*StringToNumberFn)(JSContext*, JSString*, double*);
+typedef bool (*StringToNumberFn)(ExclusiveContext*, JSString*, double*);
 static const VMFunction StringToNumberInfo =
     FunctionInfo<StringToNumberFn>(StringToNumber, "StringToNumber");
 
@@ -945,7 +940,7 @@ CodeGenerator::emitIntToString(Register input, Register output, Label* ool)
     masm.loadPtr(BaseIndex(output, input, ScalePointer), output);
 }
 
-typedef JSFlatString* (*IntToStringFn)(JSContext*, int);
+typedef JSFlatString* (*IntToStringFn)(ExclusiveContext*, int);
 static const VMFunction IntToStringInfo =
     FunctionInfo<IntToStringFn>(Int32ToString<CanGC>, "Int32ToString");
 
@@ -963,7 +958,7 @@ CodeGenerator::visitIntToString(LIntToString* lir)
     masm.bind(ool->rejoin());
 }
 
-typedef JSString* (*DoubleToStringFn)(JSContext*, double);
+typedef JSString* (*DoubleToStringFn)(ExclusiveContext*, double);
 static const VMFunction DoubleToStringInfo =
     FunctionInfo<DoubleToStringFn>(NumberToString<CanGC>, "NumberToString");
 
@@ -1295,9 +1290,10 @@ PrepareAndExecuteRegExp(JSContext* cx, MacroAssembler& masm, Register regexp, Re
         volatileRegs.add(regexp);
 
 #ifdef JS_TRACE_LOGGING
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     if (TraceLogTextIdEnabled(TraceLogger_IrregexpExecute)) {
         masm.push(temp1);
-        masm.loadTraceLogger(temp1);
+        masm.movePtr(ImmPtr(logger), temp1);
         masm.tracelogStartId(temp1, TraceLogger_IrregexpExecute);
         masm.pop(temp1);
     }
@@ -1313,7 +1309,7 @@ PrepareAndExecuteRegExp(JSContext* cx, MacroAssembler& masm, Register regexp, Re
 
 #ifdef JS_TRACE_LOGGING
     if (TraceLogTextIdEnabled(TraceLogger_IrregexpExecute)) {
-        masm.loadTraceLogger(temp1);
+        masm.movePtr(ImmPtr(logger), temp1);
         masm.tracelogStopId(temp1, TraceLogger_IrregexpExecute);
     }
 #endif
@@ -1814,9 +1810,6 @@ JitCompartment::generateRegExpMatcherStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "RegExpMatcherStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "RegExpMatcherStub");
-#endif
 
     if (cx->zone()->needsIncrementalBarrier())
         code->togglePreBarriers(true, DontReprotect);
@@ -1974,9 +1967,6 @@ JitCompartment::generateRegExpSearcherStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "RegExpSearcherStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "RegExpSearcherStub");
-#endif
 
     if (cx->zone()->needsIncrementalBarrier())
         code->togglePreBarriers(true, DontReprotect);
@@ -2124,9 +2114,6 @@ JitCompartment::generateRegExpTesterStub(JSContext* cx)
 
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "RegExpTesterStub");
-#endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "RegExpTesterStub");
 #endif
 
     if (cx->zone()->needsIncrementalBarrier())
@@ -3400,7 +3387,7 @@ CodeGenerator::visitMaybeToDoubleElement(LMaybeToDoubleElement* lir)
     masm.bind(&done);
 }
 
-typedef bool (*CopyElementsForWriteFn)(JSContext*, NativeObject*);
+typedef bool (*CopyElementsForWriteFn)(ExclusiveContext*, NativeObject*);
 static const VMFunction CopyElementsForWriteInfo =
     FunctionInfo<CopyElementsForWriteFn>(NativeObject::CopyElementsForWrite,
                                          "NativeObject::CopyElementsForWrite");
@@ -3868,7 +3855,7 @@ CodeGenerator::visitCallNative(LCallNative* call)
 
     // Construct native exit frame.
     uint32_t safepointOffset = masm.buildFakeExitFrame(tempReg);
-    masm.enterFakeExitFrameForNative(tempReg, call->mir()->isConstructing());
+    masm.enterFakeExitFrameForNative(call->mir()->isConstructing());
 
     markSafepointAt(safepointOffset, call);
 
@@ -3990,7 +3977,7 @@ CodeGenerator::visitCallDOMNative(LCallDOMNative* call)
 
     // Construct native exit frame.
     uint32_t safepointOffset = masm.buildFakeExitFrame(argJSContext);
-    masm.enterFakeExitFrame(argJSContext, IonDOMMethodExitFrameLayoutToken);
+    masm.enterFakeExitFrame(IonDOMMethodExitFrameLayoutToken);
 
     markSafepointAt(safepointOffset, call);
 
@@ -4784,20 +4771,16 @@ CodeGenerator::visitCheckOverRecursed(LCheckOverRecursed* lir)
     // It must always be possible to trespass past the stack limit.
     // Ion may legally place frames very close to the limit. Calling additional
     // C functions may then violate the limit without any checking.
-    //
+
     // Since Ion frames exist on the C stack, the stack limit may be
     // dynamically set by JS_SetThreadStackLimit() and JS_SetNativeStackQuota().
+    const void* limitAddr = GetJitContext()->runtime->addressOfJitStackLimit();
 
     CheckOverRecursedFailure* ool = new(alloc()) CheckOverRecursedFailure(lir);
     addOutOfLineCode(ool, lir->mir());
 
-    Register temp = ToRegister(lir->temp());
-
     // Conditional forward (unlikely) branch to failure.
-    const void* contextAddr = GetJitContext()->compartment->zone()->addressOfJSContext();
-    masm.loadPtr(AbsoluteAddress(contextAddr), temp);
-    masm.branchStackPtrRhs(Assembler::AboveOrEqual,
-                           Address(temp, offsetof(JSContext, jitStackLimit)), ool->entry());
+    masm.branchStackPtrRhs(Assembler::AboveOrEqual, AbsoluteAddress(limitAddr), ool->entry());
     masm.bind(ool->rejoin());
 }
 
@@ -5176,7 +5159,7 @@ CodeGenerator::emitDebugForceBailing(LInstruction* lir)
         return;
 
     masm.comment("emitDebugForceBailing");
-    const void* bailAfterAddr = GetJitContext()->compartment->zone()->addressOfIonBailAfter();
+    const void* bailAfterAddr = GetJitContext()->runtime->addressOfIonBailAfter();
 
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
 
@@ -5333,10 +5316,8 @@ CodeGenerator::generateBody()
                 extendTrackedOptimizationsEntry(iter->mirRaw()->trackedOptimizations());
 
 #ifdef DEBUG
-            if (!counts) {
-                if (JitOptions.fullDebugChecks)
-                    emitDebugResultChecks(*iter);
-            }
+            if (!counts)
+                emitDebugResultChecks(*iter);
 #endif
         }
         if (masm.oom())
@@ -7348,7 +7329,7 @@ CodeGenerator::visitIsNullOrLikeUndefinedAndBranchT(LIsNullOrLikeUndefinedAndBra
     }
 }
 
-typedef JSString* (*ConcatStringsFn)(JSContext*, HandleString, HandleString);
+typedef JSString* (*ConcatStringsFn)(ExclusiveContext*, HandleString, HandleString);
 static const VMFunction ConcatStringsInfo =
     FunctionInfo<ConcatStringsFn>(ConcatStrings<CanGC>, "ConcatStrings");
 
@@ -7733,9 +7714,6 @@ JitCompartment::generateStringConcatStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "StringConcatStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "StringConcatStub");
-#endif
 
     return code;
 }
@@ -7777,9 +7755,6 @@ JitRuntime::generateMallocStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "MallocStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "MallocStub");
-#endif
 
     return code;
 }
@@ -7816,9 +7791,6 @@ JitRuntime::generateFreeStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "FreeStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "FreeStub");
-#endif
 
     return code;
 }
@@ -7835,10 +7807,11 @@ JitRuntime::generateLazyLinkStub(JSContext* cx)
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
     Register temp0 = regs.takeAny();
 
-    masm.enterFakeExitFrame(temp0, LazyLinkExitFrameLayoutToken);
+    masm.enterFakeExitFrame(LazyLinkExitFrameLayoutToken);
     masm.PushStubCode();
 
     masm.setupUnalignedABICall(temp0);
+    masm.loadJSContext(temp0);
     masm.passABIArg(temp0);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, LazyLinkTopActivation));
 
@@ -7858,9 +7831,6 @@ JitRuntime::generateLazyLinkStub(JSContext* cx)
 #ifdef JS_ION_PERF
     writePerfSpewerJitCodeProfile(code, "LazyLinkStub");
 #endif
-#ifdef MOZ_VTUNE
-    vtune::MarkStub(code, "LazyLinkStub");
-#endif
     return code;
 }
 
@@ -7869,6 +7839,8 @@ JitRuntime::generateTLEventVM(JSContext* cx, MacroAssembler& masm, const VMFunct
                               bool enter)
 {
 #ifdef JS_TRACE_LOGGING
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+
     bool vmEventEnabled = TraceLogTextIdEnabled(TraceLogger_VM);
     bool vmSpecificEventEnabled = TraceLogTextIdEnabled(TraceLogger_VMSpecific);
 
@@ -7876,7 +7848,7 @@ JitRuntime::generateTLEventVM(JSContext* cx, MacroAssembler& masm, const VMFunct
         AllocatableRegisterSet regs(RegisterSet::Volatile());
         Register loggerReg = regs.takeAnyGeneral();
         masm.Push(loggerReg);
-        masm.loadTraceLogger(loggerReg);
+        masm.movePtr(ImmPtr(logger), loggerReg);
 
         if (vmEventEnabled) {
             if (enter)
@@ -7885,7 +7857,7 @@ JitRuntime::generateTLEventVM(JSContext* cx, MacroAssembler& masm, const VMFunct
                 masm.tracelogStopId(loggerReg, TraceLogger_VM, /* force = */ true);
         }
         if (vmSpecificEventEnabled) {
-            TraceLoggerEvent event(f.name());
+            TraceLoggerEvent event(logger, f.name());
             if (!event.hasPayload())
                 return false;
 
@@ -9852,9 +9824,11 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
 
 #ifdef JS_TRACE_LOGGING
     bool TLFailed = false;
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
 
     for (uint32_t i = 0; i < patchableTLEvents_.length(); i++) {
-        TraceLoggerEvent event(patchableTLEvents_[i].event);
+        // Create an event on the mainthread.
+        TraceLoggerEvent event(logger, patchableTLEvents_[i].event);
         if (!event.hasPayload() || !ionScript->addTraceLoggerEvent(event)) {
             TLFailed = true;
             break;
@@ -9866,7 +9840,7 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
 
     if (!TLFailed && patchableTLScripts_.length() > 0) {
         MOZ_ASSERT(TraceLogTextIdEnabled(TraceLogger_Scripts));
-        TraceLoggerEvent event(TraceLogger_Scripts, script);
+        TraceLoggerEvent event(logger, TraceLogger_Scripts, script);
         if (!event.hasPayload() || !ionScript->addTraceLoggerEvent(event))
             TLFailed = true;
         if (!TLFailed) {
@@ -9877,6 +9851,16 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
                                                    ImmPtr((void*)0));
             }
         }
+    }
+
+    if (!TLFailed) {
+        for (uint32_t i = 0; i < patchableTraceLoggers_.length(); i++) {
+            Assembler::PatchDataWithValueCheck(CodeLocationLabel(code, patchableTraceLoggers_[i]),
+                                               ImmPtr(logger),
+                                               ImmPtr(nullptr));
+        }
+    } else {
+        TraceLoggerSilentFail(logger, "OOM when trying to patch ion log events.");
     }
 #endif
 
@@ -9929,10 +9913,6 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
         perfSpewer_.writeProfile(script, code, masm);
 #endif
 
-#ifdef MOZ_VTUNE
-    vtune::MarkScript(code, script, "ion");
-#endif
-
     // for marking during GC.
     if (safepointIndices_.length())
         ionScript->copySafepointIndices(&safepointIndices_[0], masm);
@@ -9955,7 +9935,7 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
         for (size_t i = 0; i < graph.numConstants(); i++) {
             const Value& v = vp[i];
             if (v.isObject() && IsInsideNursery(&v.toObject())) {
-                cx->zone()->group()->storeBuffer().putWholeCell(script);
+                cx->runtime()->gc.storeBuffer.putWholeCell(script);
                 break;
             }
         }
@@ -11380,7 +11360,7 @@ CodeGenerator::visitGetDOMProperty(LGetDOMProperty* ins)
     masm.moveStackPtrTo(ObjectReg);
 
     uint32_t safepointOffset = masm.buildFakeExitFrame(JSContextReg);
-    masm.enterFakeExitFrame(JSContextReg, IonDOMExitFrameLayoutGetterToken);
+    masm.enterFakeExitFrame(IonDOMExitFrameLayoutGetterToken);
 
     markSafepointAt(safepointOffset, ins);
 
@@ -11469,7 +11449,7 @@ CodeGenerator::visitSetDOMProperty(LSetDOMProperty* ins)
     masm.moveStackPtrTo(ObjectReg);
 
     uint32_t safepointOffset = masm.buildFakeExitFrame(JSContextReg);
-    masm.enterFakeExitFrame(JSContextReg, IonDOMExitFrameLayoutSetterToken);
+    masm.enterFakeExitFrame(IonDOMExitFrameLayoutSetterToken);
 
     markSafepointAt(safepointOffset, ins);
 
@@ -11922,12 +11902,8 @@ CodeGenerator::visitInterruptCheck(LInterruptCheck* lir)
 
     OutOfLineCode* ool = oolCallVM(InterruptCheckInfo, lir, ArgList(), StoreNothing());
 
-    Register temp = ToRegister(lir->temp());
-
-    const void* contextAddr = GetJitContext()->compartment->zone()->addressOfJSContext();
-    masm.loadPtr(AbsoluteAddress(contextAddr), temp);
-    masm.branch32(Assembler::NotEqual, Address(temp, offsetof(JSContext, interrupt_)),
-                  Imm32(0), ool->entry());
+    AbsoluteAddress interruptAddr(GetJitContext()->runtime->addressOfInterruptUint32());
+    masm.branch32(Assembler::NotEqual, interruptAddr, Imm32(0), ool->entry());
     masm.bind(ool->rejoin());
 }
 

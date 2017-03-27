@@ -33,7 +33,6 @@
 #include "builtin/SIMD.h"
 #include "frontend/Parser.h"
 #include "gc/Policy.h"
-#include "jit/AtomicOperations.h"
 #include "js/MemoryMetrics.h"
 #include "vm/SelfHosting.h"
 #include "vm/StringBuffer.h"
@@ -687,7 +686,7 @@ FunctionStatementList(ParseNode* fn)
 }
 
 static inline bool
-IsNormalObjectField(JSContext* cx, ParseNode* pn)
+IsNormalObjectField(ExclusiveContext* cx, ParseNode* pn)
 {
     return pn->isKind(PNK_COLON) &&
            pn->getOp() == JSOP_INITPROP &&
@@ -695,7 +694,7 @@ IsNormalObjectField(JSContext* cx, ParseNode* pn)
 }
 
 static inline PropertyName*
-ObjectNormalFieldName(JSContext* cx, ParseNode* pn)
+ObjectNormalFieldName(ExclusiveContext* cx, ParseNode* pn)
 {
     MOZ_ASSERT(IsNormalObjectField(cx, pn));
     MOZ_ASSERT(BinaryLeft(pn)->isKind(PNK_OBJECT_PROPERTY_NAME));
@@ -703,7 +702,7 @@ ObjectNormalFieldName(JSContext* cx, ParseNode* pn)
 }
 
 static inline ParseNode*
-ObjectNormalFieldInitializer(JSContext* cx, ParseNode* pn)
+ObjectNormalFieldInitializer(ExclusiveContext* cx, ParseNode* pn)
 {
     MOZ_ASSERT(IsNormalObjectField(cx, pn));
     return BinaryRight(pn);
@@ -722,13 +721,13 @@ IsUseOfName(ParseNode* pn, PropertyName* name)
 }
 
 static inline bool
-IsIgnoredDirectiveName(JSContext* cx, JSAtom* atom)
+IsIgnoredDirectiveName(ExclusiveContext* cx, JSAtom* atom)
 {
     return atom != cx->names().useStrict;
 }
 
 static inline bool
-IsIgnoredDirective(JSContext* cx, ParseNode* pn)
+IsIgnoredDirective(ExclusiveContext* cx, ParseNode* pn)
 {
     return pn->isKind(PNK_SEMI) &&
            UnaryKid(pn) &&
@@ -1624,7 +1623,7 @@ class MOZ_STACK_CLASS ModuleValidator
     typedef HashMap<PropertyName*, SimdOperation> SimdOperationNameMap;
     typedef Vector<ArrayView> ArrayViewVector;
 
-    JSContext*            cx_;
+    ExclusiveContext*     cx_;
     AsmJSParser&          parser_;
     ParseNode*            moduleFunctionNode_;
     PropertyName*         moduleFunctionName_;
@@ -1705,7 +1704,7 @@ class MOZ_STACK_CLASS ModuleValidator
     }
 
   public:
-    ModuleValidator(JSContext* cx, AsmJSParser& parser, ParseNode* moduleFunctionNode)
+    ModuleValidator(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* moduleFunctionNode)
       : cx_(cx),
         parser_(parser),
         moduleFunctionNode_(moduleFunctionNode),
@@ -1850,7 +1849,7 @@ class MOZ_STACK_CLASS ModuleValidator
         return true;
     }
 
-    JSContext* cx() const                    { return cx_; }
+    ExclusiveContext* cx() const             { return cx_; }
     PropertyName* moduleFunctionName() const { return moduleFunctionName_; }
     PropertyName* globalArgumentName() const { return globalArgumentName_; }
     PropertyName* importArgumentName() const { return importArgumentName_; }
@@ -2907,7 +2906,7 @@ class MOZ_STACK_CLASS FunctionValidator
     {}
 
     ModuleValidator& m() const        { return m_; }
-    JSContext* cx() const             { return m_.cx(); }
+    ExclusiveContext* cx() const      { return m_.cx(); }
     ParseNode* fn() const             { return fn_; }
 
     bool init(PropertyName* name, unsigned line) {
@@ -7338,7 +7337,7 @@ CheckModuleEnd(ModuleValidator &m)
 }
 
 static SharedModule
-CheckModule(JSContext* cx, AsmJSParser& parser, ParseNode* stmtList, unsigned* time)
+CheckModule(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList, unsigned* time)
 {
     int64_t before = PRMJ_Now();
 
@@ -8129,7 +8128,7 @@ InstantiateAsmJS(JSContext* cx, unsigned argc, JS::Value* vp)
 }
 
 static JSFunction*
-NewAsmJSModuleFunction(JSContext* cx, JSFunction* origFun, HandleObject moduleObj)
+NewAsmJSModuleFunction(ExclusiveContext* cx, JSFunction* origFun, HandleObject moduleObj)
 {
     RootedAtom name(cx, origFun->explicitName());
 
@@ -8396,12 +8395,12 @@ class ModuleCharsForLookup : ModuleChars
 
 struct ScopedCacheEntryOpenedForWrite
 {
-    JSContext* cx;
+    ExclusiveContext* cx;
     const size_t serializedSize;
     uint8_t* memory;
     intptr_t handle;
 
-    ScopedCacheEntryOpenedForWrite(JSContext* cx, size_t serializedSize)
+    ScopedCacheEntryOpenedForWrite(ExclusiveContext* cx, size_t serializedSize)
       : cx(cx), serializedSize(serializedSize), memory(nullptr), handle(-1)
     {}
 
@@ -8413,12 +8412,12 @@ struct ScopedCacheEntryOpenedForWrite
 
 struct ScopedCacheEntryOpenedForRead
 {
-    JSContext* cx;
+    ExclusiveContext* cx;
     size_t serializedSize;
     const uint8_t* memory;
     intptr_t handle;
 
-    explicit ScopedCacheEntryOpenedForRead(JSContext* cx)
+    explicit ScopedCacheEntryOpenedForRead(ExclusiveContext* cx)
       : cx(cx), serializedSize(0), memory(nullptr), handle(0)
     {}
 
@@ -8431,7 +8430,7 @@ struct ScopedCacheEntryOpenedForRead
 } // unnamed namespace
 
 static JS::AsmJSCacheResult
-StoreAsmJSModuleInCache(AsmJSParser& parser, Module& module, JSContext* cx)
+StoreAsmJSModuleInCache(AsmJSParser& parser, Module& module, ExclusiveContext* cx)
 {
     ModuleCharsForStore moduleChars;
     if (!moduleChars.init(parser))
@@ -8479,7 +8478,7 @@ StoreAsmJSModuleInCache(AsmJSParser& parser, Module& module, JSContext* cx)
 }
 
 static bool
-LookupAsmJSModuleInCache(JSContext* cx, AsmJSParser& parser, bool* loadedFromCache,
+LookupAsmJSModuleInCache(ExclusiveContext* cx, AsmJSParser& parser, bool* loadedFromCache,
                          SharedModule* module, UniqueChars* compilationTimeReport)
 {
     int64_t before = PRMJ_Now();
@@ -8556,9 +8555,9 @@ LookupAsmJSModuleInCache(JSContext* cx, AsmJSParser& parser, bool* loadedFromCac
 // Top-level js::CompileAsmJS
 
 static bool
-NoExceptionPending(JSContext* cx)
+NoExceptionPending(ExclusiveContext* cx)
 {
-    return cx->helperThread() || !cx->isExceptionPending();
+    return !cx->isJSContext() || !cx->asJSContext()->isExceptionPending();
 }
 
 static bool
@@ -8573,7 +8572,7 @@ Warn(AsmJSParser& parser, int errorNumber, const char* str)
 }
 
 static bool
-EstablishPreconditions(JSContext* cx, AsmJSParser& parser)
+EstablishPreconditions(ExclusiveContext* cx, AsmJSParser& parser)
 {
     if (!HasCompilerSupport(cx))
         return Warn(parser, JSMSG_USE_ASM_TYPE_FAIL, "Disabled by lack of compiler support");
@@ -8601,7 +8600,7 @@ EstablishPreconditions(JSContext* cx, AsmJSParser& parser)
 }
 
 static UniqueChars
-BuildConsoleMessage(JSContext* cx, unsigned time, JS::AsmJSCacheResult cacheResult)
+BuildConsoleMessage(ExclusiveContext* cx, unsigned time, JS::AsmJSCacheResult cacheResult)
 {
 #ifndef JS_MORE_DETERMINISTIC
     const char* cacheString = "";
@@ -8649,7 +8648,7 @@ BuildConsoleMessage(JSContext* cx, unsigned time, JS::AsmJSCacheResult cacheResu
 }
 
 bool
-js::CompileAsmJS(JSContext* cx, AsmJSParser& parser, ParseNode* stmtList, bool* validated)
+js::CompileAsmJS(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList, bool* validated)
 {
     *validated = false;
 

@@ -206,11 +206,8 @@ HOST_CFLAGS += $(HOST_PDB_FLAG)
 HOST_CXXFLAGS += $(HOST_PDB_FLAG)
 endif
 
-# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass, and do not
-# attempt to install them
+# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass
 ifdef MOZ_PROFILE_GENERATE
-$(foreach category,$(INSTALL_TARGETS),\
-  $(eval $(category)_FILES := $(foreach file,$($(category)_FILES),$(if $(filter $(SIMPLE_PROGRAMS),$(notdir $(file))),,$(file)))))
 SIMPLE_PROGRAMS :=
 endif
 
@@ -943,13 +940,7 @@ endif
 # optimization level here, if necessary.  (The Cargo.toml files already
 # specify debug-assertions appropriately for --{disable,enable}-debug.)
 ifndef MOZ_OPTIMIZE
-rustflags = -C opt-level=0
-# Unfortunately, -C opt-level=0 implies -C debug-assertions, so we need
-# to explicitly disable them when MOZ_DEBUG is not set.
-ifndef MOZ_DEBUG
-rustflags += -C debug-assertions=no
-endif
-rustflags_override = RUSTFLAGS='$(rustflags)'
+rustflags_override = RUSTFLAGS='-C opt-level=0'
 endif
 
 CARGO_BUILD = env $(rustflags_override) \
@@ -958,7 +949,6 @@ CARGO_BUILD = env $(rustflags_override) \
 	MOZ_DIST=$(ABS_DIST) \
 	LIBCLANG_PATH=$(MOZ_LIBCLANG_PATH) \
 	CLANG_PATH=$(MOZ_CLANG_PATH) \
-	PKG_CONFIG_ALLOW_CROSS=1 \
 	$(CARGO) build $(cargo_build_flags)
 
 ifdef RUST_LIBRARY_FILE

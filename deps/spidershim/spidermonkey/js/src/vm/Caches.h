@@ -9,7 +9,6 @@
 
 #include "jsatom.h"
 #include "jsbytecode.h"
-#include "jsmath.h"
 #include "jsobj.h"
 #include "jsscript.h"
 
@@ -202,7 +201,7 @@ class NewObjectCache
     void purge() { mozilla::PodZero(this); }
 
     /* Remove any cached items keyed on moved objects. */
-    void clearNurseryObjects(ZoneGroup* group);
+    void clearNurseryObjects(JSRuntime* rt);
 
     /*
      * Get the entry index for the given lookup, return whether there was a hit
@@ -275,7 +274,9 @@ class NewObjectCache
     }
 };
 
-class ZoneGroupCaches
+class MathCache;
+
+class ContextCaches
 {
     UniquePtr<js::MathCache> mathCache_;
 
@@ -288,7 +289,7 @@ class ZoneGroupCaches
     js::NativeIterCache nativeIterCache;
     js::UncompressedSourceCache uncompressedSourceCache;
     js::EvalCache evalCache;
-    LazyScriptCache lazyScriptCache;
+    js::LazyScriptCache lazyScriptCache;
 
     bool init();
 

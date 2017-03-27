@@ -80,7 +80,7 @@ class MIRGenerator
     abortFmt(AbortReason r, const char* message, va_list ap);
 
     // Collect the evaluation result of phases after IonBuilder, such that
-    // off-thread compilation can report what error got encountered.
+    // off-main-thread compilation can report what error got encountered.
     void setOffThreadStatus(AbortReasonOr<Ok> result) {
         MOZ_ASSERT(offThreadStatus_.isOk());
         offThreadStatus_ = result;
@@ -102,8 +102,7 @@ class MIRGenerator
     }
 
     bool isOptimizationTrackingEnabled() {
-        return isProfilerInstrumentationEnabled() && !info().isAnalysis() &&
-               !JitOptions.disableOptimizationTracking;
+        return isProfilerInstrumentationEnabled() && !info().isAnalysis();
     }
 
     bool safeForMinorGC() const {
@@ -113,7 +112,7 @@ class MIRGenerator
         safeForMinorGC_ = false;
     }
 
-    // Whether the active thread is trying to cancel this build.
+    // Whether the main thread is trying to cancel this build.
     bool shouldCancel(const char* why) {
         maybePause();
         return cancelBuild_;

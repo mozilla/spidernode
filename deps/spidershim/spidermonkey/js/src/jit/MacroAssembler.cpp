@@ -163,7 +163,7 @@ MacroAssembler::guardObjectType(Register obj, const TypeSet* types,
     MOZ_ASSERT_IF(types->getObjectCount() > 0, scratch != InvalidReg);
 
     // Note: this method elides read barriers on values read from type sets, as
-    // this may be called off thread during Ion compilation. This is
+    // this may be called off the main thread during Ion compilation. This is
     // safe to do as the final JitCode object will be allocated during the
     // incremental GC (or the compilation canceled before we start sweeping),
     // see CodeGenerator::link. Other callers should use TypeSet::readBarrier
@@ -785,14 +785,14 @@ MacroAssembler::nurseryAllocate(Register result, Register temp, gc::AllocKind al
 
     // No explicit check for nursery.isEnabled() is needed, as the comparison
     // with the nursery's end will always fail in such cases.
-    CompileZone* zone = GetJitContext()->compartment->zone();
+    const Nursery& nursery = GetJitContext()->runtime->gcNursery();
     int thingSize = int(gc::Arena::thingSize(allocKind));
     int totalSize = thingSize + nDynamicSlots * sizeof(HeapSlot);
     MOZ_ASSERT(totalSize % gc::CellSize == 0);
-    loadPtr(AbsoluteAddress(zone->addressOfNurseryPosition()), result);
+    loadPtr(AbsoluteAddress(nursery.addressOfPosition()), result);
     computeEffectiveAddress(Address(result, totalSize), temp);
-    branchPtr(Assembler::Below, AbsoluteAddress(zone->addressOfNurseryCurrentEnd()), temp, fail);
-    storePtr(temp, AbsoluteAddress(zone->addressOfNurseryPosition()));
+    branchPtr(Assembler::Below, AbsoluteAddress(nursery.addressOfCurrentEnd()), temp, fail);
+    storePtr(temp, AbsoluteAddress(nursery.addressOfPosition()));
 
     if (nDynamicSlots) {
         computeEffectiveAddress(Address(result, thingSize), temp);
@@ -1063,7 +1063,8 @@ JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY)
         return;
 
     nbytes = JS_ROUNDUP(nbytes, sizeof(Value));
-    void* buf = cx->nursery().allocateBuffer(obj, nbytes);
+    Nursery& nursery = cx->runtime()->gc.nursery;
+    void* buf = nursery.allocateBuffer(obj, nbytes);
     if (buf) {
         obj->initPrivate(buf);
         memset(buf, 0, nbytes);
@@ -1403,24 +1404,6 @@ MacroAssembler::loadStringChar(Register str, Register index, Register output)
     bind(&done);
 }
 
-void
-MacroAssembler::loadJSContext(Register dest)
-{
-    CompileCompartment* compartment = GetJitContext()->compartment;
-    if (compartment->zone()->isAtomsZone()) {
-        // If we are in the atoms zone then we are generating a runtime wide
-        // trampoline which can run in any zone. Load the context which is
-        // currently running using cooperative scheduling in the runtime.
-        // (This will need to be fixed when we have preemptive scheduling,
-        // bug 1323066).
-        loadPtr(AbsoluteAddress(GetJitContext()->runtime->addressOfActiveJSContext()), dest);
-    } else {
-        // If we are in a specific zone then the current context will be stored
-        // in the containing zone group.
-        loadPtr(AbsoluteAddress(GetJitContext()->compartment->zone()->addressOfJSContext()), dest);
-    }
-}
-
 static void
 BailoutReportOverRecursed(JSContext* cx)
 {
@@ -1430,7 +1413,7 @@ BailoutReportOverRecursed(JSContext* cx)
 void
 MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
 {
-    enterExitFrame(scratch);
+    enterExitFrame();
 
     Label baseline;
 
@@ -1491,7 +1474,7 @@ MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
         push(temp);
         push(Address(bailoutInfo, offsetof(BaselineBailoutInfo, resumeAddr)));
         // No GC things to mark on the stack, push a bare token.
-        enterFakeExitFrame(scratch, ExitFrameLayoutBareToken);
+        enterFakeExitFrame(ExitFrameLayoutBareToken);
 
         // If monitorStub is non-null, handle resumeAddr appropriately.
         Label noMonitor;
@@ -1819,17 +1802,6 @@ MacroAssembler::convertInt32ValueToDouble(const Address& address, Register scrat
     unboxInt32(address, scratch);
     convertInt32ToDouble(scratch, ScratchDoubleReg);
     storeDouble(ScratchDoubleReg, address);
-}
-
-void
-MacroAssembler::convertInt32ValueToDouble(ValueOperand val)
-{
-    Label done;
-    branchTestInt32(Assembler::NotEqual, val, &done);
-    unboxInt32(val, val.scratchReg());
-    convertInt32ToDouble(val.scratchReg(), ScratchDoubleReg);
-    boxDouble(ScratchDoubleReg, val);
-    bind(&done);
 }
 
 void
@@ -2267,9 +2239,11 @@ MacroAssembler::AutoProfilerCallInstrumentation::AutoProfilerCallInstrumentation
     masm.push(reg);
     masm.push(reg2);
 
+    JitContext* icx = GetJitContext();
+    AbsoluteAddress profilingActivation(icx->runtime->addressOfProfilingActivation());
+
     CodeOffset label = masm.movWithPatch(ImmWord(uintptr_t(-1)), reg);
-    masm.loadJSContext(reg2);
-    masm.loadPtr(Address(reg2, offsetof(JSContext, profilingActivation_)), reg2);
+    masm.loadPtr(profilingActivation, reg2);
     masm.storePtr(reg, Address(reg2, JitActivation::offsetOfLastProfilingCallSite()));
 
     masm.appendProfilerCallSite(label);
@@ -2392,7 +2366,7 @@ MacroAssembler::MacroAssembler(JSContext* cx, IonScript* ion,
 #endif
     if (ion) {
         setFramePushed(ion->frameSize());
-        if (pc && cx->runtime()->geckoProfiler().enabled())
+        if (pc && cx->runtime()->geckoProfiler.enabled())
             enableProfilingInstrumentation();
     }
 }
@@ -2710,10 +2684,10 @@ MacroAssembler::callWithABINoProfiler(wasm::SymbolicAddress imm, MoveOp::Type re
 // Exit frame footer.
 
 void
-MacroAssembler::linkExitFrame(Register temp)
+MacroAssembler::linkExitFrame()
 {
-    loadJSContext(temp);
-    storeStackPtr(Address(temp, offsetof(JSContext, jitTop)));
+    AbsoluteAddress jitTop(GetJitContext()->runtime->addressOfJitTop());
+    storeStackPtr(jitTop);
 }
 
 void

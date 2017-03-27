@@ -15,7 +15,7 @@ using namespace js;
 using JS::IsArrayAnswer;
 
 bool
-BaseProxyHandler::enter(JSContext* cx, HandleObject wrapper, HandleId id, Action act, bool mayThrow,
+BaseProxyHandler::enter(JSContext* cx, HandleObject wrapper, HandleId id, Action act,
                         bool* bp) const
 {
     *bp = true;

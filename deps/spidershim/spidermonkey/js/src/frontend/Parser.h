@@ -631,7 +631,7 @@ class UsedNameTracker
         void resetToScope(uint32_t scriptId, uint32_t scopeId);
 
       public:
-        explicit UsedNameInfo(JSContext* cx)
+        explicit UsedNameInfo(ExclusiveContext* cx)
           : uses_(cx)
         { }
 
@@ -677,7 +677,7 @@ class UsedNameTracker
     uint32_t scopeCounter_;
 
   public:
-    explicit UsedNameTracker(JSContext* cx)
+    explicit UsedNameTracker(ExclusiveContext* cx)
       : map_(cx),
         scriptCounter_(0),
         scopeCounter_(0)
@@ -702,7 +702,7 @@ class UsedNameTracker
         return map_.lookup(name);
     }
 
-    MOZ_MUST_USE bool noteUse(JSContext* cx, JSAtom* name,
+    MOZ_MUST_USE bool noteUse(ExclusiveContext* cx, JSAtom* name,
                               uint32_t scriptId, uint32_t scopeId);
 
     struct RewindToken
@@ -740,7 +740,7 @@ class ParserBase : public StrictModeGetter
     ParserBase* thisForCtor() { return this; }
 
   public:
-    JSContext* const context;
+    ExclusiveContext* const context;
 
     LifoAlloc& alloc;
 
@@ -784,7 +784,7 @@ class ParserBase : public StrictModeGetter
     bool isUnexpectedEOF_:1;
 
   public:
-    ParserBase(JSContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
+    ParserBase(ExclusiveContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
                const char16_t* chars, size_t length, bool foldConstants,
                UsedNameTracker& usedNames, Parser<SyntaxParseHandler>* syntaxParser,
                LazyScript* lazyOuterFunction);
@@ -992,7 +992,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     void freeTree(Node node) { handler.freeTree(node); }
 
   public:
-    Parser(JSContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
+    Parser(ExclusiveContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
            const char16_t* chars, size_t length, bool foldConstants, UsedNameTracker& usedNames,
            Parser<SyntaxParseHandler>* syntaxParser, LazyScript* lazyOuterFunction);
     ~Parser();

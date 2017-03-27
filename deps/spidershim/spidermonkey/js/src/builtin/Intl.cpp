@@ -1045,7 +1045,7 @@ js::intl_Collator(JSContext* cx, unsigned argc, Value* vp)
 void
 CollatorObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
 
     const Value& slot = obj->as<CollatorObject>().getReservedSlot(CollatorObject::UCOLLATOR_SLOT);
     if (UCollator* coll = static_cast<UCollator*>(slot.toPrivate()))
@@ -1478,7 +1478,7 @@ js::intl_NumberFormat(JSContext* cx, unsigned argc, Value* vp)
 void
 NumberFormatObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
 
     const Value& slot =
         obj->as<NumberFormatObject>().getReservedSlot(NumberFormatObject::UNUMBER_FORMAT_SLOT);
@@ -2417,7 +2417,7 @@ js::intl_DateTimeFormat(JSContext* cx, unsigned argc, Value* vp)
 void
 DateTimeFormatObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
 
     const Value& slot =
         obj->as<DateTimeFormatObject>().getReservedSlot(DateTimeFormatObject::UDATE_FORMAT_SLOT);
@@ -2821,7 +2821,7 @@ void
 js::SharedIntlData::trace(JSTracer* trc)
 {
     // Atoms are always tenured.
-    if (!JS::CurrentThreadIsHeapMinorCollecting()) {
+    if (!trc->runtime()->isHeapMinorCollecting()) {
         availableTimeZones.trace(trc);
         ianaZonesTreatedAsLinksByICU.trace(trc);
         ianaLinksCanonicalizedDifferentlyByICU.trace(trc);
@@ -2843,7 +2843,7 @@ js::intl_IsValidTimeZoneName(JSContext* cx, unsigned argc, Value* vp)
     MOZ_ASSERT(args.length() == 1);
     MOZ_ASSERT(args[0].isString());
 
-    SharedIntlData& sharedIntlData = cx->runtime()->sharedIntlData.ref();
+    SharedIntlData& sharedIntlData = cx->sharedIntlData;
 
     RootedString timeZone(cx, args[0].toString());
     RootedString validatedTimeZone(cx);
@@ -2867,7 +2867,7 @@ js::intl_canonicalizeTimeZone(JSContext* cx, unsigned argc, Value* vp)
     MOZ_ASSERT(args.length() == 1);
     MOZ_ASSERT(args[0].isString());
 
-    SharedIntlData& sharedIntlData = cx->runtime()->sharedIntlData.ref();
+    SharedIntlData& sharedIntlData = cx->sharedIntlData;
 
     // Some time zone names are canonicalized differently by ICU -- handle
     // those first:
@@ -3458,7 +3458,7 @@ PluralRules(JSContext* cx, unsigned argc, Value* vp)
 void
 PluralRulesObject::finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->onActiveCooperatingThread());
+    MOZ_ASSERT(fop->onMainThread());
 
     const Value& slot =
         obj->as<PluralRulesObject>().getReservedSlot(PluralRulesObject::UPLURAL_RULES_SLOT);

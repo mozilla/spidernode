@@ -30,7 +30,7 @@ class StringBuffer;
 
 template <AllowGC allowGC>
 extern JSString*
-ConcatStrings(JSContext* cx,
+ConcatStrings(ExclusiveContext* cx,
               typename MaybeRooted<JSString*, allowGC>::HandleType left,
               typename MaybeRooted<JSString*, allowGC>::HandleType right);
 
@@ -129,10 +129,10 @@ extern const char*
 ValueToPrintable(JSContext* cx, const Value&, JSAutoByteString* bytes, bool asSource = false);
 
 extern UniqueChars
-DuplicateString(JSContext* cx, const char* s);
+DuplicateString(ExclusiveContext* cx, const char* s);
 
 extern UniqueTwoByteChars
-DuplicateString(JSContext* cx, const char16_t* s);
+DuplicateString(ExclusiveContext* cx, const char16_t* s);
 
 /*
  * These variants do not report OOMs, you must arrange for OOMs to be reported
@@ -156,7 +156,7 @@ DuplicateString(const char16_t* s, size_t n);
  */
 template <AllowGC allowGC>
 extern JSString*
-ToStringSlow(JSContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg);
+ToStringSlow(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleType arg);
 
 /*
  * Convert the given value to a string.  This method includes an inline
@@ -281,7 +281,7 @@ SubstringKernel(JSContext* cx, HandleString str, int32_t beginInt, int32_t lengt
  * appended, but it is not included in the length.
  */
 extern char16_t*
-InflateString(JSContext* cx, const char* bytes, size_t* length);
+InflateString(ExclusiveContext* cx, const char* bytes, size_t* length);
 
 /*
  * Inflate bytes to JS chars in an existing buffer. 'dst' must be large

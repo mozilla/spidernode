@@ -23,7 +23,6 @@
 #include "js/UbiNode.h"
 #include "js/Utility.h"
 #include "js/Vector.h"
-#include "threading/ProtectedData.h"
 #include "vm/TaggedProto.h"
 
 namespace js {
@@ -34,9 +33,9 @@ namespace jit {
     class TempAllocator;
 } // namespace jit
 
+struct TypeZone;
 class TypeConstraint;
 class TypeNewScript;
-class TypeZone;
 class CompilerConstraintList;
 class HeapTypeSetKey;
 
@@ -543,11 +542,6 @@ static const uintptr_t BaseTypeInferenceMagic = 0xa1a2b3b4c5c6d7d8;
 static const uintptr_t TypeConstraintMagic = BaseTypeInferenceMagic + 1;
 static const uintptr_t ConstraintTypeSetMagic = BaseTypeInferenceMagic + 2;
 
-#ifdef JS_CRASH_DIAGNOSTICS
-extern MOZ_NORETURN MOZ_COLD MOZ_NEVER_INLINE void
-ReportMagicWordFailure(uintptr_t actual, uintptr_t expected);
-#endif
-
 /*
  * A constraint which listens to additions to a type set and propagates those
  * changes to other type sets.
@@ -572,8 +566,7 @@ class TypeConstraint
 
     void checkMagic() const {
 #ifdef JS_CRASH_DIAGNOSTICS
-        if (MOZ_UNLIKELY(magic_ != TypeConstraintMagic))
-            ReportMagicWordFailure(magic_, TypeConstraintMagic);
+        MOZ_RELEASE_ASSERT(magic_ == TypeConstraintMagic);
 #endif
     }
 
@@ -675,8 +668,7 @@ class ConstraintTypeSet : public TypeSet
 
     void checkMagic() const {
 #ifdef JS_CRASH_DIAGNOSTICS
-        if (MOZ_UNLIKELY(magic_ != ConstraintTypeSetMagic))
-            ReportMagicWordFailure(magic_, ConstraintTypeSetMagic);
+        MOZ_RELEASE_ASSERT(magic_ == ConstraintTypeSetMagic);
 #endif
     }
 
@@ -698,11 +690,11 @@ class ConstraintTypeSet : public TypeSet
      * Add a type to this set, calling any constraint handlers if this is a new
      * possible type.
      */
-    void addType(JSContext* cx, Type type);
+    void addType(ExclusiveContext* cx, Type type);
 
     // Trigger a post barrier when writing to this set, if necessary.
     // addType(cx, type) takes care of this automatically.
-    void postWriteBarrier(JSContext* cx, Type type);
+    void postWriteBarrier(ExclusiveContext* cx, Type type);
 
     /* Add a new constraint to this set. */
     bool addConstraint(JSContext* cx, TypeConstraint* constraint, bool callExisting = true);
@@ -718,17 +710,17 @@ class StackTypeSet : public ConstraintTypeSet
 
 class HeapTypeSet : public ConstraintTypeSet
 {
-    inline void newPropertyState(JSContext* cx);
+    inline void newPropertyState(ExclusiveContext* cx);
 
   public:
     /* Mark this type set as representing a non-data property. */
-    inline void setNonDataProperty(JSContext* cx);
+    inline void setNonDataProperty(ExclusiveContext* cx);
 
     /* Mark this type set as representing a non-writable property. */
-    inline void setNonWritableProperty(JSContext* cx);
+    inline void setNonWritableProperty(ExclusiveContext* cx);
 
     // Mark this type set as being non-constant.
-    inline void setNonConstantProperty(JSContext* cx);
+    inline void setNonConstantProperty(ExclusiveContext* cx);
 };
 
 CompilerConstraintList*
@@ -926,7 +918,7 @@ class PreliminaryObjectArrayWithTemplate : public PreliminaryObjectArray
         return shape_;
     }
 
-    void maybeAnalyze(JSContext* cx, ObjectGroup* group, bool force = false);
+    void maybeAnalyze(ExclusiveContext* cx, ObjectGroup* group, bool force = false);
 
     void trace(JSTracer* trc);
 
@@ -1186,10 +1178,10 @@ FinishDefinitePropertiesAnalysis(JSContext* cx, CompilerConstraintList* constrai
 
 // Representation of a heap type property which may or may not be instantiated.
 // Heap properties for singleton types are instantiated lazily as they are used
-// by the compiler, but this is only done on the active thread. If we are
+// by the compiler, but this is only done on the main thread. If we are
 // compiling off thread and use a property which has not yet been instantiated,
 // it will be treated as empty and non-configured and will be instantiated when
-// rejoining to the active thread. If it is in fact not empty, the compilation
+// rejoining to the main thread. If it is in fact not empty, the compilation
 // will fail; to avoid this, we try to instantiate singleton property types
 // during generation of baseline caches.
 class HeapTypeSetKey
@@ -1322,17 +1314,16 @@ typedef Vector<RecompileInfo, 1, SystemAllocPolicy> RecompileInfoVector;
 
 struct AutoEnterAnalysis;
 
-class TypeZone
+struct TypeZone
 {
-    JS::Zone* const zone_;
+    JS::Zone* zone_;
 
     /* Pool for type information in this zone. */
     static const size_t TYPE_LIFO_ALLOC_PRIMARY_CHUNK_SIZE = 8 * 1024;
-    ZoneGroupData<LifoAlloc> typeLifoAlloc_;
+    LifoAlloc typeLifoAlloc;
 
-  public:
     // Current generation for sweeping.
-    ZoneGroupOrGCTaskOrIonCompileData<uint32_t> generation;
+    uint32_t generation : 1;
 
     /*
      * All Ion compilations that have occured in this zone, for indexing via
@@ -1340,36 +1331,29 @@ class TypeZone
      * invalidated compilations are swept on GC.
      */
     typedef Vector<CompilerOutput, 4, SystemAllocPolicy> CompilerOutputVector;
-    ZoneGroupData<CompilerOutputVector*> compilerOutputs;
+    CompilerOutputVector* compilerOutputs;
 
     // During incremental sweeping, allocator holding the old type information
     // for the zone.
-    ZoneGroupData<LifoAlloc> sweepTypeLifoAlloc;
+    LifoAlloc sweepTypeLifoAlloc;
 
     // During incremental sweeping, the old compiler outputs for use by
     // recompile indexes with a stale generation.
-    ZoneGroupData<CompilerOutputVector*> sweepCompilerOutputs;
+    CompilerOutputVector* sweepCompilerOutputs;
 
     // During incremental sweeping, whether to try to destroy all type
     // information attached to scripts.
-    ZoneGroupData<bool> sweepReleaseTypes;
+    bool sweepReleaseTypes;
 
-    ZoneGroupData<bool> sweepingTypes;
+    bool sweepingTypes;
 
     // The topmost AutoEnterAnalysis on the stack, if there is one.
-    ZoneGroupData<AutoEnterAnalysis*> activeAnalysis;
+    AutoEnterAnalysis* activeAnalysis;
 
     explicit TypeZone(JS::Zone* zone);
     ~TypeZone();
 
     JS::Zone* zone() const { return zone_; }
-
-    LifoAlloc& typeLifoAlloc() {
-#ifdef JS_CRASH_DIAGNOSTICS
-        MOZ_RELEASE_ASSERT(CurrentThreadCanAccessZone(zone_));
-#endif
-        return typeLifoAlloc_.ref();
-    }
 
     void beginSweep(FreeOp* fop, bool releaseTypes, AutoClearTypeInferenceStateOnOOM& oom);
     void endSweep(JSRuntime* rt);

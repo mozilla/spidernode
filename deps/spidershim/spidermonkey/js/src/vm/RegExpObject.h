@@ -73,7 +73,7 @@ enum RegExpRunStatus
 };
 
 extern RegExpObject*
-RegExpAlloc(JSContext* cx, HandleObject proto = nullptr);
+RegExpAlloc(ExclusiveContext* cx, HandleObject proto = nullptr);
 
 // |regexp| is under-typed because this function's used in the JIT.
 extern JSObject*
@@ -252,11 +252,11 @@ class RegExpGuard : public JS::CustomAutoRooter
     void operator=(const RegExpGuard&) = delete;
 
   public:
-    explicit RegExpGuard(JSContext* cx)
+    explicit RegExpGuard(ExclusiveContext* cx)
       : CustomAutoRooter(cx), re_(nullptr)
     {}
 
-    RegExpGuard(JSContext* cx, RegExpShared& re)
+    RegExpGuard(ExclusiveContext* cx, RegExpShared& re)
       : CustomAutoRooter(cx), re_(nullptr)
     {
         init(re);
@@ -412,11 +412,11 @@ class RegExpObject : public NativeObject
     static const size_t MaxPairCount = 14;
 
     static RegExpObject*
-    create(JSContext* cx, const char16_t* chars, size_t length, RegExpFlag flags,
+    create(ExclusiveContext* cx, const char16_t* chars, size_t length, RegExpFlag flags,
            frontend::TokenStream* ts, LifoAlloc& alloc);
 
     static RegExpObject*
-    create(JSContext* cx, HandleAtom atom, RegExpFlag flags,
+    create(ExclusiveContext* cx, HandleAtom atom, RegExpFlag flags,
            frontend::TokenStream* ts, LifoAlloc& alloc);
 
     /*
@@ -425,7 +425,7 @@ class RegExpObject : public NativeObject
      * changing |obj|'s last property to it.
      */
     static Shape*
-    assignInitialShape(JSContext* cx, Handle<RegExpObject*> obj);
+    assignInitialShape(ExclusiveContext* cx, Handle<RegExpObject*> obj);
 
     /* Accessors. */
 
@@ -446,7 +446,7 @@ class RegExpObject : public NativeObject
         setSlot(LAST_INDEX_SLOT, NumberValue(d));
     }
 
-    void zeroLastIndex(JSContext* cx) {
+    void zeroLastIndex(ExclusiveContext* cx) {
         MOZ_ASSERT(lookupPure(cx->names().lastIndex)->writable(),
                    "can't infallibly zero a non-writable lastIndex on a "
                    "RegExp that's been exposed to script");
@@ -480,8 +480,7 @@ class RegExpObject : public NativeObject
 
     static bool isOriginalFlagGetter(JSNative native, RegExpFlag* mask);
 
-    static MOZ_MUST_USE bool getShared(JSContext* cx, Handle<RegExpObject*> regexp,
-                                       RegExpGuard* g);
+    bool getShared(JSContext* cx, RegExpGuard* g);
 
     void setShared(RegExpShared& shared) {
         MOZ_ASSERT(!maybeShared());
@@ -495,11 +494,10 @@ class RegExpObject : public NativeObject
     // NOTE: This method is *only* safe to call on RegExps that haven't been
     //       exposed to script, because it requires that the "lastIndex"
     //       property be writable.
-    void initAndZeroLastIndex(HandleAtom source, RegExpFlag flags, JSContext* cx);
+    void initAndZeroLastIndex(HandleAtom source, RegExpFlag flags, ExclusiveContext* cx);
 
 #ifdef DEBUG
-    static MOZ_MUST_USE bool dumpBytecode(JSContext* cx, Handle<RegExpObject*> regexp,
-                                          bool match_only, HandleLinearString input);
+    bool dumpBytecode(JSContext* cx, bool match_only, HandleLinearString input);
 #endif
 
   private:
@@ -507,8 +505,7 @@ class RegExpObject : public NativeObject
      * Precondition: the syntax for |source| has already been validated.
      * Side effect: sets the private field.
      */
-    static MOZ_MUST_USE bool createShared(JSContext* cx, Handle<RegExpObject*> regexp,
-                                          RegExpGuard* g);
+    bool createShared(JSContext* cx, RegExpGuard* g);
     RegExpShared* maybeShared() const {
         return static_cast<RegExpShared*>(NativeObject::getPrivate(PRIVATE_SLOT));
     }
@@ -531,7 +528,7 @@ inline bool
 RegExpToShared(JSContext* cx, HandleObject obj, RegExpGuard* g)
 {
     if (obj->is<RegExpObject>())
-        return RegExpObject::getShared(cx, obj.as<RegExpObject>(), g);
+        return obj->as<RegExpObject>().getShared(cx, g);
 
     return Proxy::regexp_toShared(cx, obj, g);
 }

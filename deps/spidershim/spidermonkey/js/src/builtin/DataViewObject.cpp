@@ -20,12 +20,12 @@
 #endif
 #include "jswrapper.h"
 
-#include "jit/AtomicOperations.h"
 #include "js/Conversions.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
 #include "vm/SharedMem.h"
+#include "vm/TypedArrayCommon.h"
 #include "vm/WrapperObject.h"
 
 #include "gc/Nursery-inl.h"
@@ -114,7 +114,7 @@ DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
 
     // Include a barrier if the data view's data pointer is in the nursery, as
     // is done for typed arrays.
-    if (!IsInsideNursery(obj) && cx->nursery().isInside(ptr)) {
+    if (!IsInsideNursery(obj) && cx->runtime()->gc.nursery.isInside(ptr)) {
         // Shared buffer data should never be nursery-allocated, so we
         // need to fail here if isSharedMemory.  However, mmap() can
         // place a SharedArrayRawBuffer up against the bottom end of a
@@ -124,7 +124,7 @@ DataViewObject::create(JSContext* cx, uint32_t byteOffset, uint32_t byteLength,
             MOZ_ASSERT(arrayBuffer->byteLength() == 0 &&
                        (uintptr_t(ptr.unwrapValue()) & gc::ChunkMask) == 0);
         } else {
-            cx->zone()->group()->storeBuffer().putWholeCell(obj);
+            cx->runtime()->gc.storeBuffer.putWholeCell(obj);
         }
     }
 

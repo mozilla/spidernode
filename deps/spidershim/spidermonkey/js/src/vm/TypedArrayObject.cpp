@@ -4,7 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "vm/TypedArrayObject-inl.h"
 #include "vm/TypedArrayObject.h"
 
 #include "mozilla/Alignment.h"
@@ -42,6 +41,7 @@
 #include "vm/PIC.h"
 #include "vm/SelfHosting.h"
 #include "vm/SharedMem.h"
+#include "vm/TypedArrayCommon.h"
 #include "vm/WrapperObject.h"
 
 #include "jsatominlines.h"
@@ -89,7 +89,7 @@ TypedArrayObject::notifyBufferDetached(JSContext* cx, void* newData)
 
     // If the object is in the nursery, the buffer will be freed by the next
     // nursery GC. Free the data slot pointer if the object has no inline data.
-    Nursery& nursery = cx->nursery();
+    Nursery& nursery = cx->runtime()->gc.nursery;
     if (isTenured() && !hasBuffer() && !hasInlineElements() &&
         !nursery.isInside(elements()))
     {
@@ -123,7 +123,7 @@ TypedArrayObject::ensureHasBuffer(JSContext* cx, Handle<TypedArrayObject*> tarra
 
     // If the object is in the nursery, the buffer will be freed by the next
     // nursery GC. Free the data slot pointer if the object has no inline data.
-    Nursery& nursery = cx->nursery();
+    Nursery& nursery = cx->runtime()->gc.nursery;
     if (tarray->isTenured() && !tarray->hasInlineElements() &&
         !nursery.isInside(tarray->elements()))
     {
@@ -208,7 +208,7 @@ TypedArrayObject::objectMovedDuringMinorGC(JSTracer* trc, JSObject* obj, const J
     if (oldObj->hasBuffer())
         return 0;
 
-    Nursery& nursery = obj->zone()->group()->nursery();
+    Nursery& nursery = trc->runtime()->gc.nursery;
     void* buf = oldObj->elements();
 
     if (!nursery.isInside(buf)) {
@@ -346,6 +346,8 @@ class TypedArrayObjectTemplate : public TypedArrayObject
     friend class TypedArrayObject;
 
   public:
+    typedef NativeType ElementType;
+
     static constexpr Scalar::Type ArrayTypeID() { return TypeIDOfType<NativeType>::id; }
     static bool ArrayTypeIsUnsigned() { return TypeIsUnsigned<NativeType>(); }
     static bool ArrayTypeIsFloatingPoint() { return TypeIsFloatingPoint<NativeType>(); }
@@ -519,7 +521,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
             // may be in the nursery, so include a barrier to make sure this
             // object is updated if that typed object moves.
             auto ptr = buffer->dataPointerEither();
-            if (!IsInsideNursery(obj) && cx->nursery().isInside(ptr)) {
+            if (!IsInsideNursery(obj) && cx->runtime()->gc.nursery.isInside(ptr)) {
                 // Shared buffer data should never be nursery-allocated, so we
                 // need to fail here if isSharedMemory.  However, mmap() can
                 // place a SharedArrayRawBuffer up against the bottom end of a
@@ -529,7 +531,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
                     MOZ_ASSERT(buffer->byteLength() == 0 &&
                                (uintptr_t(ptr.unwrapValue()) & gc::ChunkMask) == 0);
                 } else {
-                    cx->zone()->group()->storeBuffer().putWholeCell(obj);
+                    cx->runtime()->gc.storeBuffer.putWholeCell(obj);
                 }
             }
         } else {
@@ -648,7 +650,7 @@ class TypedArrayObjectTemplate : public TypedArrayObject
     {
         if (buf) {
 #ifdef DEBUG
-            Nursery& nursery = cx->nursery();
+            Nursery& nursery = cx->runtime()->gc.nursery;
             MOZ_ASSERT_IF(!nursery.isInside(buf) && !tarray->hasInlineElements(),
                           tarray->isTenured());
 #endif
@@ -1026,6 +1028,12 @@ JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY)
     }
 }
 
+template<typename T>
+struct TypedArrayObject::OfType
+{
+    typedef TypedArrayObjectTemplate<T> Type;
+};
+
 // ES 2016 draft Mar 25, 2016 24.1.1.1.
 // byteLength = count * unit
 template<typename T>
@@ -1272,14 +1280,8 @@ TypedArrayObjectTemplate<T>::fromTypedArray(JSContext* cx, HandleObject other, b
         return nullptr;
 
     // Step 18.d-g or 24.1.1.4 step 11.
-    MOZ_ASSERT(!obj->isSharedMemory());
-    if (isShared) {
-        if (!ElementSpecific<T, SharedOps>::setFromTypedArray(cx, obj, srcArray, 0))
-            return nullptr;
-    } else {
-        if (!ElementSpecific<T, UnsharedOps>::setFromTypedArray(cx, obj, srcArray, 0))
-            return nullptr;
-    }
+    if (!TypedArrayMethods<TypedArrayObject>::setFromTypedArray(cx, obj, srcArray))
+        return nullptr;
 
     // Step 23.
     return obj;
@@ -1335,8 +1337,7 @@ TypedArrayObjectTemplate<T>::fromObject(JSContext* cx, HandleObject other, Handl
             return nullptr;
 
         // Steps 6.d-e.
-        MOZ_ASSERT(!obj->isSharedMemory());
-        if (!ElementSpecific<T, UnsharedOps>::initFromIterablePackedArray(cx, obj, array))
+        if (!TypedArrayMethods<TypedArrayObject>::initFromIterablePackedArray(cx, obj, array))
             return nullptr;
 
         // Step 6.f (The assertion isn't applicable for the fast path).
@@ -1402,8 +1403,7 @@ TypedArrayObjectTemplate<T>::fromObject(JSContext* cx, HandleObject other, Handl
         return nullptr;
 
     // Steps 11-12.
-    MOZ_ASSERT(!obj->isSharedMemory());
-    if (!ElementSpecific<T, UnsharedOps>::setFromNonTypedArray(cx, obj, arrayLike, len))
+    if (!TypedArrayMethods<TypedArrayObject>::setFromNonTypedArray(cx, obj, arrayLike, len))
         return nullptr;
 
     // Step 13.
@@ -1455,7 +1455,7 @@ JS_FOR_EACH_TYPED_ARRAY(CHECK_TYPED_ARRAY_CONSTRUCTOR)
 static bool
 TypedArray_lengthGetter(JSContext* cx, unsigned argc, Value* vp)
 {
-    return TypedArrayObject::Getter<TypedArrayObject::lengthValue>(cx, argc, vp);
+    return TypedArrayObject::Getter<TypedArrayObject::lengthValue>(cx, argc, vp); \
 }
 
 static bool
@@ -1498,105 +1498,12 @@ TypedArrayObject::protoAccessors[] = {
     JS_PS_END
 };
 
-template<typename T>
-static inline bool
-SetFromTypedArray(JSContext* cx, Handle<TypedArrayObject*> target,
-                  Handle<TypedArrayObject*> source, uint32_t offset)
-{
-    if (target->isSharedMemory() || source->isSharedMemory())
-        return ElementSpecific<T, SharedOps>::setFromTypedArray(cx, target, source, offset);
-    return ElementSpecific<T, UnsharedOps>::setFromTypedArray(cx, target, source, offset);
-}
-
-template<typename T>
-static inline bool
-SetFromNonTypedArray(JSContext* cx, Handle<TypedArrayObject*> target, HandleObject source,
-                     uint32_t len, uint32_t offset)
-{
-    MOZ_ASSERT(!source->is<TypedArrayObject>(), "use SetFromTypedArray");
-
-    if (target->isSharedMemory())
-        return ElementSpecific<T, SharedOps>::setFromNonTypedArray(cx, target, source, len, offset);
-    return ElementSpecific<T, UnsharedOps>::setFromNonTypedArray(cx, target, source, len, offset);
-}
-
-/* set(array[, offset]) */
-/* static */ bool
-TypedArrayObject::set_impl(JSContext* cx, const CallArgs& args)
-{
-    MOZ_ASSERT(TypedArrayObject::is(args.thisv()));
-
-    Rooted<TypedArrayObject*> target(cx, &args.thisv().toObject().as<TypedArrayObject>());
-
-    // The first argument must be either a typed array or arraylike.
-    if (args.length() == 0 || !args[0].isObject()) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_TYPED_ARRAY_BAD_ARGS);
-        return false;
-    }
-
-    int32_t offset = 0;
-    if (args.length() > 1) {
-        if (!ToInt32(cx, args[1], &offset))
-            return false;
-
-        if (offset < 0 || uint32_t(offset) > target->length()) {
-            // the given offset is bogus
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_INDEX);
-            return false;
-        }
-    }
-
-    RootedObject arg0(cx, &args[0].toObject());
-    if (arg0->is<TypedArrayObject>()) {
-        Handle<TypedArrayObject*> source = arg0.as<TypedArrayObject>();
-        if (source->length() > target->length() - offset) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
-            return false;
-        }
-
-        switch (target->type()) {
-#define SET_FROM_TYPED_ARRAY(T, N) \
-          case Scalar::N: \
-            if (!SetFromTypedArray<T>(cx, target, source, offset)) \
-                return false; \
-            break;
-JS_FOR_EACH_TYPED_ARRAY(SET_FROM_TYPED_ARRAY)
-#undef SET_FROM_TYPED_ARRAY
-          default:
-            MOZ_CRASH("Unsupported TypedArray type");
-        }
-    } else {
-        uint32_t len;
-        if (!GetLengthProperty(cx, arg0, &len))
-            return false;
-
-        if (uint32_t(offset) > target->length() || len > target->length() - offset) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_BAD_ARRAY_LENGTH);
-            return false;
-        }
-
-        switch (target->type()) {
-#define SET_FROM_NON_TYPED_ARRAY(T, N) \
-          case Scalar::N: \
-            if (!SetFromNonTypedArray<T>(cx, target, arg0, len, offset)) \
-                return false; \
-            break;
-JS_FOR_EACH_TYPED_ARRAY(SET_FROM_NON_TYPED_ARRAY)
-#undef SET_FROM_NON_TYPED_ARRAY
-          default:
-            MOZ_CRASH("Unsupported TypedArray type");
-        }
-    }
-
-    args.rval().setUndefined();
-    return true;
-}
-
 /* static */ bool
 TypedArrayObject::set(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod<TypedArrayObject::is, TypedArrayObject::set_impl>(cx, args);
+    return CallNonGenericMethod<TypedArrayObject::is,
+                                TypedArrayMethods<TypedArrayObject>::set>(cx, args);
 }
 
 /* static */ const JSFunctionSpec

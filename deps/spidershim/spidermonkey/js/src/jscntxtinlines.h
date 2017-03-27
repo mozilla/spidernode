@@ -26,7 +26,7 @@ class CompartmentChecker
     JSCompartment* compartment;
 
   public:
-    explicit CompartmentChecker(JSContext* cx)
+    explicit CompartmentChecker(ExclusiveContext* cx)
       : compartment(cx->compartment())
     {
     }
@@ -83,11 +83,6 @@ class CompartmentChecker
         check(handle.get());
     }
 
-    template<typename T>
-    void check(MutableHandle<T> handle) {
-        check(handle.get());
-    }
-
     void checkAtom(gc::Cell* cell) {
 #ifdef DEBUG
         // Atoms which move across zone boundaries need to be marked in the new
@@ -119,20 +114,6 @@ class CompartmentChecker
             check(v.toString());
         else if (v.isSymbol())
             check(v.toSymbol());
-    }
-
-    // Check the contents of any container class that supports the C++
-    // iteration protocol, eg GCVector<jsid>.
-    template <typename Container>
-    typename mozilla::EnableIf<
-        mozilla::IsSame<
-            decltype(((Container*)nullptr)->begin()),
-            decltype(((Container*)nullptr)->end())
-        >::value
-    >::Type
-    check(const Container& container) {
-        for (auto i : container)
-            check(i);
     }
 
     void check(const ValueArray& arr) {
@@ -188,20 +169,20 @@ class CompartmentChecker
  * Don't perform these checks when called from a finalizer. The checking
  * depends on other objects not having been swept yet.
  */
-#define START_ASSERT_SAME_COMPARTMENT()                                 \
-    if (JS::CurrentThreadIsHeapBusy())                                  \
-        return;                                                         \
+#define START_ASSERT_SAME_COMPARTMENT()                                       \
+    if (cx->isJSContext() && cx->asJSContext()->runtime()->isHeapBusy())      \
+        return;                                                               \
     CompartmentChecker c(cx)
 
 template <class T1> inline void
-releaseAssertSameCompartment(JSContext* cx, const T1& t1)
+releaseAssertSameCompartment(ExclusiveContext* cx, const T1& t1)
 {
     START_ASSERT_SAME_COMPARTMENT();
     c.check(t1);
 }
 
 template <class T1> inline void
-assertSameCompartment(JSContext* cx, const T1& t1)
+assertSameCompartment(ExclusiveContext* cx, const T1& t1)
 {
 #ifdef JS_CRASH_DIAGNOSTICS
     START_ASSERT_SAME_COMPARTMENT();
@@ -210,7 +191,7 @@ assertSameCompartment(JSContext* cx, const T1& t1)
 }
 
 template <class T1> inline void
-assertSameCompartmentDebugOnly(JSContext* cx, const T1& t1)
+assertSameCompartmentDebugOnly(ExclusiveContext* cx, const T1& t1)
 {
 #if defined(DEBUG) && defined(JS_CRASH_DIAGNOSTICS)
     START_ASSERT_SAME_COMPARTMENT();
@@ -219,7 +200,7 @@ assertSameCompartmentDebugOnly(JSContext* cx, const T1& t1)
 }
 
 template <class T1, class T2> inline void
-assertSameCompartment(JSContext* cx, const T1& t1, const T2& t2)
+assertSameCompartment(ExclusiveContext* cx, const T1& t1, const T2& t2)
 {
 #ifdef JS_CRASH_DIAGNOSTICS
     START_ASSERT_SAME_COMPARTMENT();
@@ -229,7 +210,7 @@ assertSameCompartment(JSContext* cx, const T1& t1, const T2& t2)
 }
 
 template <class T1, class T2, class T3> inline void
-assertSameCompartment(JSContext* cx, const T1& t1, const T2& t2, const T3& t3)
+assertSameCompartment(ExclusiveContext* cx, const T1& t1, const T2& t2, const T3& t3)
 {
 #ifdef JS_CRASH_DIAGNOSTICS
     START_ASSERT_SAME_COMPARTMENT();
@@ -240,7 +221,7 @@ assertSameCompartment(JSContext* cx, const T1& t1, const T2& t2, const T3& t3)
 }
 
 template <class T1, class T2, class T3, class T4> inline void
-assertSameCompartment(JSContext* cx,
+assertSameCompartment(ExclusiveContext* cx,
                       const T1& t1, const T2& t2, const T3& t3, const T4& t4)
 {
 #ifdef JS_CRASH_DIAGNOSTICS
@@ -253,7 +234,7 @@ assertSameCompartment(JSContext* cx,
 }
 
 template <class T1, class T2, class T3, class T4, class T5> inline void
-assertSameCompartment(JSContext* cx,
+assertSameCompartment(ExclusiveContext* cx,
                       const T1& t1, const T2& t2, const T3& t3, const T4& t4, const T5& t5)
 {
 #ifdef JS_CRASH_DIAGNOSTICS
@@ -387,36 +368,28 @@ CallJSDeletePropertyOp(JSContext* cx, JSDeletePropertyOp op, HandleObject receiv
     return result.succeed();
 }
 
-MOZ_ALWAYS_INLINE bool
-CheckForInterrupt(JSContext* cx)
+inline uintptr_t
+GetNativeStackLimit(ExclusiveContext* cx)
 {
-    MOZ_ASSERT(!cx->isExceptionPending());
-    // Add an inline fast-path since we have to check for interrupts in some hot
-    // C++ loops of library builtins.
-    if (MOZ_UNLIKELY(cx->hasPendingInterrupt()))
-        return cx->handleInterrupt();
-    return true;
+    StackKind kind;
+    if (cx->isJSContext()) {
+        kind = cx->asJSContext()->runningWithTrustedPrincipals()
+                 ? StackForTrustedScript : StackForUntrustedScript;
+    } else {
+        // For other threads, we just use the trusted stack depth, since it's
+        // unlikely that we'll be mixing trusted and untrusted code together.
+        kind = StackForTrustedScript;
+    }
+    return cx->nativeStackLimit[kind];
+}
+
+inline LifoAlloc&
+ExclusiveContext::typeLifoAlloc()
+{
+    return zone()->types.typeLifoAlloc;
 }
 
 }  /* namespace js */
-
-inline js::LifoAlloc&
-JSContext::typeLifoAlloc()
-{
-    return zone()->types.typeLifoAlloc();
-}
-
-inline js::Nursery&
-JSContext::nursery()
-{
-    return zone()->group()->nursery();
-}
-
-inline void
-JSContext::minorGC(JS::gcreason::Reason reason)
-{
-    zone()->group()->minorGC(reason);
-}
 
 inline void
 JSContext::setPendingException(const js::Value& v)
@@ -424,41 +397,37 @@ JSContext::setPendingException(const js::Value& v)
     // overRecursed_ is set after the fact by ReportOverRecursed.
     this->overRecursed_ = false;
     this->throwing = true;
-    this->unwrappedException() = v;
+    this->unwrappedException_ = v;
     // We don't use assertSameCompartment here to allow
     // js::SetPendingExceptionCrossContext to work.
     MOZ_ASSERT_IF(v.isObject(), v.toObject().compartment() == compartment());
 }
 
 inline bool
-JSContext::runningWithTrustedPrincipals()
+JSContext::runningWithTrustedPrincipals() const
 {
-    return !compartment() || compartment()->principals() == runtime()->trustedPrincipals();
+    return !compartment() || compartment()->principals() == trustedPrincipals();
 }
 
 inline void
-JSContext::enterCompartment(
+js::ExclusiveContext::enterCompartment(
     JSCompartment* c,
     const js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
 {
     enterCompartmentDepth_++;
-
-    if (!c->zone()->isAtomsZone() && !c->zone()->usedByExclusiveThread)
-        enterZoneGroup(c->zone()->group());
-
     c->enter();
     setCompartment(c, maybeLock);
 }
 
 inline void
-JSContext::enterNullCompartment()
+js::ExclusiveContext::enterNullCompartment()
 {
     enterCompartmentDepth_++;
     setCompartment(nullptr);
 }
 
 inline void
-JSContext::leaveCompartment(
+js::ExclusiveContext::leaveCompartment(
     JSCompartment* oldCompartment,
     const js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
 {
@@ -469,23 +438,20 @@ JSContext::leaveCompartment(
     // compartment.
     JSCompartment* startingCompartment = compartment_;
     setCompartment(oldCompartment, maybeLock);
-    if (startingCompartment) {
+    if (startingCompartment)
         startingCompartment->leave();
-        if (!startingCompartment->zone()->isAtomsZone() && !startingCompartment->zone()->usedByExclusiveThread)
-            leaveZoneGroup(startingCompartment->zone()->group());
-    }
 }
 
 inline void
-JSContext::setCompartment(JSCompartment* comp,
-                          const js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
+js::ExclusiveContext::setCompartment(JSCompartment* comp,
+                                     const AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
 {
-    // Contexts operating on helper threads can only be in the atoms zone or in exclusive zones.
-    MOZ_ASSERT_IF(helperThread() && !runtime_->isAtomsCompartment(comp),
+    // ExclusiveContexts can only be in the atoms zone or in exclusive zones.
+    MOZ_ASSERT_IF(!isJSContext() && !runtime_->isAtomsCompartment(comp),
                   comp->zone()->usedByExclusiveThread);
 
     // Normal JSContexts cannot enter exclusive zones.
-    MOZ_ASSERT_IF(this == runtime()->activeContext() && comp,
+    MOZ_ASSERT_IF(isJSContext() && comp,
                   !comp->zone()->usedByExclusiveThread);
 
     // Only one thread can be in the atoms compartment at a time.
@@ -500,28 +466,9 @@ JSContext::setCompartment(JSCompartment* comp,
     MOZ_ASSERT_IF(compartment_, compartment_->hasBeenEntered());
     MOZ_ASSERT_IF(comp, comp->hasBeenEntered());
 
-    // This context must have exclusive access to the zone's group. There is an
-    // exception, for now, for zones used by exclusive threads.
-    MOZ_ASSERT_IF(comp && !comp->zone()->isAtomsZone() && !comp->zone()->usedByExclusiveThread,
-                  comp->zone()->group()->ownedByCurrentThread());
-
     compartment_ = comp;
     zone_ = comp ? comp->zone() : nullptr;
     arenas_ = zone_ ? &zone_->arenas : nullptr;
-}
-
-inline void
-JSContext::enterZoneGroup(js::ZoneGroup* group)
-{
-    MOZ_ASSERT(this == js::TlsContext.get());
-    group->enter();
-}
-
-inline void
-JSContext::leaveZoneGroup(js::ZoneGroup* group)
-{
-    MOZ_ASSERT(this == js::TlsContext.get());
-    group->leave();
 }
 
 inline JSScript*
@@ -568,12 +515,6 @@ JSContext::currentScript(jsbytecode** ppc,
         MOZ_ASSERT(script->containsPC(*ppc));
     }
     return script;
-}
-
-inline js::ZoneGroupCaches&
-JSContext::caches()
-{
-    return zone()->group()->caches();
 }
 
 #endif /* jscntxtinlines_h */

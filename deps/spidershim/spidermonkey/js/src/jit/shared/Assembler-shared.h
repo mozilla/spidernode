@@ -813,6 +813,7 @@ class AssemblerShared
     wasm::MemoryAccessVector memoryAccesses_;
     wasm::MemoryPatchVector memoryPatches_;
     wasm::BoundsCheckVector boundsChecks_;
+    wasm::GlobalAccessVector globalAccesses_;
     wasm::SymbolicAccessVector symbolicAccesses_;
 
   protected:
@@ -893,6 +894,9 @@ class AssemblerShared
     void append(wasm::BoundsCheck check) { enoughMemory_ &= boundsChecks_.append(check); }
     wasm::BoundsCheckVector&& extractBoundsChecks() { return Move(boundsChecks_); }
 
+    void append(wasm::GlobalAccess access) { enoughMemory_ &= globalAccesses_.append(access); }
+    const wasm::GlobalAccessVector& globalAccesses() const { return globalAccesses_; }
+
     void append(wasm::SymbolicAccess access) { enoughMemory_ &= symbolicAccesses_.append(access); }
     size_t numSymbolicAccesses() const { return symbolicAccesses_.length(); }
     wasm::SymbolicAccess symbolicAccess(size_t i) const { return symbolicAccesses_[i]; }
@@ -938,6 +942,11 @@ class AssemblerShared
         enoughMemory_ &= boundsChecks_.appendAll(other.boundsChecks_);
         for (; i < boundsChecks_.length(); i++)
             boundsChecks_[i].offsetBy(delta);
+
+        i = globalAccesses_.length();
+        enoughMemory_ &= globalAccesses_.appendAll(other.globalAccesses_);
+        for (; i < globalAccesses_.length(); i++)
+            globalAccesses_[i].patchAt.offsetBy(delta);
 
         i = symbolicAccesses_.length();
         enoughMemory_ &= symbolicAccesses_.appendAll(other.symbolicAccesses_);

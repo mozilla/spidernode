@@ -185,7 +185,7 @@ frontend::IsKeyword(JSLinearString* str)
     return FindKeyword(str) != nullptr;
 }
 
-TokenStream::SourceCoords::SourceCoords(JSContext* cx, uint32_t ln)
+TokenStream::SourceCoords::SourceCoords(ExclusiveContext* cx, uint32_t ln)
   : lineStartOffsets_(cx), initialLineNum_(ln), lastLineIndex_(0)
 {
     // This is actually necessary!  Removing it causes compile errors on
@@ -339,7 +339,7 @@ TokenStream::SourceCoords::lineNumAndColumnIndex(uint32_t offset, uint32_t* line
 #pragma warning(disable:4351)
 #endif
 
-TokenStream::TokenStream(JSContext* cx, const ReadOnlyCompileOptions& options,
+TokenStream::TokenStream(ExclusiveContext* cx, const ReadOnlyCompileOptions& options,
                          const char16_t* base, size_t length, StrictModeGetter* smg)
   : srcCoords(cx, options.lineno),
     options_(options),
@@ -648,12 +648,11 @@ TokenStream::reportCompileErrorNumberVA(uint32_t offset, unsigned flags, unsigne
         warning = false;
     }
 
-    // On the active thread, report the error immediately. When compiling off
-    // thread, save the error so that the thread finishing the parse can report
-    // it later.
+    // On the main thread, report the error immediately. When compiling off
+    // thread, save the error so that the main thread can report it later.
     CompileError tempErr;
     CompileError* tempErrPtr = &tempErr;
-    if (cx->helperThread() && !cx->addPendingCompileError(&tempErrPtr))
+    if (!cx->isJSContext() && !cx->addPendingCompileError(&tempErrPtr))
         return false;
     CompileError& err = *tempErrPtr;
 
@@ -671,8 +670,8 @@ TokenStream::reportCompileErrorNumberVA(uint32_t offset, unsigned flags, unsigne
 
     // If we have no location information, try to get one from the caller.
     bool callerFilename = false;
-    if (offset != NoOffset && !err.filename && !cx->helperThread()) {
-        NonBuiltinFrameIter iter(cx,
+    if (offset != NoOffset && !err.filename && cx->isJSContext()) {
+        NonBuiltinFrameIter iter(cx->asJSContext(),
                                  FrameIter::FOLLOW_DEBUGGER_EVAL_PREV_LINK,
                                  cx->compartment()->principals());
         if (!iter.done() && iter.filename()) {
@@ -737,8 +736,8 @@ TokenStream::reportCompileErrorNumberVA(uint32_t offset, unsigned flags, unsigne
         err.initOwnedLinebuf(linebuf.release(), windowLength, offset - windowStart);
     }
 
-    if (!cx->helperThread())
-        err.throwError(cx);
+    if (cx->isJSContext())
+        err.throwError(cx->asJSContext());
 
     return warning;
 }
@@ -1070,7 +1069,7 @@ TokenStream::newToken(ptrdiff_t adjust)
 }
 
 MOZ_ALWAYS_INLINE JSAtom*
-TokenStream::atomize(JSContext* cx, CharBuffer& cb)
+TokenStream::atomize(ExclusiveContext* cx, CharBuffer& cb)
 {
     return AtomizeChars(cx, cb.begin(), cb.length());
 }

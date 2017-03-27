@@ -1534,7 +1534,7 @@ function InitializeCollator(collator, locales, options) {
     // Step 13, unrolled.
     var numericValue = GetOption(options, "numeric", "boolean", undefined, undefined);
     if (numericValue !== undefined)
-        numericValue = numericValue ? "true" : "false";
+        numericValue = numericValue ? 'true' : 'false';
     opt.kn = numericValue;
 
     var caseFirstValue = GetOption(options, "caseFirst", "string", ["upper", "lower", "false"], undefined);
@@ -1584,7 +1584,7 @@ var collatorInternalProperties = {
     sortLocaleData: collatorSortLocaleData,
     searchLocaleData: collatorSearchLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1707,7 +1707,7 @@ function Intl_Collator_resolvedOptions() {
 var numberFormatInternalProperties = {
     localeData: numberFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -1743,8 +1743,8 @@ function resolveNumberFormatInternals(lazyNumberFormatData) {
 
     // Step 10.
     var r = ResolveLocale(callFunction(NumberFormat.availableLocales, NumberFormat),
-                          requestedLocales,
-                          opt,
+                          lazyNumberFormatData.requestedLocales,
+                          lazyNumberFormatData.opt,
                           NumberFormat.relevantExtensionKeys,
                           localeData);
 
@@ -2404,7 +2404,6 @@ function InitializeDateTimeFormat(dateTimeFormat, thisValue, locales, options) {
     var formatMatcher =
         GetOption(options, "formatMatcher", "string", ["basic", "best fit"],
                   "best fit");
-    void formatMatcher;
 
     // Steps 23-25 provided by ICU, more or less - see comment after this function.
 
@@ -2672,6 +2671,105 @@ function ToDateTimeOptions(options, required, defaults) {
     return options;
 }
 
+/**
+ * Compares the date and time components requested by options with the available
+ * date and time formats in formats, and selects the best match according
+ * to a specified basic matching algorithm.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 12.1.1.
+ */
+function BasicFormatMatcher(options, formats) {
+    // Steps 1-6.
+    var removalPenalty = 120,
+        additionPenalty = 20,
+        longLessPenalty = 8,
+        longMorePenalty = 6,
+        shortLessPenalty = 6,
+        shortMorePenalty = 3;
+
+    // Table 3.
+    var properties = ["weekday", "era", "year", "month", "day",
+        "hour", "minute", "second", "timeZoneName"];
+
+    // Step 11.c.vi.1.
+    var values = ["2-digit", "numeric", "narrow", "short", "long"];
+
+    // Steps 7-8.
+    var bestScore = -Infinity;
+    var bestFormat;
+
+    // Steps 9-11.
+    var i = 0;
+    var len = formats.length;
+    while (i < len) {
+        // Steps 11.a-b.
+        var format = formats[i];
+        var score = 0;
+
+        // Step 11.c.
+        var formatProp;
+        for (var j = 0; j < properties.length; j++) {
+            var property = properties[j];
+
+            // Step 11.c.i.
+            var optionsProp = options[property];
+            // Step missing from spec.
+            // https://bugs.ecmascript.org/show_bug.cgi?id=1254
+            formatProp = undefined;
+
+            // Steps 11.c.ii-iii.
+            if (callFunction(std_Object_hasOwnProperty, format, property))
+                formatProp = format[property];
+
+            if (optionsProp === undefined && formatProp !== undefined) {
+                // Step 11.c.iv.
+                score -= additionPenalty;
+            } else if (optionsProp !== undefined && formatProp === undefined) {
+                // Step 11.c.v.
+                score -= removalPenalty;
+            } else {
+                // Step 11.c.vi.
+                var optionsPropIndex = callFunction(ArrayIndexOf, values, optionsProp);
+                var formatPropIndex = callFunction(ArrayIndexOf, values, formatProp);
+                var delta = std_Math_max(std_Math_min(formatPropIndex - optionsPropIndex, 2), -2);
+                if (delta === 2)
+                    score -= longMorePenalty;
+                else if (delta === 1)
+                    score -= shortMorePenalty;
+                else if (delta === -1)
+                    score -= shortLessPenalty;
+                else if (delta === -2)
+                    score -= longLessPenalty;
+            }
+        }
+
+        // Step 11.d.
+        if (score > bestScore) {
+            bestScore = score;
+            bestFormat = format;
+        }
+
+        // Step 11.e.
+        i++;
+    }
+
+    // Step 12.
+    return bestFormat;
+}
+
+
+/**
+ * Compares the date and time components requested by options with the available
+ * date and time formats in formats, and selects the best match according
+ * to an unspecified best-fit matching algorithm.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 12.1.1.
+ */
+function BestFitFormatMatcher(options, formats) {
+    // this implementation doesn't have anything better
+    return BasicFormatMatcher(options, formats);
+}
+
 
 /**
  * Returns the subset of the given locale list for which this locale list has a
@@ -2698,7 +2796,7 @@ function Intl_DateTimeFormat_supportedLocalesOf(locales /*, options*/) {
 var dateTimeFormatInternalProperties = {
     localeData: dateTimeFormatLocaleData,
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -2912,7 +3010,7 @@ function resolveICUPattern(pattern, result) {
  */
 var pluralRulesInternalProperties = {
     _availableLocales: null,
-    availableLocales: function() // eslint-disable-line object-shorthand
+    availableLocales: function()
     {
         var locales = this._availableLocales;
         if (locales)
@@ -2931,6 +3029,8 @@ function resolvePluralRulesInternals(lazyPluralRulesData) {
     assert(IsObject(lazyPluralRulesData), "lazy data not an object?");
 
     var internalProps = std_Object_create(null);
+
+    var requestedLocales = lazyPluralRulesData.requestedLocales;
 
     var PluralRules = pluralRulesInternalProperties;
 
@@ -3304,7 +3404,7 @@ function Intl_getDisplayNames(locales, options) {
     for (let i = 0; i < len; i++) {
         // a. Let processedKey be ? ToString(? Get(keys, i)).
         // b. Perform ? CreateDataPropertyOrThrow(processedKeys, i, processedKey).
-        _DefineDataProperty(processedKeys, i, ToString(keys[i]));
+        callFunction(std_Array_push, processedKeys, ToString(keys[i]));
     }
 
     // 16. Let names be ? ComputeDisplayNames(r.[[locale]], style, processedKeys).

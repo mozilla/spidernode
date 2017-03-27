@@ -170,7 +170,7 @@ CanBeFinalizedInBackground(AllocKind kind, const Class* clasp)
     MOZ_ASSERT(IsObjectAllocKind(kind));
     /* If the class has no finalizer or a finalizer that is safe to call on
      * a different thread, we change the alloc kind. For example,
-     * AllocKind::OBJECT0 calls the finalizer on the active thread,
+     * AllocKind::OBJECT0 calls the finalizer on the main thread,
      * AllocKind::OBJECT0_BACKGROUND calls the finalizer on the gcHelperThread.
      * IsBackgroundFinalized is called to prevent recursively incrementing
      * the alloc kind; kind may already be a background finalize kind.
@@ -616,7 +616,7 @@ enum ShouldCheckThresholds
 
 class ArenaLists
 {
-    JSRuntime* const runtime_;
+    JSRuntime* runtime_;
 
     /*
      * For each arena kind its free list is represented as the first span with
@@ -627,18 +627,14 @@ class ArenaLists
      * GC we only move the head of the of the list of spans back to the arena
      * only for the arena that was not fully allocated.
      */
-    ZoneGroupData<AllAllocKindArray<FreeSpan*>> freeLists_;
-    FreeSpan*& freeLists(AllocKind i) { return freeLists_.ref()[i]; }
-    FreeSpan* freeLists(AllocKind i) const { return freeLists_.ref()[i]; }
+    AllAllocKindArray<FreeSpan*> freeLists;
 
     // Because the JITs can allocate from the free lists, they cannot be null.
     // We use a placeholder FreeSpan that is empty (and wihout an associated
     // Arena) so the JITs can fall back gracefully.
     static FreeSpan placeholder;
 
-    ZoneGroupOrGCTaskData<AllAllocKindArray<ArenaList>> arenaLists_;
-    ArenaList& arenaLists(AllocKind i) { return arenaLists_.ref()[i]; }
-    const ArenaList& arenaLists(AllocKind i) const { return arenaLists_.ref()[i]; }
+    AllAllocKindArray<ArenaList> arenaLists;
 
     enum BackgroundFinalizeStateEnum { BFS_DONE, BFS_RUN };
 
@@ -646,58 +642,67 @@ class ArenaLists
         BackgroundFinalizeState;
 
     /* The current background finalization state, accessed atomically. */
-    UnprotectedData<AllAllocKindArray<BackgroundFinalizeState>> backgroundFinalizeState_;
-    BackgroundFinalizeState& backgroundFinalizeState(AllocKind i) { return backgroundFinalizeState_.ref()[i]; }
-    const BackgroundFinalizeState& backgroundFinalizeState(AllocKind i) const { return backgroundFinalizeState_.ref()[i]; }
+    AllAllocKindArray<BackgroundFinalizeState> backgroundFinalizeState;
 
     /* For each arena kind, a list of arenas remaining to be swept. */
-    ActiveThreadOrGCTaskData<AllAllocKindArray<Arena*>> arenaListsToSweep_;
-    Arena*& arenaListsToSweep(AllocKind i) { return arenaListsToSweep_.ref()[i]; }
-    Arena* arenaListsToSweep(AllocKind i) const { return arenaListsToSweep_.ref()[i]; }
+    AllAllocKindArray<Arena*> arenaListsToSweep;
 
     /* During incremental sweeping, a list of the arenas already swept. */
-    ZoneGroupOrGCTaskData<AllocKind> incrementalSweptArenaKind;
-    ZoneGroupOrGCTaskData<ArenaList> incrementalSweptArenas;
+    AllocKind incrementalSweptArenaKind;
+    ArenaList incrementalSweptArenas;
 
     // Arena lists which have yet to be swept, but need additional foreground
     // processing before they are swept.
-    ZoneGroupData<Arena*> gcShapeArenasToUpdate;
-    ZoneGroupData<Arena*> gcAccessorShapeArenasToUpdate;
-    ZoneGroupData<Arena*> gcScriptArenasToUpdate;
-    ZoneGroupData<Arena*> gcObjectGroupArenasToUpdate;
+    Arena* gcShapeArenasToUpdate;
+    Arena* gcAccessorShapeArenasToUpdate;
+    Arena* gcScriptArenasToUpdate;
+    Arena* gcObjectGroupArenasToUpdate;
 
     // While sweeping type information, these lists save the arenas for the
     // objects which have already been finalized in the foreground (which must
     // happen at the beginning of the GC), so that type sweeping can determine
     // which of the object pointers are marked.
-    ZoneGroupData<ObjectAllocKindArray<ArenaList>> savedObjectArenas_;
-    ArenaList& savedObjectArenas(AllocKind i) { return savedObjectArenas_.ref()[i]; }
-    ZoneGroupData<Arena*> savedEmptyObjectArenas;
+    ObjectAllocKindArray<ArenaList> savedObjectArenas;
+    Arena* savedEmptyObjectArenas;
 
   public:
-    explicit ArenaLists(JSRuntime* rt, ZoneGroup* group);
+    explicit ArenaLists(JSRuntime* rt) : runtime_(rt) {
+        for (auto i : AllAllocKinds())
+            freeLists[i] = &placeholder;
+        for (auto i : AllAllocKinds())
+            backgroundFinalizeState[i] = BFS_DONE;
+        for (auto i : AllAllocKinds())
+            arenaListsToSweep[i] = nullptr;
+        incrementalSweptArenaKind = AllocKind::LIMIT;
+        gcShapeArenasToUpdate = nullptr;
+        gcAccessorShapeArenasToUpdate = nullptr;
+        gcScriptArenasToUpdate = nullptr;
+        gcObjectGroupArenasToUpdate = nullptr;
+        savedEmptyObjectArenas = nullptr;
+    }
+
     ~ArenaLists();
 
     const void* addressOfFreeList(AllocKind thingKind) const {
-        return reinterpret_cast<const void*>(&freeLists_.refNoCheck()[thingKind]);
+        return reinterpret_cast<const void*>(&freeLists[thingKind]);
     }
 
     Arena* getFirstArena(AllocKind thingKind) const {
-        return arenaLists(thingKind).head();
+        return arenaLists[thingKind].head();
     }
 
     Arena* getFirstArenaToSweep(AllocKind thingKind) const {
-        return arenaListsToSweep(thingKind);
+        return arenaListsToSweep[thingKind];
     }
 
     Arena* getFirstSweptArena(AllocKind thingKind) const {
-        if (thingKind != incrementalSweptArenaKind.ref())
+        if (thingKind != incrementalSweptArenaKind)
             return nullptr;
-        return incrementalSweptArenas.ref().head();
+        return incrementalSweptArenas.head();
     }
 
     Arena* getArenaAfterCursor(AllocKind thingKind) const {
-        return arenaLists(thingKind).arenaAfterCursor();
+        return arenaLists[thingKind].arenaAfterCursor();
     }
 
     bool arenaListsAreEmpty() const {
@@ -706,9 +711,9 @@ class ArenaLists
              * The arena cannot be empty if the background finalization is not yet
              * done.
              */
-            if (backgroundFinalizeState(i) != BFS_DONE)
+            if (backgroundFinalizeState[i] != BFS_DONE)
                 return false;
-            if (!arenaLists(i).isEmpty())
+            if (!arenaLists[i].isEmpty())
                 return false;
         }
         return true;
@@ -717,18 +722,18 @@ class ArenaLists
     void unmarkAll() {
         for (auto i : AllAllocKinds()) {
             /* The background finalization must have stopped at this point. */
-            MOZ_ASSERT(backgroundFinalizeState(i) == BFS_DONE);
-            for (Arena* arena = arenaLists(i).head(); arena; arena = arena->next)
+            MOZ_ASSERT(backgroundFinalizeState[i] == BFS_DONE);
+            for (Arena* arena = arenaLists[i].head(); arena; arena = arena->next)
                 arena->unmarkAll();
         }
     }
 
     bool doneBackgroundFinalize(AllocKind kind) const {
-        return backgroundFinalizeState(kind) == BFS_DONE;
+        return backgroundFinalizeState[kind] == BFS_DONE;
     }
 
     bool needBackgroundFinalizeWait(AllocKind kind) const {
-        return backgroundFinalizeState(kind) != BFS_DONE;
+        return backgroundFinalizeState[kind] != BFS_DONE;
     }
 
     /*
@@ -736,7 +741,7 @@ class ArenaLists
      */
     void purge() {
         for (auto i : AllAllocKinds())
-            freeLists(i) = &placeholder;
+            freeLists[i] = &placeholder;
     }
 
     inline void prepareForIncrementalGC();
@@ -744,11 +749,11 @@ class ArenaLists
     /* Check if this arena is in use. */
     bool arenaIsInUse(Arena* arena, AllocKind kind) const {
         MOZ_ASSERT(arena);
-        return arena == freeLists(kind)->getArenaUnchecked();
+        return arena == freeLists[kind]->getArenaUnchecked();
     }
 
     MOZ_ALWAYS_INLINE TenuredCell* allocateFromFreeList(AllocKind thingKind, size_t thingSize) {
-        return freeLists(thingKind)->allocate(thingSize);
+        return freeLists[thingKind]->allocate(thingSize);
     }
 
     /*
@@ -778,7 +783,7 @@ class ArenaLists
     }
 
     void checkEmptyFreeList(AllocKind kind) {
-        MOZ_ASSERT(freeLists(kind)->isEmpty());
+        MOZ_ASSERT(freeLists[kind]->isEmpty());
     }
 
     bool checkEmptyArenaList(AllocKind kind);
@@ -855,10 +860,10 @@ NotifyGCPostSwap(JSObject* a, JSObject* b, unsigned preResult);
 
 /*
  * Helper state for use when JS helper threads sweep and allocate GC thing kinds
- * that can be swept and allocated off thread.
+ * that can be swept and allocated off the main thread.
  *
  * In non-threadsafe builds, all actual sweeping and allocation is performed
- * on the active thread, but GCHelperState encapsulates this from clients as
+ * on the main thread, but GCHelperState encapsulates this from clients as
  * much as possible.
  */
 class GCHelperState
@@ -871,16 +876,16 @@ class GCHelperState
     // Associated runtime.
     JSRuntime* const rt;
 
-    // Condvar for notifying the active thread when work has finished. This is
+    // Condvar for notifying the main thread when work has finished. This is
     // associated with the runtime's GC lock --- the worker thread state
     // condvars can't be used here due to lock ordering issues.
     js::ConditionVariable done;
 
     // Activity for the helper to do, protected by the GC lock.
-    ActiveThreadOrGCTaskData<State> state_;
+    State state_;
 
-    // Whether work is being performed on some thread.
-    GCLockData<bool> hasThread;
+    // Thread which work is being performed on, if any.
+    mozilla::Maybe<Thread::Id> thread;
 
     void startBackgroundThread(State newState, const AutoLockGC& lock,
                                const AutoLockHelperThreadState& helperLock);
@@ -907,8 +912,6 @@ class GCHelperState
         state_(IDLE)
     { }
 
-    JSRuntime* runtime() { return rt; }
-
     void finish();
 
     void work();
@@ -920,9 +923,7 @@ class GCHelperState
     /* Must be called without the GC lock taken. */
     void waitBackgroundSweepEnd();
 
-#ifdef DEBUG
     bool onBackgroundThread();
-#endif
 
     /*
      * Outside the GC lock may give true answer when in fact the sweeping has
@@ -938,18 +939,15 @@ class GCHelperState
 // override |run|.
 class GCParallelTask
 {
-    JSRuntime* const runtime_;
-
     // The state of the parallel computation.
     enum TaskState {
         NotStarted,
         Dispatched,
         Finished,
-    };
-    UnprotectedData<TaskState> state;
+    } state;
 
     // Amount of time this task took to execute.
-    ActiveThreadOrGCTaskData<mozilla::TimeDuration> duration_;
+    mozilla::TimeDuration duration_;
 
     explicit GCParallelTask(const GCParallelTask&) = delete;
 
@@ -960,19 +958,16 @@ class GCParallelTask
     virtual void run() = 0;
 
   public:
-    explicit GCParallelTask(JSRuntime* runtime) : runtime_(runtime), state(NotStarted), duration_(nullptr) {}
+    GCParallelTask() : state(NotStarted), duration_(0) {}
     GCParallelTask(GCParallelTask&& other)
-      : runtime_(other.runtime_),
-        state(other.state),
-        duration_(nullptr),
+      : state(other.state),
+        duration_(0),
         cancel_(false)
     {}
 
     // Derived classes must override this to ensure that join() gets called
     // before members get destructed.
     virtual ~GCParallelTask();
-
-    JSRuntime* runtime() { return runtime_; }
 
     // Time spent in the most recent invocation of this task.
     mozilla::TimeDuration duration() const { return duration_; }
@@ -986,8 +981,8 @@ class GCParallelTask
     bool startWithLockHeld(AutoLockHelperThreadState& locked);
     void joinWithLockHeld(AutoLockHelperThreadState& locked);
 
-    // Instead of dispatching to a helper, run the task on the current thread.
-    void runFromActiveCooperatingThread(JSRuntime* rt);
+    // Instead of dispatching to a helper, run the task on the main thread.
+    void runFromMainThread(JSRuntime* rt);
 
     // Dispatch a cancelation request.
     enum CancelMode { CancelNoWait, CancelAndWait};
@@ -1057,7 +1052,7 @@ extern void
 FinalizeStringRT(JSRuntime* rt, JSString* str);
 
 JSCompartment*
-NewCompartment(JSContext* cx, JSPrincipals* principals,
+NewCompartment(JSContext* cx, JS::Zone* zone, JSPrincipals* principals,
                const JS::CompartmentOptions& options);
 
 namespace gc {
@@ -1304,6 +1299,8 @@ class MOZ_RAII JS_HAZ_GC_SUPPRESSED AutoSuppressGC
     int32_t& suppressGC_;
 
   public:
+    explicit AutoSuppressGC(ExclusiveContext* cx);
+    explicit AutoSuppressGC(JSCompartment* comp);
     explicit AutoSuppressGC(JSContext* cx);
 
     ~AutoSuppressGC()
@@ -1346,10 +1343,13 @@ NewMemoryStatisticsObject(JSContext* cx);
 struct MOZ_RAII AutoAssertNoNurseryAlloc
 {
 #ifdef DEBUG
-    AutoAssertNoNurseryAlloc();
+    explicit AutoAssertNoNurseryAlloc(JSRuntime* rt);
     ~AutoAssertNoNurseryAlloc();
+
+  private:
+    gc::GCRuntime& gc;
 #else
-    AutoAssertNoNurseryAlloc() {}
+    explicit AutoAssertNoNurseryAlloc(JSRuntime* rt) {}
 #endif
 };
 
@@ -1400,29 +1400,31 @@ class MOZ_RAII AutoAssertHeapBusy {
 };
 
 /*
- * A class that serves as a token that the nursery in the current thread's zone
- * group is empty.
+ * A class that serves as a token that the nursery is empty. It descends from
+ * AutoAssertHeapBusy, which means that it additionally requires the heap to be
+ * busy (which is not necessarily linked, but turns out to be true in practice
+ * for all users and simplifies the usage of these classes.)
  */
 class MOZ_RAII AutoAssertEmptyNursery
 {
   protected:
-    JSContext* cx;
+    JSRuntime* rt;
 
     mozilla::Maybe<AutoAssertNoNurseryAlloc> noAlloc;
 
     // Check that the nursery is empty.
-    void checkCondition(JSContext* cx);
+    void checkCondition(JSRuntime *rt);
 
     // For subclasses that need to empty the nursery in their constructors.
-    AutoAssertEmptyNursery() : cx(nullptr) {
+    AutoAssertEmptyNursery() : rt(nullptr) {
     }
 
   public:
-    explicit AutoAssertEmptyNursery(JSContext* cx) : cx(nullptr) {
-        checkCondition(cx);
+    explicit AutoAssertEmptyNursery(JSRuntime* rt) : rt(nullptr) {
+        checkCondition(rt);
     }
 
-    AutoAssertEmptyNursery(const AutoAssertEmptyNursery& other) : AutoAssertEmptyNursery(other.cx)
+    AutoAssertEmptyNursery(const AutoAssertEmptyNursery& other) : AutoAssertEmptyNursery(other.rt)
     {
     }
 };
@@ -1439,7 +1441,7 @@ class MOZ_RAII AutoAssertEmptyNursery
 class MOZ_RAII AutoEmptyNursery : public AutoAssertEmptyNursery
 {
   public:
-    explicit AutoEmptyNursery(JSContext* cx);
+    explicit AutoEmptyNursery(JSRuntime *rt);
 };
 
 const char*
@@ -1454,17 +1456,22 @@ IsOOMReason(JS::gcreason::Reason reason)
 
 } /* namespace gc */
 
+#ifdef DEBUG
 /* Use this to avoid assertions when manipulating the wrapper map. */
 class MOZ_RAII AutoDisableProxyCheck
 {
+    gc::GCRuntime& gc;
+
   public:
-#ifdef DEBUG
-    AutoDisableProxyCheck();
+    explicit AutoDisableProxyCheck(JSRuntime* rt);
     ~AutoDisableProxyCheck();
-#else
-    AutoDisableProxyCheck() {}
-#endif
 };
+#else
+struct MOZ_RAII AutoDisableProxyCheck
+{
+    explicit AutoDisableProxyCheck(JSRuntime* rt) {}
+};
+#endif
 
 struct MOZ_RAII AutoDisableCompactingGC
 {
@@ -1472,7 +1479,7 @@ struct MOZ_RAII AutoDisableCompactingGC
     ~AutoDisableCompactingGC();
 
   private:
-    JSContext* cx;
+    gc::GCRuntime& gc;
 };
 
 void

@@ -3,7 +3,7 @@
 
 /*---
 description: Object.getOwnPropertyDescriptors should fail if given a null or undefined value
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 ---*/
 
@@ -14,5 +14,3 @@ assert.throws(TypeError, function () {
 assert.throws(TypeError, function () {
     Object.getOwnPropertyDescriptors(undefined);
 });
-
-reportCompare(0, 0);

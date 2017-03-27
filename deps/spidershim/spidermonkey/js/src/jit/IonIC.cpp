@@ -43,8 +43,6 @@ IonIC::scratchRegisterForEntryJump()
       }
       case CacheKind::GetName:
       case CacheKind::SetProp:
-      case CacheKind::SetElem:
-      case CacheKind::In:
         MOZ_CRASH("Baseline-specific for now");
     }
 
@@ -138,7 +136,7 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
                 ic->monitoredResult() ? CanAttachGetter::Yes : CanAttachGetter::No;
             jsbytecode* pc = ic->idempotent() ? nullptr : ic->pc();
             bool isTemporarilyUnoptimizable;
-            GetPropIRGenerator gen(cx, outerScript, pc, ic->kind(), ICStubEngine::IonIC,
+            GetPropIRGenerator gen(cx, pc, ic->kind(), ICStubEngine::IonIC,
                                    &isTemporarilyUnoptimizable,
                                    val, idVal, canAttachGetter);
             if (ic->idempotent() ? gen.tryAttachIdempotentStub() : gen.tryAttachStub()) {

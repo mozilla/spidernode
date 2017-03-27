@@ -393,7 +393,7 @@ class ModuleEnvironmentObject : public EnvironmentObject
 
     static const uint32_t RESERVED_SLOTS = 2;
 
-    static ModuleEnvironmentObject* create(JSContext* cx, HandleModuleObject module);
+    static ModuleEnvironmentObject* create(ExclusiveContext* cx, HandleModuleObject module);
     ModuleObject& module();
     IndirectBindingMap& importBindings();
 
@@ -911,8 +911,6 @@ class DebugEnvironmentProxy : public ProxyObject
 /* Maintains per-compartment debug environment bookkeeping information. */
 class DebugEnvironments
 {
-    Zone* zone_;
-
     /* The map from (non-debug) environments to debug environments. */
     ObjectWeakMap proxiedEnvs;
 
@@ -941,10 +939,8 @@ class DebugEnvironments
     LiveEnvironmentMap liveEnvs;
 
   public:
-    DebugEnvironments(JSContext* cx, Zone* zone);
+    explicit DebugEnvironments(JSContext* cx);
     ~DebugEnvironments();
-
-    Zone* zone() const { return zone_; }
 
   private:
     bool init();

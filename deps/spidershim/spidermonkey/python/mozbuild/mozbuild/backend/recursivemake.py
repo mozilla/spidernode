@@ -34,8 +34,6 @@ from ..frontend.data import (
     AndroidExtraResDirs,
     AndroidExtraPackages,
     AndroidEclipseProjectData,
-    BaseLibrary,
-    BaseProgram,
     ChromeManifestEntry,
     ConfigFileSubstitution,
     ContextDerived,
@@ -57,7 +55,6 @@ from ..frontend.data import (
     JARManifest,
     JavaJarData,
     Library,
-    Linkable,
     LocalInclude,
     ObjdirFiles,
     ObjdirPreprocessedFiles,
@@ -263,7 +260,6 @@ class RecursiveMakeTraversal(object):
 
     def __init__(self):
         self._traversal = {}
-        self._attached = set()
 
     def add(self, dir, dirs=[], tests=[]):
         """
@@ -274,10 +270,7 @@ class RecursiveMakeTraversal(object):
         subdirs = self._traversal.setdefault(dir, self.SubDirectories())
         for key, value in (('dirs', dirs), ('tests', tests)):
             assert(key in self.SubDirectoryCategories)
-            # Callers give us generators
-            value = list(value)
             getattr(subdirs, key).extend(value)
-            self._attached |= set(value)
 
     @staticmethod
     def default_filter(current, subdirs):
@@ -291,7 +284,8 @@ class RecursiveMakeTraversal(object):
         Helper function to call a filter from compute_dependencies and
         traverse.
         """
-        return filter(current, self.get_subdirs(current))
+        return filter(current, self._traversal.get(current,
+            self.SubDirectories()))
 
     def compute_dependencies(self, filter=None):
         """
@@ -360,16 +354,7 @@ class RecursiveMakeTraversal(object):
         """
         Returns all direct subdirectories under the given directory.
         """
-        result = self._traversal.get(dir, self.SubDirectories())
-        if dir == '':
-            unattached = set(self._traversal) - self._attached - set([''])
-            if unattached:
-                new_result = self.SubDirectories()
-                new_result.dirs.extend(result.dirs)
-                new_result.dirs.extend(sorted(unattached))
-                new_result.tests.extend(result.tests)
-                result = new_result
-        return result
+        return self._traversal.get(dir, self.SubDirectories())
 
 
 class RecursiveMakeBackend(CommonBackend):
@@ -458,9 +443,6 @@ class RecursiveMakeBackend(CommonBackend):
 
         if not isinstance(obj, Defines):
             self.consume_object(obj.defines)
-
-        if isinstance(obj, Linkable):
-            self._process_test_support_file(obj)
 
         if isinstance(obj, DirectoryTraversal):
             self._process_directory_traversal(obj, backend_file)
@@ -1090,24 +1072,6 @@ class RecursiveMakeBackend(CommonBackend):
 
     def _process_host_simple_program(self, program, backend_file):
         backend_file.write('HOST_SIMPLE_PROGRAMS += %s\n' % program)
-
-    def _process_test_support_file(self, obj):
-        # Ensure test support programs and libraries are tracked by an
-        # install manifest for the benefit of the test packager.
-        if not obj.install_target.startswith('_tests'):
-            return
-
-        dest_basename = None
-        if isinstance(obj, BaseLibrary):
-            dest_basename = obj.lib_name
-        elif isinstance(obj, BaseProgram):
-            dest_basename = obj.program
-        if dest_basename is None:
-            return
-
-        self._install_manifests['_tests'].add_optional_exists(
-            mozpath.join(obj.install_target[len('_tests') + 1:],
-                         dest_basename))
 
     def _process_test_manifest(self, obj, backend_file):
         # Much of the logic in this function could be moved to CommonBackend.

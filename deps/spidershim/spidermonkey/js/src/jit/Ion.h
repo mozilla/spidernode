@@ -30,7 +30,7 @@ enum MethodStatus
     Method_Compiled
 };
 
-enum class AbortReason : uint8_t {
+enum class AbortReason {
     Alloc,
     Inlining,
     PreliminaryObjects,
@@ -54,11 +54,6 @@ Err(E&& aErrorValue)
 }
 
 
-static_assert(sizeof(AbortReasonOr<Ok>) <= sizeof(uintptr_t),
-    "Unexpected size of AbortReasonOr<Ok>");
-static_assert(sizeof(AbortReasonOr<bool>) <= sizeof(uintptr_t),
-    "Unexpected size of AbortReasonOr<bool>");
-
 // A JIT context is needed to enter into either an JIT method or an instance
 // of a JIT compiler. It points to a temporary allocator and the active
 // JSContext, either of which may be nullptr, and the active compartment, which
@@ -68,6 +63,7 @@ class JitContext
 {
   public:
     JitContext(JSContext* cx, TempAllocator* temp);
+    JitContext(ExclusiveContext* cx, TempAllocator* temp);
     JitContext(CompileRuntime* rt, CompileCompartment* comp, TempAllocator* temp);
     JitContext(CompileRuntime* rt, TempAllocator* temp);
     explicit JitContext(CompileRuntime* rt);
@@ -75,7 +71,7 @@ class JitContext
     JitContext();
     ~JitContext();
 
-    // Running context when executing on the active thread. Not available during
+    // Running context when executing on the main thread. Not available during
     // compilation.
     JSContext* cx;
 
@@ -87,6 +83,9 @@ class JitContext
     CompileRuntime* runtime;
     CompileCompartment* compartment;
 
+    bool onMainThread() const {
+        return runtime && runtime->onMainThread();
+    }
     bool hasProfilingScripts() const {
         return runtime && !!runtime->profilingScripts();
     }
@@ -175,7 +174,7 @@ void FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder,
                             const AutoLockHelperThreadState& lock);
 
 void LinkIonScript(JSContext* cx, HandleScript calleescript);
-uint8_t* LazyLinkTopActivation();
+uint8_t* LazyLinkTopActivation(JSContext* cx);
 
 static inline bool
 IsIonEnabled(JSContext* cx)

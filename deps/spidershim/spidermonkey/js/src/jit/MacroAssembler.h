@@ -686,22 +686,22 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline bool hasSelfReference() const;
 
     // Push stub code and the VMFunction pointer.
-    inline void enterExitFrame(Register temp, const VMFunction* f = nullptr);
+    inline void enterExitFrame(const VMFunction* f = nullptr);
 
     // Push an exit frame token to identify which fake exit frame this footer
     // corresponds to.
-    inline void enterFakeExitFrame(Register temp, enum ExitFrameTokenValues token);
+    inline void enterFakeExitFrame(enum ExitFrameTokenValues token);
 
     // Push an exit frame token for a native call.
-    inline void enterFakeExitFrameForNative(Register temp, bool isConstructing);
+    inline void enterFakeExitFrameForNative(bool isConstructing);
 
     // Pop ExitFrame footer in addition to the extra frame.
     inline void leaveExitFrame(size_t extraFrame = 0);
 
   private:
-    // Save the top of the stack into JSontext::jitTop of the current thread,
+    // Save the top of the stack into PerThreadData::jitTop of the main thread,
     // which should be the location of the latest exit frame.
-    void linkExitFrame(Register temp);
+    void linkExitFrame();
 
     // Patch the value of PushStubCode with the pointer to the finalized code.
     void linkSelfReference(JitCode* code);
@@ -1012,8 +1012,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void branch64(Condition cond, const Address& lhs, const Address& rhs, Register scratch,
                          Label* label) PER_ARCH;
 
-    template <class L>
-    inline void branchPtr(Condition cond, Register lhs, Register rhs, L label) PER_SHARED_ARCH;
+    inline void branchPtr(Condition cond, Register lhs, Register rhs, Label* label) PER_SHARED_ARCH;
     inline void branchPtr(Condition cond, Register lhs, Imm32 rhs, Label* label) PER_SHARED_ARCH;
     inline void branchPtr(Condition cond, Register lhs, ImmPtr rhs, Label* label) PER_SHARED_ARCH;
     inline void branchPtr(Condition cond, Register lhs, ImmGCPtr rhs, Label* label) PER_SHARED_ARCH;
@@ -1494,18 +1493,18 @@ class MacroAssembler : public MacroAssemblerSpecific
     void loadStringChars(Register str, Register dest);
     void loadStringChar(Register str, Register index, Register output);
 
-    void loadJSContext(Register dest);
+    void loadJSContext(Register dest) {
+        movePtr(ImmPtr(GetJitContext()->runtime->getJSContext()), dest);
+    }
     void loadJitActivation(Register dest) {
-        loadJSContext(dest);
-        loadPtr(Address(dest, offsetof(JSContext, activation_)), dest);
+        loadPtr(AbsoluteAddress(GetJitContext()->runtime->addressOfActivation()), dest);
     }
     void loadWasmActivationFromTls(Register dest) {
         loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, cx)), dest);
         loadPtr(Address(dest, JSContext::offsetOfWasmActivation()), dest);
     }
     void loadWasmActivationFromSymbolicAddress(Register dest) {
-        movePtr(wasm::SymbolicAddress::ContextPtr, dest);
-        loadPtr(Address(dest, 0), dest);
+        movePtr(wasm::SymbolicAddress::Context, dest);
         loadPtr(Address(dest, JSContext::offsetOfWasmActivation()), dest);
     }
 
@@ -1911,10 +1910,6 @@ class MacroAssembler : public MacroAssemblerSpecific
     void printf(const char* output, Register value);
 
 #ifdef JS_TRACE_LOGGING
-    void loadTraceLogger(Register logger) {
-        loadJSContext(logger);
-        loadPtr(Address(logger, offsetof(JSContext, traceLogger)), logger);
-    }
     void tracelogStartId(Register logger, uint32_t textId, bool force = false);
     void tracelogStartId(Register logger, Register textId);
     void tracelogStartEvent(Register logger, Register event);
@@ -1960,8 +1955,6 @@ class MacroAssembler : public MacroAssemblerSpecific
                                bool compilingWasm);
 
     void convertInt32ValueToDouble(const Address& address, Register scratch, Label* done);
-    void convertInt32ValueToDouble(ValueOperand val);
-
     void convertValueToDouble(ValueOperand value, FloatRegister output, Label* fail) {
         convertValueToFloatingPoint(value, output, fail, MIRType::Double);
     }

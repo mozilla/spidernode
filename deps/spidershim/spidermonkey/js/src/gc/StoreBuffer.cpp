@@ -89,9 +89,9 @@ StoreBuffer::setAboutToOverflow()
 {
     if (!aboutToOverflow_) {
         aboutToOverflow_ = true;
-        runtime_->gc.stats().count(gcstats::STAT_STOREBUFFER_OVERFLOW);
+        runtime_->gc.stats.count(gcstats::STAT_STOREBUFFER_OVERFLOW);
     }
-    nursery_.requestMinorGC(JS::gcreason::FULL_STORE_BUFFER);
+    runtime_->gc.requestMinorGC(JS::gcreason::FULL_STORE_BUFFER);
 }
 
 void
@@ -126,11 +126,12 @@ ArenaCellSet*
 js::gc::AllocateWholeCellSet(Arena* arena)
 {
     Zone* zone = arena->zone;
-    if (!zone->group()->nursery().isEnabled())
+    JSRuntime* rt = zone->runtimeFromMainThread();
+    if (!rt->gc.nursery.isEnabled())
         return nullptr;
 
     AutoEnterOOMUnsafeRegion oomUnsafe;
-    Nursery& nursery = zone->group()->nursery();
+    Nursery& nursery = rt->gc.nursery;
     void* data = nursery.allocateBuffer(zone, sizeof(ArenaCellSet));
     if (!data) {
         oomUnsafe.crash("Failed to allocate WholeCellSet");
@@ -138,12 +139,12 @@ js::gc::AllocateWholeCellSet(Arena* arena)
     }
 
     if (nursery.freeSpace() < ArenaCellSet::NurseryFreeThresholdBytes)
-        zone->group()->storeBuffer().setAboutToOverflow();
+        rt->gc.storeBuffer.setAboutToOverflow();
 
     auto cells = static_cast<ArenaCellSet*>(data);
     new (cells) ArenaCellSet(arena);
     arena->bufferedCells() = cells;
-    zone->group()->storeBuffer().addToWholeCellBuffer(cells);
+    rt->gc.storeBuffer.addToWholeCellBuffer(cells);
     return cells;
 }
 

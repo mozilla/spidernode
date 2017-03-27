@@ -1,4 +1,4 @@
-// |reftest| slow skip-if(!xulRuntime.shell)
+// |reftest| skip-if(!xulRuntime.shell)
 // Classes
 function testClasses() {
     function methodFun(id, kind, generator, args, body = []) {

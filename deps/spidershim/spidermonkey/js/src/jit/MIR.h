@@ -30,7 +30,7 @@
 #include "vm/ArrayObject.h"
 #include "vm/EnvironmentObject.h"
 #include "vm/SharedMem.h"
-#include "vm/TypedArrayObject.h"
+#include "vm/TypedArrayCommon.h"
 #include "vm/UnboxedObject.h"
 
 // Undo windows.h damage on Win64
@@ -359,7 +359,7 @@ class MNode : public TempObject
 
   protected:
     // Need visibility on getUseFor to avoid O(n^2) complexity.
-    friend void AssertBasicGraphCoherency(MIRGraph& graph, bool force);
+    friend void AssertBasicGraphCoherency(MIRGraph& graph);
 
     // Gets the MUse corresponding to given operand.
     virtual MUse* getUseFor(size_t index) = 0;
@@ -1047,7 +1047,10 @@ class CompilerGCPointer
       : ptr_(ptr)
     {
         MOZ_ASSERT_IF(IsInsideNursery(ptr), IonCompilationCanUseNurseryPointers());
-        MOZ_ASSERT_IF(!CurrentThreadIsIonCompiling(), TlsContext.get()->suppressGC);
+#ifdef DEBUG
+        PerThreadData* pt = TlsPerThreadData.get();
+        MOZ_ASSERT_IF(pt->runtimeIfOnOwnerThread(), pt->suppressGC);
+#endif
     }
 
     operator T() const { return static_cast<T>(ptr_); }
@@ -3986,7 +3989,7 @@ class MInitElemGetterSetter
 };
 
 // WrappedFunction wraps a JSFunction so it can safely be used off-thread.
-// In particular, a function's flags can be modified on the active thread as
+// In particular, a function's flags can be modified on the main thread as
 // functions are relazified and delazified, so we must be careful not to access
 // these flags off-thread.
 class WrappedFunction : public TempObject
@@ -8351,7 +8354,7 @@ struct LambdaFunctionInfo
 {
     // The functions used in lambdas are the canonical original function in
     // the script, and are immutable except for delazification. Record this
-    // information while still on the active thread to avoid races.
+    // information while still on the main thread to avoid races.
     CompilerFunction fun;
     uint16_t flags;
     uint16_t nargs;
@@ -12920,7 +12923,7 @@ class MResumePoint final :
 
   private:
     friend class MBasicBlock;
-    friend void AssertBasicGraphCoherency(MIRGraph& graph, bool force);
+    friend void AssertBasicGraphCoherency(MIRGraph& graph);
 
     // List of stack slots needed to reconstruct the frame corresponding to the
     // function which is compiled by IonBuilder.
@@ -13790,17 +13793,14 @@ class MAsmJSAtomicBinopHeap
     }
 };
 
-class MWasmLoadGlobalVar
-  : public MAryInstruction<1>,
-    public NoTypePolicy::Data
+class MWasmLoadGlobalVar : public MNullaryInstruction
 {
-    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant, MDefinition* tlsPtr)
+    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant)
       : globalDataOffset_(globalDataOffset), isConstant_(isConstant)
     {
         MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
         setResultType(type);
         setMovable();
-        initOperand(0, tlsPtr);
     }
 
     unsigned globalDataOffset_;
@@ -13809,7 +13809,6 @@ class MWasmLoadGlobalVar
   public:
     INSTRUCTION_HEADER(WasmLoadGlobalVar)
     TRIVIAL_NEW_WRAPPERS
-    NAMED_OPERANDS((0, tlsPtr))
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
 
@@ -13825,24 +13824,21 @@ class MWasmLoadGlobalVar
 };
 
 class MWasmStoreGlobalVar
-  : public MAryInstruction<2>,
+  : public MUnaryInstruction,
     public NoTypePolicy::Data
 {
-    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* value, MDefinition* tlsPtr)
-      : globalDataOffset_(globalDataOffset)
-    {
-        initOperand(0, value);
-        initOperand(1, tlsPtr);
-    }
+    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* v)
+      : MUnaryInstruction(v), globalDataOffset_(globalDataOffset)
+    {}
 
     unsigned globalDataOffset_;
 
   public:
     INSTRUCTION_HEADER(WasmStoreGlobalVar)
     TRIVIAL_NEW_WRAPPERS
-    NAMED_OPERANDS((0, value), (1, tlsPtr))
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
+    MDefinition* value() const { return getOperand(0); }
 
     AliasSet getAliasSet() const override {
         return AliasSet::Store(AliasSet::WasmGlobalVar);

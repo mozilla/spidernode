@@ -324,7 +324,7 @@ js::ComputeStackString(JSContext* cx)
 static void
 exn_finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOnHelperThread());
+    MOZ_ASSERT(fop->maybeOffMainThread());
     if (JSErrorReport* report = obj->as<ErrorObject>().getErrorReport())
         fop->free_(report);
 }
@@ -603,7 +603,7 @@ js::ErrorToException(JSContext* cx, JSErrorReport* reportp,
     // Prevent infinite recursion.
     if (cx->generatingError)
         return;
-    AutoScopedAssign<bool> asa(&cx->generatingError.ref(), true);
+    AutoScopedAssign<bool> asa(&cx->generatingError, true);
 
     // Create an exception object.
     RootedString messageStr(cx, reportp->newMessageString(cx));

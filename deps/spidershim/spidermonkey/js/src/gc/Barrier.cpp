@@ -22,10 +22,9 @@
 namespace js {
 
 bool
-RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone)
+RuntimeFromMainThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone)
 {
-    MOZ_ASSERT(CurrentThreadCanAccessRuntime(shadowZone->runtimeFromActiveCooperatingThread()));
-    return JS::CurrentThreadIsHeapMajorCollecting();
+    return shadowZone->runtimeFromMainThread()->isHeapMajorCollecting();
 }
 
 #ifdef DEBUG
@@ -68,19 +67,19 @@ HeapSlot::assertPreconditionForWriteBarrierPost(NativeObject* obj, Kind kind, ui
 bool
 CurrentThreadIsIonCompiling()
 {
-    return TlsContext.get()->ionCompiling;
+    return TlsPerThreadData.get()->ionCompiling;
 }
 
 bool
 CurrentThreadIsIonCompilingSafeForMinorGC()
 {
-    return TlsContext.get()->ionCompilingSafeForMinorGC;
+    return TlsPerThreadData.get()->ionCompilingSafeForMinorGC;
 }
 
 bool
 CurrentThreadIsGCSweeping()
 {
-    return TlsContext.get()->gcSweeping;
+    return TlsPerThreadData.get()->gcSweeping;
 }
 
 #endif // DEBUG
@@ -147,9 +146,9 @@ MovableCellHasher<T>::hash(const Lookup& l)
         return 0;
 
     // We have to access the zone from-any-thread here: a worker thread may be
-    // cloning a self-hosted object from the main runtime's self- hosting zone
-    // into another runtime. The zone's uid lock will protect against multiple
-    // workers doing this simultaneously.
+    // cloning a self-hosted object from the main-thread-runtime-owned self-
+    // hosting zone into the off-main-thread runtime. The zone's uid lock will
+    // protect against multiple workers doing this simultaneously.
     MOZ_ASSERT(CurrentThreadCanAccessZone(l->zoneFromAnyThread()) ||
                l->zoneFromAnyThread()->isSelfHostingZone());
 

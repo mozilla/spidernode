@@ -63,16 +63,17 @@ static Atomic<uint32_t> wasmCodeAllocations(0);
 static const uint32_t MaxWasmCodeAllocations = 16384;
 
 static uint8_t*
-AllocateCodeSegment(JSContext* cx, uint32_t codeLength)
+AllocateCodeSegment(ExclusiveContext* cx, uint32_t totalLength)
 {
     if (wasmCodeAllocations >= MaxWasmCodeAllocations)
         return nullptr;
 
-    // codeLength is a multiple of the system's page size, but not necessarily
-    // a multiple of ExecutableCodePageSize.
-    codeLength = JS_ROUNDUP(codeLength, ExecutableCodePageSize);
+    // Allocate RW memory. DynamicallyLinkModule will reprotect the code as RX.
+    unsigned permissions =
+        ExecutableAllocator::initialProtectionFlags(ExecutableAllocator::Writable);
 
-    void* p = AllocateExecutableMemory(codeLength, ProtectionSetting::Writable);
+    void* p = AllocateExecutableMemory(totalLength, permissions, "wasm-code-segment",
+                                       gc::SystemPageSize());
     if (!p) {
         ReportOutOfMemory(cx);
         return nullptr;
@@ -83,7 +84,7 @@ AllocateCodeSegment(JSContext* cx, uint32_t codeLength)
 }
 
 static void
-StaticallyLink(CodeSegment& cs, const LinkData& linkData, JSContext* cx)
+StaticallyLink(CodeSegment& cs, const LinkData& linkData, ExclusiveContext* cx)
 {
     for (LinkData::InternalLink link : linkData.internalLinks) {
         uint8_t* patchAt = cs.base() + link.patchAtOffset;
@@ -104,6 +105,11 @@ StaticallyLink(CodeSegment& cs, const LinkData& linkData, JSContext* cx)
                                                PatchedImmPtr((void*)-1));
         }
     }
+
+    // These constants are logically part of the code:
+
+    *(double*)(cs.globalData() + NaN64GlobalDataOffset) = GenericNaN();
+    *(float*)(cs.globalData() + NaN32GlobalDataOffset) = GenericNaN();
 }
 
 static void
@@ -148,7 +154,7 @@ SendCodeRangesToProfiler(CodeSegment& cs, const Bytes& bytecode, const Metadata&
     enabled |= PerfFuncEnabled();
 #endif
 #ifdef MOZ_VTUNE
-    enabled |= vtune::IsProfilingActive();
+    enabled |= IsVTuneProfilingActive();
 #endif
     if (!enabled)
         return;
@@ -180,9 +186,21 @@ SendCodeRangesToProfiler(CodeSegment& cs, const Bytes& bytecode, const Metadata&
         }
 #endif
 #ifdef MOZ_VTUNE
-        if (vtune::IsProfilingActive()) {
-            cs.vtune_method_id_ = vtune::GenerateUniqueMethodID();
-            vtune::MarkWasm(cs, name.begin(), (void*)start, size);
+        if (IsVTuneProfilingActive()) {
+            unsigned method_id = iJIT_GetNewMethodID();
+            if (method_id == 0)
+                return;
+            iJIT_Method_Load method;
+            method.method_id = method_id;
+            method.method_name = name.begin();
+            method.method_load_address = (void*)start;
+            method.method_size = size;
+            method.line_number_size = 0;
+            method.line_number_table = nullptr;
+            method.class_id = 0;
+            method.class_file_name = nullptr;
+            method.source_file_name = nullptr;
+            iJIT_NotifyEvent(iJVM_EVENT_TYPE_METHOD_LOAD_FINISHED, (void*)&method);
         }
 #endif
     }
@@ -198,6 +216,7 @@ CodeSegment::create(JSContext* cx,
                     HandleWasmMemoryObject memory)
 {
     MOZ_ASSERT(bytecode.length() % gc::SystemPageSize() == 0);
+    MOZ_ASSERT(linkData.globalDataLength % gc::SystemPageSize() == 0);
     MOZ_ASSERT(linkData.functionCodeLength < bytecode.length());
 
     // These should always exist and should never be first in the code segment.
@@ -209,14 +228,15 @@ CodeSegment::create(JSContext* cx,
     if (!cs)
         return nullptr;
 
-    cs->bytes_ = AllocateCodeSegment(cx, bytecode.length());
+    cs->bytes_ = AllocateCodeSegment(cx, bytecode.length() + linkData.globalDataLength);
     if (!cs->bytes_)
         return nullptr;
 
     uint8_t* codeBase = cs->base();
 
-    cs->functionLength_ = linkData.functionCodeLength;
-    cs->length_ = bytecode.length();
+    cs->functionCodeLength_ = linkData.functionCodeLength;
+    cs->codeLength_ = bytecode.length();
+    cs->globalDataLength_ = linkData.globalDataLength;
     cs->interruptCode_ = codeBase + linkData.interruptOffset;
     cs->outOfBoundsCode_ = codeBase + linkData.outOfBoundsOffset;
     cs->unalignedAccessCode_ = codeBase + linkData.unalignedAccessOffset;
@@ -224,7 +244,7 @@ CodeSegment::create(JSContext* cx,
     {
         JitContext jcx(CompileRuntime::get(cx->compartment()->runtimeFromAnyThread()));
         AutoFlushICache afc("CodeSegment::create");
-        AutoFlushICache::setRange(uintptr_t(codeBase), cs->length());
+        AutoFlushICache::setRange(uintptr_t(codeBase), cs->codeLength());
 
         memcpy(codeBase, bytecode.begin(), bytecode.length());
         StaticallyLink(*cs, linkData, cx);
@@ -232,9 +252,7 @@ CodeSegment::create(JSContext* cx,
             SpecializeToMemory(nullptr, *cs, metadata, memory->buffer());
     }
 
-    // Reprotect the whole region to avoid having separate RW and RX mappings.
-    uint32_t size = JS_ROUNDUP(cs->length(), ExecutableCodePageSize);
-    if (!ExecutableAllocator::makeExecutable(codeBase, size)) {
+    if (!ExecutableAllocator::makeExecutable(codeBase, cs->codeLength())) {
         ReportOutOfMemory(cx);
         return nullptr;
     }
@@ -249,27 +267,19 @@ CodeSegment::~CodeSegment()
     if (!bytes_)
         return;
 
-
     MOZ_ASSERT(wasmCodeAllocations > 0);
     wasmCodeAllocations--;
 
-    MOZ_ASSERT(length() > 0);
-
-    // Match AllocateCodeSegment.
-    uint32_t size = JS_ROUNDUP(length(), ExecutableCodePageSize);
-#ifdef MOZ_VTUNE
-    vtune::UnmarkBytes(bytes_, size);
-#endif
-    DeallocateExecutableMemory(bytes_, size);
-
+    MOZ_ASSERT(totalLength() > 0);
+    DeallocateExecutableMemory(bytes_, totalLength(), gc::SystemPageSize());
 }
 
 void
 CodeSegment::onMovingGrow(uint8_t* prevMemoryBase, const Metadata& metadata, ArrayBufferObject& buffer)
 {
-    AutoWritableJitCode awjc(base(), length());
+    AutoWritableJitCode awjc(base(), codeLength());
     AutoFlushICache afc("CodeSegment::onMovingGrow");
-    AutoFlushICache::setRange(uintptr_t(base()), length());
+    AutoFlushICache::setRange(uintptr_t(base()), codeLength());
 
     SpecializeToMemory(prevMemoryBase, *this, metadata, buffer);
 }
@@ -854,14 +864,12 @@ Code::getOffsetLocation(JSContext* cx, uint32_t offset, bool* found, size_t* lin
 bool
 Code::totalSourceLines(JSContext* cx, uint32_t* count)
 {
-    *count = 0;
-    if (!metadata_->debugEnabled)
-        return true;
-
     if (!ensureSourceMap(cx))
         return false;
 
-    if (maybeSourceMap_)
+    if (!maybeSourceMap_)
+        *count = 0;
+    else
         *count = maybeSourceMap_->totalLines() + experimentalWarningLinesCount;
     return true;
 }
@@ -973,9 +981,9 @@ Code::toggleBreakpointTrap(JSRuntime* rt, uint32_t offset, bool enabled)
     if (stepModeCounters_.initialized() && stepModeCounters_.lookup(codeRange->funcIndex()))
         return; // no need to toggle when step mode is enabled
 
-    AutoWritableJitCode awjc(rt, segment_->base(), segment_->length());
+    AutoWritableJitCode awjc(rt, segment_->base(), segment_->codeLength());
     AutoFlushICache afc("Code::toggleBreakpointTrap");
-    AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->length());
+    AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->codeLength());
     toggleDebugTrap(debugTrapOffset, enabled);
 }
 
@@ -1108,9 +1116,9 @@ Code::ensureProfilingState(JSRuntime* rt, bool newProfilingEnabled)
     profilingEnabled_ = newProfilingEnabled;
 
     {
-        AutoWritableJitCode awjc(segment_->base(), segment_->length());
+        AutoWritableJitCode awjc(segment_->base(), segment_->codeLength());
         AutoFlushICache afc("Code::ensureProfilingState");
-        AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->length());
+        AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->codeLength());
 
         for (const CallSite& callSite : metadata_->callSites)
             ToggleProfiling(*this, callSite, newProfilingEnabled);
@@ -1159,9 +1167,9 @@ Code::adjustEnterAndLeaveFrameTrapsState(JSContext* cx, bool enabled)
     if (wasEnabled == stillEnabled)
         return;
 
-    AutoWritableJitCode awjc(cx->runtime(), segment_->base(), segment_->length());
+    AutoWritableJitCode awjc(cx->runtime(), segment_->base(), segment_->codeLength());
     AutoFlushICache afc("Code::adjustEnterAndLeaveFrameTrapsState");
-    AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->length());
+    AutoFlushICache::setRange(uintptr_t(segment_->base()), segment_->codeLength());
     for (const CallSite& callSite : metadata_->callSites) {
         if (callSite.kind() != CallSite::EnterFrame && callSite.kind() != CallSite::LeaveFrame)
             continue;
@@ -1176,8 +1184,9 @@ Code::addSizeOfMisc(MallocSizeOf mallocSizeOf,
                     size_t* code,
                     size_t* data) const
 {
-    *code += segment_->length();
+    *code += segment_->codeLength();
     *data += mallocSizeOf(this) +
+             segment_->globalDataLength() +
              metadata_->sizeOfIncludingThisIfNotSeen(mallocSizeOf, seenMetadata);
 
     if (maybeBytecode_)

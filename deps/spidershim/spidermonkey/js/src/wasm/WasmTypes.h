@@ -19,7 +19,6 @@
 #ifndef wasm_types_h
 #define wasm_types_h
 
-#include "mozilla/Alignment.h"
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Maybe.h"
@@ -93,7 +92,6 @@ typedef float F32x4[4];
 
 class Code;
 class CodeRange;
-class GlobalSegment;
 class Memory;
 class Module;
 class Instance;
@@ -1015,7 +1013,8 @@ enum class SymbolicAddress
     LogD,
     PowD,
     ATan2D,
-    ContextPtr,
+    Context,
+    InterruptUint32,
     ReportOverRecursed,
     HandleExecutionInterrupt,
     HandleDebugTrap,
@@ -1043,7 +1042,7 @@ enum class SymbolicAddress
 };
 
 void*
-AddressOf(SymbolicAddress imm, JSContext* cx);
+AddressOf(SymbolicAddress imm, ExclusiveContext* cx);
 
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
@@ -1059,7 +1058,7 @@ struct Assumptions
     // If Assumptions is constructed without arguments, initBuildIdFromContext()
     // must be called to complete initialization.
     Assumptions();
-    bool initBuildIdFromContext(JSContext* cx);
+    bool initBuildIdFromContext(ExclusiveContext* cx);
 
     bool clone(const Assumptions& other);
 
@@ -1155,15 +1154,7 @@ struct TlsData
     // stack pointer in the prologue of functions that allocate stack space. See
     // `CodeGenerator::generateWasm`.
     void* stackLimit;
-
-    // The globalArea must be the last field.  Globals for the module start here
-    // and are inline in this structure.  16-byte alignment is required for SIMD
-    // data.
-    MOZ_ALIGNED_DECL(char globalArea, 16);
-
 };
-
-static_assert(offsetof(TlsData, globalArea) % 16 == 0, "aligned");
 
 typedef int32_t (*ExportFuncPtr)(ExportArg* args, TlsData* tls);
 

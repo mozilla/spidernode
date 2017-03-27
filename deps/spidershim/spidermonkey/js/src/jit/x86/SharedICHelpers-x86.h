@@ -160,21 +160,13 @@ static const uint32_t STUB_FRAME_SAVED_STUB_OFFSET = sizeof(void*);
 inline void
 EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
 {
-    // Compute frame size. Because the return address is still on the stack,
-    // this is:
-    //
-    //   BaselineFrameReg
-    //   + BaselineFrame::FramePointerOffset
-    //   - BaselineStackReg
-    //   - sizeof(return address)
-    //
-    // The two constants cancel each other out, so we can just calculate
-    // BaselineFrameReg - BaselineStackReg.
+    MOZ_ASSERT(scratch != ICTailCallReg);
 
-    static_assert(BaselineFrame::FramePointerOffset == sizeof(void*),
-                  "FramePointerOffset must be the same as the return address size");
+    EmitRestoreTailCallReg(masm);
 
+    // Compute frame size.
     masm.movl(BaselineFrameReg, scratch);
+    masm.addl(Imm32(BaselineFrame::FramePointerOffset), scratch);
     masm.subl(BaselineStackReg, scratch);
 
     masm.store32(scratch, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
@@ -182,17 +174,24 @@ EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
     // Note: when making changes here,  don't forget to update STUB_FRAME_SIZE
     // if needed.
 
-    // Push the return address that's currently on top of the stack.
-    masm.Push(Operand(BaselineStackReg, 0));
-
-    // Replace the original return address with the frame descriptor.
+    // Push frame descriptor and return address.
     masm.makeFrameDescriptor(scratch, JitFrame_BaselineJS, BaselineStubFrameLayout::Size());
-    masm.storePtr(scratch, Address(BaselineStackReg, sizeof(uintptr_t)));
+    masm.Push(scratch);
+    masm.Push(ICTailCallReg);
 
     // Save old frame pointer, stack pointer and stub reg.
     masm.Push(ICStubReg);
     masm.Push(BaselineFrameReg);
     masm.mov(BaselineStackReg, BaselineFrameReg);
+}
+
+inline void
+EmitIonEnterStubFrame(MacroAssembler& masm, Register scratch)
+{
+    MOZ_ASSERT(scratch != ICTailCallReg);
+
+    masm.loadPtr(Address(masm.getStackPointer(), 0), ICTailCallReg);
+    masm.Push(ICStubReg);
 }
 
 inline void
@@ -203,7 +202,7 @@ EmitBaselineLeaveStubFrame(MacroAssembler& masm, bool calledIntoIon = false)
     // If we performed a VM call, the descriptor has been popped already so
     // in that case we use the frame pointer.
     if (calledIntoIon) {
-        Register scratch = ICStubReg;
+        Register scratch = ICTailCallReg;
         masm.Pop(scratch);
         masm.shrl(Imm32(FRAMESIZE_SHIFT), scratch);
         masm.addl(scratch, BaselineStackReg);
@@ -214,11 +213,18 @@ EmitBaselineLeaveStubFrame(MacroAssembler& masm, bool calledIntoIon = false)
     masm.Pop(BaselineFrameReg);
     masm.Pop(ICStubReg);
 
-    // The return address is on top of the stack, followed by the frame
-    // descriptor. Use a pop instruction to overwrite the frame descriptor
-    // with the return address. Note that pop increments the stack pointer
-    // before computing the address.
-    masm.Pop(Operand(BaselineStackReg, 0));
+    // Pop return address.
+    masm.Pop(ICTailCallReg);
+
+    // Overwrite frame descriptor with return address, so that the stack matches
+    // the state before entering the stub frame.
+    masm.storePtr(ICTailCallReg, Address(BaselineStackReg, 0));
+}
+
+inline void
+EmitIonLeaveStubFrame(MacroAssembler& masm)
+{
+    masm.Pop(ICStubReg);
 }
 
 inline void

@@ -46,7 +46,7 @@ struct ForEachTrackedOptimizationTypeInfoOp;
 // contents to become out of date.
 class JS_PUBLIC_API(ProfilingFrameIterator)
 {
-    JSContext* cx_;
+    JSRuntime* rt_;
     uint32_t sampleBufferGen_;
     js::Activation* activation_;
 

@@ -32,5 +32,3 @@ assert.throws(RangeError, function() {
 assert.throws(RangeError, function() {
   new ArrayBuffer(-Infinity);
 });
-
-reportCompare(0, 0);

@@ -563,7 +563,7 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
     uint32_t firstword = 0;        /* bitmask of FirstWordFlag */
     uint32_t flagsword = 0;        /* word for argument count and fun->flags */
 
-    JSContext* cx = xdr->cx();
+    ExclusiveContext* cx = xdr->cx();
     RootedFunction fun(cx);
     RootedScript script(cx);
     Rooted<LazyScript*> lazy(cx);
@@ -618,10 +618,10 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
     if (mode == XDR_DECODE) {
         RootedObject proto(cx);
         if (firstword & IsStarGenerator) {
-            // If we are off thread, the generator meta-objects have
+            // If we are off the main thread, the generator meta-objects have
             // already been created by js::StartOffThreadParseTask, so
             // JSContext* will not be necessary.
-            JSContext* context = cx->helperThread() ? nullptr : cx;
+            JSContext* context = cx->maybeJSContext();
             proto = GlobalObject::getOrCreateStarGeneratorFunctionPrototype(context, cx->global());
             if (!proto)
                 return false;
@@ -1430,7 +1430,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
         // has started.
         if (canRelazify && !JS::IsIncrementalGCInProgress(cx)) {
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->zone()->group()->caches().lazyScriptCache.lookup(lookup, script.address());
+            cx->caches.lazyScriptCache.lookup(lookup, script.address());
         }
 
         if (script) {
@@ -1482,7 +1482,7 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             script->setColumn(lazy->column());
 
             LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->zone()->group()->caches().lazyScriptCache.insert(lookup, script);
+            cx->caches.lazyScriptCache.insert(lookup, script);
 
             // Remember the lazy script on the compiled script, so it can be
             // stored on the function again in case of re-lazification.
@@ -1829,7 +1829,7 @@ JSFunction::needsNamedLambdaEnvironment() const
 }
 
 JSFunction*
-js::NewNativeFunction(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeFunction(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
                       gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                       NewObjectKind newKind /* = SingletonObject */)
 {
@@ -1839,7 +1839,7 @@ js::NewNativeFunction(JSContext* cx, Native native, unsigned nargs, HandleAtom a
 }
 
 JSFunction*
-js::NewNativeConstructor(JSContext* cx, Native native, unsigned nargs, HandleAtom atom,
+js::NewNativeConstructor(ExclusiveContext* cx, Native native, unsigned nargs, HandleAtom atom,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
                          NewObjectKind newKind /* = SingletonObject */,
                          JSFunction::Flags flags /* = JSFunction::NATIVE_CTOR */)
@@ -1851,7 +1851,7 @@ js::NewNativeConstructor(JSContext* cx, Native native, unsigned nargs, HandleAto
 }
 
 JSFunction*
-js::NewScriptedFunction(JSContext* cx, unsigned nargs,
+js::NewScriptedFunction(ExclusiveContext* cx, unsigned nargs,
                         JSFunction::Flags flags, HandleAtom atom,
                         HandleObject proto /* = nullptr */,
                         gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -1867,7 +1867,7 @@ js::NewScriptedFunction(JSContext* cx, unsigned nargs,
 
 #ifdef DEBUG
 static bool
-NewFunctionEnvironmentIsWellFormed(JSContext* cx, HandleObject env)
+NewFunctionEnvironmentIsWellFormed(ExclusiveContext* cx, HandleObject env)
 {
     // Assert that the terminating environment is null, global, or a debug
     // scope proxy. All other cases of polluting global scope behavior are
@@ -1880,7 +1880,7 @@ NewFunctionEnvironmentIsWellFormed(JSContext* cx, HandleObject env)
 #endif
 
 JSFunction*
-js::NewFunctionWithProto(JSContext* cx, Native native,
+js::NewFunctionWithProto(ExclusiveContext* cx, Native native,
                          unsigned nargs, JSFunction::Flags flags, HandleObject enclosingEnv,
                          HandleAtom atom, HandleObject proto,
                          gc::AllocKind allocKind /* = AllocKind::FUNCTION */,
@@ -2146,7 +2146,7 @@ js::IdToFunctionName(JSContext* cx, HandleId id,
 }
 
 JSAtom*
-js::NameToFunctionName(JSContext* cx, HandleAtom name,
+js::NameToFunctionName(ExclusiveContext* cx, HandleAtom name,
                        FunctionPrefixKind prefixKind /* = FunctionPrefixKind::None */)
 {
     if (prefixKind == FunctionPrefixKind::None)

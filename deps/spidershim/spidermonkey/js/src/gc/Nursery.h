@@ -58,7 +58,6 @@ class ObjectElements;
 class NativeObject;
 class Nursery;
 class HeapSlot;
-class ZoneGroup;
 
 void SetGCZeal(JSRuntime*, uint8_t, uint32_t);
 
@@ -135,7 +134,7 @@ class Nursery
     static const size_t Alignment = gc::ChunkSize;
     static const size_t ChunkShift = gc::ChunkShift;
 
-    explicit Nursery(ZoneGroup* group);
+    explicit Nursery(JSRuntime* rt);
     ~Nursery();
 
     MOZ_MUST_USE bool init(uint32_t maxNurseryBytes, AutoLockGC& lock);
@@ -196,14 +195,14 @@ class Nursery
     static const size_t MaxNurseryBufferSize = 1024;
 
     /* Do a minor collection. */
-    void collect(JS::gcreason::Reason reason);
+    void collect(JSRuntime* rt, JS::gcreason::Reason reason);
 
     /*
      * Check if the thing at |*ref| in the Nursery has been forwarded. If so,
      * sets |*ref| to the new location of the object and returns true. Otherwise
      * returns false and leaves |*ref| unset.
      */
-    MOZ_ALWAYS_INLINE MOZ_MUST_USE static bool getForwardedPointer(JSObject** ref);
+    MOZ_ALWAYS_INLINE MOZ_MUST_USE bool getForwardedPointer(JSObject** ref) const;
 
     /* Forward a slots/elements pointer stored in an Ion frame. */
     void forwardBufferPointer(HeapSlot** pSlotsElems);
@@ -260,21 +259,10 @@ class Nursery
 #endif
 
     /* Print header line for profile times. */
-    static void printProfileHeader();
+    void printProfileHeader();
 
     /* Print total profile times on shutdown. */
     void printTotalProfileTimes();
-
-    void* addressOfCurrentEnd() const { return (void*)&currentEnd_; }
-    void* addressOfPosition() const { return (void*)&position_; }
-
-    void requestMinorGC(JS::gcreason::Reason reason) const;
-
-    bool minorGCRequested() const { return minorGCTriggerReason_ != JS::gcreason::NO_REASON; }
-    JS::gcreason::Reason minorGCTriggerReason() const { return minorGCTriggerReason_; }
-    void clearMinorGCRequest() { minorGCTriggerReason_ = JS::gcreason::NO_REASON; }
-
-    bool enableProfiling() const { return enableProfiling_; }
 
   private:
     /* The amount of space in the mapped nursery available to allocations. */
@@ -284,8 +272,8 @@ class Nursery
         char data[NurseryChunkUsableSize];
         gc::ChunkTrailer trailer;
         static NurseryChunk* fromChunk(gc::Chunk* chunk);
-        void init(ZoneGroup* group);
-        void poisonAndInit(ZoneGroup* group, uint8_t poison);
+        void init(JSRuntime* rt);
+        void poisonAndInit(JSRuntime* rt, uint8_t poison);
         uintptr_t start() const { return uintptr_t(&data); }
         uintptr_t end() const { return uintptr_t(&trailer); }
         gc::Chunk* toChunk(JSRuntime* rt);
@@ -293,8 +281,12 @@ class Nursery
     static_assert(sizeof(NurseryChunk) == gc::ChunkSize,
                   "Nursery chunk size must match gc::Chunk size.");
 
-    // The set of zones which this is the nursery for.
-    ZoneGroup* zoneGroup_;
+    /*
+     * The start and end pointers are stored under the runtime so that we can
+     * inline the isInsideNursery check into embedder code. Use the start()
+     * and heapEnd() functions to access these values.
+     */
+    JSRuntime* runtime_;
 
     /* Vector of allocated chunks to allocate from. */
     Vector<NurseryChunk*, 0, SystemAllocPolicy> chunks_;
@@ -324,13 +316,6 @@ class Nursery
 
     /* Report ObjectGroups with at lest this many instances tenured. */
     int64_t reportTenurings_;
-
-    /*
-     * Whether and why a collection of this nursery has been requested. This is
-     * mutable as it is set by the store buffer, which otherwise cannot modify
-     * anything in the nursery.
-     */
-    mutable JS::gcreason::Reason minorGCTriggerReason_;
 
     /* Profiling data. */
 
@@ -421,13 +406,19 @@ class Nursery
     }
 
     MOZ_ALWAYS_INLINE uintptr_t currentEnd() const {
+        MOZ_ASSERT(runtime_);
         MOZ_ASSERT(currentEnd_ == chunk(currentChunk_).end());
         return currentEnd_;
     }
+    void* addressOfCurrentEnd() const {
+        MOZ_ASSERT(runtime_);
+        return (void*)&currentEnd_;
+    }
 
     uintptr_t position() const { return position_; }
+    void* addressOfPosition() const { return (void*)&position_; }
 
-    ZoneGroup* zoneGroup() const { return zoneGroup_; }
+    JSRuntime* runtime() const { return runtime_; }
 
     /* Allocates a new GC thing from the tenured generation during minor GC. */
     gc::TenuredCell* allocateFromTenured(JS::Zone* zone, gc::AllocKind thingKind);
@@ -435,7 +426,7 @@ class Nursery
     /* Common internal allocator function. */
     void* allocate(size_t size);
 
-    double doCollection(JS::gcreason::Reason reason,
+    double doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
                         gc::TenureCountCache& tenureCounts);
 
     /*
@@ -470,7 +461,6 @@ class Nursery
     void minimizeAllocableSpace();
 
     /* Profile recording and printing. */
-    void maybeClearProfileDurations();
     void startProfile(ProfileKey key);
     void endProfile(ProfileKey key);
     void maybeStartProfile(ProfileKey key);

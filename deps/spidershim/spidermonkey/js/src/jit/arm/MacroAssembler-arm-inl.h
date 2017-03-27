@@ -670,10 +670,9 @@ void
 MacroAssembler::lshift64(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    if (imm.value == 0)
+    if (imm.value == 0) {
         return;
-
-    if (imm.value < 32) {
+    } else if (imm.value < 32) {
         as_mov(dest.high, lsl(dest.high, imm.value));
         as_orr(dest.high, dest.high, lsr(dest.low, 32 - imm.value));
         as_mov(dest.low, lsl(dest.low, imm.value));
@@ -717,8 +716,7 @@ void
 MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 32);
-    if (imm.value)
-        ma_lsr(imm, dest, dest);
+    ma_lsr(imm, dest, dest);
 }
 
 void
@@ -738,16 +736,13 @@ void
 MacroAssembler::rshiftPtrArithmetic(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 32);
-    if (imm.value)
-        ma_asr(imm, dest, dest);
+    ma_asr(imm, dest, dest);
 }
 
 void
 MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    if (!imm.value)
-        return;
 
     if (imm.value < 32) {
         as_mov(dest.low, lsr(dest.low, imm.value));
@@ -807,9 +802,6 @@ MacroAssembler::rshift64(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    if (!imm.value)
-        return;
-
     if (imm.value < 32) {
         as_mov(dest.low, lsr(dest.low, imm.value));
         as_orr(dest.low, dest.low, lsl(dest.high, 32 - imm.value));
@@ -1371,9 +1363,8 @@ MacroAssembler::branch64(Condition cond, Register64 lhs, Register64 rhs, Label* 
         bind(fail);
 }
 
-template <class L>
 void
-MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, L label)
+MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, Label* label)
 {
     branch32(cond, lhs, rhs, label);
 }

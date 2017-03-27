@@ -9,7 +9,6 @@
 
 #include "NamespaceImports.h"
 #include "gc/Heap.h"
-#include "threading/ProtectedData.h"
 
 namespace js {
 namespace gc {
@@ -19,7 +18,7 @@ namespace gc {
 class AtomMarkingRuntime
 {
     // Unused arena atom bitmap indexes. Protected by the GC lock.
-    js::ExclusiveAccessLockOrGCTaskData<Vector<size_t, 0, SystemAllocPolicy>> freeArenaIndexes;
+    Vector<size_t, 0, SystemAllocPolicy> freeArenaIndexes;
 
     // The extent of all allocated and free words in atom mark bitmaps.
     // This monotonically increases and may be read from without locking.
@@ -52,9 +51,9 @@ class AtomMarkingRuntime
     void updateChunkMarkBits(JSRuntime* runtime);
 
     // Mark an atom or id as being newly reachable by the context's zone.
-    void markAtom(JSContext* cx, TenuredCell* thing);
-    void markId(JSContext* cx, jsid id);
-    void markAtomValue(JSContext* cx, const Value& value);
+    void markAtom(ExclusiveContext* cx, TenuredCell* thing);
+    void markId(ExclusiveContext* cx, jsid id);
+    void markAtomValue(ExclusiveContext* cx, const Value& value);
 
     // Mark all atoms in |source| as being reachable within |target|.
     void adoptMarkedAtoms(Zone* target, Zone* source);

@@ -53,6 +53,7 @@ class JS_PUBLIC_API(AutoCheckRequestDepth)
     JSContext* cx;
   public:
     explicit AutoCheckRequestDepth(JSContext* cx);
+    explicit AutoCheckRequestDepth(js::ContextFriendFields* cx);
     ~AutoCheckRequestDepth();
 };
 
@@ -107,6 +108,13 @@ class MOZ_RAII AutoVectorRooterBase : protected AutoGCRooter
 
   public:
     explicit AutoVectorRooterBase(JSContext* cx, ptrdiff_t tag
+                              MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+      : AutoGCRooter(cx, tag), vector(cx)
+    {
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
+    explicit AutoVectorRooterBase(js::ContextFriendFields* cx, ptrdiff_t tag
                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
       : AutoGCRooter(cx, tag), vector(cx)
     {
@@ -200,6 +208,13 @@ class MOZ_RAII AutoVectorRooter : public AutoVectorRooterBase<T>
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
+    explicit AutoVectorRooter(js::ContextFriendFields* cx
+                             MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+        : AutoVectorRooterBase<T>(cx, this->GetTag(T()))
+    {
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
@@ -208,6 +223,7 @@ class AutoValueVector : public Rooted<GCVector<Value, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoValueVector(JSContext* cx) : Base(cx, Vec(cx)) {}
+    explicit AutoValueVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
@@ -215,6 +231,7 @@ class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoIdVector(JSContext* cx) : Base(cx, Vec(cx)) {}
+    explicit AutoIdVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 
     bool appendAll(const AutoIdVector& other) { return this->Base::appendAll(other.get()); }
 };
@@ -224,6 +241,7 @@ class AutoObjectVector : public Rooted<GCVector<JSObject*, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoObjectVector(JSContext* cx) : Base(cx, Vec(cx)) {}
+    explicit AutoObjectVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 using ValueVector = JS::GCVector<JS::Value>;
@@ -981,10 +999,29 @@ JS_IsBuiltinFunctionConstructor(JSFunction* fun);
 extern JS_PUBLIC_API(JSContext*)
 JS_NewContext(uint32_t maxbytes,
               uint32_t maxNurseryBytes = JS::DefaultNurseryBytes,
-              JSRuntime* parentRuntime = nullptr);
+              JSContext* parentContext = nullptr);
 
 extern JS_PUBLIC_API(void)
 JS_DestroyContext(JSContext* cx);
+
+typedef double (*JS_CurrentEmbedderTimeFunction)();
+
+/**
+ * The embedding can specify a time function that will be used in some
+ * situations.  The function can return the time however it likes; but
+ * the norm is to return times in units of milliseconds since an
+ * arbitrary, but consistent, epoch.  If the time function is not set,
+ * a built-in default will be used.
+ */
+JS_PUBLIC_API(void)
+JS_SetCurrentEmbedderTimeFunction(JS_CurrentEmbedderTimeFunction timeFn);
+
+/**
+ * Return the time as computed using the current time function, or a
+ * suitable default if one has not been set.
+ */
+JS_PUBLIC_API(double)
+JS_GetCurrentEmbedderTime();
 
 JS_PUBLIC_API(void*)
 JS_GetContextPrivate(JSContext* cx);
@@ -992,8 +1029,8 @@ JS_GetContextPrivate(JSContext* cx);
 JS_PUBLIC_API(void)
 JS_SetContextPrivate(JSContext* cx, void* data);
 
-extern JS_PUBLIC_API(JSRuntime*)
-JS_GetParentRuntime(JSContext* cx);
+extern JS_PUBLIC_API(JSContext*)
+JS_GetParentContext(JSContext* cx);
 
 extern JS_PUBLIC_API(void)
 JS_BeginRequest(JSContext* cx);
@@ -1007,7 +1044,7 @@ JS_SetFutexCanWait(JSContext* cx);
 namespace js {
 
 void
-AssertHeapIsIdle();
+AssertHeapIsIdle(JSRuntime* rt);
 
 } /* namespace js */
 
@@ -1710,9 +1747,6 @@ typedef enum JSGCParamKey {
     /** Number of JS_malloc bytes before last ditch GC. */
     JSGC_MAX_MALLOC_BYTES   = 1,
 
-    /** Maximum size of the generational GC nurseries. */
-    JSGC_MAX_NURSERY_BYTES  = 2,
-
     /** Amount of bytes allocated by the GC. */
     JSGC_BYTES = 3,
 
@@ -2181,23 +2215,9 @@ JS_GetConstructor(JSContext* cx, JS::Handle<JSObject*> proto);
 
 namespace JS {
 
-// Specification for which zone a newly created compartment should use.
 enum ZoneSpecifier {
-    // Use the single runtime wide system zone. The meaning of this zone is
-    // left to the embedder.
-    SystemZone,
-
-    // Use a particular existing zone.
-    ExistingZone,
-
-    // Create a new zone with its own new zone group.
-    NewZoneInNewZoneGroup,
-
-    // Create a new zone in the same zone group as the system zone.
-    NewZoneInSystemZoneGroup,
-
-    // Create a new zone in the same zone group as another existing zone.
-    NewZoneInExistingZoneGroup
+    FreshZone = 0,
+    SystemZone = 1
 };
 
 /**
@@ -2214,8 +2234,6 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
     CompartmentCreationOptions()
       : addonId_(nullptr),
         traceGlobal_(nullptr),
-        zoneSpec_(NewZoneInSystemZoneGroup),
-        zonePointer_(nullptr),
         invisibleToDebugger_(false),
         mergeable_(false),
         preserveJitCode_(false),
@@ -2223,7 +2241,9 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         experimentalNumberFormatFormatToPartsEnabled_(false),
         sharedMemoryAndAtomics_(false),
         secureContext_(false)
-    {}
+    {
+        zone_.spec = JS::FreshZone;
+    }
 
     // A null add-on ID means that the compartment is not associated with an
     // add-on.
@@ -2241,15 +2261,13 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         return *this;
     }
 
-    void* zonePointer() const { return zonePointer_; }
-    ZoneSpecifier zoneSpecifier() const { return zoneSpec_; }
-
-    // Set the zone to use for the compartment. See ZoneSpecifier above.
-    CompartmentCreationOptions& setSystemZone();
-    CompartmentCreationOptions& setExistingZone(JSObject* obj);
-    CompartmentCreationOptions& setNewZoneInNewZoneGroup();
-    CompartmentCreationOptions& setNewZoneInSystemZoneGroup();
-    CompartmentCreationOptions& setNewZoneInExistingZoneGroup(JSObject* obj);
+    void* zonePointer() const {
+        MOZ_ASSERT(uintptr_t(zone_.pointer) > uintptr_t(JS::SystemZone));
+        return zone_.pointer;
+    }
+    ZoneSpecifier zoneSpecifier() const { return zone_.spec; }
+    CompartmentCreationOptions& setZone(ZoneSpecifier spec);
+    CompartmentCreationOptions& setSameZoneAs(JSObject* obj);
 
     // Certain scopes (i.e. XBL compilation scopes) are implementation details
     // of the embedding, and references to them should never leak out to script.
@@ -2318,8 +2336,10 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
   private:
     JSAddonId* addonId_;
     JSTraceOp traceGlobal_;
-    ZoneSpecifier zoneSpec_;
-    void* zonePointer_; // Per zoneSpec_, either a Zone, ZoneGroup, or null.
+    union {
+        ZoneSpecifier spec;
+        void* pointer; // js::Zone* is not exposed in the API.
+    } zone_;
     bool invisibleToDebugger_;
     bool mergeable_;
     bool preserveJitCode_;
@@ -4023,7 +4043,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
 
   public:
     explicit CompileOptions(JSContext* cx, JSVersion version = JSVERSION_UNKNOWN);
-    CompileOptions(JSContext* cx, const ReadOnlyCompileOptions& rhs)
+    CompileOptions(js::ContextFriendFields* cx, const ReadOnlyCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4037,7 +4057,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
         introductionScriptRoot = rhs.introductionScript();
     }
 
-    CompileOptions(JSContext* cx, const TransitiveCompileOptions& rhs)
+    CompileOptions(js::ContextFriendFields* cx, const TransitiveCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4158,9 +4178,9 @@ CanCompileOffThread(JSContext* cx, const ReadOnlyCompileOptions& options, size_t
  *
  * After successfully triggering an off thread compile of a script, the
  * callback will eventually be invoked with the specified data and a token
- * for the compilation. The callback will be invoked while off thread,
+ * for the compilation. The callback will be invoked while off the main thread,
  * so must ensure that its operations are thread safe. Afterwards, one of the
- * following functions must be invoked on the runtime's active thread:
+ * following functions must be invoked on the main thread:
  *
  * - FinishOffThreadScript, to get the result script (or nullptr on failure).
  * - CancelOffThreadScript, to free the resources without creating a script.
@@ -5012,6 +5032,8 @@ class MOZ_RAII JSAutoByteString
         return mBytes;
     }
 
+    char* encodeLatin1(js::ExclusiveContext* cx, JSString* str);
+
     char* encodeUtf8(JSContext* cx, JS::HandleString str) {
         MOZ_ASSERT(!mBytes);
         MOZ_ASSERT(cx);
@@ -5825,7 +5847,6 @@ JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
     Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis")         \
     Register(BASELINE_ENABLE, "baseline.enable")                           \
     Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable") \
-    Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                   \
     Register(JUMP_THRESHOLD, "jump-threshold")                             \
     Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                 \
     Register(WASM_TEST_MODE, "wasm.test-mode")                             \
@@ -6000,7 +6021,7 @@ DecodeInterpretedFunction(JSContext* cx, TranscodeBuffer& buffer, JS::MutableHan
 
 // Register an encoder on the given script source, such that all functions can
 // be encoded as they are parsed. This strategy is used to avoid blocking the
-// active thread in a non-interruptible way.
+// main thread in a non-interruptible way.
 //
 // The |script| argument of |StartIncrementalEncoding| and
 // |FinishIncrementalEncoding| should be the top-level script returned either as

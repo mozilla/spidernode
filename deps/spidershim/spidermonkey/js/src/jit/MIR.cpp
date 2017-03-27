@@ -892,16 +892,16 @@ bool
 jit::IonCompilationCanUseNurseryPointers()
 {
     // If we are doing backend compilation, which could occur on a helper
-    // thread but might actually be on the active thread, check the flag set on
-    // the JSContext by AutoEnterIonCompilation.
+    // thread but might actually be on the main thread, check the flag set on
+    // the PerThreadData by AutoEnterIonCompilation.
     if (CurrentThreadIsIonCompiling())
         return !CurrentThreadIsIonCompilingSafeForMinorGC();
 
-    // Otherwise, we must be on the active thread during MIR construction. The
+    // Otherwise, we must be on the main thread during MIR construction. The
     // store buffer must have been notified that minor GCs must cancel pending
     // or in progress Ion compilations.
-    JSContext* cx = TlsContext.get();
-    return cx->zone()->group()->storeBuffer().cancelIonCompilations();
+    JSRuntime* rt = TlsPerThreadData.get()->runtimeFromMainThread();
+    return rt->gc.storeBuffer.cancelIonCompilations();
 }
 
 #endif // DEBUG

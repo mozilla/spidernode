@@ -16,16 +16,15 @@
 
 class JSString;
 
-struct JSContext;
-
 namespace js {
 
+class ExclusiveContext;
 class LifoAlloc;
 
 // Generic printf interface, similar to an ostream in the standard library.
 //
 // This class is useful to make generic printers which can work either with a
-// file backend, with a buffer allocated with an JSContext or a link-list
+// file backend, with a buffer allocated with an ExclusiveContext or a link-list
 // of chunks allocated with a LifoAlloc.
 class GenericPrinter
 {
@@ -73,7 +72,7 @@ class Sprinter final : public GenericPrinter
         }
     };
 
-    JSContext*            context;          // context executing the decompiler
+    ExclusiveContext*     context;          // context executing the decompiler
 
   private:
     static const size_t   DefaultSize;
@@ -88,7 +87,7 @@ class Sprinter final : public GenericPrinter
     MOZ_MUST_USE bool realloc_(size_t newSize);
 
   public:
-    explicit Sprinter(JSContext* cx, bool shouldReportOOM = true);
+    explicit Sprinter(ExclusiveContext* cx, bool shouldReportOOM = true);
     ~Sprinter();
 
     // Initialize this sprinter, returns false on error.
@@ -163,7 +162,7 @@ class Fprinter final : public GenericPrinter
 };
 
 // LSprinter, is similar to Sprinter except that instead of using an
-// JSContext to allocate strings, it use a LifoAlloc as a backend for the
+// ExclusiveContext to allocate strings, it use a LifoAlloc as a backend for the
 // allocation of the chunk of the string.
 class LSprinter final : public GenericPrinter
 {
@@ -223,7 +222,7 @@ extern const char       js_EscapeMap[];
 // chars or quotes (' or " as specified by the quote argument) escaped, and
 // with the quote character at the beginning and end of the result string.
 extern JSString*
-QuoteString(JSContext* cx, JSString* str, char16_t quote);
+QuoteString(ExclusiveContext* cx, JSString* str, char16_t quote);
 
 extern char*
 QuoteString(Sprinter* sp, JSString* str, char16_t quote);

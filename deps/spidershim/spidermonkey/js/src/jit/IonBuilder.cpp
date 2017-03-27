@@ -863,32 +863,35 @@ IonBuilder::build()
 AbortReasonOr<Ok>
 IonBuilder::processIterators()
 {
-    // Find and mark phis that must transitively hold an iterator live.
-
-    Vector<MDefinition*, 8, SystemAllocPolicy> worklist;
-
+    // Find phis that must directly hold an iterator live.
+    Vector<MPhi*, 0, SystemAllocPolicy> worklist;
     for (size_t i = 0; i < iterators_.length(); i++) {
-        if (!worklist.append(iterators_[i]))
-            return abort(AbortReason::Alloc);
-        iterators_[i]->setInWorklist();
+        MDefinition* def = iterators_[i];
+        if (def->isPhi()) {
+            if (!worklist.append(def->toPhi()))
+                return abort(AbortReason::Alloc);
+        } else {
+            for (MUseDefIterator iter(def); iter; iter++) {
+                if (iter.def()->isPhi()) {
+                    if (!worklist.append(iter.def()->toPhi()))
+                        return abort(AbortReason::Alloc);
+                }
+            }
+        }
     }
 
+    // Propagate the iterator and live status of phis to all other connected
+    // phis.
     while (!worklist.empty()) {
-        MDefinition* def = worklist.popCopy();
-        def->setNotInWorklist();
+        MPhi* phi = worklist.popCopy();
+        phi->setIterator();
+        phi->setImplicitlyUsedUnchecked();
 
-        if (def->isPhi()) {
-            MPhi* phi = def->toPhi();
-            phi->setIterator();
-            phi->setImplicitlyUsedUnchecked();
-        }
-
-        for (MUseDefIterator iter(def); iter; iter++) {
-            MDefinition* use = iter.def();
-            if (!use->isInWorklist() && (!use->isPhi() || !use->toPhi()->isIterator())) {
-                if (!worklist.append(use))
+        for (MUseDefIterator iter(phi); iter; iter++) {
+            if (iter.def()->isPhi()) {
+                MPhi* other = iter.def()->toPhi();
+                if (!other->isIterator() && !worklist.append(other))
                     return abort(AbortReason::Alloc);
-                use->setInWorklist();
             }
         }
     }
@@ -7009,7 +7012,7 @@ static size_t
 NumFixedSlots(JSObject* object)
 {
     // Note: we can't use object->numFixedSlots() here, as this will read the
-    // shape and can race with the active thread if we are building off thread.
+    // shape and can race with the main thread if we are building off thread.
     // The allocation kind and object class (which goes through the type) can
     // be read freely, however.
     gc::AllocKind kind = object->asTenured().getAllocKind();
@@ -7129,7 +7132,7 @@ IonBuilder::loadStaticSlot(JSObject* staticObject, BarrierKind barrier, Temporar
 bool
 jit::NeedsPostBarrier(MDefinition* value)
 {
-    if (!GetJitContext()->compartment->zone()->nurseryExists())
+    if (!GetJitContext()->runtime->gcNursery().exists())
         return false;
     return value->mightBeType(MIRType::Object);
 }
@@ -8432,7 +8435,7 @@ IonBuilder::addTypedArrayLengthAndData(MDefinition* obj,
         SharedMem<void*> data = tarr->as<TypedArrayObject>().viewDataEither();
         // Bug 979449 - Optimistically embed the elements and use TI to
         //              invalidate if we move them.
-        bool isTenured = !tarr->zone()->group()->nursery().isInside(data);
+        bool isTenured = !tarr->runtimeFromMainThread()->gc.nursery.isInside(data);
         if (isTenured && tarr->isSingleton()) {
             // The 'data' pointer of TypedArrayObject can change in rare circumstances
             // (ArrayBufferObject::changeContents).
@@ -8807,7 +8810,7 @@ IonBuilder::setElemTryTypedStatic(bool* emitted, MDefinition* object,
         return Ok();
 
     SharedMem<void*> viewData = tarrObj->as<TypedArrayObject>().viewDataEither();
-    if (tarrObj->zone()->group()->nursery().isInside(viewData))
+    if (tarrObj->runtimeFromMainThread()->gc.nursery.isInside(viewData))
         return Ok();
 
     Scalar::Type viewType = tarrObj->as<TypedArrayObject>().type();
@@ -9355,9 +9358,6 @@ IonBuilder::jsop_rest()
     // checking here.
     MConstant* index = nullptr;
     for (unsigned i = numFormals; i < numActuals; i++) {
-        if (!alloc().ensureBallast())
-            return abort(AbortReason::Alloc);
-
         index = MConstant::New(alloc(), Int32Value(i - numFormals));
         current->add(index);
 
@@ -13076,11 +13076,11 @@ JSObject*
 IonBuilder::checkNurseryObject(JSObject* obj)
 {
     // If we try to use any nursery pointers during compilation, make sure that
-    // the active thread will cancel this compilation before performing a minor
+    // the main thread will cancel this compilation before performing a minor
     // GC. All constants used during compilation should either go through this
     // function or should come from a type set (which has a similar barrier).
     if (obj && IsInsideNursery(obj)) {
-        compartment->zone()->setMinorGCShouldCancelIonCompilations();
+        compartment->runtime()->setMinorGCShouldCancelIonCompilations();
         IonBuilder* builder = this;
         while (builder) {
             builder->setNotSafeForMinorGC();

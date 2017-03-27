@@ -294,7 +294,8 @@ _PR_MD_SENDTO(PRFileDesc *fd, const void *buf, PRInt32 amount, PRIntn flags,
     PRInt32 rv, err;
     PRInt32 bytesSent = 0;
 
-    do {
+    while(bytesSent < amount) 
+    {
         while ((rv = sendto( osfd, buf, amount, 0, (struct sockaddr *) addr,
                 addrlen)) == -1) 
         {
@@ -326,7 +327,7 @@ _PR_MD_SENDTO(PRFileDesc *fd, const void *buf, PRInt32 amount, PRIntn flags,
                 return -1;
             }
         }
-    } while(bytesSent < amount);
+    }
     return bytesSent;
 }
 

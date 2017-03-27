@@ -37,6 +37,7 @@ class SetElemICInspector : public ICInspector
 
     bool sawOOBDenseWrite() const;
     bool sawOOBTypedArrayWrite() const;
+    bool sawDenseWrite() const;
     bool sawTypedArrayWrite() const;
 };
 

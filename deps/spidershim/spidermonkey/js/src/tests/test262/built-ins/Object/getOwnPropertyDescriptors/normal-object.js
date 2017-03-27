@@ -3,7 +3,7 @@
 
 /*---
 description: Object.getOwnPropertyDescriptors should produce a normal object inheriting from Object.prototype
-esid: sec-object.getownpropertydescriptors
+esid: pending
 author: Jordan Harband
 ---*/
 
@@ -11,5 +11,3 @@ assert.sameValue(
   Object.getPrototypeOf(Object.getOwnPropertyDescriptors({})),
   Object.prototype
 );
-
-reportCompare(0, 0);

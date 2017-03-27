@@ -86,7 +86,7 @@ Sprinter::realloc_(size_t newSize)
     return true;
 }
 
-Sprinter::Sprinter(JSContext* cx, bool shouldReportOOM)
+Sprinter::Sprinter(ExclusiveContext* cx, bool shouldReportOOM)
   : context(cx),
 #ifdef DEBUG
     initialized(false),
@@ -291,10 +291,8 @@ const char js_EscapeMap[] = {
 
 template <typename CharT>
 static char*
-QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quote)
+QuoteString(Sprinter* sp, const CharT* s, size_t length, char16_t quote)
 {
-    using CharPtr = mozilla::RangedPtr<const CharT>;
-
     /* Sample off first for later return value pointer computation. */
     ptrdiff_t offset = sp->getOffset();
 
@@ -303,18 +301,16 @@ QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quot
             return nullptr;
     }
 
-    const CharPtr end = chars.end();
+    const CharT* end = s + length;
 
     /* Loop control variables: end points at end of string sentinel. */
-    for (CharPtr t = chars.begin(); t < end; ++t) {
+    for (const CharT* t = s; t < end; s = ++t) {
         /* Move t forward from s past un-quote-worthy characters. */
-        const CharPtr s = t;
         char16_t c = *t;
         while (c < 127 && isprint(c) && c != quote && c != '\\' && c != '\t') {
-            ++t;
+            c = *++t;
             if (t == end)
                 break;
-            c = *t;
         }
 
         {
@@ -324,7 +320,7 @@ QuoteString(Sprinter* sp, const mozilla::Range<const CharT> chars, char16_t quot
                 return nullptr;
 
             for (ptrdiff_t i = 0; i < len; ++i)
-                (*sp)[base + i] = char(s[i]);
+                (*sp)[base + i] = char(*s++);
             (*sp)[base + len] = 0;
         }
 
@@ -374,12 +370,12 @@ QuoteString(Sprinter* sp, JSString* str, char16_t quote)
 
     JS::AutoCheckCannotGC nogc;
     return linear->hasLatin1Chars()
-           ? QuoteString(sp, linear->latin1Range(nogc), quote)
-           : QuoteString(sp, linear->twoByteRange(nogc), quote);
+           ? QuoteString(sp, linear->latin1Chars(nogc), linear->length(), quote)
+           : QuoteString(sp, linear->twoByteChars(nogc), linear->length(), quote);
 }
 
 JSString*
-QuoteString(JSContext* cx, JSString* str, char16_t quote)
+QuoteString(ExclusiveContext* cx, JSString* str, char16_t quote)
 {
     Sprinter sprinter(cx);
     if (!sprinter.init())

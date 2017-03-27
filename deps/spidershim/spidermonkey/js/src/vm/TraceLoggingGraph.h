@@ -216,12 +216,12 @@ class TraceLoggerGraph
         return 100 * 1024 * 1024 / sizeof(TreeEntry);
     }
 
-    uint32_t nextTextId() { return nextTextId_; }
-
   private:
     bool failed = false;
     bool enabled = false;
-    uint32_t nextTextId_ = 0;
+#ifdef DEBUG
+    uint32_t nextTextId = 0;
+#endif
 
     FILE* dictFile = nullptr;
     FILE* treeFile = nullptr;

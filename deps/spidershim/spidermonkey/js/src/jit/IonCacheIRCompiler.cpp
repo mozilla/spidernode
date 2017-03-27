@@ -315,7 +315,7 @@ IonCacheIRCompiler::callVM(MacroAssembler& masm, const VMFunction& fun)
 {
     MOZ_ASSERT(calledPrepareVMCall_);
 
-    JitCode* code = cx_->runtime()->jitRuntime()->getVMWrapper(fun);
+    JitCode* code = cx_->jitRuntime()->getVMWrapper(fun);
     if (!code)
         return false;
 
@@ -380,7 +380,7 @@ JitCode*
 IonCacheIRCompiler::compile()
 {
     masm.setFramePushed(ionScript_->frameSize());
-    if (cx_->runtime()->geckoProfiler().enabled())
+    if (cx_->geckoProfiler.enabled())
         masm.enableProfilingInstrumentation();
 
     do {
@@ -683,7 +683,7 @@ IonCacheIRCompiler::emitCallNativeGetterResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(scratch, IonOOLNativeExitFrameLayoutToken);
+    masm.enterFakeExitFrame(IonOOLNativeExitFrameLayoutToken);
 
     // Construct and execute call.
     masm.setupUnalignedABICall(scratch);
@@ -740,7 +740,7 @@ IonCacheIRCompiler::emitCallProxyGetResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(scratch, IonOOLProxyExitFrameLayoutToken);
+    masm.enterFakeExitFrame(IonOOLProxyExitFrameLayoutToken);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
@@ -862,12 +862,6 @@ IonCacheIRCompiler::emitAddAndStoreDynamicSlot()
 }
 
 bool
-IonCacheIRCompiler::emitAllocateAndStoreDynamicSlot()
-{
-    MOZ_CRASH("Baseline-specific op");
-}
-
-bool
 IonCacheIRCompiler::emitStoreUnboxedProperty()
 {
     MOZ_CRASH("Baseline-specific op");
@@ -881,18 +875,6 @@ IonCacheIRCompiler::emitStoreTypedObjectReferenceProperty()
 
 bool
 IonCacheIRCompiler::emitStoreTypedObjectScalarProperty()
-{
-    MOZ_CRASH("Baseline-specific op");
-}
-
-bool
-IonCacheIRCompiler::emitStoreDenseElement()
-{
-    MOZ_CRASH("Baseline-specific op");
-}
-
-bool
-IonCacheIRCompiler::emitStoreUnboxedArrayElement()
 {
     MOZ_CRASH("Baseline-specific op");
 }

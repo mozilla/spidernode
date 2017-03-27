@@ -142,6 +142,8 @@ FOR_EACH_PUBLIC_TAGGED_GC_POINTER_TYPE(DECLARE_IS_HEAP_CONSTRUCTIBLE_TYPE)
 template <typename T, typename Wrapper>
 class PersistentRootedBase : public MutableWrappedPtrOperations<T, Wrapper> {};
 
+static void* const ConstNullValue = nullptr;
+
 namespace gc {
 struct Cell;
 template<typename T>
@@ -469,8 +471,7 @@ class MOZ_NONHEAP_CLASS Handle : public js::HandleBase<T, Handle<T>>
     MOZ_IMPLICIT Handle(decltype(nullptr)) {
         static_assert(mozilla::IsPointer<T>::value,
                       "nullptr_t overload not valid for non-pointer types");
-        static void* const ConstNullValue = nullptr;
-        ptr = reinterpret_cast<const T*>(&ConstNullValue);
+        ptr = reinterpret_cast<const T*>(&js::ConstNullValue);
     }
 
     MOZ_IMPLICIT Handle(MutableHandle<T> handle) {
@@ -754,17 +755,23 @@ namespace JS {
 template <typename T>
 class MOZ_RAII Rooted : public js::RootedBase<T, Rooted<T>>
 {
-    inline void registerWithRootLists(RootedListHeads& roots) {
+    inline void registerWithRootLists(js::RootedListHeads& roots) {
         this->stack = &roots[JS::MapTypeToRootKind<T>::kind];
         this->prev = *stack;
         *stack = reinterpret_cast<Rooted<void*>*>(this);
     }
 
-    inline RootedListHeads& rootLists(RootingContext* cx) {
-        return cx->stackRoots_;
+    inline js::RootedListHeads& rootLists(JS::RootingContext* cx) {
+        return rootLists(static_cast<js::ContextFriendFields*>(cx));
     }
-    inline RootedListHeads& rootLists(JSContext* cx) {
-        return rootLists(RootingContext::get(cx));
+    inline js::RootedListHeads& rootLists(js::ContextFriendFields* cx) {
+        if (JS::Zone* zone = cx->zone_)
+            return JS::shadow::Zone::asShadowZone(zone)->stackRoots_;
+        MOZ_ASSERT(cx->isJSContext);
+        return cx->roots.stackRoots_;
+    }
+    inline js::RootedListHeads& rootLists(JSContext* cx) {
+        return rootLists(js::ContextFriendFields::get(cx));
     }
 
   public:
@@ -1034,9 +1041,6 @@ MutableHandle<T>::MutableHandle(PersistentRooted<T>* root)
     ptr = root->address();
 }
 
-JS_PUBLIC_API(void)
-AddPersistentRoot(RootingContext* cx, RootKind kind, PersistentRooted<void*>* root);
-
 /**
  * A copyable, assignable global GC root type with arbitrary lifetime, an
  * infallible constructor, and automatic unrooting on destruction.
@@ -1080,41 +1084,40 @@ class PersistentRooted : public js::RootedBase<T, PersistentRooted<T>>,
     friend class mozilla::LinkedList<PersistentRooted>;
     friend class mozilla::LinkedListElement<PersistentRooted>;
 
-    void registerWithRootLists(RootingContext* cx) {
+    void registerWithRootLists(js::RootLists& roots) {
         MOZ_ASSERT(!initialized());
         JS::RootKind kind = JS::MapTypeToRootKind<T>::kind;
-        AddPersistentRoot(cx, kind, reinterpret_cast<JS::PersistentRooted<void*>*>(this));
+        roots.heapRoots_[kind].insertBack(reinterpret_cast<JS::PersistentRooted<void*>*>(this));
     }
+
+    js::RootLists& rootLists(JSContext* cx) {
+        return rootLists(JS::RootingContext::get(cx));
+    }
+    js::RootLists& rootLists(JS::RootingContext* cx) {
+        MOZ_ASSERT(cx->isJSContext);
+        return cx->roots;
+    }
+
+    // Disallow ExclusiveContext*.
+    js::RootLists& rootLists(js::ContextFriendFields* cx) = delete;
 
   public:
     using ElementType = T;
 
     PersistentRooted() : ptr(GCPolicy<T>::initial()) {}
 
-    explicit PersistentRooted(RootingContext* cx)
+    template <typename RootingContext>
+    explicit PersistentRooted(const RootingContext& cx)
       : ptr(GCPolicy<T>::initial())
     {
-        registerWithRootLists(cx);
+        registerWithRootLists(rootLists(cx));
     }
 
-    explicit PersistentRooted(JSContext* cx)
-      : ptr(GCPolicy<T>::initial())
-    {
-        registerWithRootLists(RootingContext::get(cx));
-    }
-
-    template <typename U>
-    PersistentRooted(RootingContext* cx, U&& initial)
+    template <typename RootingContext, typename U>
+    PersistentRooted(const RootingContext& cx, U&& initial)
       : ptr(mozilla::Forward<U>(initial))
     {
-        registerWithRootLists(cx);
-    }
-
-    template <typename U>
-    PersistentRooted(JSContext* cx, U&& initial)
-      : ptr(mozilla::Forward<U>(initial))
-    {
-        registerWithRootLists(RootingContext::get(cx));
+        registerWithRootLists(rootLists(cx));
     }
 
     PersistentRooted(const PersistentRooted& rhs)
@@ -1136,14 +1139,15 @@ class PersistentRooted : public js::RootedBase<T, PersistentRooted<T>>,
         return ListBase::isInList();
     }
 
-    void init(JSContext* cx) {
+    template <typename RootingContext>
+    void init(const RootingContext& cx) {
         init(cx, GCPolicy<T>::initial());
     }
 
-    template <typename U>
-    void init(JSContext* cx, U&& initial) {
+    template <typename RootingContext, typename U>
+    void init(const RootingContext& cx, U&& initial) {
         ptr = mozilla::Forward<U>(initial);
-        registerWithRootLists(RootingContext::get(cx));
+        registerWithRootLists(rootLists(cx));
     }
 
     void reset() {

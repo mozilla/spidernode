@@ -632,7 +632,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
 {
     // The Baseline frames we will reconstruct on the heap are not rooted, so GC
     // must be suppressed here.
-    MOZ_ASSERT(cx->suppressGC);
+    MOZ_ASSERT(cx->mainThread().suppressGC);
 
     MOZ_ASSERT(script->hasBaselineScript());
 
@@ -946,7 +946,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
         Value v;
 
         if (!iter.moreFrames() && i == exprStackSlots - 1 &&
-            cx->hasIonReturnOverride())
+            cx->runtime()->jitRuntime()->hasIonReturnOverride())
         {
             // If coming from an invalidation bailout, and this is the topmost
             // value, and a value override has been specified, don't read from the
@@ -954,7 +954,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
             MOZ_ASSERT(invalidate);
             iter.skip();
             JitSpew(JitSpew_BaselineBailouts, "      [Return Override]");
-            v = cx->takeIonReturnOverride();
+            v = cx->runtime()->jitRuntime()->takeIonReturnOverride();
         } else if (excInfo && excInfo->propagatingIonExceptionForDebugMode()) {
             // If we are in the middle of propagating an exception from Ion by
             // bailing to baseline due to debug mode, we might not have all
@@ -1202,7 +1202,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
             JitSpew(JitSpew_BaselineBailouts, "      Set resumeAddr=%p", opReturnAddr);
         }
 
-        if (cx->runtime()->geckoProfiler().enabled()) {
+        if (cx->runtime()->geckoProfiler.enabled()) {
             // Register bailout with profiler.
             const char* filename = script->filename();
             if (filename == nullptr)
@@ -1220,7 +1220,7 @@ InitFromBailout(JSContext* cx, HandleScript caller, jsbytecode* callerPC,
                      PCToLineNumber(script, pc),
                      filename,
                      script->lineno());
-            cx->runtime()->geckoProfiler().markEvent(buf);
+            cx->runtime()->geckoProfiler.markEvent(buf);
             js_free(buf);
         }
 
@@ -1481,7 +1481,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
     MOZ_ASSERT(bailoutInfo != nullptr);
     MOZ_ASSERT(*bailoutInfo == nullptr);
 
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     TraceLogStopEvent(logger, TraceLogger_IonMonkey);
     TraceLogStartEvent(logger, TraceLogger_Baseline);
 
@@ -1606,7 +1606,7 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
             // TraceLogger doesn't create entries for inlined frames. But we
             // see them in Baseline. Here we create the start events of those
             // entries. So they correspond to what we will see in Baseline.
-            TraceLoggerEvent scriptEvent(TraceLogger_Scripts, scr);
+            TraceLoggerEvent scriptEvent(logger, TraceLogger_Scripts, scr);
             TraceLogStartEvent(logger, scriptEvent);
             TraceLogStartEvent(logger, TraceLogger_Baseline);
         }
@@ -1810,7 +1810,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
 {
     // The caller pushes R0 and R1 on the stack without rooting them.
     // Since GC here is very unlikely just suppress it.
-    JSContext* cx = TlsContext.get();
+    JSContext* cx = GetJSContextFromMainThread();
     js::gc::AutoSuppressGC suppressGC(cx);
 
     JitSpew(JitSpew_BaselineBailouts, "  Done restoring frames");
@@ -1862,7 +1862,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
     // (which must be a baseline frame), and set it as the last profiling
     // frame.
     if (cx->runtime()->jitRuntime()->isProfilerInstrumentationEnabled(cx->runtime()))
-        cx->jitActivation->setLastProfilingFrame(iter.prevFp());
+        cx->runtime()->jitActivation->setLastProfilingFrame(iter.prevFp());
 
     uint32_t frameno = 0;
     while (frameno < numFrames) {
@@ -1915,7 +1915,7 @@ jit::FinishBailoutToBaseline(BaselineBailoutInfo* bailoutInfo)
     // values into the baseline frame. We need to do this even when debug mode
     // is off, as we should respect the mutations made while debug mode was
     // on.
-    JitActivation* act = cx->activation()->asJit();
+    JitActivation* act = cx->runtime()->activation()->asJit();
     if (act->hasRematerializedFrame(outerFp)) {
         JitFrameIterator iter(cx);
         size_t inlineDepth = numFrames;

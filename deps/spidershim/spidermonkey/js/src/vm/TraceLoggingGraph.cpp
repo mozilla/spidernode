@@ -629,8 +629,10 @@ TraceLoggerGraph::addTextId(uint32_t id, const char* text)
         return;
 
     // Assume ids are given in order. Which is currently true.
-    MOZ_ASSERT(id == nextTextId_);
-    nextTextId_++;
+#ifdef DEBUG
+    MOZ_ASSERT(id == nextTextId);
+    nextTextId++;
+#endif
 
     if (id > 0) {
         int written = fprintf(dictFile, ",\n");

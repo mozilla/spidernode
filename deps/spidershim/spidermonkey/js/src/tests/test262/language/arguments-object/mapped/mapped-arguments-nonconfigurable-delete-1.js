@@ -17,5 +17,3 @@ function argumentsAndDelete(a) {
   assert.sameValue(arguments[0], 1);
 }
 argumentsAndDelete(1);
-
-reportCompare(0, 0);

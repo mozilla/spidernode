@@ -346,9 +346,26 @@ GlobalObject::new_(JSContext* cx, const Class* clasp, JSPrincipals* principals,
     MOZ_ASSERT(!cx->isExceptionPending());
     MOZ_ASSERT(!cx->runtime()->isAtomsCompartment(cx->compartment()));
 
-    JSCompartment* compartment = NewCompartment(cx, principals, options);
+    JSRuntime* rt = cx->runtime();
+
+    auto zoneSpecifier = options.creationOptions().zoneSpecifier();
+    Zone* zone;
+    if (zoneSpecifier == JS::SystemZone)
+        zone = rt->gc.systemZone;
+    else if (zoneSpecifier == JS::FreshZone)
+        zone = nullptr;
+    else
+        zone = static_cast<Zone*>(options.creationOptions().zonePointer());
+
+    JSCompartment* compartment = NewCompartment(cx, zone, principals, options);
     if (!compartment)
         return nullptr;
+
+    // Lazily create the system zone.
+    if (!rt->gc.systemZone && zoneSpecifier == JS::SystemZone) {
+        rt->gc.systemZone = compartment->zone();
+        rt->gc.systemZone->isSystem = true;
+    }
 
     Rooted<GlobalObject*> global(cx);
     {
@@ -640,7 +657,7 @@ js::DefineToStringTag(JSContext *cx, HandleObject obj, JSAtom* tag)
 static void
 GlobalDebuggees_finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOnHelperThread());
+    MOZ_ASSERT(fop->maybeOffMainThread());
     fop->delete_((GlobalObject::DebuggerVector*) obj->as<NativeObject>().getPrivate());
 }
 
@@ -715,7 +732,7 @@ GlobalObject::hasRegExpStatics() const
 }
 
 /* static */ RegExpStatics*
-GlobalObject::getRegExpStatics(JSContext* cx, Handle<GlobalObject*> global)
+GlobalObject::getRegExpStatics(ExclusiveContext* cx, Handle<GlobalObject*> global)
 {
     MOZ_ASSERT(cx);
     RegExpStaticsObject* resObj = nullptr;
@@ -835,7 +852,7 @@ GlobalObject::addIntrinsicValue(JSContext* cx, Handle<GlobalObject*> global,
 
     RootedId id(cx, NameToId(name));
     Rooted<StackShape> child(cx, StackShape(base, id, slot, 0, 0));
-    Shape* shape = cx->zone()->propertyTree().getChild(cx, last, child);
+    Shape* shape = cx->zone()->propertyTree.getChild(cx, last, child);
     if (!shape)
         return false;
 

@@ -43,9 +43,9 @@ class ImportEntryObject : public NativeObject
     };
 
     static const Class class_;
-    static JSObject* initClass(JSContext* cx, HandleObject obj);
+    static JSObject* initClass(ExclusiveContext* cx, HandleObject obj);
     static bool isInstance(HandleValue value);
-    static ImportEntryObject* create(JSContext* cx,
+    static ImportEntryObject* create(ExclusiveContext* cx,
                                      HandleAtom moduleRequest,
                                      HandleAtom importName,
                                      HandleAtom localName);
@@ -70,9 +70,9 @@ class ExportEntryObject : public NativeObject
     };
 
     static const Class class_;
-    static JSObject* initClass(JSContext* cx, HandleObject obj);
+    static JSObject* initClass(ExclusiveContext* cx, HandleObject obj);
     static bool isInstance(HandleValue value);
-    static ExportEntryObject* create(JSContext* cx,
+    static ExportEntryObject* create(ExclusiveContext* cx,
                                      HandleAtom maybeExportName,
                                      HandleAtom maybeModuleRequest,
                                      HandleAtom maybeImportName,
@@ -225,7 +225,7 @@ class ModuleObject : public NativeObject
 
     static bool isInstance(HandleValue value);
 
-    static ModuleObject* create(JSContext* cx);
+    static ModuleObject* create(ExclusiveContext* cx);
     void init(HandleScript script);
     void setInitialEnvironment(Handle<ModuleEnvironmentObject*> initialEnvironment);
     void initImportExportData(HandleArrayObject requestedModules,
@@ -264,7 +264,7 @@ class ModuleObject : public NativeObject
     void createEnvironment();
 
     // For BytecodeEmitter.
-    bool noteFunctionDeclaration(JSContext* cx, HandleAtom name, HandleFunction fun);
+    bool noteFunctionDeclaration(ExclusiveContext* cx, HandleAtom name, HandleFunction fun);
 
     // For intrinsic_InstantiateModuleFunctionDeclarations.
     static bool instantiateFunctionDeclarations(JSContext* cx, HandleModuleObject self);
@@ -294,7 +294,7 @@ class ModuleObject : public NativeObject
 class MOZ_STACK_CLASS ModuleBuilder
 {
   public:
-    explicit ModuleBuilder(JSContext* cx, HandleModuleObject module);
+    explicit ModuleBuilder(ExclusiveContext* cx, HandleModuleObject module);
 
     bool processImport(frontend::ParseNode* pn);
     bool processExport(frontend::ParseNode* pn);
@@ -317,7 +317,7 @@ class MOZ_STACK_CLASS ModuleBuilder
     using RootedImportEntryVector = JS::Rooted<ImportEntryVector>;
     using RootedExportEntryVector = JS::Rooted<ExportEntryVector>;
 
-    JSContext* cx_;
+    ExclusiveContext* cx_;
     RootedModuleObject module_;
     RootedAtomVector requestedModules_;
     RootedAtomVector importedBoundNames_;
