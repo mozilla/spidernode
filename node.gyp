@@ -146,6 +146,10 @@
         'node_js2c#host'
       ],
 
+      'includes': [
+        'node.gypi'
+      ],
+
       'include_dirs': [
         'src',
         'tools/msvs/genfiles',
@@ -906,12 +910,72 @@
     {
       'target_name': 'cctest',
       'type': 'executable',
-      'dependencies': [ 'deps/gtest/gtest.gyp:gtest' ],
+
+      'dependencies': [
+        '<(node_core_target_name)',
+        'deps/gtest/gtest.gyp:gtest',
+        'node_js2c#host',
+        'node_dtrace_header',
+        'node_dtrace_ustack',
+        'node_dtrace_provider',
+      ],
+
+      'variables': {
+        'OBJ_PATH': '<(OBJ_DIR)/node/src',
+        'OBJ_GEN_PATH': '<(OBJ_DIR)/node/gen',
+        'OBJ_TRACING_PATH': '<(OBJ_DIR)/node/src/tracing',
+        'OBJ_SUFFIX': 'o',
+        'conditions': [
+          ['OS=="win"', {
+            'OBJ_PATH': '<(OBJ_DIR)/node',
+            'OBJ_GEN_PATH': '<(OBJ_DIR)/node',
+            'OBJ_TRACING_PATH': '<(OBJ_DIR)/node',
+            'OBJ_SUFFIX': 'obj',
+          }],
+          ['OS=="aix"', {
+            'OBJ_PATH': '<(OBJ_DIR)/node_base/src',
+            'OBJ_GEN_PATH': '<(OBJ_DIR)/node_base/gen',
+            'OBJ_TRACING_PATH': '<(OBJ_DIR)/node_base/src/tracing',
+          }],
+         ],
+       },
+
+      'includes': [
+        'node.gypi'
+      ],
+
       'include_dirs': [
         'src',
         'deps/spidershim/include',
-        '<(SHARED_INTERMEDIATE_DIR)'
+        'tools/msvs/genfiles',
+        'deps/v8/include',
+        'deps/cares/include',
+        'deps/uv/include',
+        '<(SHARED_INTERMEDIATE_DIR)', # for node_natives.h
       ],
+
+      'libraries': [
+        '<(OBJ_GEN_PATH)/node_javascript.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_debug_options.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/async-wrap.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/env.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_buffer.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_i18n.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_url.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/debug-agent.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/util.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/string_bytes.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/string_search.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/stream_base.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_constants.<(OBJ_SUFFIX)',
+        '<(OBJ_PATH)/node_revert.<(OBJ_SUFFIX)',
+        '<(OBJ_TRACING_PATH)/agent.<(OBJ_SUFFIX)',
+        '<(OBJ_TRACING_PATH)/node_trace_buffer.<(OBJ_SUFFIX)',
+        '<(OBJ_TRACING_PATH)/node_trace_writer.<(OBJ_SUFFIX)',
+        '<(OBJ_TRACING_PATH)/trace_event.<(OBJ_SUFFIX)',
+      ],
+
       'defines': [
         # gtest's ASSERT macros conflict with our own.
         'GTEST_DONT_DEFINE_ASSERT_EQ=1',
@@ -931,6 +995,16 @@
             'deps/v8/tools/gyp/v8.gyp:v8',
             'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
           ],
+
+          'sources': [
+            'test/cctest/test_util.cc',
+            'test/cctest/test_url.cc'
+          ],
+
+          'sources!': [
+            'src/node_main.cc'
+          ],
+
           'conditions' : [
             ['v8_enable_inspector==1', {
               'defines': [
@@ -943,8 +1017,8 @@
                 '<(SHARED_INTERMEDIATE_DIR)'
               ],
               'sources': [
-                'src/inspector_socket.cc',
-                'test/cctest/test_inspector_socket.cc'
+                'test/cctest/test_inspector_socket.cc',
+                'test/cctest/test_inspector_socket_server.cc'
               ],
               'conditions': [
                 [ 'node_shared_zlib=="false"', {
@@ -990,6 +1064,19 @@
         }],
         ['node_engine=="spidermonkey"', {
           'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
+        }],
+        [ 'node_use_dtrace=="true" and OS!="mac" and OS!="linux"', {
+          'copies': [{
+            'destination': '<(OBJ_DIR)/cctest/src',
+            'files': [
+              '<(OBJ_PATH)/node_dtrace_ustack.<(OBJ_SUFFIX)',
+              '<(OBJ_PATH)/node_dtrace_provider.<(OBJ_SUFFIX)',
+              '<(OBJ_PATH)/node_dtrace.<(OBJ_SUFFIX)',
+            ]},
+          ],
+        }],
+        ['OS=="solaris"', {
+          'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
       ],
       'msvs_settings': {

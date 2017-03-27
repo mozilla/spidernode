@@ -1,13 +1,14 @@
 'use strict';
 
-require('../common');
+const common = require('../common');
 const assert = require('assert');
-const URL = require('url').URL;
+const path = require('path');
+const { URL, URLSearchParams } = require('url');
 
 // Tests below are not from WPT.
 const serialized = 'a=a&a=1&a=true&a=undefined&a=null&a=%EF%BF%BD' +
                    '&a=%EF%BF%BD&a=%F0%9F%98%80&a=%EF%BF%BD%EF%BF%BD' +
-                   '&a=%5Bobject%20Object%5D';
+                   '&a=%5Bobject+Object%5D';
 const values = ['a', 1, true, undefined, null, '\uD83D', '\uDE00',
                 '\uD83D\uDE00', '\uDE00\uD83D', {}];
 const normalizedValues = ['a', '1', 'true', 'undefined', 'null', '\uFFFD',
@@ -77,3 +78,27 @@ assert.throws(() => sp.forEach(1),
 
 m.search = '?a=a&b=b';
 assert.strictEqual(sp.toString(), 'a=a&b=b');
+
+const tests = require(path.join(common.fixturesDir, 'url-searchparams.js'));
+
+for (const [input, expected, parsed] of tests) {
+  if (input[0] !== '?') {
+    const sp = new URLSearchParams(input);
+    assert.strictEqual(String(sp), expected);
+    assert.deepStrictEqual(Array.from(sp), parsed);
+
+    m.search = input;
+    assert.strictEqual(String(m.searchParams), expected);
+    assert.deepStrictEqual(Array.from(m.searchParams), parsed);
+  }
+
+  {
+    const sp = new URLSearchParams(`?${input}`);
+    assert.strictEqual(String(sp), expected);
+    assert.deepStrictEqual(Array.from(sp), parsed);
+
+    m.search = `?${input}`;
+    assert.strictEqual(String(m.searchParams), expected);
+    assert.deepStrictEqual(Array.from(m.searchParams), parsed);
+  }
+}

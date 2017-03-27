@@ -52,7 +52,7 @@ test(function serverTimeout(cb) {
     // just do nothing, we should get a timeout event.
   });
   server.listen(common.mustCall(function() {
-    http.get({ port: server.address().port }).on('error', function() {});
+    http.get({ port: server.address().port }).on('error', common.noop);
   }));
   const s = server.setTimeout(50, function(socket) {
     caughtTimeout = true;
@@ -81,7 +81,7 @@ test(function serverRequestTimeout(cb) {
   server.listen(common.mustCall(function() {
     const port = server.address().port;
     const req = http.request({ port: port, method: 'POST' });
-    req.on('error', function() {});
+    req.on('error', common.noop);
     req.write('Hello');
     // req is in progress
   }));
@@ -104,7 +104,7 @@ test(function serverResponseTimeout(cb) {
   });
   server.listen(common.mustCall(function() {
     const port = server.address().port;
-    http.get({ port: port }).on('error', function() {});
+    http.get({ port: port }).on('error', common.noop);
   }));
 });
 
@@ -132,16 +132,19 @@ test(function serverRequestNotTimeoutAfterEnd(cb) {
   });
   server.listen(common.mustCall(function() {
     const port = server.address().port;
-    http.get({ port: port }).on('error', function() {});
+    http.get({ port: port }).on('error', common.noop);
   }));
 });
 
 test(function serverResponseTimeoutWithPipeline(cb) {
   let caughtTimeout = '';
+  let secReceived = false;
   process.on('exit', function() {
     assert.strictEqual(caughtTimeout, '/2');
   });
   const server = http.createServer(function(req, res) {
+    if (req.url === '/2')
+      secReceived = true;
     const s = res.setTimeout(50, function() {
       caughtTimeout += req.url;
     });
@@ -149,9 +152,11 @@ test(function serverResponseTimeoutWithPipeline(cb) {
     if (req.url === '/1') res.end();
   });
   server.on('timeout', function(socket) {
-    socket.destroy();
-    server.close();
-    cb();
+    if (secReceived) {
+      socket.destroy();
+      server.close();
+      cb();
+    }
   });
   server.listen(common.mustCall(function() {
     const port = server.address().port;
