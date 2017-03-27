@@ -140,10 +140,6 @@ def main(argv):
     op.add_option('--deviceSerial', action='store',
                   type='string', dest='device_serial', default=None,
                   help='ADB device serial number of remote device to test')
-    op.add_option('--deviceTransport', action='store',
-                  type='string', dest='device_transport', default='sut',
-                  help='The transport to use to communicate with device:'
-                  ' [adb|sut]; default=sut')
     op.add_option('--remoteTestRoot', dest='remote_test_root', action='store',
                   type='string', default='/data/local/tests',
                   help='The remote directory to use as test root'
@@ -233,6 +229,13 @@ def main(argv):
 
     if read_all:
         test_list = jittests.find_tests()
+
+    # If code coverage is enabled, exclude tests. (bug 1347245)
+    if os.getenv('GCOV_PREFIX') is not None:
+        if options.exclude:
+            options.exclude += ['asm.js/testSIMD.js']
+        else:
+            options.exclude = ['asm.js/testSIMD.js']
 
     if options.exclude:
         exclude_list = []

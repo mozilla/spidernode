@@ -69,7 +69,6 @@ namespace jit {
     _(Call)                                                                 \
     _(ApplyArgs)                                                            \
     _(ApplyArray)                                                           \
-    _(ArraySplice)                                                          \
     _(Bail)                                                                 \
     _(Unreachable)                                                          \
     _(EncodeSnapshot)                                                       \
@@ -172,6 +171,8 @@ namespace jit {
     _(LoadSlot)                                                             \
     _(StoreSlot)                                                            \
     _(FunctionEnvironment)                                                  \
+    _(NewLexicalEnvironmentObject)                                          \
+    _(CopyLexicalEnvironmentObject)                                         \
     _(FilterTypeSet)                                                        \
     _(TypeBarrier)                                                          \
     _(MonitorTypes)                                                         \
@@ -261,6 +262,7 @@ namespace jit {
     _(Floor)                                                                \
     _(Ceil)                                                                 \
     _(Round)                                                                \
+    _(NearbyInt)                                                            \
     _(In)                                                                   \
     _(InstanceOf)                                                           \
     _(CallInstanceOf)                                                       \
@@ -285,6 +287,7 @@ namespace jit {
     _(ArrowNewTarget)                                                       \
     _(CheckReturn)                                                          \
     _(CheckIsObj)                                                           \
+    _(CheckIsCallable)                                                      \
     _(CheckObjCoercible)                                                    \
     _(DebugCheckSelfHosted)                                                 \
     _(AsmJSNeg)                                                             \
@@ -294,6 +297,7 @@ namespace jit {
     _(AsmJSAtomicExchangeHeap)                                              \
     _(AsmJSAtomicBinopHeap)                                                 \
     _(WasmBoundsCheck)                                                      \
+    _(WasmLoadTls)                                                          \
     _(WasmAddOffset)                                                        \
     _(WasmLoad)                                                             \
     _(WasmStore)                                                            \
@@ -310,6 +314,7 @@ namespace jit {
     _(WasmCall)                                                             \
     _(WasmSelect)                                                           \
     _(WasmReinterpret)                                                      \
+    _(WasmFloatConstant)                                                    \
     _(WasmTruncateToInt64)
 
 // Forward declarations of MIR types.

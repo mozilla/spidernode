@@ -38,24 +38,18 @@ struct Metadata;
 class FrameIterator;
 
 // A wasm CodeSegment owns the allocated executable code for a wasm module.
-// This allocation also currently includes the global data segment, which allows
-// RIP-relative access to global data on some architectures, but this will
-// change in the future to give global data its own allocation.
 
 class CodeSegment;
 typedef UniquePtr<CodeSegment> UniqueCodeSegment;
 
 class CodeSegment
 {
-    // bytes_ points to a single allocation with two contiguous ranges:
-    // executable machine code in the range [0, codeLength) and global data in
-    // the range [codeLength, codeLength + globalDataLength). The range
-    // [0, functionCodeLength) is the subrange of [0, codeLength) which contains
-    // function code.
+    // bytes_ points to a single allocation of executable machine code in
+    // the range [0, length_).  The range [0, functionLength_) is
+    // the subrange of [0, length_) which contains function code.
     uint8_t* bytes_;
-    uint32_t functionCodeLength_;
-    uint32_t codeLength_;
-    uint32_t globalDataLength_;
+    uint32_t functionLength_;
+    uint32_t length_;
 
     // These are pointers into code for stubs used for asynchronous
     // signal-handler control-flow transfer.
@@ -63,9 +57,12 @@ class CodeSegment
     uint8_t* outOfBoundsCode_;
     uint8_t* unalignedAccessCode_;
 
-    // The profiling mode may be changed dynamically.
-    bool profilingEnabled_;
+  public:
+#ifdef MOZ_VTUNE
+    unsigned vtune_method_id_; // Zero if unset.
+#endif
 
+  protected:
     CodeSegment() { PodZero(this); }
     template <class> friend struct js::MallocProvider;
 
@@ -83,10 +80,7 @@ class CodeSegment
     ~CodeSegment();
 
     uint8_t* base() const { return bytes_; }
-    uint8_t* globalData() const { return bytes_ + codeLength_; }
-    uint32_t codeLength() const { return codeLength_; }
-    uint32_t globalDataLength() const { return globalDataLength_; }
-    uint32_t totalLength() const { return codeLength_ + globalDataLength_; }
+    uint32_t length() const { return length_; }
 
     uint8_t* interruptCode() const { return interruptCode_; }
     uint8_t* outOfBoundsCode() const { return outOfBoundsCode_; }
@@ -99,16 +93,11 @@ class CodeSegment
     // enter/exit.
 
     bool containsFunctionPC(const void* pc) const {
-        return pc >= base() && pc < (base() + functionCodeLength_);
+        return pc >= base() && pc < (base() + functionLength_);
     }
     bool containsCodePC(const void* pc) const {
-        return pc >= base() && pc < (base() + codeLength_);
+        return pc >= base() && pc < (base() + length_);
     }
-
-    // onMovingGrow must be called if the memory passed to 'create' performs a
-    // moving grow operation.
-
-    void onMovingGrow(uint8_t* prevMemoryBase, const Metadata& metadata, ArrayBufferObject& buffer);
 };
 
 // ShareableBytes is a ref-counted vector of bytes which are incrementally built
@@ -250,28 +239,24 @@ class CodeRange
         DebugTrap,         // calls C++ to handle debug event such as
                            // enter/leave frame or breakpoint
         FarJumpIsland,     // inserted to connect otherwise out-of-range insns
-        Inline             // stub that is jumped-to, not called, and thus
-                           // replaces/loses preceding innermost frame
+        Inline,            // stub that is jumped-to within prologue/epilogue
+        Throw              // special stack-unwinding stub
     };
 
   private:
     // All fields are treated as cacheable POD:
     uint32_t begin_;
-    uint32_t profilingReturn_;
+    uint32_t ret_;
     uint32_t end_;
     uint32_t funcIndex_;
     uint32_t funcLineOrBytecode_;
-    uint8_t funcBeginToTableEntry_;
-    uint8_t funcBeginToTableProfilingJump_;
-    uint8_t funcBeginToNonProfilingEntry_;
-    uint8_t funcProfilingJumpToProfilingReturn_;
-    uint8_t funcProfilingEpilogueToProfilingReturn_;
+    uint8_t funcBeginToNormalEntry_;
     Kind kind_ : 8;
 
   public:
     CodeRange() = default;
     CodeRange(Kind kind, Offsets offsets);
-    CodeRange(Kind kind, ProfilingOffsets offsets);
+    CodeRange(Kind kind, CallableOffsets offsets);
     CodeRange(uint32_t funcIndex, uint32_t lineOrBytecode, FuncOffsets offsets);
 
     // All CodeRanges have a begin and end.
@@ -301,41 +286,30 @@ class CodeRange
     bool isInline() const {
         return kind() == Inline;
     }
+    bool isThunk() const {
+        return kind() == FarJumpIsland;
+    }
 
-    // Every CodeRange except entry and inline stubs has a profiling return
-    // which is used for asynchronous profiling to determine the frame pointer.
+    // Every CodeRange except entry and inline stubs are callable and have a
+    // return statement. Asynchronous frame iteration needs to know the offset
+    // of the return instruction to calculate the frame pointer.
 
-    uint32_t profilingReturn() const {
+    uint32_t ret() const {
         MOZ_ASSERT(isFunction() || isImportExit() || isTrapExit());
-        return profilingReturn_;
+        return ret_;
     }
 
-    // Functions have offsets which allow patching to selectively execute
-    // profiling prologues/epilogues.
+    // Function CodeRanges have two entry points: one for normal calls (with a
+    // known signature) and one for table calls (which involves dynamic
+    // signature checking).
 
-    uint32_t funcProfilingEntry() const {
-        MOZ_ASSERT(isFunction());
-        return begin();
-    }
     uint32_t funcTableEntry() const {
         MOZ_ASSERT(isFunction());
-        return begin_ + funcBeginToTableEntry_;
+        return begin_;
     }
-    uint32_t funcTableProfilingJump() const {
+    uint32_t funcNormalEntry() const {
         MOZ_ASSERT(isFunction());
-        return begin_ + funcBeginToTableProfilingJump_;
-    }
-    uint32_t funcNonProfilingEntry() const {
-        MOZ_ASSERT(isFunction());
-        return begin_ + funcBeginToNonProfilingEntry_;
-    }
-    uint32_t funcProfilingJump() const {
-        MOZ_ASSERT(isFunction());
-        return profilingReturn_ - funcProfilingJumpToProfilingReturn_;
-    }
-    uint32_t funcProfilingEpilogue() const {
-        MOZ_ASSERT(isFunction());
-        return profilingReturn_ - funcProfilingEpilogueToProfilingReturn_;
+        return begin_ + funcBeginToNormalEntry_;
     }
     uint32_t funcIndex() const {
         MOZ_ASSERT(isFunction());
@@ -361,25 +335,6 @@ class CodeRange
 };
 
 WASM_DECLARE_POD_VECTOR(CodeRange, CodeRangeVector)
-
-// A CallThunk describes the offset and target of thunks so that they may be
-// patched at runtime when profiling is toggled. Thunks are emitted to connect
-// callsites that are too far away from callees to fit in a single call
-// instruction's relative offset.
-
-struct CallThunk
-{
-    uint32_t offset;
-    union {
-        uint32_t funcIndex;
-        uint32_t codeRangeIndex;
-    } u;
-
-    CallThunk(uint32_t offset, uint32_t funcIndex) : offset(offset) { u.funcIndex = funcIndex; }
-    CallThunk() = default;
-};
-
-WASM_DECLARE_POD_VECTOR(CallThunk, CallThunkVector)
 
 // A wasm module can either use no memory, a unshared memory (ArrayBuffer) or
 // shared memory (SharedArrayBuffer).
@@ -430,6 +385,8 @@ struct CustomSection
 };
 
 typedef Vector<CustomSection, 0, SystemAllocPolicy> CustomSectionVector;
+typedef Vector<ValTypeVector, 0, SystemAllocPolicy> FuncArgTypesVector;
+typedef Vector<ExprType, 0, SystemAllocPolicy> FuncReturnTypesVector;
 
 // Metadata holds all the data that is needed to describe compiled wasm code
 // at runtime (as opposed to data that is only used to statically link or
@@ -467,11 +424,8 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     GlobalDescVector      globals;
     TableDescVector       tables;
     MemoryAccessVector    memoryAccesses;
-    MemoryPatchVector     memoryPatches;
-    BoundsCheckVector     boundsChecks;
     CodeRangeVector       codeRanges;
     CallSiteVector        callSites;
-    CallThunkVector       callThunks;
     NameInBytecodeVector  funcNames;
     CustomSectionVector   customSections;
     CacheableChars        filename;
@@ -479,6 +433,9 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     // Debug-enabled code is not serialized.
     bool                  debugEnabled;
     Uint32Vector          debugTrapFarJumpOffsets;
+    Uint32Vector          debugFuncToCodeRange;
+    FuncArgTypesVector    debugFuncArgTypes;
+    FuncReturnTypesVector debugFuncReturnTypes;
 
     bool usesMemory() const { return UsesMemory(memoryUsage); }
     bool hasSharedMemory() const { return memoryUsage == MemoryUsage::Shared; }
@@ -529,25 +486,6 @@ struct ExprLoc
 };
 
 typedef Vector<ExprLoc, 0, SystemAllocPolicy> ExprLocVector;
-
-// The generated source WebAssembly function lines and expressions ranges.
-
-struct FunctionLoc
-{
-    size_t startExprsIndex;
-    size_t endExprsIndex;
-    uint32_t startLineno;
-    uint32_t endLineno;
-    FunctionLoc(size_t startExprsIndex_, size_t endExprsIndex_, uint32_t startLineno_, uint32_t endLineno_)
-      : startExprsIndex(startExprsIndex_),
-        endExprsIndex(endExprsIndex_),
-        startLineno(startLineno_),
-        endLineno(endLineno_)
-    {}
-};
-
-typedef Vector<FunctionLoc, 0, SystemAllocPolicy> FunctionLocVector;
-
 typedef Vector<uint32_t, 0, SystemAllocPolicy> ExprLocIndexVector;
 
 // The generated source map for WebAssembly binary file. This map is generated during
@@ -556,18 +494,12 @@ typedef Vector<uint32_t, 0, SystemAllocPolicy> ExprLocIndexVector;
 class GeneratedSourceMap
 {
     ExprLocVector exprlocs_;
-    FunctionLocVector functionlocs_;
     UniquePtr<ExprLocIndexVector> sortedByOffsetExprLocIndices_;
     uint32_t totalLines_;
 
   public:
-    explicit GeneratedSourceMap()
-     : exprlocs_(),
-       functionlocs_(),
-       totalLines_(0)
-    {}
+    explicit GeneratedSourceMap() : totalLines_(0) {}
     ExprLocVector& exprlocs() { return exprlocs_; }
-    FunctionLocVector& functionlocs() { return functionlocs_; }
 
     uint32_t totalLines() { return totalLines_; }
     void setTotalLines(uint32_t val) { totalLines_ = val; }
@@ -576,9 +508,7 @@ class GeneratedSourceMap
 };
 
 typedef UniquePtr<GeneratedSourceMap> UniqueGeneratedSourceMap;
-
 typedef HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> StepModeCounters;
-
 typedef HashMap<uint32_t, WasmBreakpointSite*, DefaultHasher<uint32_t>, SystemAllocPolicy> WasmBreakpointSiteMap;
 
 // Code objects own executable code and the metadata that describes it. At the
@@ -592,8 +522,9 @@ class Code
     const SharedMetadata     metadata_;
     const SharedBytes        maybeBytecode_;
     UniqueGeneratedSourceMap maybeSourceMap_;
-    CacheableCharsVector     funcLabels_;
-    bool                     profilingEnabled_;
+
+    // Mutated at runtime:
+    CacheableCharsVector     profilingLabels_;
 
     // State maintained when debugging is enabled:
 
@@ -617,7 +548,6 @@ class Code
 
     const CallSite* lookupCallSite(void* returnAddress) const;
     const CodeRange* lookupRange(void* pc) const;
-    const CodeRange* lookupRangeByFuncIndexSlow(uint32_t funcIndex) const;
     const MemoryAccess* lookupMemoryAccess(void* pc) const;
 
     // Return the name associated with a given function index, or generate one
@@ -635,15 +565,11 @@ class Code
     bool getOffsetLocation(JSContext* cx, uint32_t offset, bool* found, size_t* lineno, size_t* column);
     bool totalSourceLines(JSContext* cx, uint32_t* count);
 
-    // Each Code has a profiling mode that is updated to match the runtime's
-    // profiling mode when there are no other activations of the code live on
-    // the stack. Once in profiling mode, ProfilingFrameIterator can be used to
-    // asynchronously walk the stack. Otherwise, the ProfilingFrameIterator will
-    // skip any activations of this code.
+    // To save memory, profilingLabels_ are generated lazily when profiling mode
+    // is enabled.
 
-    MOZ_MUST_USE bool ensureProfilingState(JSRuntime* rt, bool enabled);
-    bool profilingEnabled() const { return profilingEnabled_; }
-    const char* profilingLabel(uint32_t funcIndex) const { return funcLabels_[funcIndex].get(); }
+    void ensureProfilingLabels(bool profilingEnabled);
+    const char* profilingLabel(uint32_t funcIndex) const;
 
     // The Code can track enter/leave frame events. Any such event triggers
     // debug trap. The enter/leave frame events enabled or disabled across
@@ -668,6 +594,11 @@ class Code
     bool stepModeEnabled(uint32_t funcIndex) const;
     bool incrementStepModeCount(JSContext* cx, uint32_t funcIndex);
     bool decrementStepModeCount(JSContext* cx, uint32_t funcIndex);
+
+    // Stack inspection helpers.
+
+    bool debugGetLocalTypes(uint32_t funcIndex, ValTypeVector* locals, size_t* argsLength);
+    ExprType debugGetResultType(uint32_t funcIndex);
 
     // about:memory reporting:
 

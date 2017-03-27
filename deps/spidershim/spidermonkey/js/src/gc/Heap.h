@@ -32,19 +32,13 @@
 
 struct JSRuntime;
 
-namespace JS {
-namespace shadow {
-struct Runtime;
-} // namespace shadow
-} // namespace JS
-
 namespace js {
 
 class AutoLockGC;
 class FreeOp;
 
 extern bool
-RuntimeFromMainThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone);
+RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone);
 
 #ifdef DEBUG
 
@@ -256,13 +250,11 @@ struct Cell
     MOZ_ALWAYS_INLINE const TenuredCell& asTenured() const;
     MOZ_ALWAYS_INLINE TenuredCell& asTenured();
 
-    inline JSRuntime* runtimeFromMainThread() const;
-    inline JS::shadow::Runtime* shadowRuntimeFromMainThread() const;
+    inline JSRuntime* runtimeFromActiveCooperatingThread() const;
 
     // Note: Unrestricted access to the runtime of a GC thing from an arbitrary
     // thread can easily lead to races. Use this method very carefully.
     inline JSRuntime* runtimeFromAnyThread() const;
-    inline JS::shadow::Runtime* shadowRuntimeFromAnyThread() const;
 
     // May be overridden by GC thing kinds that have a compartment pointer.
     inline JSCompartment* maybeCompartment() const { return nullptr; }
@@ -1064,13 +1056,13 @@ class HeapUsage
      * A heap usage that contains our parent's heap usage, or null if this is
      * the top-level usage container.
      */
-    HeapUsage* parent_;
+    HeapUsage* const parent_;
 
     /*
      * The approximate number of bytes in use on the GC heap, to the nearest
      * ArenaSize. This does not include any malloc data. It also does not
      * include not-actively-used addresses that are still reserved at the OS
-     * level for GC usage. It is atomic because it is updated by both the main
+     * level for GC usage. It is atomic because it is updated by both the active
      * and GC helper threads.
      */
     mozilla::Atomic<size_t, mozilla::ReleaseAcquire> gcBytes_;
@@ -1141,29 +1133,17 @@ Cell::asTenured()
 }
 
 inline JSRuntime*
-Cell::runtimeFromMainThread() const
+Cell::runtimeFromActiveCooperatingThread() const
 {
     JSRuntime* rt = chunk()->trailer.runtime;
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(rt));
     return rt;
 }
 
-inline JS::shadow::Runtime*
-Cell::shadowRuntimeFromMainThread() const
-{
-    return reinterpret_cast<JS::shadow::Runtime*>(runtimeFromMainThread());
-}
-
 inline JSRuntime*
 Cell::runtimeFromAnyThread() const
 {
     return chunk()->trailer.runtime;
-}
-
-inline JS::shadow::Runtime*
-Cell::shadowRuntimeFromAnyThread() const
-{
-    return reinterpret_cast<JS::shadow::Runtime*>(runtimeFromAnyThread());
 }
 
 inline uintptr_t
@@ -1305,22 +1285,22 @@ TenuredCell::readBarrier(TenuredCell* thing)
     // at the moment this can happen e.g. when rekeying tables containing
     // read-barriered GC things after a moving GC.
     //
-    // TODO: Fix this and assert we're not collecting if we're on the main
+    // TODO: Fix this and assert we're not collecting if we're on the active
     // thread.
 
     JS::shadow::Zone* shadowZone = thing->shadowZoneFromAnyThread();
     if (shadowZone->needsIncrementalBarrier()) {
-        // Barriers are only enabled on the main thread and are disabled while collecting.
-        MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(shadowZone));
+        // Barriers are only enabled on the active thread and are disabled while collecting.
+        MOZ_ASSERT(!RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(shadowZone));
         Cell* tmp = thing;
         TraceManuallyBarrieredGenericPointerEdge(shadowZone->barrierTracer(), &tmp, "read barrier");
         MOZ_ASSERT(tmp == thing);
     }
 
     if (thing->isMarked(GRAY)) {
-        // There shouldn't be anything marked grey unless we're on the main thread.
+        // There shouldn't be anything marked grey unless we're on the active thread.
         MOZ_ASSERT(CurrentThreadCanAccessRuntime(thing->runtimeFromAnyThread()));
-        if (!RuntimeFromMainThreadIsHeapMajorCollecting(shadowZone))
+        if (!RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(shadowZone))
             UnmarkGrayCellRecursively(thing, thing->getTraceKind());
     }
 }
@@ -1340,10 +1320,10 @@ TenuredCell::writeBarrierPre(TenuredCell* thing)
     // those on the Atoms Zone. Normally, we never enter a parse task when
     // collecting in the atoms zone, so will filter out atoms below.
     // Unfortuantely, If we try that when verifying pre-barriers, we'd never be
-    // able to handle OMT parse tasks at all as we switch on the verifier any
-    // time we're not doing GC. This would cause us to deadlock, as OMT parsing
+    // able to handle off thread parse tasks at all as we switch on the verifier any
+    // time we're not doing GC. This would cause us to deadlock, as off thread parsing
     // is meant to resume after GC work completes. Instead we filter out any
-    // OMT barriers that reach us and assert that they would normally not be
+    // off thread barriers that reach us and assert that they would normally not be
     // possible.
     if (!CurrentThreadCanAccessRuntime(thing->runtimeFromAnyThread())) {
         AssertSafeToSkipBarrier(thing);
@@ -1353,7 +1333,7 @@ TenuredCell::writeBarrierPre(TenuredCell* thing)
 
     JS::shadow::Zone* shadowZone = thing->shadowZoneFromAnyThread();
     if (shadowZone->needsIncrementalBarrier()) {
-        MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(shadowZone));
+        MOZ_ASSERT(!RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(shadowZone));
         Cell* tmp = thing;
         TraceManuallyBarrieredGenericPointerEdge(shadowZone->barrierTracer(), &tmp, "pre barrier");
         MOZ_ASSERT(tmp == thing);
@@ -1393,6 +1373,52 @@ static const int32_t ChunkLocationOffsetFromLastByte =
     int32_t(gc::ChunkLocationOffset) - int32_t(gc::ChunkMask);
 
 } /* namespace gc */
+
+namespace debug {
+
+// Utility functions meant to be called from an interactive debugger.
+enum class MarkInfo : int {
+    BLACK = js::gc::BLACK,
+    GRAY = js::gc::GRAY,
+    UNMARKED = -1,
+    NURSERY = -2,
+};
+
+// Get the mark color for a cell, in a way easily usable from a debugger.
+MOZ_NEVER_INLINE MarkInfo
+GetMarkInfo(js::gc::Cell* cell);
+
+// Sample usage from gdb:
+//
+//   (gdb) p $word = js::debug::GetMarkWordAddress(obj)
+//   $1 = (uintptr_t *) 0x7fa56d5fe360
+//   (gdb) p/x $mask = js::debug::GetMarkMask(obj, js::gc::GRAY)
+//   $2 = 0x200000000
+//   (gdb) watch *$word
+//   Hardware watchpoint 7: *$word
+//   (gdb) cond 7 *$word & $mask
+//   (gdb) cont
+//
+// Note that this is *not* a watchpoint on a single bit. It is a watchpoint on
+// the whole word, which will trigger whenever the word changes and the
+// selected bit is set after the change.
+//
+// So if the bit changing is the desired one, this is exactly what you want.
+// But if a different bit changes (either set or cleared), you may still stop
+// execution if the $mask bit happened to already be set. gdb does not expose
+// enough information to restrict the watchpoint to just a single bit.
+
+// Return the address of the word containing the mark bits for the given cell,
+// or nullptr if the cell is in the nursery.
+MOZ_NEVER_INLINE uintptr_t*
+GetMarkWordAddress(js::gc::Cell* cell);
+
+// Return the mask for the given cell and color, or 0 if the cell is in the
+// nursery.
+MOZ_NEVER_INLINE uintptr_t
+GetMarkMask(js::gc::Cell* cell, uint32_t color);
+
+} /* namespace debug */
 } /* namespace js */
 
 #endif /* gc_Heap_h */

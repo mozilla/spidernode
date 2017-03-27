@@ -32,7 +32,7 @@ class TokenStream;
 class CGConstList {
     Vector<Value> list;
   public:
-    explicit CGConstList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGConstList(JSContext* cx) : list(cx) {}
     MOZ_MUST_USE bool append(const Value& v) {
         MOZ_ASSERT_IF(v.isString(), v.toString()->isAtom());
         return list.append(v);
@@ -56,7 +56,7 @@ struct CGObjectList {
 struct MOZ_STACK_CLASS CGScopeList {
     Rooted<GCVector<Scope*>> vector;
 
-    explicit CGScopeList(ExclusiveContext* cx)
+    explicit CGScopeList(JSContext* cx)
       : vector(cx, GCVector<Scope*>(cx))
     { }
 
@@ -67,7 +67,7 @@ struct MOZ_STACK_CLASS CGScopeList {
 
 struct CGTryNoteList {
     Vector<JSTryNote> list;
-    explicit CGTryNoteList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGTryNoteList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(JSTryNoteKind kind, uint32_t stackDepth, size_t start, size_t end);
     size_t length() const { return list.length(); }
@@ -89,7 +89,7 @@ struct CGScopeNote : public ScopeNote
 
 struct CGScopeNoteList {
     Vector<CGScopeNote> list;
-    explicit CGScopeNoteList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGScopeNoteList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(uint32_t scopeIndex, uint32_t offset, bool inPrologue,
                              uint32_t parent);
@@ -98,13 +98,13 @@ struct CGScopeNoteList {
     void finish(ScopeNoteArray* array, uint32_t prologueLength);
 };
 
-struct CGYieldOffsetList {
+struct CGYieldAndAwaitOffsetList {
     Vector<uint32_t> list;
-    explicit CGYieldOffsetList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGYieldAndAwaitOffsetList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(uint32_t offset) { return list.append(offset); }
     size_t length() const { return list.length(); }
-    void finish(YieldOffsetArray& array, uint32_t prologueLength);
+    void finish(YieldAndAwaitOffsetArray& array, uint32_t prologueLength);
 };
 
 // Use zero inline elements because these go on the stack and affect how many
@@ -167,6 +167,11 @@ struct JumpList {
     void patchAll(jsbytecode* code, JumpTarget target);
 };
 
+enum class ValueUsage {
+    WantValue,
+    IgnoreValue
+};
+
 struct MOZ_STACK_CLASS BytecodeEmitter
 {
     class TDZCheckCache;
@@ -175,7 +180,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     SharedContext* const sc;      /* context shared between parsing and bytecode generation */
 
-    ExclusiveContext* const cx;
+    JSContext* const cx;
 
     BytecodeEmitter* const parent;  /* enclosing function or global context */
 
@@ -193,7 +198,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
                                        last SRC_COLSPAN-annotated opcode */
         JumpTarget lastTarget;      // Last jump target emitted.
 
-        EmitSection(ExclusiveContext* cx, uint32_t lineNum)
+        EmitSection(JSContext* cx, uint32_t lineNum)
           : code(cx), notes(cx), lastNoteOffset(0), currentLine(lineNum), lastColumn(0),
             lastTarget{ -1 - ptrdiff_t(JSOP_JUMPTARGET_LENGTH) }
         {}
@@ -228,10 +233,10 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     CGScopeNoteList  scopeNoteList;  /* list of emitted block scope notes */
 
     /*
-     * For each yield op, map the yield index (stored as bytecode operand) to
-     * the offset of the next op.
+     * For each yield or await op, map the yield and await index (stored as
+     * bytecode operand) to the offset of the next op.
      */
-    CGYieldOffsetList yieldOffsetList;
+    CGYieldAndAwaitOffsetList yieldAndAwaitOffsetList;
 
     uint16_t        typesetCount;   /* Number of JOF_TYPESET opcodes generated */
 
@@ -350,9 +355,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     MOZ_MUST_USE bool maybeSetDisplayURL();
     MOZ_MUST_USE bool maybeSetSourceMap();
-    void tellDebuggerAboutCompiledScript(ExclusiveContext* cx);
+    void tellDebuggerAboutCompiledScript(JSContext* cx);
 
-    inline TokenStream* tokenStream();
+    inline TokenStream& tokenStream();
 
     BytecodeVector& code() const { return current->code; }
     jsbytecode* code(ptrdiff_t offset) const { return current->code.begin() + offset; }
@@ -430,10 +435,12 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     };
 
     // Emit code for the tree rooted at pn.
-    MOZ_MUST_USE bool emitTree(ParseNode* pn, EmitLineNumberNote emitLineNote = EMIT_LINENOTE);
+    MOZ_MUST_USE bool emitTree(ParseNode* pn, ValueUsage valueUsage = ValueUsage::WantValue,
+                               EmitLineNumberNote emitLineNote = EMIT_LINENOTE);
 
     // Emit code for the tree rooted at pn with its own TDZ cache.
-    MOZ_MUST_USE bool emitTreeInBranch(ParseNode* pn);
+    MOZ_MUST_USE bool emitTreeInBranch(ParseNode* pn,
+                                       ValueUsage valueUsage = ValueUsage::WantValue);
 
     // Emit global, eval, or module code for tree rooted at body. Always
     // encompasses the entire source.
@@ -452,8 +459,6 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     JSOp strictifySetNameOp(JSOp op);
 
-    MOZ_MUST_USE bool flushPops(int* npops);
-
     MOZ_MUST_USE bool emitCheck(ptrdiff_t delta, ptrdiff_t* offset);
 
     // Emit one bytecode.
@@ -470,8 +475,14 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     // JS stack, as measured from the top.
     MOZ_MUST_USE bool emitDupAt(unsigned slotFromTop);
 
+    // Helper to emit JSOP_POP or JSOP_POPN.
+    MOZ_MUST_USE bool emitPopN(unsigned n);
+
     // Helper to emit JSOP_CHECKISOBJ.
     MOZ_MUST_USE bool emitCheckIsObj(CheckIsObjectKind kind);
+
+    // Helper to emit JSOP_CHECKISCALLABLE.
+    MOZ_MUST_USE bool emitCheckIsCallable(CheckIsCallableKind kind);
 
     // Emit a bytecode followed by an uint16 immediate operand stored in
     // big-endian order.
@@ -545,6 +556,8 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     MOZ_MUST_USE bool emitGetNameAtLocation(JSAtom* name, const NameLocation& loc,
                                             bool callContext = false);
+    MOZ_MUST_USE bool emitGetNameAtLocationForCompoundAssignment(JSAtom* name,
+                                                                 const NameLocation& loc);
     MOZ_MUST_USE bool emitGetName(JSAtom* name, bool callContext = false) {
         return emitGetNameAtLocation(name, lookupName(name), callContext);
     }
@@ -593,9 +606,13 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitFinishIteratorResult(bool done);
     MOZ_MUST_USE bool iteratorResultShape(unsigned* shape);
 
+    MOZ_MUST_USE bool emitGetDotGenerator();
+
+    MOZ_MUST_USE bool emitInitialYield(ParseNode* pn);
     MOZ_MUST_USE bool emitYield(ParseNode* pn);
     MOZ_MUST_USE bool emitYieldOp(JSOp op);
-    MOZ_MUST_USE bool emitYieldStar(ParseNode* iter, ParseNode* gen);
+    MOZ_MUST_USE bool emitYieldStar(ParseNode* iter);
+    MOZ_MUST_USE bool emitAwait(ParseNode* pn);
 
     MOZ_MUST_USE bool emitPropLHS(ParseNode* pn);
     MOZ_MUST_USE bool emitPropOp(ParseNode* pn, JSOp op);
@@ -679,9 +696,8 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     // Pops iterator from the top of the stack. Pushes the result of |.next()|
     // onto the stack.
     MOZ_MUST_USE bool emitIteratorNext(ParseNode* pn, bool allowSelfHosted = false);
-    MOZ_MUST_USE bool emitIteratorClose(
-        mozilla::Maybe<JumpTarget> yieldStarTryStart = mozilla::Nothing(),
-        bool allowSelfHosted = false);
+    MOZ_MUST_USE bool emitIteratorClose(CompletionKind completionKind = CompletionKind::Normal,
+                                        bool allowSelfHosted = false);
 
     template <typename InnerEmitter>
     MOZ_MUST_USE bool wrapWithDestructuringIteratorCloseTryNote(int32_t iterDepth,
@@ -720,20 +736,23 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitRightAssociative(ParseNode* pn);
     MOZ_MUST_USE bool emitLeftAssociative(ParseNode* pn);
     MOZ_MUST_USE bool emitLogical(ParseNode* pn);
-    MOZ_MUST_USE bool emitSequenceExpr(ParseNode* pn);
+    MOZ_MUST_USE bool emitSequenceExpr(ParseNode* pn,
+                                       ValueUsage valueUsage = ValueUsage::WantValue);
 
     MOZ_NEVER_INLINE MOZ_MUST_USE bool emitIncOrDec(ParseNode* pn);
 
-    MOZ_MUST_USE bool emitConditionalExpression(ConditionalExpression& conditional);
+    MOZ_MUST_USE bool emitConditionalExpression(ConditionalExpression& conditional,
+                                                ValueUsage valueUsage = ValueUsage::WantValue);
 
     MOZ_MUST_USE bool isRestParameter(ParseNode* pn, bool* result);
     MOZ_MUST_USE bool emitOptimizeSpread(ParseNode* arg0, JumpList* jmp, bool* emitted);
 
-    MOZ_MUST_USE bool emitCallOrNew(ParseNode* pn);
+    MOZ_MUST_USE bool emitCallOrNew(ParseNode* pn, ValueUsage valueUsage = ValueUsage::WantValue);
     MOZ_MUST_USE bool emitSelfHostedCallFunction(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedResumeGenerator(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedForceInterpreter(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedAllowContentIter(ParseNode* pn);
+    MOZ_MUST_USE bool emitSelfHostedDefineDataProperty(ParseNode* pn);
 
     MOZ_MUST_USE bool emitComprehensionFor(ParseNode* compFor);
     MOZ_MUST_USE bool emitComprehensionForIn(ParseNode* pn);

@@ -695,7 +695,7 @@ class MemoryAccessDesc
 
   public:
     explicit MemoryAccessDesc(Scalar::Type type, uint32_t align, uint32_t offset,
-                              mozilla::Maybe<TrapOffset> trapOffset,
+                              const mozilla::Maybe<TrapOffset>& trapOffset,
                               unsigned numSimdElems = 0,
                               jit::MemoryBarrierBits barrierBefore = jit::MembarNobits,
                               jit::MemoryBarrierBits barrierAfter = jit::MembarNobits)
@@ -748,6 +748,25 @@ struct GlobalAccess
 };
 
 typedef Vector<GlobalAccess, 0, SystemAllocPolicy> GlobalAccessVector;
+
+// A CallFarJump records the offset of a jump that needs to be patched to a
+// call at the end of the module when all calls have been emitted.
+
+struct CallFarJump
+{
+    uint32_t funcIndex;
+    jit::CodeOffset jump;
+
+    CallFarJump(uint32_t funcIndex, jit::CodeOffset jump)
+      : funcIndex(funcIndex), jump(jump)
+    {}
+
+    void offsetBy(size_t delta) {
+        jump.offsetBy(delta);
+    }
+};
+
+typedef Vector<CallFarJump, 0, SystemAllocPolicy> CallFarJumpVector;
 
 // The TrapDesc struct describes a wasm trap that is about to be emitted. This
 // includes the logical wasm bytecode offset to report, the kind of instruction
@@ -808,12 +827,10 @@ namespace jit {
 class AssemblerShared
 {
     wasm::CallSiteAndTargetVector callSites_;
+    wasm::CallFarJumpVector callFarJumps_;
     wasm::TrapSiteVector trapSites_;
     wasm::TrapFarJumpVector trapFarJumps_;
     wasm::MemoryAccessVector memoryAccesses_;
-    wasm::MemoryPatchVector memoryPatches_;
-    wasm::BoundsCheckVector boundsChecks_;
-    wasm::GlobalAccessVector globalAccesses_;
     wasm::SymbolicAccessVector symbolicAccesses_;
 
   protected:
@@ -845,15 +862,17 @@ class AssemblerShared
     }
 
     template <typename... Args>
-    void append(const wasm::CallSiteDesc& desc, CodeOffset retAddr, size_t framePushed,
-                Args&&... args)
+    void append(const wasm::CallSiteDesc& desc, CodeOffset retAddr, Args&&... args)
     {
-        // framePushed does not include sizeof(wasm:Frame), so add it in explicitly when
-        // setting the CallSite::stackDepth.
-        wasm::CallSite cs(desc, retAddr.offset(), framePushed + sizeof(wasm::Frame));
+        wasm::CallSite cs(desc, retAddr.offset());
         enoughMemory_ &= callSites_.emplaceBack(cs, mozilla::Forward<Args>(args)...);
     }
     wasm::CallSiteAndTargetVector& callSites() { return callSites_; }
+
+    void append(wasm::CallFarJump jmp) {
+        enoughMemory_ &= callFarJumps_.append(jmp);
+    }
+    const wasm::CallFarJumpVector& callFarJumps() const { return callFarJumps_; }
 
     void append(wasm::TrapSite trapSite) {
         enoughMemory_ &= trapSites_.append(trapSite);
@@ -888,15 +907,6 @@ class AssemblerShared
         }
     }
 
-    void append(wasm::MemoryPatch patch) { enoughMemory_ &= memoryPatches_.append(patch); }
-    wasm::MemoryPatchVector&& extractMemoryPatches() { return Move(memoryPatches_); }
-
-    void append(wasm::BoundsCheck check) { enoughMemory_ &= boundsChecks_.append(check); }
-    wasm::BoundsCheckVector&& extractBoundsChecks() { return Move(boundsChecks_); }
-
-    void append(wasm::GlobalAccess access) { enoughMemory_ &= globalAccesses_.append(access); }
-    const wasm::GlobalAccessVector& globalAccesses() const { return globalAccesses_; }
-
     void append(wasm::SymbolicAccess access) { enoughMemory_ &= symbolicAccesses_.append(access); }
     size_t numSymbolicAccesses() const { return symbolicAccesses_.length(); }
     wasm::SymbolicAccess symbolicAccess(size_t i) const { return symbolicAccesses_[i]; }
@@ -923,6 +933,11 @@ class AssemblerShared
 
         MOZ_ASSERT(other.trapSites_.empty(), "should have been cleared by wasmEmitTrapOutOfLineCode");
 
+        i = callFarJumps_.length();
+        enoughMemory_ &= callFarJumps_.appendAll(other.callFarJumps_);
+        for (; i < callFarJumps_.length(); i++)
+            callFarJumps_[i].offsetBy(delta);
+
         i = trapFarJumps_.length();
         enoughMemory_ &= trapFarJumps_.appendAll(other.trapFarJumps_);
         for (; i < trapFarJumps_.length(); i++)
@@ -932,21 +947,6 @@ class AssemblerShared
         enoughMemory_ &= memoryAccesses_.appendAll(other.memoryAccesses_);
         for (; i < memoryAccesses_.length(); i++)
             memoryAccesses_[i].offsetBy(delta);
-
-        i = memoryPatches_.length();
-        enoughMemory_ &= memoryPatches_.appendAll(other.memoryPatches_);
-        for (; i < memoryPatches_.length(); i++)
-            memoryPatches_[i].offsetBy(delta);
-
-        i = boundsChecks_.length();
-        enoughMemory_ &= boundsChecks_.appendAll(other.boundsChecks_);
-        for (; i < boundsChecks_.length(); i++)
-            boundsChecks_[i].offsetBy(delta);
-
-        i = globalAccesses_.length();
-        enoughMemory_ &= globalAccesses_.appendAll(other.globalAccesses_);
-        for (; i < globalAccesses_.length(); i++)
-            globalAccesses_[i].patchAt.offsetBy(delta);
 
         i = symbolicAccesses_.length();
         enoughMemory_ &= symbolicAccesses_.appendAll(other.symbolicAccesses_);

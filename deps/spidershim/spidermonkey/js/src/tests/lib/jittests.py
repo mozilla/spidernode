@@ -116,6 +116,7 @@ class JitTest:
                                        # enabled.
         self.test_also_wasm_baseline = False # True means run with and and without
                                        # wasm baseline compiler enabled.
+        self.other_includes = [] # Additional files to include, in addition to prologue.js
         self.test_also = [] # List of other configurations to test with.
         self.test_join = [] # List of other configurations to test with all existing variants.
         self.expect_error = '' # Errors to expect and consider passing
@@ -139,6 +140,7 @@ class JitTest:
         t.tz_pacific = self.tz_pacific
         t.test_also_noasmjs = self.test_also_noasmjs
         t.test_also_wasm_baseline = self.test_also_wasm_baseline
+        t.other_includes = self.other_includes[:]
         t.test_also = self.test_also
         t.test_join = self.test_join
         t.expect_error = self.expect_error
@@ -228,6 +230,8 @@ class JitTest:
                         except ValueError:
                             print("warning: couldn't parse thread-count"
                                   " {}".format(value))
+                    elif name == 'include':
+                        test.other_includes.append(value)
                     else:
                         print('{}: warning: unrecognized |jit-test| attribute'
                               ' {}'.format(path, part))
@@ -308,6 +312,8 @@ class JitTest:
         # via the "|jit-test|" line.  Remove dups because they are toggles.
         cmd = prefix + ['--js-cache', JitTest.CacheDir]
         cmd += list(set(self.jitflags)) + ['-e', expr]
+        for inc in self.other_includes:
+            cmd += ['-f', libdir + inc]
         if self.is_module:
             cmd += ['--module-load-path', moduledir]
             cmd += ['--module', path]
@@ -315,6 +321,7 @@ class JitTest:
             cmd += ['-f', path]
         else:
             cmd += ['--', self.test_reflect_stringify, "--check", path]
+
         if self.valgrind:
             cmd = self.VALGRIND_CMD + cmd
         return cmd
@@ -658,28 +665,19 @@ def push_progs(options, device, progs):
 
 def run_tests_remote(tests, num_tests, prefix, options):
     # Setup device with everything needed to run our tests.
-    from mozdevice import devicemanagerADB, devicemanagerSUT
+    from mozdevice import devicemanagerADB
 
-    if options.device_transport == 'adb':
-        if options.device_ip:
-            dm = devicemanagerADB.DeviceManagerADB(
-                options.device_ip, options.device_port,
-                deviceSerial=options.device_serial,
-                packageName=None,
-                deviceRoot=options.remote_test_root)
-        else:
-            dm = devicemanagerADB.DeviceManagerADB(
-                deviceSerial=options.device_serial,
-                packageName=None,
-                deviceRoot=options.remote_test_root)
-    else:
-        dm = devicemanagerSUT.DeviceManagerSUT(
+    if options.device_ip:
+        dm = devicemanagerADB.DeviceManagerADB(
             options.device_ip, options.device_port,
+            deviceSerial=options.device_serial,
+            packageName=None,
             deviceRoot=options.remote_test_root)
-        if options.device_ip == None:
-            print('Error: you must provide a device IP to connect to via the'
-                  ' --device option')
-            sys.exit(1)
+    else:
+        dm = devicemanagerADB.DeviceManagerADB(
+            deviceSerial=options.device_serial,
+            packageName=None,
+            deviceRoot=options.remote_test_root)
 
     # Update the test root to point to our test directory.
     jit_tests_dir = posixpath.join(options.remote_test_root, 'jit-tests')

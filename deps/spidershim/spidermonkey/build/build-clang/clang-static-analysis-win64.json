@@ -1,5 +1,5 @@
 {
-    "llvm_revision": "286542",
+    "llvm_revision": "293859",
     "stages": "3",
     "build_libcxx": false,
     "build_type": "Release",
@@ -11,6 +11,5 @@
     "python_path": "c:/mozilla-build/python/python.exe",
     "cc": "cl.exe",
     "cxx": "cl.exe",
-    "patches": {
-    }
+    "ml": "ml64.exe"
 }

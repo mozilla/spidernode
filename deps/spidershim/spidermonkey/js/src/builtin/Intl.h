@@ -50,6 +50,28 @@ InitIntlClass(JSContext* cx, HandleObject obj);
  */
 class SharedIntlData
 {
+    struct LinearStringLookup
+    {
+        union {
+            const JS::Latin1Char* latin1Chars;
+            const char16_t* twoByteChars;
+        };
+        bool isLatin1;
+        size_t length;
+        JS::AutoCheckCannotGC nogc;
+        HashNumber hash = 0;
+
+        explicit LinearStringLookup(JSLinearString* string)
+          : isLatin1(string->hasLatin1Chars()), length(string->length())
+        {
+            if (isLatin1)
+                latin1Chars = string->latin1Chars(nogc);
+            else
+                twoByteChars = string->twoByteChars(nogc);
+        }
+    };
+
+  private:
     /**
      * Information tracking the set of the supported time zone names, derived
      * from the IANA time zone database <https://www.iana.org/time-zones>.
@@ -79,17 +101,8 @@ class SharedIntlData
 
     struct TimeZoneHasher
     {
-        struct Lookup
+        struct Lookup : LinearStringLookup
         {
-            union {
-                const JS::Latin1Char* latin1Chars;
-                const char16_t* twoByteChars;
-            };
-            bool isLatin1;
-            size_t length;
-            JS::AutoCheckCannotGC nogc;
-            HashNumber hash;
-
             explicit Lookup(JSLinearString* timeZone);
         };
 
@@ -169,6 +182,57 @@ class SharedIntlData
     bool tryCanonicalizeTimeZoneConsistentWithIANA(JSContext* cx, JS::HandleString timeZone,
                                                    JS::MutableHandleString result);
 
+  private:
+    /**
+     * The case first parameter (BCP47 key "kf") allows to switch the order of
+     * upper- and lower-case characters. ICU doesn't directly provide an API
+     * to query the default case first value of a given locale, but instead
+     * requires to instantiate a collator object and then query the case first
+     * attribute (UCOL_CASE_FIRST).
+     * To avoid instantiating an additional collator object whenever we need
+     * to retrieve the default case first value of a specific locale, we
+     * compute the default case first value for every supported locale only
+     * once and then keep a list of all locales which don't use the default
+     * case first setting.
+     * There is almost no difference between lower-case first and when case
+     * first is disabled (UCOL_LOWER_FIRST resp. UCOL_OFF), so we only need to
+     * track locales which use upper-case first as their default setting.
+     */
+
+    using Locale = JSAtom*;
+
+    struct LocaleHasher
+    {
+        struct Lookup : LinearStringLookup
+        {
+            explicit Lookup(JSLinearString* locale);
+        };
+
+        static js::HashNumber hash(const Lookup& lookup) { return lookup.hash; }
+        static bool match(Locale key, const Lookup& lookup);
+    };
+
+    using LocaleSet = js::GCHashSet<Locale,
+                                    LocaleHasher,
+                                    js::SystemAllocPolicy>;
+
+    LocaleSet upperCaseFirstLocales;
+
+    bool upperCaseFirstInitialized = false;
+
+    /**
+     * Precomputes the available locales which use upper-case first sorting.
+     */
+    bool ensureUpperCaseFirstLocales(JSContext* cx);
+
+  public:
+    /**
+     * Sets |isUpperFirst| to true if |locale| sorts upper-case characters
+     * before lower-case characters.
+     */
+    bool isUpperCaseFirst(JSContext* cx, JS::HandleString locale, bool* isUpperFirst);
+
+  public:
     void destroyInstance();
 
     void trace(JSTracer* trc);
@@ -245,6 +309,15 @@ intl_availableCollations(JSContext* cx, unsigned argc, Value* vp);
  */
 extern MOZ_MUST_USE bool
 intl_CompareStrings(JSContext* cx, unsigned argc, Value* vp);
+
+/**
+ * Returns true if the given locale sorts upper-case before lower-case
+ * characters.
+ *
+ * Usage: result = intl_isUpperCaseFirst(locale)
+ */
+extern MOZ_MUST_USE bool
+intl_isUpperCaseFirst(JSContext* cx, unsigned argc, Value* vp);
 
 
 /******************** NumberFormat ********************/
@@ -412,6 +485,35 @@ extern MOZ_MUST_USE bool
 intl_patternForSkeleton(JSContext* cx, unsigned argc, Value* vp);
 
 /**
+ * Return a pattern in the date-time format pattern language of Unicode
+ * Technical Standard 35, Unicode Locale Data Markup Language, for the
+ * best-fit date-time style for the given locale.
+ * The function takes four arguments:
+ *
+ *   locale
+ *     BCP47 compliant locale string
+ *   dateStyle
+ *     A string with values: full or long or medium or short, or `undefined`
+ *   timeStyle
+ *     A string with values: full or long or medium or short, or `undefined`
+ *   timeZone
+ *     IANA time zone name
+ *
+ * Date and time style categories map to CLDR time/date standard
+ * format patterns.
+ *
+ * For the definition of a pattern string, see LDML 4.8:
+ * http://unicode.org/reports/tr35/tr35-dates.html#Date_Format_Patterns
+ *
+ * If `undefined` is passed to `dateStyle` or `timeStyle`, the respective
+ * portions of the pattern will not be included in the result.
+ *
+ * Usage: pattern = intl_patternForStyle(locale, dateStyle, timeStyle, timeZone)
+ */
+extern MOZ_MUST_USE bool
+intl_patternForStyle(JSContext* cx, unsigned argc, Value* vp);
+
+/**
  * Returns a String value representing x (which must be a Number value)
  * according to the effective locale and the formatting options of the
  * given DateTimeFormat.
@@ -508,6 +610,20 @@ intl_GetPluralCategories(JSContext* cx, unsigned argc, Value* vp);
  */
 extern MOZ_MUST_USE bool
 intl_GetCalendarInfo(JSContext* cx, unsigned argc, Value* vp);
+
+/**
+ * Returns a plain object with locale information for a single valid locale
+ * (callers must perform this validation).  The object will have these
+ * properties:
+ *
+ *   direction
+ *     a string with a value "ltr" for left-to-right locale, and "rtl" for
+ *     right-to-left locale.
+ *   locale
+ *     a BCP47 compilant locale string for the resolved locale.
+ */
+extern MOZ_MUST_USE bool
+intl_GetLocaleInfo(JSContext* cx, unsigned argc, Value* vp);
 
 /**
  * Returns an Array with CLDR-based fields display names.

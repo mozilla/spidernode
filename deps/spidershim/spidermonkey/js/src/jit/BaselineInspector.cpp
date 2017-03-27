@@ -27,16 +27,10 @@ SetElemICInspector::sawOOBDenseWrite() const
     if (!icEntry_)
         return false;
 
-    // Check for an element adding stub.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (stub->isSetElem_DenseOrUnboxedArrayAdd())
-            return true;
-    }
-
     // Check for a write hole bit on the SetElem_Fallback stub.
     ICStub* stub = icEntry_->fallbackStub();
     if (stub->isSetElem_Fallback())
-        return stub->toSetElem_Fallback()->hasArrayWriteHole();
+        return stub->toSetElem_Fallback()->hasDenseAdd();
 
     return false;
 }
@@ -47,41 +41,10 @@ SetElemICInspector::sawOOBTypedArrayWrite() const
     if (!icEntry_)
         return false;
 
-    // Check for SetElem_TypedArray stubs with expectOutOfBounds set.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (!stub->isSetElem_TypedArray())
-            continue;
-        if (stub->toSetElem_TypedArray()->expectOutOfBounds())
-            return true;
-    }
-    return false;
-}
+    ICStub* stub = icEntry_->fallbackStub();
+    if (stub->isSetElem_Fallback())
+        return stub->toSetElem_Fallback()->hasTypedArrayOOB();
 
-bool
-SetElemICInspector::sawDenseWrite() const
-{
-    if (!icEntry_)
-        return false;
-
-    // Check for a SetElem_DenseAdd or SetElem_Dense stub.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (stub->isSetElem_DenseOrUnboxedArrayAdd() || stub->isSetElem_DenseOrUnboxedArray())
-            return true;
-    }
-    return false;
-}
-
-bool
-SetElemICInspector::sawTypedArrayWrite() const
-{
-    if (!icEntry_)
-        return false;
-
-    // Check for a SetElem_TypedArray stub.
-    for (ICStub* stub = icEntry_->firstStub(); stub; stub = stub->next()) {
-        if (stub->isSetElem_TypedArray())
-            return true;
-    }
     return false;
 }
 
@@ -1055,6 +1018,87 @@ BaselineInspector::commonGetPropFunction(jsbytecode* pc, bool innerized,
     return true;
 }
 
+static JSFunction*
+GetMegamorphicGetterSetterFunction(ICStub* stub, const CacheIRStubInfo* stubInfo, bool isGetter)
+{
+    // We match:
+    //
+    //   GuardIsObject objId
+    //   GuardHasGetterSetter objId propShape
+    //
+    // propShape has the getter/setter we're interested in.
+
+    CacheIRReader reader(stubInfo);
+
+    ObjOperandId objId = ObjOperandId(0);
+    if (!reader.matchOp(CacheOp::GuardIsObject, objId))
+        return nullptr;
+
+    if (!reader.matchOp(CacheOp::GuardHasGetterSetter, objId))
+        return nullptr;
+    Shape* propShape = stubInfo->getStubField<Shape*>(stub, reader.stubOffset());
+
+    JSObject* obj = isGetter ? propShape->getterObject() : propShape->setterObject();
+    return &obj->as<JSFunction>();
+}
+
+bool
+BaselineInspector::megamorphicGetterSetterFunction(jsbytecode* pc, bool isGetter,
+                                                   JSFunction** getterOrSetter)
+{
+    if (!hasBaselineScript())
+        return false;
+
+    *getterOrSetter = nullptr;
+    const ICEntry& entry = icEntryFromPC(pc);
+
+    for (ICStub* stub = entry.firstStub(); stub; stub = stub->next()) {
+        if (stub->isCacheIR_Monitored()) {
+            MOZ_ASSERT(isGetter);
+            JSFunction* getter =
+                GetMegamorphicGetterSetterFunction(stub,
+                                                   stub->toCacheIR_Monitored()->stubInfo(),
+                                                   isGetter);
+            if (!getter || (*getterOrSetter && *getterOrSetter != getter))
+                return false;
+            *getterOrSetter = getter;
+            continue;
+        }
+        if (stub->isCacheIR_Updated()) {
+            MOZ_ASSERT(!isGetter);
+            JSFunction* setter =
+                GetMegamorphicGetterSetterFunction(stub,
+                                                   stub->toCacheIR_Updated()->stubInfo(),
+                                                   isGetter);
+            if (!setter || (*getterOrSetter && *getterOrSetter != setter))
+                return false;
+            *getterOrSetter = setter;
+            continue;
+        }
+        if (stub->isGetProp_Fallback()) {
+            if (stub->toGetProp_Fallback()->hadUnoptimizableAccess())
+                return false;
+            if (stub->toGetProp_Fallback()->state().mode() != ICState::Mode::Megamorphic)
+                return false;
+            continue;
+        }
+        if (stub->isSetProp_Fallback()) {
+            if (stub->toSetProp_Fallback()->hadUnoptimizableAccess())
+                return false;
+            if (stub->toSetProp_Fallback()->state().mode() != ICState::Mode::Megamorphic)
+                return false;
+            continue;
+        }
+
+        return false;
+    }
+
+    if (!*getterOrSetter)
+        return false;
+
+    return true;
+}
+
 static bool
 AddCacheIRSetPropFunction(ICCacheIR_Updated* stub, JSObject** holder, Shape** holderShape,
                           JSFunction** commonSetter, bool* isOwnProperty,
@@ -1223,9 +1267,6 @@ BaselineInspector::expectedPropertyAccessInputType(jsbytecode* pc)
             if (stub->toGetElem_Fallback()->hadUnoptimizableAccess())
                 return MIRType::Value;
             continue;
-
-          case ICStub::GetProp_Generic:
-            return MIRType::Value;
 
           case ICStub::CacheIR_Monitored:
             stubType = GetCacheIRExpectedInputType(stub->toCacheIR_Monitored());

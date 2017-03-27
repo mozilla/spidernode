@@ -15,6 +15,7 @@
   _(TestMutex,                   100) \
   _(ShellContextWatchdog,        100) \
   _(ShellWorkerThreads,          100) \
+  _(ShellThreadCooperation,      100) \
   _(ShellArrayBufferMailbox,     100) \
                                       \
   _(RuntimeExclusiveAccess,      200) \
@@ -26,7 +27,7 @@
   _(GCLock,                      400) \
                                       \
   _(SharedImmutableStringsCache, 500) \
-  _(FutexRuntime,                500) \
+  _(FutexThread,                 500) \
   _(PromiseTaskPtrVector,        500) \
   _(GeckoProfilerStrings,        500) \
   _(ProtectedRegionTree,         500) \
@@ -36,11 +37,14 @@
   _(Arm64SimulatorLock,          500) \
   _(IonSpewer,                   500) \
   _(PerfSpewer,                  500) \
+  _(CacheIRSpewer,               500) \
   _(TraceLoggerThreadState,      500) \
   _(DateTimeInfoMutex,           500) \
   _(IcuTimeZoneStateMutex,       500) \
+  _(ProcessExecutableRegion,     500) \
                                       \
-  _(TraceLoggerGraphState,       600)
+  _(TraceLoggerGraphState,       600) \
+  _(VTuneLock,                   600)
 
 namespace js {
 namespace mutexid {

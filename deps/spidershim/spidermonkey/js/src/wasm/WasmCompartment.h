@@ -39,8 +39,7 @@ class Compartment
 {
     InstanceVector instances_;
     volatile bool  mutatingInstances_;
-    size_t         activationCount_;
-    bool           profilingEnabled_;
+    size_t         interruptedCount_;
 
     friend class js::WasmActivation;
 
@@ -82,19 +81,14 @@ class Compartment
 
     Code* lookupCode(const void* pc) const;
 
-    // Currently, there is one Code per Instance so it is also possible to
-    // lookup a Instance given a pc. However, the goal is to share one Code
-    // between multiple Instances at which point in time this method will be
-    // removed.
+    // The wasm::Compartment must be notified when execution is interrupted
+    // while executing in wasm code in this compartment.
 
-    Instance* lookupInstanceDeprecated(const void* pc) const;
+    void setInterrupted(bool interrupted);
 
-    // To ensure profiling is enabled (so that wasm frames are not lost in
-    // profiling callstacks), ensureProfilingState must be called before calling
-    // the first wasm function in a compartment.
+    // Ensure all Instances in this JSCompartment have profiling labels created.
 
-    bool ensureProfilingState(JSContext* cx);
-    bool profilingEnabled() const;
+    void ensureProfilingLabels(bool profilingEnabled);
 
     // about:memory reporting
 

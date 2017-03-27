@@ -89,15 +89,15 @@ class JSFunction : public js::NativeObject
         ASMJS_CTOR = ASMJS_KIND | NATIVE_CTOR,
         ASMJS_LAMBDA_CTOR = ASMJS_KIND | NATIVE_CTOR | LAMBDA,
         INTERPRETED_METHOD = INTERPRETED | METHOD_KIND,
-        INTERPRETED_METHOD_GENERATOR = INTERPRETED | METHOD_KIND,
+        INTERPRETED_METHOD_GENERATOR_OR_ASYNC = INTERPRETED | METHOD_KIND,
         INTERPRETED_CLASS_CONSTRUCTOR = INTERPRETED | CLASSCONSTRUCTOR_KIND | CONSTRUCTOR,
         INTERPRETED_GETTER = INTERPRETED | GETTER_KIND,
         INTERPRETED_SETTER = INTERPRETED | SETTER_KIND,
         INTERPRETED_LAMBDA = INTERPRETED | LAMBDA | CONSTRUCTOR,
         INTERPRETED_LAMBDA_ARROW = INTERPRETED | LAMBDA | ARROW_KIND,
-        INTERPRETED_LAMBDA_GENERATOR = INTERPRETED | LAMBDA,
+        INTERPRETED_LAMBDA_GENERATOR_OR_ASYNC = INTERPRETED | LAMBDA,
         INTERPRETED_NORMAL = INTERPRETED | CONSTRUCTOR,
-        INTERPRETED_GENERATOR = INTERPRETED,
+        INTERPRETED_GENERATOR_OR_ASYNC = INTERPRETED,
         NO_XDR_FLAGS = RESOLVED_LENGTH | RESOLVED_NAME,
 
         STABLE_ACROSS_CLONES = CONSTRUCTOR | HAS_GUESSED_ATOM | LAMBDA |
@@ -146,7 +146,9 @@ class JSFunction : public js::NativeObject
         MOZ_ASSERT_IF(nonLazyScript()->funHasExtensibleScope() ||
                       nonLazyScript()->needsHomeObject()       ||
                       nonLazyScript()->isDerivedClassConstructor() ||
-                      isGenerator(),
+                      isStarGenerator() ||
+                      isLegacyGenerator() ||
+                      isAsync(),
                       nonLazyScript()->bodyScope()->hasEnvironment());
 
         return nonLazyScript()->bodyScope()->hasEnvironment();
@@ -488,8 +490,6 @@ class JSFunction : public js::NativeObject
         return js::NotGenerator;
     }
 
-    bool isGenerator() const { return generatorKind() != js::NotGenerator; }
-
     bool isLegacyGenerator() const { return generatorKind() == js::LegacyGenerator; }
 
     bool isStarGenerator() const { return generatorKind() == js::StarGenerator; }
@@ -500,9 +500,9 @@ class JSFunction : public js::NativeObject
 
     bool isAsync() const {
         if (isInterpretedLazy())
-            return lazyScript()->asyncKind() == js::AsyncFunction;
+            return lazyScript()->isAsync();
         if (hasScript())
-            return nonLazyScript()->asyncKind() == js::AsyncFunction;
+            return nonLazyScript()->isAsync();
         return false;
     }
 
@@ -572,6 +572,10 @@ class JSFunction : public js::NativeObject
         return offsetof(JSFunction, u.nativeOrScript);
     }
 
+    static unsigned offsetOfJitInfo() {
+        return offsetof(JSFunction, u.n.jitinfo);
+    }
+
     inline void trace(JSTracer* trc);
 
     /* Bound function accessors. */
@@ -609,7 +613,7 @@ class JSFunction : public js::NativeObject
     inline const js::Value& getExtendedSlot(size_t which) const;
 
     /* Constructs a new type for the function if necessary. */
-    static bool setTypeForScriptedFunction(js::ExclusiveContext* cx, js::HandleFunction fun,
+    static bool setTypeForScriptedFunction(JSContext* cx, js::HandleFunction fun,
                                            bool singleton = false);
 
     /* GC support. */
@@ -646,14 +650,14 @@ AsyncFunctionConstructor(JSContext* cx, unsigned argc, Value* vp);
 // Allocate a new function backed by a JSNative.  Note that by default this
 // creates a singleton object.
 extern JSFunction*
-NewNativeFunction(ExclusiveContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
+NewNativeFunction(JSContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
                   gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
                   NewObjectKind newKind = SingletonObject);
 
 // Allocate a new constructor backed by a JSNative.  Note that by default this
 // creates a singleton object.
 extern JSFunction*
-NewNativeConstructor(ExclusiveContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
+NewNativeConstructor(JSContext* cx, JSNative native, unsigned nargs, HandleAtom atom,
                      gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
                      NewObjectKind newKind = SingletonObject,
                      JSFunction::Flags flags = JSFunction::NATIVE_CTOR);
@@ -662,7 +666,7 @@ NewNativeConstructor(ExclusiveContext* cx, JSNative native, unsigned nargs, Hand
 // global will be used.  In all cases the parent of the resulting object will be
 // the global.
 extern JSFunction*
-NewScriptedFunction(ExclusiveContext* cx, unsigned nargs, JSFunction::Flags flags,
+NewScriptedFunction(JSContext* cx, unsigned nargs, JSFunction::Flags flags,
                     HandleAtom atom, HandleObject proto = nullptr,
                     gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
                     NewObjectKind newKind = GenericObject,
@@ -680,7 +684,7 @@ enum NewFunctionProtoHandling {
     NewFunctionGivenProto
 };
 extern JSFunction*
-NewFunctionWithProto(ExclusiveContext* cx, JSNative native, unsigned nargs,
+NewFunctionWithProto(JSContext* cx, JSNative native, unsigned nargs,
                      JSFunction::Flags flags, HandleObject enclosingEnv, HandleAtom atom,
                      HandleObject proto, gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
                      NewObjectKind newKind = GenericObject,
@@ -691,7 +695,7 @@ IdToFunctionName(JSContext* cx, HandleId id,
                  FunctionPrefixKind prefixKind = FunctionPrefixKind::None);
 
 extern JSAtom*
-NameToFunctionName(ExclusiveContext* cx, HandleAtom name,
+NameToFunctionName(JSContext* cx, HandleAtom name,
                    FunctionPrefixKind prefixKind = FunctionPrefixKind::None);
 
 extern bool
@@ -811,8 +815,7 @@ inline void
 JSFunction::initExtendedSlot(size_t which, const js::Value& val)
 {
     MOZ_ASSERT(which < mozilla::ArrayLength(toExtended()->extendedSlots));
-    MOZ_ASSERT_IF(js::IsMarkedBlack(this) && val.isGCThing(),
-                  !JS::GCThingIsMarkedGray(JS::GCCellPtr(val)));
+    js::CheckEdgeIsNotBlackToGray(this, val);
     MOZ_ASSERT(js::IsObjectValueInCompartment(val, compartment()));
     toExtended()->extendedSlots[which].init(val);
 }
@@ -821,8 +824,7 @@ inline void
 JSFunction::setExtendedSlot(size_t which, const js::Value& val)
 {
     MOZ_ASSERT(which < mozilla::ArrayLength(toExtended()->extendedSlots));
-    MOZ_ASSERT_IF(js::IsMarkedBlack(this) && val.isGCThing(),
-                  !JS::GCThingIsMarkedGray(JS::GCCellPtr(val)));
+    js::CheckEdgeIsNotBlackToGray(this, val);
     MOZ_ASSERT(js::IsObjectValueInCompartment(val, compartment()));
     toExtended()->extendedSlots[which] = val;
 }

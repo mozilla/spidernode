@@ -156,13 +156,10 @@ EvaluateConstantOperands(TempAllocator& alloc, MBinaryInstruction* ins, bool* pt
         MOZ_CRASH("NYI");
     }
 
-    // For a float32 or double value, use the Raw* New so that we preserve NaN
-    // bits. This isn't strictly required for either ES or wasm, but it does
-    // avoid making constant-folding observable.
-    if (ins->type() == MIRType::Double)
-        return MConstant::NewRawDouble(alloc, ret);
     if (ins->type() == MIRType::Float32)
-        return MConstant::NewRawFloat32(alloc, float(ret));
+        return MConstant::NewFloat32(alloc, float(ret));
+    if (ins->type() == MIRType::Double)
+        return MConstant::New(alloc, DoubleValue(ret));
 
     Value retVal;
     retVal.setNumber(JS::CanonicalizeNaN(ret));
@@ -813,18 +810,6 @@ MConstant::New(TempAllocator::Fallible alloc, const Value& v, CompilerConstraint
 }
 
 MConstant*
-MConstant::NewRawFloat32(TempAllocator& alloc, float f)
-{
-    return new(alloc) MConstant(f);
-}
-
-MConstant*
-MConstant::NewRawDouble(TempAllocator& alloc, double d)
-{
-    return new(alloc) MConstant(d);
-}
-
-MConstant*
 MConstant::NewFloat32(TempAllocator& alloc, double d)
 {
     MOZ_ASSERT(IsNaN(d) || d == double(float(d)));
@@ -892,16 +877,16 @@ bool
 jit::IonCompilationCanUseNurseryPointers()
 {
     // If we are doing backend compilation, which could occur on a helper
-    // thread but might actually be on the main thread, check the flag set on
-    // the PerThreadData by AutoEnterIonCompilation.
+    // thread but might actually be on the active thread, check the flag set on
+    // the JSContext by AutoEnterIonCompilation.
     if (CurrentThreadIsIonCompiling())
         return !CurrentThreadIsIonCompilingSafeForMinorGC();
 
-    // Otherwise, we must be on the main thread during MIR construction. The
+    // Otherwise, we must be on the active thread during MIR construction. The
     // store buffer must have been notified that minor GCs must cancel pending
     // or in progress Ion compilations.
-    JSRuntime* rt = TlsPerThreadData.get()->runtimeFromMainThread();
-    return rt->gc.storeBuffer.cancelIonCompilations();
+    JSContext* cx = TlsContext.get();
+    return cx->zone()->group()->storeBuffer().cancelIonCompilations();
 }
 
 #endif // DEBUG
@@ -976,13 +961,6 @@ MConstant::MConstant(float f)
     setMovable();
 }
 
-MConstant::MConstant(double d)
-{
-    setResultType(MIRType::Double);
-    payload_.d = d;
-    setMovable();
-}
-
 MConstant::MConstant(int64_t i)
 {
     setResultType(MIRType::Int64);
@@ -1021,6 +999,22 @@ MConstant::assertInitializedPayload() const
 }
 #endif
 
+static HashNumber
+ConstantValueHash(MIRType type, uint64_t payload)
+{
+    // Build a 64-bit value holding both the payload and the type.
+    static const size_t TypeBits = 8;
+    static const size_t TypeShift = 64 - TypeBits;
+    MOZ_ASSERT(uintptr_t(type) <= (1 << TypeBits) - 1);
+    uint64_t bits = (uint64_t(type) << TypeShift) ^ payload;
+
+    // Fold all 64 bits into the 32-bit result. It's tempting to just discard
+    // half of the bits, as this is just a hash, however there are many common
+    // patterns of values where only the low or the high bits vary, so
+    // discarding either side would lead to excessive hash collisions.
+    return (HashNumber)bits ^ (HashNumber)(bits >> 32);
+}
+
 HashNumber
 MConstant::valueHash() const
 {
@@ -1028,18 +1022,7 @@ MConstant::valueHash() const
                   "Code below assumes payload fits in 64 bits");
 
     assertInitializedPayload();
-
-    // Build a 64-bit value holding both the payload and the type.
-    static const size_t TypeBits = 8;
-    static const size_t TypeShift = 64 - TypeBits;
-    MOZ_ASSERT(uintptr_t(type()) <= (1 << TypeBits) - 1);
-    uint64_t bits = (uint64_t(type()) << TypeShift) ^ payload_.asBits;
-
-    // Fold all 64 bits into the 32-bit result. It's tempting to just discard
-    // half of the bits, as this is just a hash, however there are many common
-    // patterns of values where only the low or the high bits vary, so
-    // discarding either side would lead to excessive hash collisions.
-    return (HashNumber)bits ^ (HashNumber)(bits >> 32);
+    return ConstantValueHash(type(), payload_.asBits);
 }
 
 bool
@@ -1214,6 +1197,20 @@ MConstant::valueToBoolean(bool* res) const
         MOZ_ASSERT(IsMagicType(type()));
         return false;
     }
+}
+
+HashNumber
+MWasmFloatConstant::valueHash() const
+{
+    return ConstantValueHash(type(), u.bits_);
+}
+
+bool
+MWasmFloatConstant::congruentTo(const MDefinition* ins) const
+{
+    return ins->isWasmFloatConstant() &&
+           type() == ins->type() &&
+           u.bits_ == ins->toWasmFloatConstant()->u.bits_;
 }
 
 MDefinition*
@@ -1781,6 +1778,19 @@ MAssertRange::printOpcode(GenericPrinter& out) const
     assertedRange()->dump(out);
 }
 
+void MNearbyInt::printOpcode(GenericPrinter& out) const
+{
+    MDefinition::printOpcode(out);
+    const char* roundingModeStr = nullptr;
+    switch (roundingMode_) {
+      case RoundingMode::Up:                roundingModeStr = "(up)"; break;
+      case RoundingMode::Down:              roundingModeStr = "(down)"; break;
+      case RoundingMode::NearestTiesToEven: roundingModeStr = "(nearest ties even)"; break;
+      case RoundingMode::TowardsZero:       roundingModeStr = "(towards zero)"; break;
+    }
+    out.printf(" %s", roundingModeStr);
+}
+
 const char*
 MMathFunction::FunctionName(Function function)
 {
@@ -1966,7 +1976,7 @@ WrappedFunction::WrappedFunction(JSFunction* fun)
 
 MCall*
 MCall::New(TempAllocator& alloc, JSFunction* target, size_t maxArgc, size_t numActualArgs,
-           bool construct, bool isDOMCall)
+           bool construct, bool ignoresReturnValue, bool isDOMCall)
 {
     WrappedFunction* wrappedTarget = target ? new(alloc) WrappedFunction(target) : nullptr;
     MOZ_ASSERT(maxArgc >= numActualArgs);
@@ -1975,7 +1985,7 @@ MCall::New(TempAllocator& alloc, JSFunction* target, size_t maxArgc, size_t numA
         MOZ_ASSERT(!construct);
         ins = new(alloc) MCallDOMNative(wrappedTarget, numActualArgs);
     } else {
-        ins = new(alloc) MCall(wrappedTarget, numActualArgs, construct);
+        ins = new(alloc) MCall(wrappedTarget, numActualArgs, construct, ignoresReturnValue);
     }
     if (!ins->init(alloc, maxArgc + NumNonArgumentOperands))
         return nullptr;
@@ -2154,6 +2164,15 @@ MRound::trySpecializeFloat32(TempAllocator& alloc)
     MOZ_ASSERT(type() == MIRType::Int32);
     if (EnsureFloatInputOrConvert(this, alloc))
         specialization_ = MIRType::Float32;
+}
+
+void
+MNearbyInt::trySpecializeFloat32(TempAllocator& alloc)
+{
+    if (EnsureFloatInputOrConvert(this, alloc)) {
+        specialization_ = MIRType::Float32;
+        setResultType(MIRType::Float32);
+    }
 }
 
 MTableSwitch*
@@ -3152,7 +3171,8 @@ MBinaryArithInstruction::foldsTo(TempAllocator& alloc)
         if (isTruncated()) {
             if (!folded->block())
                 block()->insertBefore(this, folded);
-            return MTruncateToInt32::New(alloc, folded);
+            if (folded->type() != MIRType::Int32)
+                return MTruncateToInt32::New(alloc, folded);
         }
         return folded;
     }
@@ -3295,10 +3315,10 @@ MMinMax::foldsTo(TempAllocator& alloc)
             if (mozilla::NumberEqualsInt32(result, &cast))
                 return MConstant::New(alloc, Int32Value(cast));
         } else if (type() == MIRType::Float32) {
-            return MConstant::NewRawFloat32(alloc, float(result));
+            return MConstant::NewFloat32(alloc, result);
         } else {
             MOZ_ASSERT(type() == MIRType::Double);
-            return MConstant::NewRawDouble(alloc, result);
+            return MConstant::New(alloc, DoubleValue(result));
         }
     }
 
@@ -3701,6 +3721,8 @@ MCompare::inputType()
       case Compare_String:
       case Compare_StrictString:
         return MIRType::String;
+      case Compare_Symbol:
+        return MIRType::Symbol;
       case Compare_Object:
         return MIRType::Object;
       case Compare_Unknown:
@@ -3815,6 +3837,10 @@ MCompare::determineCompareType(JSOp op, MDefinition* left, MDefinition* right)
     if (!relationalEq && lhs == MIRType::String && rhs == MIRType::String)
         return Compare_String;
 
+    // Handle symbol comparisons. (Relaational compare will throw)
+    if (!relationalEq && lhs == MIRType::Symbol && rhs == MIRType::Symbol)
+        return Compare_Symbol;
+
     // Handle strict string compare.
     if (strictEq && lhs == MIRType::String)
         return Compare_StrictString;
@@ -3905,7 +3931,7 @@ MTypeOf::foldsTo(TempAllocator& alloc)
         type = JSTYPE_OBJECT;
         break;
       case MIRType::Undefined:
-        type = JSTYPE_VOID;
+        type = JSTYPE_UNDEFINED;
         break;
       case MIRType::Boolean:
         type = JSTYPE_BOOLEAN;
@@ -4337,7 +4363,7 @@ MToDouble::foldsTo(TempAllocator& alloc)
         return input;
 
     if (input->isConstant() && input->toConstant()->isTypeRepresentableAsDouble())
-        return MConstant::NewRawDouble(alloc, input->toConstant()->numberToDouble());
+        return MConstant::New(alloc, DoubleValue(input->toConstant()->numberToDouble()));
 
     return this;
 }
@@ -4361,7 +4387,7 @@ MToFloat32::foldsTo(TempAllocator& alloc)
     }
 
     if (input->isConstant() && input->toConstant()->isTypeRepresentableAsDouble())
-        return MConstant::NewRawFloat32(alloc, float(input->toConstant()->numberToDouble()));
+        return MConstant::NewFloat32(alloc, float(input->toConstant()->numberToDouble()));
 
     return this;
 }
@@ -4415,7 +4441,8 @@ MCompare::tryFoldEqualOperands(bool* result)
                compareType_ == Compare_Double || compareType_ == Compare_DoubleMaybeCoerceLHS ||
                compareType_ == Compare_DoubleMaybeCoerceRHS || compareType_ == Compare_Float32 ||
                compareType_ == Compare_String || compareType_ == Compare_StrictString ||
-               compareType_ == Compare_Object || compareType_ == Compare_Bitwise);
+               compareType_ == Compare_Object || compareType_ == Compare_Bitwise ||
+               compareType_ == Compare_Symbol);
 
     if (isDoubleComparison() || isFloat32Comparison()) {
         if (!operandsAreNeverNaN())
@@ -4449,7 +4476,7 @@ MCompare::tryFoldTypeOf(bool* result)
     }
 
     const JSAtomState& names = GetJitContext()->runtime->names();
-    if (constant->toString() == TypeName(JSTYPE_VOID, names)) {
+    if (constant->toString() == TypeName(JSTYPE_UNDEFINED, names)) {
         if (!typeOf->input()->mightBeType(MIRType::Undefined) &&
             !typeOf->inputMaybeCallableOrEmulatesUndefined())
         {
@@ -5666,7 +5693,7 @@ MWasmUnsignedToFloat32::foldsTo(TempAllocator& alloc)
     if (input()->isConstant() && input()->type() == MIRType::Int32) {
         double dval = double(uint32_t(input()->toConstant()->toInt32()));
         if (IsFloat32Representable(dval))
-            return MConstant::New(alloc, JS::Float32Value(float(dval)), MIRType::Float32);
+            return MConstant::NewFloat32(alloc, float(dval));
     }
 
     return this;
@@ -5674,10 +5701,9 @@ MWasmUnsignedToFloat32::foldsTo(TempAllocator& alloc)
 
 MWasmCall*
 MWasmCall::New(TempAllocator& alloc, const wasm::CallSiteDesc& desc, const wasm::CalleeDesc& callee,
-               const Args& args, MIRType resultType, uint32_t spIncrement, uint32_t tlsStackOffset,
-               MDefinition* tableIndex)
+               const Args& args, MIRType resultType, uint32_t spIncrement, MDefinition* tableIndex)
 {
-    MWasmCall* call = new(alloc) MWasmCall(desc, callee, spIncrement, tlsStackOffset);
+    MWasmCall* call = new(alloc) MWasmCall(desc, callee, spIncrement);
     call->setResultType(resultType);
 
     if (!call->argRegs_.init(alloc, args.length()))
@@ -5703,12 +5729,10 @@ MWasmCall::NewBuiltinInstanceMethodCall(TempAllocator& alloc,
                                         const ABIArg& instanceArg,
                                         const Args& args,
                                         MIRType resultType,
-                                        uint32_t spIncrement,
-                                        uint32_t tlsStackOffset)
+                                        uint32_t spIncrement)
 {
     auto callee = wasm::CalleeDesc::builtinInstanceMethod(builtin);
-    MWasmCall* call = MWasmCall::New(alloc, desc, callee, args, resultType, spIncrement,
-                                     tlsStackOffset, nullptr);
+    MWasmCall* call = MWasmCall::New(alloc, desc, callee, args, resultType, spIncrement, nullptr);
     if (!call)
         return nullptr;
 
