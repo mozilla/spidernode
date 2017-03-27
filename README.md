@@ -49,3 +49,34 @@ $ ./deps/spidershim/scripts/run-tests.py
 
 ### Repository structure
 The repository is based on [node-chakracore](https://github.com/nodejs/node-chakracore).  The interesting bits can be found in the [deps/spidershim](https://github.com/mozilla/spidernode/tree/master/deps/spidershim) directory.
+
+### How to update SpiderMonkey from upstream
+
+To update to a newer version of SpiderMonkey, clone [mozilla-central](https://hg.mozilla.org/mozilla-central/)
+using [git-cinnabar](https://github.com/glandium/git-cinnabar) (or clone the [mozilla/gecko](https://github.com/mozilla/gecko) mirror of mozilla/central, which is maintained using git-cinnabar) and check out the Gecko revision to which you'd like to update:
+
+```
+git clone https://github.com/mozilla/gecko.git path/to/gecko-repo/
+cd path/to/gecko-repo/
+git checkout revision-id
+```
+
+Then change to the *deps/spidershim/* subdirectory of SpiderNode and run the *scripts/update-from-upstream.sh* script, specifying the path to the Gecko working directory:
+
+```bash
+cd path/to/spidernode/
+cd deps/spidershim/
+scripts/update-from-upstream.sh path/to/gecko-repo/
+```
+
+The script will copy the SpiderMonkey files from Gecko and commit changes.
+
+### How to update Node from upstream
+
+To update to a newer version of Node, add [nodejs/node](https://github.com/nodejs/node) as a remote, fetch it, and merge the revision to which you'd like to update (f.e. *master*):
+
+```bash
+git remote add upstream-node https://github.com/nodejs/node.git
+git fetch upstream-node
+git merge upstream-node/master
+```
