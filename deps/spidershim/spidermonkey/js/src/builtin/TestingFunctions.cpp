@@ -337,7 +337,7 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     if (args.get(0) == BooleanValue(true))
-        cx->runtime()->gc.storeBuffer.setAboutToOverflow();
+        cx->zone()->group()->storeBuffer().setAboutToOverflow();
 
     cx->minorGC(JS::gcreason::API);
     args.rval().setUndefined();
@@ -347,6 +347,7 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
 #define FOR_EACH_GC_PARAM(_)                                                    \
     _("maxBytes",                   JSGC_MAX_BYTES,                      true)  \
     _("maxMallocBytes",             JSGC_MAX_MALLOC_BYTES,               true)  \
+    _("maxNurseryBytes",            JSGC_MAX_NURSERY_BYTES,              true)  \
     _("gcBytes",                    JSGC_BYTES,                          false) \
     _("gcNumber",                   JSGC_NUMBER,                         false) \
     _("mode",                       JSGC_MODE,                           true)  \
@@ -421,9 +422,16 @@ GCParameter(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (disableOOMFunctions && (param == JSGC_MAX_BYTES || param == JSGC_MAX_MALLOC_BYTES)) {
-        args.rval().setUndefined();
-        return true;
+    if (disableOOMFunctions) {
+        switch (param) {
+          case JSGC_MAX_BYTES:
+          case JSGC_MAX_MALLOC_BYTES:
+          case JSGC_MAX_NURSERY_BYTES:
+            args.rval().setUndefined();
+            return true;
+          default:
+            break;
+        }
     }
 
     double d;
@@ -817,12 +825,11 @@ SelectForGC(JSContext* cx, unsigned argc, Value* vp)
      * start to detect missing pre-barriers. It is invalid for nursery things
      * to be in the set, so evict the nursery before adding items.
      */
-    JSRuntime* rt = cx->runtime();
-    rt->gc.evictNursery();
+    cx->runtime()->gc.evictNursery();
 
     for (unsigned i = 0; i < args.length(); i++) {
         if (args[i].isObject()) {
-            if (!rt->gc.selectForMarking(&args[i].toObject()))
+            if (!cx->runtime()->gc.selectForMarking(&args[i].toObject()))
                 return false;
         }
     }
@@ -979,7 +986,7 @@ AbortGC(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    cx->runtime()->gc.abortGC();
+    JS::AbortIncrementalGC(cx);
     args.rval().setUndefined();
     return true;
 }
@@ -1112,7 +1119,7 @@ SaveStack(JSContext* cx, unsigned argc, Value* vp)
             capture = JS::StackCapture(JS::MaxFrames(max));
     }
 
-    JSCompartment* targetCompartment = cx->compartment();
+    RootedObject compartmentObject(cx);
     if (args.length() >= 2) {
         if (!args[1].isObject()) {
             ReportValueErrorFlags(cx, JSREPORT_ERROR, JSMSG_UNEXPECTED_TYPE,
@@ -1120,15 +1127,16 @@ SaveStack(JSContext* cx, unsigned argc, Value* vp)
                                   "not an object", NULL);
             return false;
         }
-        RootedObject obj(cx, UncheckedUnwrap(&args[1].toObject()));
-        if (!obj)
+        compartmentObject = UncheckedUnwrap(&args[1].toObject());
+        if (!compartmentObject)
             return false;
-        targetCompartment = obj->compartment();
     }
 
     RootedObject stack(cx);
     {
-        AutoCompartment ac(cx, targetCompartment);
+        Maybe<AutoCompartment> ac;
+        if (compartmentObject)
+            ac.emplace(cx, compartmentObject);
         if (!JS::CaptureCurrentStack(cx, &stack, mozilla::Move(capture)))
             return false;
     }
@@ -1267,7 +1275,10 @@ NewExternalString(JSContext* cx, unsigned argc, Value* vp)
     RootedString str(cx, args[0].toString());
     size_t len = str->length();
 
-    UniqueTwoByteChars buf(js_pod_malloc<char16_t>(len));
+    UniqueTwoByteChars buf(cx->pod_malloc<char16_t>(len));
+    if (!buf)
+        return false;
+
     if (!JS_CopyStringChars(cx, mozilla::Range<char16_t>(buf.get(), len), str))
         return false;
 
@@ -1295,6 +1306,22 @@ EnsureFlatString(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     args.rval().setString(flat);
+    return true;
+}
+
+static bool
+RepresentativeStringArray(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    RootedObject array(cx, JS_NewArrayObject(cx, 0));
+    if (!array)
+        return false;
+
+    if (!JSString::fillWithRepresentatives(cx, array.as<ArrayObject>()))
+        return false;
+
+    args.rval().setObject(*array);
     return true;
 }
 
@@ -1336,7 +1363,7 @@ SetupOOMFailure(JSContext* cx, bool failAlways, unsigned argc, Value* vp)
         return false;
     }
 
-    uint32_t targetThread = js::oom::THREAD_TYPE_MAIN;
+    uint32_t targetThread = js::oom::THREAD_TYPE_COOPERATING;
     if (args.length() > 1 && !ToUint32(cx, args[1], &targetThread))
         return false;
 
@@ -1410,13 +1437,13 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
 
     bool verbose = EnvVarIsDefined("OOM_VERBOSE");
 
-    unsigned threadStart = oom::THREAD_TYPE_MAIN;
+    unsigned threadStart = oom::THREAD_TYPE_COOPERATING;
     unsigned threadEnd = oom::THREAD_TYPE_MAX;
 
     // Test a single thread type if specified by the OOM_THREAD environment variable.
     int threadOption = 0;
     if (EnvVarAsInt("OOM_THREAD", &threadOption)) {
-        if (threadOption < oom::THREAD_TYPE_MAIN || threadOption > oom::THREAD_TYPE_MAX) {
+        if (threadOption < oom::THREAD_TYPE_COOPERATING || threadOption > oom::THREAD_TYPE_MAX) {
             JS_ReportErrorASCII(cx, "OOM_THREAD value out of range.");
             return false;
         }
@@ -1425,15 +1452,14 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
         threadEnd = threadOption + 1;
     }
 
-    JSRuntime* rt = cx->runtime();
-    if (rt->runningOOMTest) {
+    if (cx->runningOOMTest) {
         JS_ReportErrorASCII(cx, "Nested call to oomTest() is not allowed.");
         return false;
     }
-    rt->runningOOMTest = true;
+    cx->runningOOMTest = true;
 
     MOZ_ASSERT(!cx->isExceptionPending());
-    rt->hadOutOfMemory = false;
+    cx->runtime()->hadOutOfMemory = false;
 
     JS_SetGCZeal(cx, 0, JS_DEFAULT_ZEAL_FREQ);
 
@@ -1484,7 +1510,7 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
 
 #ifdef JS_TRACE_LOGGING
             // Reset the TraceLogger state if enabled.
-            TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+            TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
             if (logger->enabled()) {
                 while (logger->enabled())
                     logger->disable();
@@ -1500,7 +1526,7 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
         }
     }
 
-    rt->runningOOMTest = false;
+    cx->runningOOMTest = false;
     args.rval().setUndefined();
     return true;
 }
@@ -1751,7 +1777,7 @@ ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp)
     args.rval().setUndefined();
 
     // Return boolean 'false' if profiler is not enabled.
-    if (!cx->runtime()->geckoProfiler.enabled()) {
+    if (!cx->runtime()->geckoProfiler().enabled()) {
         args.rval().setBoolean(false);
         return true;
     }
@@ -1763,7 +1789,7 @@ ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp)
 
     // If profiler sampling has been suppressed, return an empty
     // stack.
-    if (!cx->runtime()->isProfilerSamplingEnabled()) {
+    if (!cx->isProfilerSamplingEnabled()) {
       args.rval().setObject(*stack);
       return true;
     }
@@ -1893,7 +1919,7 @@ DisplayName(JSContext* cx, unsigned argc, Value* vp)
 
     JSFunction* fun = &args[0].toObject().as<JSFunction>();
     JSString* str = fun->displayAtom();
-    args.rval().setString(str ? str : cx->runtime()->emptyString);
+    args.rval().setString(str ? str : cx->runtime()->emptyString.ref());
     return true;
 }
 
@@ -1999,7 +2025,7 @@ testingFunc_bailAfter(JSContext* cx, unsigned argc, Value* vp)
     }
 
 #ifdef DEBUG
-    cx->runtime()->setIonBailAfter(args[0].toInt32());
+    cx->zone()->group()->setIonBailAfter(args[0].toInt32());
 #endif
 
     args.rval().setUndefined();
@@ -2157,7 +2183,7 @@ SetJitCompilerOption(JSContext* cx, unsigned argc, Value* vp)
     if ((opt == JSJITCOMPILER_BASELINE_ENABLE || opt == JSJITCOMPILER_ION_ENABLE) &&
         number == 0)
     {
-        js::jit::JitActivationIterator iter(cx->runtime());
+        js::jit::JitActivationIterator iter(cx);
         if (!iter.done()) {
             JS_ReportErrorASCII(cx, "Can't turn off JITs with JIT code on the stack.");
             return false;
@@ -2559,21 +2585,12 @@ HelperThreadCount(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-static bool
-TimesAccessed(JSContext* cx, unsigned argc, Value* vp)
-{
-    static int32_t accessed = 0;
-    CallArgs args = CallArgsFromVp(argc, vp);
-    args.rval().setInt32(++accessed);
-    return true;
-}
-
 #ifdef JS_TRACE_LOGGING
 static bool
 EnableTraceLogger(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     if (!TraceLoggerEnable(logger, cx))
         return false;
 
@@ -2585,7 +2602,7 @@ static bool
 DisableTraceLogger(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
     args.rval().setBoolean(TraceLoggerDisable(logger));
 
     return true;
@@ -3536,7 +3553,8 @@ minorGC(JSContext* cx, JSGCStatus status, void* data)
 
     if (info->active) {
         info->active = false;
-        cx->gc.evictNursery(JS::gcreason::DEBUG_GC);
+        if (cx->zone() && !cx->zone()->isAtomsZone())
+            cx->runtime()->gc.evictNursery(JS::gcreason::DEBUG_GC);
         info->active = true;
     }
 }
@@ -4167,7 +4185,7 @@ DisRegExp(JSContext* cx, unsigned argc, Value* vp)
             return false;
     }
 
-    if (!reobj->dumpBytecode(cx, match_only, input))
+    if (!RegExpObject::dumpBytecode(cx, reobj, match_only, input))
         return false;
 
     args.rval().setUndefined();
@@ -4207,6 +4225,43 @@ AflLoop(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 #endif
+
+static bool
+TimeSinceCreation(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    bool ignore;
+    double when = (mozilla::TimeStamp::Now()
+                   - mozilla::TimeStamp::ProcessCreation(ignore)).ToMilliseconds();
+    args.rval().setNumber(when);
+    return true;
+}
+
+static bool
+GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (!args.requireAtLeast(cx, "getErrorNotes", 1))
+        return false;
+
+    if (!args[0].isObject() || !args[0].toObject().is<ErrorObject>()) {
+        args.rval().setNull();
+        return true;
+    }
+
+    JSErrorReport* report = args[0].toObject().as<ErrorObject>().getErrorReport();
+    if (!report) {
+        args.rval().setNull();
+        return true;
+    }
+
+    RootedObject notesArray(cx, CreateErrorNotesArray(cx, report));
+    if (!notesArray)
+        return false;
+
+    args.rval().setObject(*notesArray);
+    return true;
+}
 
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
@@ -4291,6 +4346,11 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("ensureFlatString", EnsureFlatString, 1, 0,
 "ensureFlatString(str)",
 "  Ensures str is a flat (null-terminated) string and returns it."),
+
+    JS_FN_HELP("representativeStringArray", RepresentativeStringArray, 0, 0,
+"representativeStringArray()",
+"  Returns an array of strings that represent the various internal string\n"
+"  types and character encodings."),
 
 #if defined(DEBUG) || defined(JS_OOM_BREAKPOINT)
     JS_FN_HELP("oomThreadTypes", OOMThreadTypes, 0, 0,
@@ -4576,18 +4636,16 @@ gc::ZealModeHelpText),
 
     JS_FN_HELP("helperThreadCount", HelperThreadCount, 0, 0,
 "helperThreadCount()",
-"  Returns the number of helper threads available for off-main-thread tasks."),
+"  Returns the number of helper threads available for off-thread tasks."),
 
 #ifdef JS_TRACE_LOGGING
     JS_FN_HELP("startTraceLogger", EnableTraceLogger, 0, 0,
 "startTraceLogger()",
-"  Start logging the mainThread.\n"
-"  Note: tracelogging starts automatically. Disable it by setting environment variable\n"
-"  TLOPTIONS=disableMainThread"),
+"  Start logging this thread.\n"),
 
     JS_FN_HELP("stopTraceLogger", DisableTraceLogger, 0, 0,
 "stopTraceLogger()",
-"  Stop logging the mainThread."),
+"  Stop logging this thread."),
 #endif
 
     JS_FN_HELP("reportOutOfMemory", ReportOutOfMemory, 0, 0,
@@ -4753,6 +4811,11 @@ gc::ZealModeHelpText),
 "  Call the __AFL_LOOP() runtime function (see AFL docs)\n"),
 #endif
 
+    JS_FN_HELP("timeSinceCreation", TimeSinceCreation, 0, 0,
+"TimeSinceCreation()",
+"  Returns the time in milliseconds since process creation.\n"
+"  This uses a clock compatible with the profiler.\n"),
+
     JS_FS_HELP_END
 };
 
@@ -4767,12 +4830,11 @@ static const JSFunctionSpecWithHelp FuzzingUnsafeTestingFunctions[] = {
 "  Dumps RegExp bytecode."),
 #endif
 
-    JS_FS_HELP_END
-};
+    JS_FN_HELP("getErrorNotes", GetErrorNotes, 1, 0,
+"getErrorNotes(error)",
+"  Returns an array of error notes."),
 
-static const JSPropertySpec TestingProperties[] = {
-    JS_PSG("timesAccessed", TimesAccessed, 0),
-    JS_PS_END
+    JS_FS_HELP_END
 };
 
 bool
@@ -4784,9 +4846,6 @@ js::DefineTestingFunctions(JSContext* cx, HandleObject obj, bool fuzzingSafe_,
         fuzzingSafe = true;
 
     disableOOMFunctions = disableOOMFunctions_;
-
-    if (!JS_DefineProperties(cx, obj, TestingProperties))
-        return false;
 
     if (!fuzzingSafe) {
         if (!JS_DefineFunctionsWithHelp(cx, obj, FuzzingUnsafeTestingFunctions))

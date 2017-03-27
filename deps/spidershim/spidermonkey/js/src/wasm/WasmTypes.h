@@ -19,6 +19,7 @@
 #ifndef wasm_types_h
 #define wasm_types_h
 
+#include "mozilla/Alignment.h"
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Maybe.h"
@@ -40,7 +41,12 @@
 namespace js {
 
 class PropertyName;
-namespace jit { struct BaselineScript; }
+class WasmActivation;
+class WasmFunctionCallObject;
+namespace jit {
+    struct BaselineScript;
+    enum class RoundingMode;
+}
 
 // This is a widespread header, so lets keep out the core wasm impl types.
 
@@ -92,6 +98,7 @@ typedef float F32x4[4];
 
 class Code;
 class CodeRange;
+class GlobalSegment;
 class Memory;
 class Module;
 class Instance;
@@ -757,7 +764,7 @@ struct SigWithId : Sig
 typedef Vector<SigWithId, 0, SystemAllocPolicy> SigWithIdVector;
 typedef Vector<const SigWithId*, 0, SystemAllocPolicy> SigWithIdPtrVector;
 
-// The (,Profiling,Func)Offsets classes are used to record the offsets of
+// The (,Callable,Func)Offsets classes are used to record the offsets of
 // different key points in a CodeRange during compilation.
 
 struct Offsets
@@ -777,62 +784,39 @@ struct Offsets
     }
 };
 
-struct ProfilingOffsets : Offsets
+struct CallableOffsets : Offsets
 {
-    MOZ_IMPLICIT ProfilingOffsets(uint32_t profilingReturn = 0)
-      : Offsets(), profilingReturn(profilingReturn)
+    MOZ_IMPLICIT CallableOffsets(uint32_t ret = 0)
+      : Offsets(), ret(ret)
     {}
 
-    // For CodeRanges with ProfilingOffsets, 'begin' is the offset of the
-    // profiling entry.
-    uint32_t profilingEntry() const { return begin; }
-
-    // The profiling return is the offset of the return instruction, which
-    // precedes the 'end' by a variable number of instructions due to
-    // out-of-line codegen.
-    uint32_t profilingReturn;
+    // The offset of the return instruction precedes 'end' by a variable number
+    // of instructions due to out-of-line codegen.
+    uint32_t ret;
 
     void offsetBy(uint32_t offset) {
         Offsets::offsetBy(offset);
-        profilingReturn += offset;
+        ret += offset;
     }
 };
 
-struct FuncOffsets : ProfilingOffsets
+struct FuncOffsets : CallableOffsets
 {
     MOZ_IMPLICIT FuncOffsets()
-      : ProfilingOffsets(),
-        tableEntry(0),
-        tableProfilingJump(0),
-        nonProfilingEntry(0),
-        profilingJump(0),
-        profilingEpilogue(0)
+      : CallableOffsets(),
+        normalEntry(0)
     {}
 
     // Function CodeRanges have a table entry which takes an extra signature
     // argument which is checked against the callee's signature before falling
-    // through to the normal prologue. When profiling is enabled, a nop on the
-    // fallthrough is patched to instead jump to the profiling epilogue.
-    uint32_t tableEntry;
-    uint32_t tableProfilingJump;
-
-    // Function CodeRanges have an additional non-profiling entry that comes
-    // after the profiling entry and a non-profiling epilogue that comes before
-    // the profiling epilogue.
-    uint32_t nonProfilingEntry;
-
-    // When profiling is enabled, the 'nop' at offset 'profilingJump' is
-    // overwritten to be a jump to 'profilingEpilogue'.
-    uint32_t profilingJump;
-    uint32_t profilingEpilogue;
+    // through to the normal prologue. The table entry is thus at the beginning
+    // of the CodeRange and the normal entry is at some offset after the table
+    // entry.
+    uint32_t normalEntry;
 
     void offsetBy(uint32_t offset) {
-        ProfilingOffsets::offsetBy(offset);
-        tableEntry += offset;
-        tableProfilingJump += offset;
-        nonProfilingEntry += offset;
-        profilingJump += offset;
-        profilingEpilogue += offset;
+        CallableOffsets::offsetBy(offset);
+        normalEntry += offset;
     }
 };
 
@@ -921,26 +905,18 @@ class CallSiteDesc
 class CallSite : public CallSiteDesc
 {
     uint32_t returnAddressOffset_;
-    uint32_t stackDepth_;
 
   public:
     CallSite() {}
 
-    CallSite(CallSiteDesc desc, uint32_t returnAddressOffset, uint32_t stackDepth)
+    CallSite(CallSiteDesc desc, uint32_t returnAddressOffset)
       : CallSiteDesc(desc),
-        returnAddressOffset_(returnAddressOffset),
-        stackDepth_(stackDepth)
+        returnAddressOffset_(returnAddressOffset)
     { }
 
     void setReturnAddressOffset(uint32_t r) { returnAddressOffset_ = r; }
     void offsetReturnAddressBy(int32_t o) { returnAddressOffset_ += o; }
     uint32_t returnAddressOffset() const { return returnAddressOffset_; }
-
-    // The stackDepth measures the amount of stack space pushed since the
-    // function was called. In particular, this includes the pushed return
-    // address on all archs (whether or not the call instruction pushes the
-    // return address (x86/x64) or the prologue does (ARM/MIPS)).
-    uint32_t stackDepth() const { return stackDepth_; }
 };
 
 WASM_DECLARE_POD_VECTOR(CallSite, CallSiteVector)
@@ -973,12 +949,12 @@ class CallSiteAndTarget : public CallSite
 
 typedef Vector<CallSiteAndTarget, 0, SystemAllocPolicy> CallSiteAndTargetVector;
 
-// A wasm::SymbolicAddress represents a pointer to a well-known function or
-// object that is embedded in wasm code. Since wasm code is serialized and
-// later deserialized into a different address space, symbolic addresses must be
-// used for *all* pointers into the address space. The MacroAssembler records a
-// list of all SymbolicAddresses and the offsets of their use in the code for
-// later patching during static linking.
+// A wasm::SymbolicAddress represents a pointer to a well-known function that is
+// embedded in wasm code. Since wasm code is serialized and later deserialized
+// into a different address space, symbolic addresses must be used for *all*
+// pointers into the address space. The MacroAssembler records a list of all
+// SymbolicAddresses and the offsets of their use in the code for later patching
+// during static linking.
 
 enum class SymbolicAddress
 {
@@ -1013,9 +989,6 @@ enum class SymbolicAddress
     LogD,
     PowD,
     ATan2D,
-    Context,
-    InterruptUint32,
-    ReportOverRecursed,
     HandleExecutionInterrupt,
     HandleDebugTrap,
     HandleThrow,
@@ -1034,15 +1007,20 @@ enum class SymbolicAddress
     UModI64,
     TruncateDoubleToInt64,
     TruncateDoubleToUint64,
-    Uint64ToFloatingPoint,
-    Int64ToFloatingPoint,
+    Uint64ToFloat32,
+    Uint64ToDouble,
+    Int64ToFloat32,
+    Int64ToDouble,
     GrowMemory,
     CurrentMemory,
     Limit
 };
 
+bool
+IsRoundingFunction(SymbolicAddress callee, jit::RoundingMode* mode);
+
 void*
-AddressOf(SymbolicAddress imm, ExclusiveContext* cx);
+AddressOf(SymbolicAddress imm);
 
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
@@ -1058,7 +1036,7 @@ struct Assumptions
     // If Assumptions is constructed without arguments, initBuildIdFromContext()
     // must be called to complete initialization.
     Assumptions();
-    bool initBuildIdFromContext(ExclusiveContext* cx);
+    bool initBuildIdFromContext(JSContext* cx);
 
     bool clone(const Assumptions& other);
 
@@ -1105,7 +1083,7 @@ struct TableDesc
     Limits limits;
 
     TableDesc() = default;
-    TableDesc(TableKind kind, Limits limits)
+    TableDesc(TableKind kind, const Limits& limits)
      : kind(kind),
        external(false),
        globalDataOffset(UINT32_MAX),
@@ -1150,11 +1128,24 @@ struct TlsData
     // Pointer to the base of the default memory (or null if there is none).
     uint8_t* memoryBase;
 
+#ifndef WASM_HUGE_MEMORY
+    // Bounds check limit of memory, in bytes (or zero if there is no memory).
+    uint32_t boundsCheckLimit;
+#endif
+
     // Stack limit for the current thread. This limit is checked against the
     // stack pointer in the prologue of functions that allocate stack space. See
     // `CodeGenerator::generateWasm`.
     void* stackLimit;
+
+    // The globalArea must be the last field.  Globals for the module start here
+    // and are inline in this structure.  16-byte alignment is required for SIMD
+    // data.
+    MOZ_ALIGNED_DECL(char globalArea, 16);
+
 };
+
+static_assert(offsetof(TlsData, globalArea) % 16 == 0, "aligned");
 
 typedef int32_t (*ExportFuncPtr)(ExportArg* args, TlsData* tls);
 
@@ -1254,6 +1245,7 @@ class CalleeDesc
         } import;
         struct {
             uint32_t globalDataOffset_;
+            uint32_t minLength_;
             bool external_;
             SigIdDesc sigId_;
         } table;
@@ -1278,6 +1270,7 @@ class CalleeDesc
         CalleeDesc c;
         c.which_ = WasmTable;
         c.u.table.globalDataOffset_ = desc.globalDataOffset;
+        c.u.table.minLength_ = desc.limits.initial;
         c.u.table.external_ = desc.external;
         c.u.table.sigId_ = sigId;
         return c;
@@ -1329,6 +1322,10 @@ class CalleeDesc
     SigIdDesc wasmTableSigId() const {
         MOZ_ASSERT(which_ == WasmTable);
         return u.table.sigId_;
+    }
+    uint32_t wasmTableMinLength() const {
+        MOZ_ASSERT(which_ == WasmTable);
+        return u.table.minLength_;
     }
     SymbolicAddress builtin() const {
         MOZ_ASSERT(which_ == Builtin || which_ == BuiltinInstanceMethod);
@@ -1409,32 +1406,6 @@ ComputeMappedSize(uint32_t maxSize);
 
 #endif // WASM_HUGE_MEMORY
 
-// Metadata for bounds check instructions that are patched at runtime with the
-// appropriate bounds check limit. On WASM_HUGE_MEMORY platforms for wasm (and
-// SIMD/Atomic) bounds checks, no BoundsCheck is created: the signal handler
-// catches everything. On !WASM_HUGE_MEMORY, a BoundsCheck is created for each
-// memory access (except when statically eliminated by optimizations) so that
-// the length can be patched in as an immediate. This requires that the bounds
-// check limit IsValidBoundsCheckImmediate.
-
-class BoundsCheck
-{
-  public:
-    BoundsCheck() = default;
-
-    explicit BoundsCheck(uint32_t cmpOffset)
-      : cmpOffset_(cmpOffset)
-    { }
-
-    uint8_t* patchAt(uint8_t* code) const { return code + cmpOffset_; }
-    void offsetBy(uint32_t offset) { cmpOffset_ += offset; }
-
-  private:
-    uint32_t cmpOffset_;
-};
-
-WASM_DECLARE_POD_VECTOR(BoundsCheck, BoundsCheckVector)
-
 // Metadata for memory accesses. On WASM_HUGE_MEMORY platforms, only
 // (non-SIMD/Atomic) asm.js loads and stores create a MemoryAccess so that the
 // signal handler can implement the semantically-correct wraparound logic; the
@@ -1475,47 +1446,142 @@ class MemoryAccess
 
 WASM_DECLARE_POD_VECTOR(MemoryAccess, MemoryAccessVector)
 
-// Metadata for the offset of an instruction to patch with the base address of
-// memory. In practice, this is only used for x86 where the offset points to the
-// *end* of the instruction (which is a non-fixed offset from the beginning of
-// the instruction). As part of the move away from code patching, this should be
-// removed.
-
-struct MemoryPatch
-{
-    uint32_t offset;
-
-    MemoryPatch() = default;
-    explicit MemoryPatch(uint32_t offset) : offset(offset) {}
-
-    void offsetBy(uint32_t delta) {
-        offset += delta;
-    }
-};
-
-WASM_DECLARE_POD_VECTOR(MemoryPatch, MemoryPatchVector)
-
-// As an invariant across architectures, within wasm code:
-//   $sp % WasmStackAlignment = (sizeof(wasm::Frame) + masm.framePushed) % WasmStackAlignment
-// Thus, wasm::Frame represents the bytes pushed after the call (which occurred
-// with a WasmStackAlignment-aligned StackPointer) that are not included in
-// masm.framePushed.
+// wasm::Frame represents the bytes pushed by the call instruction and the fixed
+// prologue generated by wasm::GenerateCallablePrologue.
+//
+// Across all architectures it is assumed that, before the call instruction, the
+// stack pointer is WasmStackAlignment-aligned. Thus after the prologue, and
+// before the function has made its stack reservation, the stack alignment is
+// sizeof(Frame) % WasmStackAlignment.
+//
+// During MacroAssembler code generation, the bytes pushed after the wasm::Frame
+// are counted by masm.framePushed. Thus, the stack alignment at any point in
+// time is (sizeof(wasm::Frame) + masm.framePushed) % WasmStackAlignment.
 
 struct Frame
 {
-    // The caller's saved frame pointer. In non-profiling mode, internal
-    // wasm-to-wasm calls don't update fp and thus don't save the caller's
-    // frame pointer; the space is reserved, however, so that profiling mode can
-    // reuse the same function body without recompiling.
+    // The caller's Frame*. See GenerateCallableEpilogue for why this must be
+    // the first field of wasm::Frame (in a downward-growing stack).
     uint8_t* callerFP;
+
+    // The saved value of WasmTlsReg on entry to the function. This is
+    // effectively the callee's instance.
+    TlsData* tls;
 
     // The return address pushed by the call (in the case of ARM/MIPS the return
     // address is pushed by the first instruction of the prologue).
     void* returnAddress;
+
+    // Helper functions:
+
+    Instance* instance() const { return tls->instance; }
 };
 
-static_assert(sizeof(Frame) == 2 * sizeof(void*), "?!");
-static const uint32_t FrameBytesAfterReturnAddress = sizeof(void*);
+// A DebugFrame is a Frame with additional fields that are added after the
+// normal function prologue by the baseline compiler. If a Module is compiled
+// with debugging enabled, then all its code creates DebugFrames on the stack
+// instead of just Frames. These extra fields are used by the Debugger API.
+
+class DebugFrame
+{
+    // The results field left uninitialized and only used during the baseline
+    // compiler's return sequence to allow the debugger to inspect and modify
+    // the return value of a frame being debugged.
+    union
+    {
+        int32_t resultI32_;
+        int64_t resultI64_;
+        float resultF32_;
+        double resultF64_;
+    };
+
+    // The returnValue() method returns a HandleValue pointing to this field.
+    js::Value cachedReturnJSValue_;
+
+    // The function index of this frame. Technically, this could be derived
+    // given a PC into this frame (which could lookup the CodeRange which has
+    // the function index), but this isn't always readily available.
+    uint32_t funcIndex_;
+
+    // Flags whose meaning are described below.
+    union
+    {
+        struct
+        {
+            bool observing_ : 1;
+            bool isDebuggee_ : 1;
+            bool prevUpToDate_ : 1;
+            bool hasCachedSavedFrame_ : 1;
+            bool hasCachedReturnJSValue_ : 1;
+        };
+        void* flagsWord_;
+    };
+
+    // Padding so that DebugFrame has Alignment.
+#if JS_BITS_PER_WORD == 32
+    void* padding_;
+#endif
+
+    // The Frame goes at the end since the stack grows down.
+    Frame frame_;
+
+  public:
+    Frame& frame() { return frame_; }
+    uint32_t funcIndex() const { return funcIndex_; }
+    Instance* instance() const { return frame_.instance(); }
+    GlobalObject* global() const;
+    JSObject* environmentChain() const;
+    bool getLocal(uint32_t localIndex, MutableHandleValue vp);
+
+    // The return value must be written from the unboxed representation in the
+    // results union into cachedReturnJSValue_ by updateReturnJSValue() before
+    // returnValue() can return a Handle to it.
+
+    void updateReturnJSValue();
+    HandleValue returnValue() const;
+    void clearReturnJSValue();
+
+    // Once the debugger observes a frame, it must be notified via
+    // onLeaveFrame() before the frame is popped. Calling observe() ensures the
+    // leave frame traps are enabled. Both methods are idempotent so the caller
+    // doesn't have to worry about calling them more than once.
+
+    void observe(JSContext* cx);
+    void leave(JSContext* cx);
+
+    // The 'isDebugge' bit is initialized to false and set by the WebAssembly
+    // runtime right before a frame is exposed to the debugger, as required by
+    // the Debugger API. The bit is then used for Debugger-internal purposes
+    // afterwards.
+
+    bool isDebuggee() const { return isDebuggee_; }
+    void setIsDebuggee() { isDebuggee_ = true; }
+    void unsetIsDebuggee() { isDebuggee_ = false; }
+
+    // These are opaque boolean flags used by the debugger to implement
+    // AbstractFramePtr. They are initialized to false and not otherwise read or
+    // written by wasm code or runtime.
+
+    bool prevUpToDate() const { return prevUpToDate_; }
+    void setPrevUpToDate() { prevUpToDate_ = true; }
+    void unsetPrevUpToDate() { prevUpToDate_ = false; }
+
+    bool hasCachedSavedFrame() const { return hasCachedSavedFrame_; }
+    void setHasCachedSavedFrame() { hasCachedSavedFrame_ = true; }
+
+    // DebugFrame is accessed directly by JIT code.
+
+    static constexpr size_t offsetOfResults() { return offsetof(DebugFrame, resultI32_); }
+    static constexpr size_t offsetOfFlagsWord() { return offsetof(DebugFrame, flagsWord_); }
+    static constexpr size_t offsetOfFuncIndex() { return offsetof(DebugFrame, funcIndex_); }
+    static constexpr size_t offsetOfFrame() { return offsetof(DebugFrame, frame_); }
+
+    // DebugFrames are aligned to 8-byte aligned, allowing them to be placed in
+    // an AbstractFramePtr.
+
+    static const unsigned Alignment = 8;
+    static void alignmentStaticAsserts();
+};
 
 } // namespace wasm
 } // namespace js

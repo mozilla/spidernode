@@ -19,9 +19,7 @@
  * <ARGUMENT_COUNT> is an integer literal specifying the total number of
  * replaceable arguments in the following format string.
  *
- * <EXCEPTION_NAME> is an exception index from the enum in jsexn.c;
- * JSEXN_NONE for none.  The given exception index will be raised by the
- * engine when the corresponding error occurs.
+ * <EXCEPTION_NAME> is an enum JSExnType value, defined in jsapi.h.
  *
  * <FORMAT_STRING> is a string literal, optionally containing sequences
  * {X} where X  is an integer representing the argument number that will
@@ -29,7 +27,7 @@
  *
  * e.g.
  *
- * MSG_DEF(JSMSG_NOT_A_SUBSPECIES, 2, JSEXN_NONE,
+ * MSG_DEF(JSMSG_NOT_A_SUBSPECIES, 2, JSEXN_TYPEERROR,
  *         "{0} is not a member of the {1} family")
  *
  * can be used:
@@ -38,7 +36,7 @@
  *
  * to report:
  *
- * "Rhino is not a member of the Monkey family"
+ * "TypeError: Rhino is not a member of the Monkey family"
  */
 
 MSG_DEF(JSMSG_NOT_AN_ERROR,            0, JSEXN_ERR, "<Error #0 is reserved>")
@@ -63,9 +61,10 @@ MSG_DEF(JSMSG_SPREAD_TOO_LARGE,        0, JSEXN_RANGEERR, "array too large due t
 MSG_DEF(JSMSG_BAD_WEAKMAP_KEY,         0, JSEXN_TYPEERR, "cannot use the given object as a weak map key")
 MSG_DEF(JSMSG_BAD_GETTER_OR_SETTER,    1, JSEXN_TYPEERR, "invalid {0} usage")
 MSG_DEF(JSMSG_BAD_ARRAY_LENGTH,        0, JSEXN_RANGEERR, "invalid array length")
+MSG_DEF(JSMSG_REDECLARED_PREV,         2, JSEXN_NOTE, "Previously declared at line {0}, column {1}")
 MSG_DEF(JSMSG_REDECLARED_VAR,          2, JSEXN_SYNTAXERR, "redeclaration of {0} {1}")
 MSG_DEF(JSMSG_UNDECLARED_VAR,          1, JSEXN_REFERENCEERR, "assignment to undeclared variable {0}")
-MSG_DEF(JSMSG_GETTER_ONLY,             0, JSEXN_TYPEERR, "setting a property that has only a getter")
+MSG_DEF(JSMSG_GETTER_ONLY,             1, JSEXN_TYPEERR, "setting getter-only property {0}")
 MSG_DEF(JSMSG_OVERWRITING_ACCESSOR,    1, JSEXN_TYPEERR, "can't overwrite accessor property {0}")
 MSG_DEF(JSMSG_UNDEFINED_PROP,          1, JSEXN_REFERENCEERR, "reference to undefined property {0}")
 MSG_DEF(JSMSG_INVALID_MAP_ITERABLE,    1, JSEXN_TYPEERR, "iterable for {0} should have array-like objects")
@@ -81,6 +80,8 @@ MSG_DEF(JSMSG_EMPTY_ARRAY_REDUCE,      0, JSEXN_TYPEERR, "reduce of empty array 
 MSG_DEF(JSMSG_UNEXPECTED_TYPE,         2, JSEXN_TYPEERR, "{0} is {1}")
 MSG_DEF(JSMSG_MISSING_FUN_ARG,         2, JSEXN_TYPEERR, "missing argument {0} when calling function {1}")
 MSG_DEF(JSMSG_NOT_NONNULL_OBJECT,      1, JSEXN_TYPEERR, "{0} is not a non-null object")
+MSG_DEF(JSMSG_NOT_NONNULL_OBJECT_NAME, 2, JSEXN_TYPEERR, "{0} must be an object, got {1}")
+MSG_DEF(JSMSG_NOT_NONNULL_OBJECT_ARG,  3, JSEXN_TYPEERR, "{0} argument of {1} must be an object, got {2}")
 MSG_DEF(JSMSG_SET_NON_OBJECT_RECEIVER, 1, JSEXN_TYPEERR, "can't assign to properties of {0}: not an object")
 MSG_DEF(JSMSG_INVALID_DESCRIPTOR,      0, JSEXN_TYPEERR, "property descriptors must not specify a value or be writable when a getter or setter has been specified")
 MSG_DEF(JSMSG_OBJECT_NOT_EXTENSIBLE,   1, JSEXN_TYPEERR, "{0}: Object is not extensible")
@@ -125,6 +126,7 @@ MSG_DEF(JSMSG_CANT_DECLARE_GLOBAL_BINDING, 2, JSEXN_TYPEERR, "cannot declare glo
 // Date
 MSG_DEF(JSMSG_INVALID_DATE,            0, JSEXN_RANGEERR, "invalid date")
 MSG_DEF(JSMSG_BAD_TOISOSTRING_PROP,    0, JSEXN_TYPEERR, "toISOString property is not callable")
+MSG_DEF(JSMSG_DEPRECATED_TOLOCALEFORMAT, 0, JSEXN_WARN, "Date.prototype.toLocaleFormat is deprecated; consider using Intl.DateTimeFormat instead")
 
 // String
 MSG_DEF(JSMSG_BAD_URI,                 0, JSEXN_URIERR, "malformed URI sequence")
@@ -218,6 +220,7 @@ MSG_DEF(JSMSG_BAD_SUPERCALL,           0, JSEXN_SYNTAXERR, "super() is only vali
 MSG_DEF(JSMSG_BRACKET_AFTER_ARRAY_COMPREHENSION, 0, JSEXN_SYNTAXERR, "missing ] after array comprehension")
 MSG_DEF(JSMSG_BRACKET_AFTER_LIST,      0, JSEXN_SYNTAXERR, "missing ] after element list")
 MSG_DEF(JSMSG_BRACKET_IN_INDEX,        0, JSEXN_SYNTAXERR, "missing ] in index expression")
+MSG_DEF(JSMSG_BRACKET_OPENED,          2, JSEXN_NOTE, "[ opened at line {0}, column {1}")
 MSG_DEF(JSMSG_CATCH_AFTER_GENERAL,     0, JSEXN_SYNTAXERR, "catch after unconditional catch")
 MSG_DEF(JSMSG_CATCH_IDENTIFIER,        0, JSEXN_SYNTAXERR, "missing identifier in catch")
 MSG_DEF(JSMSG_CATCH_OR_FINALLY,        0, JSEXN_SYNTAXERR, "missing catch or finally after try")
@@ -228,6 +231,7 @@ MSG_DEF(JSMSG_COLON_IN_COND,           0, JSEXN_SYNTAXERR, "missing : in conditi
 MSG_DEF(JSMSG_COMP_PROP_UNTERM_EXPR,   0, JSEXN_SYNTAXERR, "missing ] in computed property name")
 MSG_DEF(JSMSG_CONTRARY_NONDIRECTIVE,   1, JSEXN_SYNTAXERR, "'{0}' statement won't be enforced as a directive because it isn't in directive prologue position")
 MSG_DEF(JSMSG_CURLY_AFTER_BODY,        0, JSEXN_SYNTAXERR, "missing } after function body")
+MSG_DEF(JSMSG_CURLY_OPENED,            2, JSEXN_NOTE, "{ opened at line {0}, column {1}")
 MSG_DEF(JSMSG_CURLY_AFTER_CATCH,       0, JSEXN_SYNTAXERR, "missing } after catch block")
 MSG_DEF(JSMSG_CURLY_AFTER_FINALLY,     0, JSEXN_SYNTAXERR, "missing } after finally block")
 MSG_DEF(JSMSG_CURLY_AFTER_LIST,        0, JSEXN_SYNTAXERR, "missing } after property list")
@@ -266,11 +270,11 @@ MSG_DEF(JSMSG_IMPORT_DECL_AT_TOP_LEVEL, 0, JSEXN_SYNTAXERR, "import declarations
 MSG_DEF(JSMSG_OF_AFTER_FOR_LOOP_DECL,  0, JSEXN_SYNTAXERR, "a declaration in the head of a for-of loop can't have an initializer")
 MSG_DEF(JSMSG_IN_AFTER_LEXICAL_FOR_DECL,0,JSEXN_SYNTAXERR, "a lexical declaration in the head of a for-in loop can't have an initializer")
 MSG_DEF(JSMSG_INVALID_FOR_IN_DECL_WITH_INIT,0,JSEXN_SYNTAXERR,"for-in loop head declarations may not have initializers")
+MSG_DEF(JSMSG_INVALID_ID,              1, JSEXN_SYNTAXERR, "{0} is an invalid identifier")
 MSG_DEF(JSMSG_LABEL_NOT_FOUND,         0, JSEXN_SYNTAXERR, "label not found")
 MSG_DEF(JSMSG_LET_COMP_BINDING,        0, JSEXN_SYNTAXERR, "'let' is not a valid name for a comprehension variable")
 MSG_DEF(JSMSG_LEXICAL_DECL_NOT_IN_BLOCK,   1, JSEXN_SYNTAXERR, "{0} declaration not directly within block")
 MSG_DEF(JSMSG_LEXICAL_DECL_LABEL,      1, JSEXN_SYNTAXERR, "{0} declarations cannot be labelled")
-MSG_DEF(JSMSG_LINE_BREAK_AFTER_AWAIT,  0, JSEXN_SYNTAXERR, "no line break is allowed after 'await'")
 MSG_DEF(JSMSG_GENERATOR_LABEL,         0, JSEXN_SYNTAXERR, "generator functions cannot be labelled")
 MSG_DEF(JSMSG_FUNCTION_LABEL,          0, JSEXN_SYNTAXERR, "functions cannot be labelled")
 MSG_DEF(JSMSG_SLOPPY_FUNCTION_LABEL,   0, JSEXN_SYNTAXERR, "functions can only be labelled inside blocks")
@@ -428,12 +432,11 @@ MSG_DEF(JSMSG_SC_DUP_TRANSFERABLE,     0, JSEXN_TYPEERR, "duplicate transferable
 MSG_DEF(JSMSG_SC_NOT_TRANSFERABLE,     0, JSEXN_TYPEERR, "invalid transferable array for structured clone")
 MSG_DEF(JSMSG_SC_UNSUPPORTED_TYPE,     0, JSEXN_TYPEERR, "unsupported type for structured data")
 MSG_DEF(JSMSG_SC_NOT_CLONABLE,         1, JSEXN_TYPEERR, "{0} cannot be cloned in this context")
-MSG_DEF(JSMSG_SC_SAB_TRANSFER,         0, JSEXN_WARN, "SharedArrayBuffer must not be in the transfer list")
+MSG_DEF(JSMSG_SC_SAB_TRANSFERABLE,     0, JSEXN_TYPEERR, "SharedArrayBuffer must not be in the transfer list")
 MSG_DEF(JSMSG_SC_SAB_DISABLED,         0, JSEXN_TYPEERR, "SharedArrayBuffer not cloned - shared memory disabled in receiver")
 
 // Debugger
 MSG_DEF(JSMSG_ASSIGN_FUNCTION_OR_NULL, 1, JSEXN_TYPEERR, "value assigned to {0} must be a function or null")
-MSG_DEF(JSMSG_DEBUG_BAD_AWAIT,         0, JSEXN_TYPEERR, "await expression received invalid value")
 MSG_DEF(JSMSG_DEBUG_BAD_LINE,          0, JSEXN_TYPEERR, "invalid line number")
 MSG_DEF(JSMSG_DEBUG_BAD_OFFSET,        0, JSEXN_TYPEERR, "invalid script offset")
 MSG_DEF(JSMSG_DEBUG_BAD_REFERENT,      2, JSEXN_TYPEERR, "{0} does not refer to {1}")

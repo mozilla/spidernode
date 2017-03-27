@@ -37,8 +37,6 @@ class SetElemICInspector : public ICInspector
 
     bool sawOOBDenseWrite() const;
     bool sawOOBTypedArrayWrite() const;
-    bool sawDenseWrite() const;
-    bool sawTypedArrayWrite() const;
 };
 
 class BaselineInspector
@@ -138,6 +136,9 @@ class BaselineInspector
                                             JSFunction** commonGetter, Shape** globalShape,
                                             bool* isOwnProperty, ReceiverVector& receivers,
                                             ObjectGroupVector& convertUnboxedGroups);
+
+    MOZ_MUST_USE bool megamorphicGetterSetterFunction(jsbytecode* pc, bool isGetter,
+                                                      JSFunction** getterOrSetter);
 
     MOZ_MUST_USE bool commonSetPropFunction(jsbytecode* pc, JSObject** holder, Shape** holderShape,
                                             JSFunction** commonSetter, bool* isOwnProperty,

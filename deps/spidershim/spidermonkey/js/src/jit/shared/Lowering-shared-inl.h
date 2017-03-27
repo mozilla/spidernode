@@ -487,6 +487,14 @@ LIRGeneratorShared::useRegisterOrConstantAtStart(MDefinition* mir)
 }
 
 LAllocation
+LIRGeneratorShared::useRegisterOrZero(MDefinition* mir)
+{
+    if (mir->isConstant() && mir->toConstant()->isInt32(0))
+        return LAllocation();
+    return useRegister(mir);
+}
+
+LAllocation
 LIRGeneratorShared::useRegisterOrZeroAtStart(MDefinition* mir)
 {
     if (mir->isConstant() && mir->toConstant()->isInt32(0))
@@ -807,6 +815,12 @@ LIRGeneratorShared::useInt64Fixed(MDefinition* mir, Register64 regs, bool useAtS
 #else
     return LInt64Allocation(LUse(regs.reg, vreg, useAtStart));
 #endif
+}
+
+LInt64Allocation
+LIRGeneratorShared::useInt64FixedAtStart(MDefinition* mir, Register64 regs)
+{
+    return useInt64Fixed(mir, regs, true);
 }
 
 LInt64Allocation

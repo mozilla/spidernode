@@ -1055,7 +1055,7 @@ CodeGeneratorShared::verifyCompactTrackedOptimizationsMap(JitCode* code, uint32_
             // decoded. This is disabled for now if the types table might
             // contain nursery pointers, in which case the types might not
             // match, see bug 1175761.
-            if (!code->runtimeFromMainThread()->gc.storeBuffer.cancelIonCompilations()) {
+            if (!code->zone()->group()->storeBuffer().cancelIonCompilations()) {
                 IonTrackedOptimizationsTypeInfo typeInfo = typesTable->entry(index);
                 TempOptimizationTypeInfoVector tvec(alloc());
                 ReadTempTypeInfoVectorOp top(alloc(), &tvec);
@@ -1499,40 +1499,140 @@ CodeGeneratorShared::emitWasmCallBase(LWasmCallBase* ins)
     masm.bind(&ok);
 #endif
 
-    // Save the caller's TLS register in a reserved stack slot (below the
-    // call's stack arguments) for retrieval after the call.
-    if (mir->saveTls())
-        masm.storePtr(WasmTlsReg, Address(masm.getStackPointer(), mir->tlsStackOffset()));
+    // LWasmCallBase::isCallPreserved() assumes that all MWasmCalls preserve the
+    // TLS and pinned regs. The only case where where we don't have to reload
+    // the TLS and pinned regs is when the callee preserves them.
+    bool reloadRegs = true;
 
     const wasm::CallSiteDesc& desc = mir->desc();
     const wasm::CalleeDesc& callee = mir->callee();
     switch (callee.which()) {
       case wasm::CalleeDesc::Func:
         masm.call(desc, callee.funcIndex());
+        reloadRegs = false;
         break;
       case wasm::CalleeDesc::Import:
         masm.wasmCallImport(desc, callee);
         break;
-      case wasm::CalleeDesc::WasmTable:
       case wasm::CalleeDesc::AsmJSTable:
-        masm.wasmCallIndirect(desc, callee);
+      case wasm::CalleeDesc::WasmTable:
+        masm.wasmCallIndirect(desc, callee, ins->needsBoundsCheck());
+        reloadRegs = callee.which() == wasm::CalleeDesc::WasmTable && callee.wasmTableIsExternal();
         break;
       case wasm::CalleeDesc::Builtin:
         masm.call(callee.builtin());
+        reloadRegs = false;
         break;
       case wasm::CalleeDesc::BuiltinInstanceMethod:
         masm.wasmCallBuiltinInstanceMethod(mir->instanceArg(), callee.builtin());
         break;
     }
 
-    // After return, restore the caller's TLS and pinned registers.
-    if (mir->saveTls()) {
-        masm.loadPtr(Address(masm.getStackPointer(), mir->tlsStackOffset()), WasmTlsReg);
+    if (reloadRegs) {
+        masm.loadWasmTlsRegFromFrame();
         masm.loadWasmPinnedRegsFromTls();
     }
 
     if (mir->spIncrement())
         masm.reserveStack(mir->spIncrement());
+}
+
+void
+CodeGeneratorShared::visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins)
+{
+    MWasmLoadGlobalVar* mir = ins->mir();
+
+    MIRType type = mir->type();
+    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+    switch (type) {
+      case MIRType::Int32:
+        masm.load32(addr, ToRegister(ins->output()));
+        break;
+      case MIRType::Float32:
+        masm.loadFloat32(addr, ToFloatRegister(ins->output()));
+        break;
+      case MIRType::Double:
+        masm.loadDouble(addr, ToFloatRegister(ins->output()));
+        break;
+      // Aligned access: code is aligned on PageSize + there is padding
+      // before the global data section.
+      case MIRType::Int8x16:
+      case MIRType::Int16x8:
+      case MIRType::Int32x4:
+      case MIRType::Bool8x16:
+      case MIRType::Bool16x8:
+      case MIRType::Bool32x4:
+        masm.loadInt32x4(addr, ToFloatRegister(ins->output()));
+        break;
+      case MIRType::Float32x4:
+        masm.loadFloat32x4(addr, ToFloatRegister(ins->output()));
+        break;
+      default:
+        MOZ_CRASH("unexpected type in visitWasmLoadGlobalVar");
+    }
+}
+
+void
+CodeGeneratorShared::visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins)
+{
+    MWasmStoreGlobalVar* mir = ins->mir();
+
+    MIRType type = mir->value()->type();
+    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+    switch (type) {
+      case MIRType::Int32:
+        masm.store32(ToRegister(ins->value()), addr);
+        break;
+      case MIRType::Float32:
+        masm.storeFloat32(ToFloatRegister(ins->value()), addr);
+        break;
+      case MIRType::Double:
+        masm.storeDouble(ToFloatRegister(ins->value()), addr);
+        break;
+      // Aligned access: code is aligned on PageSize + there is padding
+      // before the global data section.
+      case MIRType::Int32x4:
+      case MIRType::Bool32x4:
+        masm.storeInt32x4(ToFloatRegister(ins->value()), addr);
+        break;
+      case MIRType::Float32x4:
+        masm.storeFloat32x4(ToFloatRegister(ins->value()), addr);
+        break;
+      default:
+        MOZ_CRASH("unexpected type in visitWasmStoreGlobalVar");
+    }
+}
+
+void
+CodeGeneratorShared::visitWasmLoadGlobalVarI64(LWasmLoadGlobalVarI64* ins)
+{
+    MWasmLoadGlobalVar* mir = ins->mir();
+    MOZ_ASSERT(mir->type() == MIRType::Int64);
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+
+    Register64 output = ToOutRegister64(ins);
+    masm.load64(addr, output);
+}
+
+void
+CodeGeneratorShared::visitWasmStoreGlobalVarI64(LWasmStoreGlobalVarI64* ins)
+{
+    MWasmStoreGlobalVar* mir = ins->mir();
+    MOZ_ASSERT(mir->value()->type() == MIRType::Int64);
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+
+    Register64 value = ToRegister64(ins->value());
+    masm.store64(value, addr);
 }
 
 void
@@ -1745,10 +1845,8 @@ CodeGeneratorShared::emitTracelogScript(bool isStart)
 
     masm.Push(logger);
 
-    CodeOffset patchLogger = masm.movWithPatch(ImmPtr(nullptr), logger);
-    masm.propagateOOM(patchableTraceLoggers_.append(patchLogger));
-
-    masm.branchTest32(Assembler::Zero, logger, logger, &done);
+    masm.loadTraceLogger(logger);
+    masm.branchTestPtr(Assembler::Zero, logger, logger, &done);
 
     Address enabledAddress(logger, TraceLoggerThread::offsetOfEnabled());
     masm.branch32(Assembler::Equal, enabledAddress, Imm32(0), &done);
@@ -1782,10 +1880,8 @@ CodeGeneratorShared::emitTracelogTree(bool isStart, uint32_t textId)
 
     masm.Push(logger);
 
-    CodeOffset patchLocation = masm.movWithPatch(ImmPtr(nullptr), logger);
-    masm.propagateOOM(patchableTraceLoggers_.append(patchLocation));
-
-    masm.branchTest32(Assembler::Zero, logger, logger, &done);
+    masm.loadTraceLogger(logger);
+    masm.branchTestPtr(Assembler::Zero, logger, logger, &done);
 
     Address enabledAddress(logger, TraceLoggerThread::offsetOfEnabled());
     masm.branch32(Assembler::Equal, enabledAddress, Imm32(0), &done);
@@ -1815,10 +1911,8 @@ CodeGeneratorShared::emitTracelogTree(bool isStart, const char* text,
 
     masm.Push(loggerReg);
 
-    CodeOffset patchLocation = masm.movWithPatch(ImmPtr(nullptr), loggerReg);
-    masm.propagateOOM(patchableTraceLoggers_.append(patchLocation));
-
-    masm.branchTest32(Assembler::Zero, loggerReg, loggerReg, &done);
+    masm.loadTraceLogger(loggerReg);
+    masm.branchTestPtr(Assembler::Zero, loggerReg, loggerReg, &done);
 
     Address enabledAddress(loggerReg, TraceLoggerThread::offsetOfEnabled());
     masm.branch32(Assembler::Equal, enabledAddress, Imm32(0), &done);

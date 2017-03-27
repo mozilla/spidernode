@@ -87,8 +87,6 @@ IonBuilder::inlineNativeCall(CallInfo& callInfo, JSFunction* target)
         return inlineArrayPush(callInfo);
       case InlinableNative::ArraySlice:
         return inlineArraySlice(callInfo);
-      case InlinableNative::ArraySplice:
-        return inlineArraySplice(callInfo);
 
       // Atomic natives.
       case InlinableNative::AtomicsCompareExchange:
@@ -299,8 +297,6 @@ IonBuilder::inlineNativeCall(CallInfo& callInfo, JSFunction* target)
         return inlineHasClass(callInfo, &SetIteratorObject::class_);
       case InlinableNative::IntrinsicIsStringIterator:
         return inlineHasClass(callInfo, &StringIteratorObject::class_);
-      case InlinableNative::IntrinsicDefineDataProperty:
-        return inlineDefineDataProperty(callInfo);
       case InlinableNative::IntrinsicObjectHasPrototype:
         return inlineObjectHasPrototype(callInfo);
 
@@ -454,7 +450,7 @@ IonBuilder::inlineMathFunction(CallInfo& callInfo, MMathFunction::Function funct
     if (!IsNumberType(callInfo.getArg(0)->type()))
         return InliningStatus_NotInlined;
 
-    const MathCache* cache = GetJSContextFromMainThread()->caches.maybeGetMathCache();
+    const MathCache* cache = TlsContext.get()->caches().maybeGetMathCache();
 
     callInfo.fun()->setImplicitlyUsedUnchecked();
     callInfo.thisArg()->setImplicitlyUsedUnchecked();
@@ -666,45 +662,6 @@ IonBuilder::inlineArrayPopShift(CallInfo& callInfo, MArrayPopShift::Mode mode)
 
     MOZ_TRY(resumeAfter(ins));
     MOZ_TRY(pushTypeBarrier(ins, returnTypes, barrier));
-    return InliningStatus_Inlined;
-}
-
-IonBuilder::InliningResult
-IonBuilder::inlineArraySplice(CallInfo& callInfo)
-{
-    if (callInfo.argc() != 2 || callInfo.constructing()) {
-        trackOptimizationOutcome(TrackedOutcome::CantInlineNativeBadForm);
-        return InliningStatus_NotInlined;
-    }
-
-    // Ensure |this|, argument and result are objects.
-    if (getInlineReturnType() != MIRType::Object)
-        return InliningStatus_NotInlined;
-    if (callInfo.thisArg()->type() != MIRType::Object)
-        return InliningStatus_NotInlined;
-    if (callInfo.getArg(0)->type() != MIRType::Int32)
-        return InliningStatus_NotInlined;
-    if (callInfo.getArg(1)->type() != MIRType::Int32)
-        return InliningStatus_NotInlined;
-
-    callInfo.setImplicitlyUsedUnchecked();
-
-    // Specialize arr.splice(start, deleteCount) with unused return value and
-    // avoid creating the result array in this case.
-    if (!BytecodeIsPopped(pc)) {
-        trackOptimizationOutcome(TrackedOutcome::CantInlineGeneric);
-        return InliningStatus_NotInlined;
-    }
-
-    MArraySplice* ins = MArraySplice::New(alloc(),
-                                          callInfo.thisArg(),
-                                          callInfo.getArg(0),
-                                          callInfo.getArg(1));
-
-    current->add(ins);
-    pushConstant(UndefinedValue());
-
-    MOZ_TRY(resumeAfter(ins));
     return InliningStatus_Inlined;
 }
 
@@ -988,20 +945,30 @@ IonBuilder::inlineMathFloor(CallInfo& callInfo)
         return InliningStatus_Inlined;
     }
 
-    if (IsFloatingPointType(argType) && returnType == MIRType::Int32) {
-        callInfo.setImplicitlyUsedUnchecked();
-        MFloor* ins = MFloor::New(alloc(), callInfo.getArg(0));
-        current->add(ins);
-        current->push(ins);
-        return InliningStatus_Inlined;
-    }
+    if (IsFloatingPointType(argType)) {
+        if (returnType == MIRType::Int32) {
+            callInfo.setImplicitlyUsedUnchecked();
+            MFloor* ins = MFloor::New(alloc(), callInfo.getArg(0));
+            current->add(ins);
+            current->push(ins);
+            return InliningStatus_Inlined;
+        }
 
-    if (IsFloatingPointType(argType) && returnType == MIRType::Double) {
-        callInfo.setImplicitlyUsedUnchecked();
-        MMathFunction* ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Floor, nullptr);
-        current->add(ins);
-        current->push(ins);
-        return InliningStatus_Inlined;
+        if (returnType == MIRType::Double) {
+            callInfo.setImplicitlyUsedUnchecked();
+
+            MInstruction* ins = nullptr;
+            if (MNearbyInt::HasAssemblerSupport(RoundingMode::Down)) {
+                ins = MNearbyInt::New(alloc(), callInfo.getArg(0), argType, RoundingMode::Down);
+            } else {
+                ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Floor,
+                                         /* cache */ nullptr);
+            }
+
+            current->add(ins);
+            current->push(ins);
+            return InliningStatus_Inlined;
+        }
     }
 
     return InliningStatus_NotInlined;
@@ -1032,20 +999,30 @@ IonBuilder::inlineMathCeil(CallInfo& callInfo)
         return InliningStatus_Inlined;
     }
 
-    if (IsFloatingPointType(argType) && returnType == MIRType::Int32) {
-        callInfo.setImplicitlyUsedUnchecked();
-        MCeil* ins = MCeil::New(alloc(), callInfo.getArg(0));
-        current->add(ins);
-        current->push(ins);
-        return InliningStatus_Inlined;
-    }
+    if (IsFloatingPointType(argType)) {
+        if (returnType == MIRType::Int32) {
+            callInfo.setImplicitlyUsedUnchecked();
+            MCeil* ins = MCeil::New(alloc(), callInfo.getArg(0));
+            current->add(ins);
+            current->push(ins);
+            return InliningStatus_Inlined;
+        }
 
-    if (IsFloatingPointType(argType) && returnType == MIRType::Double) {
-        callInfo.setImplicitlyUsedUnchecked();
-        MMathFunction* ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Ceil, nullptr);
-        current->add(ins);
-        current->push(ins);
-        return InliningStatus_Inlined;
+        if (returnType == MIRType::Double) {
+            callInfo.setImplicitlyUsedUnchecked();
+
+            MInstruction* ins = nullptr;
+            if (MNearbyInt::HasAssemblerSupport(RoundingMode::Up)) {
+                ins = MNearbyInt::New(alloc(), callInfo.getArg(0), argType, RoundingMode::Up);
+            } else {
+                ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Ceil,
+                                         /* cache */ nullptr);
+            }
+
+            current->add(ins);
+            current->push(ins);
+            return InliningStatus_Inlined;
+        }
     }
 
     return InliningStatus_NotInlined;
@@ -1110,7 +1087,8 @@ IonBuilder::inlineMathRound(CallInfo& callInfo)
 
     if (IsFloatingPointType(argType) && returnType == MIRType::Double) {
         callInfo.setImplicitlyUsedUnchecked();
-        MMathFunction* ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Round, nullptr);
+        MMathFunction* ins = MMathFunction::New(alloc(), callInfo.getArg(0), MMathFunction::Round,
+                                                /* cache */ nullptr);
         current->add(ins);
         current->push(ins);
         return InliningStatus_Inlined;
@@ -2118,38 +2096,6 @@ IonBuilder::inlineObjectCreate(CallInfo& callInfo)
     MOZ_TRY(newObjectTryTemplateObject(&emitted, templateObject));
 
     MOZ_ASSERT(emitted);
-    return InliningStatus_Inlined;
-}
-
-IonBuilder::InliningResult
-IonBuilder::inlineDefineDataProperty(CallInfo& callInfo)
-{
-    MOZ_ASSERT(!callInfo.constructing());
-
-    // Only handle definitions of plain data properties.
-    if (callInfo.argc() != 3)
-        return InliningStatus_NotInlined;
-
-    MDefinition* obj = convertUnboxedObjects(callInfo.getArg(0));
-    MDefinition* id = callInfo.getArg(1);
-    MDefinition* value = callInfo.getArg(2);
-
-    bool hasExtraIndexedProperty;
-    MOZ_TRY_VAR(hasExtraIndexedProperty, ElementAccessHasExtraIndexedProperty(this, obj));
-    if (hasExtraIndexedProperty)
-        return InliningStatus_NotInlined;
-
-    // setElemTryDense will push the value as the result of the define instead
-    // of |undefined|, but this is fine if the rval is ignored (as it should be
-    // in self hosted code.)
-    MOZ_ASSERT(*GetNextPc(pc) == JSOP_POP);
-
-    bool emitted = false;
-    MOZ_TRY(setElemTryDense(&emitted, obj, id, value, /* writeHole = */ true));
-    if (!emitted)
-        return InliningStatus_NotInlined;
-
-    callInfo.setImplicitlyUsedUnchecked();
     return InliningStatus_Inlined;
 }
 

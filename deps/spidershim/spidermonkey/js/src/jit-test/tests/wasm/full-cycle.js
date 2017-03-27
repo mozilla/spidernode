@@ -1,44 +1,30 @@
-load(libdir + "wasm.js");
-
 wasmFullPass(`(module
     (func $test (result i32) (param i32) (param i32) (i32.add (get_local 0) (get_local 1)))
     (func $run (result i32) (call $test (i32.const 1) (i32.const ${Math.pow(2, 31) - 1})))
     (export "run" $run)
 )`, -Math.pow(2, 31));
 
-wasmFailValidateText(`(module
-    (func (result i32)
-        i32.const 1
-        i32.const 42
-        i32.add
-        return
-        unreachable
-        i32.const 0
-        call 3
-        i32.const 42
-        f32.add
-    )
-    (func) (func) (func)
-(export "run" 0))`, /non-fallthrough instruction must be followed by end or else/);
-
 wasmFullPass(`(module
     (func (result i32)
-        block
         i32.const 1
         i32.const 42
         i32.add
         return
-        end
-        block
         unreachable
-        end
         i32.const 0
         call 3
         i32.const 42
-        f32.add
+        i32.add
     )
     (func) (func) (func)
 (export "run" 0))`, 43);
+
+wasmFullPass(`
+(module
+  (import "env" "a" (global $a i32))
+  (import "env" "b" (func $b (param i32) (result i32)))
+  (func (export "run") (param $0 i32) (result i32) get_local 0 call $b)
+)`, 43, { env: { a: 1337, b: x => x+1 } }, 42);
 
 // Global section.
 wasmFullPass(`(module

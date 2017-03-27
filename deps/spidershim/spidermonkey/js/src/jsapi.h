@@ -17,6 +17,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/Variant.h"
 
+#include <iterator>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -36,6 +37,7 @@
 #include "js/RefCounted.h"
 #include "js/RootingAPI.h"
 #include "js/TracingAPI.h"
+#include "js/UniquePtr.h"
 #include "js/Utility.h"
 #include "js/Value.h"
 #include "js/Vector.h"
@@ -53,7 +55,6 @@ class JS_PUBLIC_API(AutoCheckRequestDepth)
     JSContext* cx;
   public:
     explicit AutoCheckRequestDepth(JSContext* cx);
-    explicit AutoCheckRequestDepth(js::ContextFriendFields* cx);
     ~AutoCheckRequestDepth();
 };
 
@@ -108,13 +109,6 @@ class MOZ_RAII AutoVectorRooterBase : protected AutoGCRooter
 
   public:
     explicit AutoVectorRooterBase(JSContext* cx, ptrdiff_t tag
-                              MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : AutoGCRooter(cx, tag), vector(cx)
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
-    explicit AutoVectorRooterBase(js::ContextFriendFields* cx, ptrdiff_t tag
                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
       : AutoGCRooter(cx, tag), vector(cx)
     {
@@ -208,13 +202,6 @@ class MOZ_RAII AutoVectorRooter : public AutoVectorRooterBase<T>
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
-    explicit AutoVectorRooter(js::ContextFriendFields* cx
-                             MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-        : AutoVectorRooterBase<T>(cx, this->GetTag(T()))
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
@@ -223,7 +210,6 @@ class AutoValueVector : public Rooted<GCVector<Value, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoValueVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoValueVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
@@ -231,7 +217,6 @@ class AutoIdVector : public Rooted<GCVector<jsid, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoIdVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoIdVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 
     bool appendAll(const AutoIdVector& other) { return this->Base::appendAll(other.get()); }
 };
@@ -241,7 +226,6 @@ class AutoObjectVector : public Rooted<GCVector<JSObject*, 8>> {
     using Base = Rooted<Vec>;
   public:
     explicit AutoObjectVector(JSContext* cx) : Base(cx, Vec(cx)) {}
-    explicit AutoObjectVector(js::ContextFriendFields* cx) : Base(cx, Vec(cx)) {}
 };
 
 using ValueVector = JS::GCVector<JS::Value>;
@@ -601,7 +585,7 @@ typedef void
 (* JSFinalizeCallback)(JSFreeOp* fop, JSFinalizeStatus status, bool isZoneGC, void* data);
 
 typedef void
-(* JSWeakPointerZoneGroupCallback)(JSContext* cx, void* data);
+(* JSWeakPointerZonesCallback)(JSContext* cx, void* data);
 
 typedef void
 (* JSWeakPointerCompartmentCallback)(JSContext* cx, JSCompartment* comp, void* data);
@@ -653,6 +637,7 @@ typedef enum JSExnType {
         JSEXN_WASMRUNTIMEERROR,
     JSEXN_ERROR_LIMIT,
     JSEXN_WARN = JSEXN_ERROR_LIMIT,
+    JSEXN_NOTE,
     JSEXN_LIMIT
 } JSExnType;
 
@@ -996,32 +981,39 @@ JS_IsBuiltinFunctionConstructor(JSFunction* fun);
  * See: http://developer.mozilla.org/en/docs/Category:JSAPI_Reference
  */
 
+// Create a new runtime, with a single cooperative context for this thread.
+// On success, the new context will be the active context for the runtime.
 extern JS_PUBLIC_API(JSContext*)
 JS_NewContext(uint32_t maxbytes,
               uint32_t maxNurseryBytes = JS::DefaultNurseryBytes,
-              JSContext* parentContext = nullptr);
+              JSRuntime* parentRuntime = nullptr);
 
+// The methods below for controlling the active context in a cooperatively
+// multithreaded runtime are not threadsafe, and the caller must ensure they
+// are called serially if there is a chance for contention between threads.
+
+// Called from the active context for a runtime, yield execution so that
+// this context is no longer active and can no longer use the API.
+extern JS_PUBLIC_API(void)
+JS_YieldCooperativeContext(JSContext* cx);
+
+// Called from a context whose runtime has no active context, this thread
+// becomes the active context for that runtime and may use the API.
+extern JS_PUBLIC_API(void)
+JS_ResumeCooperativeContext(JSContext* cx);
+
+// Create a new context on this thread for cooperative multithreading in the
+// same runtime as siblingContext. Called on a runtime (as indicated by
+// siblingContet) which has no active context, on success the new context will
+// become the runtime's active context.
+extern JS_PUBLIC_API(JSContext*)
+JS_NewCooperativeContext(JSContext* siblingContext);
+
+// Destroy a context allocated with JS_NewContext or JS_NewCooperativeContext.
+// The context must be the current active context in the runtime, and after
+// this call the runtime will have no active context.
 extern JS_PUBLIC_API(void)
 JS_DestroyContext(JSContext* cx);
-
-typedef double (*JS_CurrentEmbedderTimeFunction)();
-
-/**
- * The embedding can specify a time function that will be used in some
- * situations.  The function can return the time however it likes; but
- * the norm is to return times in units of milliseconds since an
- * arbitrary, but consistent, epoch.  If the time function is not set,
- * a built-in default will be used.
- */
-JS_PUBLIC_API(void)
-JS_SetCurrentEmbedderTimeFunction(JS_CurrentEmbedderTimeFunction timeFn);
-
-/**
- * Return the time as computed using the current time function, or a
- * suitable default if one has not been set.
- */
-JS_PUBLIC_API(double)
-JS_GetCurrentEmbedderTime();
 
 JS_PUBLIC_API(void*)
 JS_GetContextPrivate(JSContext* cx);
@@ -1029,8 +1021,8 @@ JS_GetContextPrivate(JSContext* cx);
 JS_PUBLIC_API(void)
 JS_SetContextPrivate(JSContext* cx, void* data);
 
-extern JS_PUBLIC_API(JSContext*)
-JS_GetParentContext(JSContext* cx);
+extern JS_PUBLIC_API(JSRuntime*)
+JS_GetParentRuntime(JSContext* cx);
 
 extern JS_PUBLIC_API(void)
 JS_BeginRequest(JSContext* cx);
@@ -1041,10 +1033,35 @@ JS_EndRequest(JSContext* cx);
 extern JS_PUBLIC_API(void)
 JS_SetFutexCanWait(JSContext* cx);
 
+namespace JS {
+
+// Single threaded execution callbacks are used to notify API clients that a
+// feature is in use on a context's runtime that is not yet compatible with
+// cooperatively multithreaded execution.
+//
+// Between a call to BeginSingleThreadedExecutionCallback and a corresponding
+// call to EndSingleThreadedExecutionCallback, only one thread at a time may
+// enter compartments in the runtime. The begin callback may yield as necessary
+// to permit other threads to finish up what they're doing, while the end
+// callback may not yield or otherwise operate on the runtime (it may be called
+// during GC).
+//
+// These callbacks may be left unspecified for runtimes which only ever have a
+// single context.
+typedef void (*BeginSingleThreadedExecutionCallback)(JSContext* cx);
+typedef void (*EndSingleThreadedExecutionCallback)(JSContext* cx);
+
+extern JS_PUBLIC_API(void)
+SetSingleThreadedExecutionCallbacks(JSContext* cx,
+                                    BeginSingleThreadedExecutionCallback begin,
+                                    EndSingleThreadedExecutionCallback end);
+
+} // namespace JS
+
 namespace js {
 
 void
-AssertHeapIsIdle(JSRuntime* rt);
+AssertHeapIsIdle();
 
 } /* namespace js */
 
@@ -1703,7 +1720,7 @@ JS_RemoveFinalizeCallback(JSContext* cx, JSFinalizeCallback cb);
  * about.
  *
  * Since sweeping is incremental, we have several callbacks to avoid repeatedly
- * having to visit all embedder structures. The WeakPointerZoneGroupCallback is
+ * having to visit all embedder structures. The WeakPointerZonesCallback is
  * called once for each strongly connected group of zones, whereas the
  * WeakPointerCompartmentCallback is called once for each compartment that is
  * visited while sweeping. Structures that cannot contain references in more
@@ -1722,10 +1739,10 @@ JS_RemoveFinalizeCallback(JSContext* cx, JSFinalizeCallback cb);
  */
 
 extern JS_PUBLIC_API(bool)
-JS_AddWeakPointerZoneGroupCallback(JSContext* cx, JSWeakPointerZoneGroupCallback cb, void* data);
+JS_AddWeakPointerZonesCallback(JSContext* cx, JSWeakPointerZonesCallback cb, void* data);
 
 extern JS_PUBLIC_API(void)
-JS_RemoveWeakPointerZoneGroupCallback(JSContext* cx, JSWeakPointerZoneGroupCallback cb);
+JS_RemoveWeakPointerZonesCallback(JSContext* cx, JSWeakPointerZonesCallback cb);
 
 extern JS_PUBLIC_API(bool)
 JS_AddWeakPointerCompartmentCallback(JSContext* cx, JSWeakPointerCompartmentCallback cb,
@@ -1746,6 +1763,9 @@ typedef enum JSGCParamKey {
 
     /** Number of JS_malloc bytes before last ditch GC. */
     JSGC_MAX_MALLOC_BYTES   = 1,
+
+    /** Maximum size of the generational GC nurseries. */
+    JSGC_MAX_NURSERY_BYTES  = 2,
 
     /** Amount of bytes allocated by the GC. */
     JSGC_BYTES = 3,
@@ -1887,8 +1907,8 @@ namespace JS {
  * Convert obj to a primitive value. On success, store the result in vp and
  * return true.
  *
- * The hint argument must be JSTYPE_STRING, JSTYPE_NUMBER, or JSTYPE_VOID (no
- * hint).
+ * The hint argument must be JSTYPE_STRING, JSTYPE_NUMBER, or
+ * JSTYPE_UNDEFINED (no hint).
  *
  * Implements: ES6 7.1.1 ToPrimitive(input, [PreferredType]).
  */
@@ -1897,7 +1917,7 @@ ToPrimitive(JSContext* cx, JS::HandleObject obj, JSType hint, JS::MutableHandleV
 
 /**
  * If args.get(0) is one of the strings "string", "number", or "default", set
- * *result to JSTYPE_STRING, JSTYPE_NUMBER, or JSTYPE_VOID accordingly and
+ * result to JSTYPE_STRING, JSTYPE_NUMBER, or JSTYPE_UNDEFINED accordingly and
  * return true. Otherwise, return false with a TypeError pending.
  *
  * This can be useful in implementing a @@toPrimitive method.
@@ -1980,7 +2000,7 @@ struct JSPropertySpec {
     bool isAccessor() const {
         return !(flags & JSPROP_INTERNAL_USE_BIT);
     }
-    bool getValue(JSContext* cx, JS::MutableHandleValue value) const;
+    JS_PUBLIC_API(bool) getValue(JSContext* cx, JS::MutableHandleValue value) const;
 
     bool isSelfHosted() const {
         MOZ_ASSERT(isAccessor());
@@ -2215,9 +2235,23 @@ JS_GetConstructor(JSContext* cx, JS::Handle<JSObject*> proto);
 
 namespace JS {
 
+// Specification for which zone a newly created compartment should use.
 enum ZoneSpecifier {
-    FreshZone = 0,
-    SystemZone = 1
+    // Use the single runtime wide system zone. The meaning of this zone is
+    // left to the embedder.
+    SystemZone,
+
+    // Use a particular existing zone.
+    ExistingZone,
+
+    // Create a new zone with its own new zone group.
+    NewZoneInNewZoneGroup,
+
+    // Create a new zone in the same zone group as the system zone.
+    NewZoneInSystemZoneGroup,
+
+    // Create a new zone in the same zone group as another existing zone.
+    NewZoneInExistingZoneGroup
 };
 
 /**
@@ -2234,6 +2268,8 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
     CompartmentCreationOptions()
       : addonId_(nullptr),
         traceGlobal_(nullptr),
+        zoneSpec_(NewZoneInSystemZoneGroup),
+        zonePointer_(nullptr),
         invisibleToDebugger_(false),
         mergeable_(false),
         preserveJitCode_(false),
@@ -2241,9 +2277,7 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         experimentalNumberFormatFormatToPartsEnabled_(false),
         sharedMemoryAndAtomics_(false),
         secureContext_(false)
-    {
-        zone_.spec = JS::FreshZone;
-    }
+    {}
 
     // A null add-on ID means that the compartment is not associated with an
     // add-on.
@@ -2261,13 +2295,15 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
         return *this;
     }
 
-    void* zonePointer() const {
-        MOZ_ASSERT(uintptr_t(zone_.pointer) > uintptr_t(JS::SystemZone));
-        return zone_.pointer;
-    }
-    ZoneSpecifier zoneSpecifier() const { return zone_.spec; }
-    CompartmentCreationOptions& setZone(ZoneSpecifier spec);
-    CompartmentCreationOptions& setSameZoneAs(JSObject* obj);
+    void* zonePointer() const { return zonePointer_; }
+    ZoneSpecifier zoneSpecifier() const { return zoneSpec_; }
+
+    // Set the zone to use for the compartment. See ZoneSpecifier above.
+    CompartmentCreationOptions& setSystemZone();
+    CompartmentCreationOptions& setExistingZone(JSObject* obj);
+    CompartmentCreationOptions& setNewZoneInNewZoneGroup();
+    CompartmentCreationOptions& setNewZoneInSystemZoneGroup();
+    CompartmentCreationOptions& setNewZoneInExistingZoneGroup(JSObject* obj);
 
     // Certain scopes (i.e. XBL compilation scopes) are implementation details
     // of the embedding, and references to them should never leak out to script.
@@ -2336,10 +2372,8 @@ class JS_PUBLIC_API(CompartmentCreationOptions)
   private:
     JSAddonId* addonId_;
     JSTraceOp traceGlobal_;
-    union {
-        ZoneSpecifier spec;
-        void* pointer; // js::Zone* is not exposed in the API.
-    } zone_;
+    ZoneSpecifier zoneSpec_;
+    void* zonePointer_; // Per zoneSpec_, either a Zone, ZoneGroup, or null.
     bool invisibleToDebugger_;
     bool mergeable_;
     bool preserveJitCode_;
@@ -3843,8 +3877,8 @@ class JS_FRIEND_API(TransitiveCompileOptions)
         asmJSOption(AsmJSOption::Disabled),
         throwOnAsmJSValidationFailureOption(false),
         forceAsync(false),
-        installedFile(false),
         sourceIsLazy(false),
+        allowHTMLComments(true),
         introductionType(nullptr),
         introductionLineno(0),
         introductionOffset(0),
@@ -3879,8 +3913,8 @@ class JS_FRIEND_API(TransitiveCompileOptions)
     AsmJSOption asmJSOption;
     bool throwOnAsmJSValidationFailureOption;
     bool forceAsync;
-    bool installedFile;  // 'true' iff pre-compiling js file in packaged app
     bool sourceIsLazy;
+    bool allowHTMLComments;
 
     // |introductionType| is a statically allocated C string:
     // one of "eval", "Function", or "GeneratorFunction".
@@ -4043,7 +4077,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
 
   public:
     explicit CompileOptions(JSContext* cx, JSVersion version = JSVERSION_UNKNOWN);
-    CompileOptions(js::ContextFriendFields* cx, const ReadOnlyCompileOptions& rhs)
+    CompileOptions(JSContext* cx, const ReadOnlyCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4057,7 +4091,7 @@ class MOZ_STACK_CLASS JS_FRIEND_API(CompileOptions) final : public ReadOnlyCompi
         introductionScriptRoot = rhs.introductionScript();
     }
 
-    CompileOptions(js::ContextFriendFields* cx, const TransitiveCompileOptions& rhs)
+    CompileOptions(JSContext* cx, const TransitiveCompileOptions& rhs)
       : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
         introductionScriptRoot(cx)
     {
@@ -4178,9 +4212,9 @@ CanCompileOffThread(JSContext* cx, const ReadOnlyCompileOptions& options, size_t
  *
  * After successfully triggering an off thread compile of a script, the
  * callback will eventually be invoked with the specified data and a token
- * for the compilation. The callback will be invoked while off the main thread,
+ * for the compilation. The callback will be invoked while off thread,
  * so must ensure that its operations are thread safe. Afterwards, one of the
- * following functions must be invoked on the main thread:
+ * following functions must be invoked on the runtime's active thread:
  *
  * - FinishOffThreadScript, to get the result script (or nullptr on failure).
  * - CancelOffThreadScript, to free the resources without creating a script.
@@ -5032,8 +5066,6 @@ class MOZ_RAII JSAutoByteString
         return mBytes;
     }
 
-    char* encodeLatin1(js::ExclusiveContext* cx, JSString* str);
-
     char* encodeUtf8(JSContext* cx, JS::HandleString str) {
         MOZ_ASSERT(!mBytes);
         MOZ_ASSERT(cx);
@@ -5411,65 +5443,43 @@ JS_ReportOutOfMemory(JSContext* cx);
 extern JS_PUBLIC_API(void)
 JS_ReportAllocationOverflow(JSContext* cx);
 
-class JSErrorReport
+/**
+ * Base class that implements parts shared by JSErrorReport and
+ * JSErrorNotes::Note.
+ */
+class JSErrorBase
 {
     // The (default) error message.
     // If ownsMessage_ is true, the it is freed in destructor.
     JS::ConstUTF8CharsZ message_;
 
-    // Offending source line without final '\n'.
-    // If ownsLinebuf__ is true, the buffer is freed in destructor.
-    const char16_t* linebuf_;
-
-    // Number of chars in linebuf_. Does not include trailing '\0'.
-    size_t linebufLength_;
-
-    // The 0-based offset of error token in linebuf_.
-    size_t tokenOffset_;
-
   public:
-    JSErrorReport()
-      : linebuf_(nullptr), linebufLength_(0), tokenOffset_(0),
-        filename(nullptr), lineno(0), column(0),
-        flags(0), errorNumber(0),
-        exnType(0), isMuted(false),
-        ownsLinebuf_(false), ownsMessage_(false)
+    JSErrorBase()
+      : filename(nullptr), lineno(0), column(0),
+        errorNumber(0),
+        ownsMessage_(false)
     {}
 
-    ~JSErrorReport() {
-        freeLinebuf();
+    ~JSErrorBase() {
         freeMessage();
     }
 
-    const char*     filename;      /* source file name, URL, etc., or null */
-    unsigned        lineno;         /* source line number */
-    unsigned        column;         /* zero-based column index in line */
-    unsigned        flags;          /* error/warning, etc. */
-    unsigned        errorNumber;    /* the error number, e.g. see js.msg */
-    int16_t         exnType;        /* One of the JSExnType constants */
-    bool            isMuted : 1;    /* See the comment in ReadOnlyCompileOptions. */
+    // Source file name, URL, etc., or null.
+    const char* filename;
+
+    // Source line number.
+    unsigned lineno;
+
+    // Zero-based column index in line.
+    unsigned column;
+
+    // the error number, e.g. see js.msg.
+    unsigned errorNumber;
 
   private:
-    bool ownsLinebuf_ : 1;
     bool ownsMessage_ : 1;
 
   public:
-    const char16_t* linebuf() const {
-        return linebuf_;
-    }
-    size_t linebufLength() const {
-        return linebufLength_;
-    }
-    size_t tokenOffset() const {
-        return tokenOffset_;
-    }
-    void initOwnedLinebuf(const char16_t* linebufArg, size_t linebufLengthArg, size_t tokenOffsetArg) {
-        initBorrowedLinebuf(linebufArg, linebufLengthArg, tokenOffsetArg);
-        ownsLinebuf_ = true;
-    }
-    void initBorrowedLinebuf(const char16_t* linebufArg, size_t linebufLengthArg, size_t tokenOffsetArg);
-    void freeLinebuf();
-
     const JS::ConstUTF8CharsZ message() const {
         return message_;
     }
@@ -5485,7 +5495,133 @@ class JSErrorReport
 
     JSString* newMessageString(JSContext* cx);
 
+  private:
     void freeMessage();
+};
+
+/**
+ * Notes associated with JSErrorReport.
+ */
+class JSErrorNotes
+{
+  public:
+    class Note : public JSErrorBase
+    {};
+
+  private:
+    // Stores pointers to each note.
+    js::Vector<js::UniquePtr<Note>, 1, js::SystemAllocPolicy> notes_;
+
+  public:
+    JSErrorNotes();
+    ~JSErrorNotes();
+
+    // Add an note to the given position.
+    bool addNoteASCII(JSContext* cx,
+                      const char* filename, unsigned lineno, unsigned column,
+                      JSErrorCallback errorCallback, void* userRef,
+                      const unsigned errorNumber, ...);
+    bool addNoteLatin1(JSContext* cx,
+                       const char* filename, unsigned lineno, unsigned column,
+                       JSErrorCallback errorCallback, void* userRef,
+                       const unsigned errorNumber, ...);
+    bool addNoteUTF8(JSContext* cx,
+                     const char* filename, unsigned lineno, unsigned column,
+                     JSErrorCallback errorCallback, void* userRef,
+                     const unsigned errorNumber, ...);
+
+    JS_PUBLIC_API(size_t) length();
+
+    // Create a deep copy of notes.
+    js::UniquePtr<JSErrorNotes> copy(JSContext* cx);
+
+    class iterator : public std::iterator<std::input_iterator_tag, js::UniquePtr<Note>>
+    {
+        js::UniquePtr<Note>* note_;
+      public:
+        explicit iterator(js::UniquePtr<Note>* note = nullptr) : note_(note)
+        {}
+
+        bool operator==(iterator other) const {
+            return note_ == other.note_;
+        }
+        bool operator!=(iterator other) const {
+            return !(*this == other);
+        }
+        iterator& operator++() {
+            note_++;
+            return *this;
+        }
+        reference operator*() {
+            return *note_;
+        }
+    };
+    JS_PUBLIC_API(iterator) begin();
+    JS_PUBLIC_API(iterator) end();
+};
+
+/**
+ * Describes a single error or warning that occurs in the execution of script.
+ */
+class JSErrorReport : public JSErrorBase
+{
+    // Offending source line without final '\n'.
+    // If ownsLinebuf_ is true, the buffer is freed in destructor.
+    const char16_t* linebuf_;
+
+    // Number of chars in linebuf_. Does not include trailing '\0'.
+    size_t linebufLength_;
+
+    // The 0-based offset of error token in linebuf_.
+    size_t tokenOffset_;
+
+  public:
+    JSErrorReport()
+      : linebuf_(nullptr), linebufLength_(0), tokenOffset_(0),
+        notes(nullptr),
+        flags(0), exnType(0), isMuted(false),
+        ownsLinebuf_(false)
+    {}
+
+    ~JSErrorReport() {
+        freeLinebuf();
+    }
+
+    // Associated notes, or nullptr if there's no note.
+    js::UniquePtr<JSErrorNotes> notes;
+
+    // error/warning, etc.
+    unsigned flags;
+
+    // One of the JSExnType constants.
+    int16_t exnType;
+
+    // See the comment in ReadOnlyCompileOptions.
+    bool isMuted : 1;
+
+  private:
+    bool ownsLinebuf_ : 1;
+
+  public:
+    const char16_t* linebuf() const {
+        return linebuf_;
+    }
+    size_t linebufLength() const {
+        return linebufLength_;
+    }
+    size_t tokenOffset() const {
+        return tokenOffset_;
+    }
+    void initOwnedLinebuf(const char16_t* linebufArg, size_t linebufLengthArg,
+                          size_t tokenOffsetArg) {
+        initBorrowedLinebuf(linebufArg, linebufLengthArg, tokenOffsetArg);
+        ownsLinebuf_ = true;
+    }
+    void initBorrowedLinebuf(const char16_t* linebufArg, size_t linebufLengthArg,
+                             size_t tokenOffsetArg);
+
+  private:
+    void freeLinebuf();
 };
 
 /*
@@ -5847,6 +5983,7 @@ JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
     Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis")         \
     Register(BASELINE_ENABLE, "baseline.enable")                           \
     Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable") \
+    Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                   \
     Register(JUMP_THRESHOLD, "jump-threshold")                             \
     Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                 \
     Register(WASM_TEST_MODE, "wasm.test-mode")                             \
@@ -6021,7 +6158,7 @@ DecodeInterpretedFunction(JSContext* cx, TranscodeBuffer& buffer, JS::MutableHan
 
 // Register an encoder on the given script source, such that all functions can
 // be encoded as they are parsed. This strategy is used to avoid blocking the
-// main thread in a non-interruptible way.
+// active thread in a non-interruptible way.
 //
 // The |script| argument of |StartIncrementalEncoding| and
 // |FinishIncrementalEncoding| should be the top-level script returned either as
@@ -6101,17 +6238,11 @@ enum AsmJSCacheResult
  * outparams. If the callback returns 'true', the JS engine guarantees a call
  * to CloseAsmJSCacheEntryForWriteOp passing the same base address, size and
  * handle.
- *
- * If 'installed' is true, then the cache entry is associated with a permanently
- * installed JS file (e.g., in a packaged webapp). This information allows the
- * embedding to store the cache entry in a installed location associated with
- * the principal of 'global' where it will not be evicted until the associated
- * installed JS file is removed.
  */
 typedef AsmJSCacheResult
-(* OpenAsmJSCacheEntryForWriteOp)(HandleObject global, bool installed,
-                                  const char16_t* begin, const char16_t* end,
-                                  size_t size, uint8_t** memory, intptr_t* handle);
+(* OpenAsmJSCacheEntryForWriteOp)(HandleObject global, const char16_t* begin,
+                                  const char16_t* end, size_t size,
+                                  uint8_t** memory, intptr_t* handle);
 typedef void
 (* CloseAsmJSCacheEntryForWriteOp)(size_t size, uint8_t* memory, intptr_t handle);
 
@@ -6330,7 +6461,7 @@ struct MaxFrames
  * consider self-hosted frames with the given principals as satisfying the stack
  * capture.
  */
-struct FirstSubsumedFrame
+struct JS_PUBLIC_API(FirstSubsumedFrame)
 {
     JSContext* cx;
     JSPrincipals* principals;
@@ -6551,7 +6682,7 @@ class AutoStopwatch;
  * provide a concrete implementation of this class, as well as the
  * relevant callbacks (see below).
  */
-struct PerformanceGroup {
+struct JS_PUBLIC_API(PerformanceGroup) {
     PerformanceGroup();
 
     // The current iteration of the event loop.
@@ -6715,5 +6846,14 @@ SetGetPerformanceGroupsCallback(JSContext*, GetGroupsCallback, void*);
 
 } /* namespace js */
 
+namespace js {
+
+enum class CompletionKind {
+    Normal,
+    Return,
+    Throw
+};
+
+} /* namespace js */
 
 #endif /* jsapi_h */
