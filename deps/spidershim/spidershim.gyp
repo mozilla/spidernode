@@ -123,7 +123,7 @@
           ],
           'action': [
             '<(python)',
-            './../../tools/js2c.py',
+            './../../deps/spidershim/scripts/js2c.py',
             '--namespace=spidershim',
             '<@(_outputs)',
             '<@(_inputs)',
