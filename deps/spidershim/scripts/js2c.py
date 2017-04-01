@@ -38,10 +38,12 @@ import string
 
 
 def ToCString(contents):
-  step = 20
-  slices = (contents[i:i+step] for i in xrange(0, len(contents), step))
-  slices = map(lambda s: ','.join(str(ord(c)) for c in s), slices)
-  return ',\n'.join(slices)
+  result = ''
+  for c in contents:
+    assert(ord(c) < 128) # we only support ASCII
+    result += '%d, ' % ord(c)
+
+  return result
 
 
 def ReadFile(filename):
@@ -184,9 +186,8 @@ NODE_NATIVES_MAP = """\
 
 
 SOURCES = """\
-static const uint8_t {escaped_id}_name[] = {{
-{name}}};
-static const uint8_t {escaped_id}_data[] = {{
+static const char *{escaped_id}_name = {name};
+static const char16_t {escaped_id}_data[] = {{
 {data}}};
 """
 
@@ -226,7 +227,7 @@ def JS2C(source, target, namespace):
     if '.' in id:
       id = id.split('.', 1)[0]
 
-    name = ToCString(id)
+    name = '"%s"' % id
     escaped_id = id.replace('-', '_').replace('/', '_')
     node_natives_map.append(NODE_NATIVES_MAP.format(**locals()))
     sources.append(SOURCES.format(**locals()))
