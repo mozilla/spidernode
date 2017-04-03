@@ -42,19 +42,6 @@ extern "C" MFBT_API bool IsSignalHandlingBroken();
 # endif
 #endif
 
-// For platforms where the signal/exception handler runs on the same
-// thread/stack as the victim (Unix and Windows), we can use TLS to find any
-// currently executing wasm code.
-static JSRuntime*
-RuntimeForCurrentThread()
-{
-    PerThreadData* threadData = TlsPerThreadData.get();
-    if (!threadData)
-        return nullptr;
-
-    return threadData->runtimeIfOnOwnerThread();
-}
-
 // Crashing inside the signal handler can cause the handler to be recursively
 // invoked, eventually blowing the stack without actually showing a crash
 // report dialog via Breakpad. To guard against this we watch for such
@@ -62,26 +49,27 @@ RuntimeForCurrentThread()
 // trying to handle it.
 class AutoSetHandlingSegFault
 {
-    JSRuntime* rt;
+    JSContext* cx;
 
   public:
-    explicit AutoSetHandlingSegFault(JSRuntime* rt)
-      : rt(rt)
+    explicit AutoSetHandlingSegFault(JSContext* cx)
+      : cx(cx)
     {
-        MOZ_ASSERT(!rt->handlingSegFault);
-        rt->handlingSegFault = true;
+        MOZ_ASSERT(!cx->handlingSegFault);
+        cx->handlingSegFault = true;
     }
 
     ~AutoSetHandlingSegFault()
     {
-        MOZ_ASSERT(rt->handlingSegFault);
-        rt->handlingSegFault = false;
+        MOZ_ASSERT(cx->handlingSegFault);
+        cx->handlingSegFault = false;
     }
 };
 
 #if defined(XP_WIN)
 # define XMM_sig(p,i) ((p)->Xmm##i)
 # define EIP_sig(p) ((p)->Eip)
+# define EBP_sig(p) ((p)->Ebp)
 # define RIP_sig(p) ((p)->Rip)
 # define RAX_sig(p) ((p)->Rax)
 # define RCX_sig(p) ((p)->Rcx)
@@ -102,6 +90,7 @@ class AutoSetHandlingSegFault
 #elif defined(__OpenBSD__)
 # define XMM_sig(p,i) ((p)->sc_fpstate->fx_xmm[i])
 # define EIP_sig(p) ((p)->sc_eip)
+# define EBP_sig(p) ((p)->sc_ebp)
 # define RIP_sig(p) ((p)->sc_rip)
 # define RAX_sig(p) ((p)->sc_rax)
 # define RCX_sig(p) ((p)->sc_rcx)
@@ -123,9 +112,11 @@ class AutoSetHandlingSegFault
 # if defined(__linux__)
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs->_xmm[i])
 #  define EIP_sig(p) ((p)->uc_mcontext.gregs[REG_EIP])
+#  define EBP_sig(p) ((p)->uc_mcontext.gregs[REG_EBP])
 # else
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs.fp_reg_set.fpchip_state.xmm[i])
 #  define EIP_sig(p) ((p)->uc_mcontext.gregs[REG_PC])
+#  define EBP_sig(p) ((p)->uc_mcontext.gregs[REG_EBP])
 # endif
 # define RIP_sig(p) ((p)->uc_mcontext.gregs[REG_RIP])
 # define RAX_sig(p) ((p)->uc_mcontext.gregs[REG_RAX])
@@ -139,13 +130,14 @@ class AutoSetHandlingSegFault
 # define R8_sig(p) ((p)->uc_mcontext.gregs[REG_R8])
 # define R9_sig(p) ((p)->uc_mcontext.gregs[REG_R9])
 # define R10_sig(p) ((p)->uc_mcontext.gregs[REG_R10])
-# define R11_sig(p) ((p)->uc_mcontext.gregs[REG_R11])
 # define R12_sig(p) ((p)->uc_mcontext.gregs[REG_R12])
 # define R13_sig(p) ((p)->uc_mcontext.gregs[REG_R13])
 # define R14_sig(p) ((p)->uc_mcontext.gregs[REG_R14])
 # if defined(__linux__) && defined(__arm__)
+#  define R11_sig(p) ((p)->uc_mcontext.arm_fp)
 #  define R15_sig(p) ((p)->uc_mcontext.arm_pc)
 # else
+#  define R11_sig(p) ((p)->uc_mcontext.gregs[REG_R11])
 #  define R15_sig(p) ((p)->uc_mcontext.gregs[REG_R15])
 # endif
 # if defined(__linux__) && defined(__aarch64__)
@@ -159,6 +151,7 @@ class AutoSetHandlingSegFault
 #elif defined(__NetBSD__)
 # define XMM_sig(p,i) (((struct fxsave64*)(p)->uc_mcontext.__fpregs)->fx_xmm[i])
 # define EIP_sig(p) ((p)->uc_mcontext.__gregs[_REG_EIP])
+# define EBP_sig(p) ((p)->uc_mcontext.__gregs[_REG_EBP])
 # define RIP_sig(p) ((p)->uc_mcontext.__gregs[_REG_RIP])
 # define RAX_sig(p) ((p)->uc_mcontext.__gregs[_REG_RAX])
 # define RCX_sig(p) ((p)->uc_mcontext.__gregs[_REG_RCX])
@@ -183,6 +176,7 @@ class AutoSetHandlingSegFault
 #  define XMM_sig(p,i) (((struct savefpu*)(p)->uc_mcontext.mc_fpstate)->sv_xmm[i])
 # endif
 # define EIP_sig(p) ((p)->uc_mcontext.mc_eip)
+# define EBP_sig(p) ((p)->uc_mcontext.mc_ebp)
 # define RIP_sig(p) ((p)->uc_mcontext.mc_rip)
 # define RAX_sig(p) ((p)->uc_mcontext.mc_rax)
 # define RCX_sig(p) ((p)->uc_mcontext.mc_rcx)
@@ -206,7 +200,9 @@ class AutoSetHandlingSegFault
 # endif
 #elif defined(XP_DARWIN)
 # define EIP_sig(p) ((p)->uc_mcontext->__ss.__eip)
+# define EBP_sig(p) ((p)->uc_mcontext->__ss.__ebp)
 # define RIP_sig(p) ((p)->uc_mcontext->__ss.__rip)
+# define RBP_sig(p) ((p)->uc_mcontext->__ss.__rbp)
 # define R15_sig(p) ((p)->uc_mcontext->__ss.__pc)
 #else
 # error "Don't know how to read/write to the thread state via the mcontext_t."
@@ -348,14 +344,19 @@ struct macos_arm_context {
 
 #if defined(_M_X64) || defined(__x86_64__)
 # define PC_sig(p) RIP_sig(p)
+# define FP_sig(p) RBP_sig(p)
 #elif defined(_M_IX86) || defined(__i386__)
 # define PC_sig(p) EIP_sig(p)
+# define FP_sig(p) EBP_sig(p)
 #elif defined(__arm__)
 # define PC_sig(p) R15_sig(p)
+# define FP_sig(p) R11_sig(p)
 #elif defined(__aarch64__)
 # define PC_sig(p) EPC_sig(p)
+# define FP_sig(p) RFP_sig(p)
 #elif defined(__mips__)
 # define PC_sig(p) EPC_sig(p)
+# define FP_sig(p) RFP_sig(p)
 #endif
 
 static uint8_t**
@@ -365,6 +366,16 @@ ContextToPC(CONTEXT* context)
     MOZ_CRASH();
 #else
     return reinterpret_cast<uint8_t**>(&PC_sig(context));
+#endif
+}
+
+uint8_t*
+ContextToFP(CONTEXT* context)
+{
+#ifdef JS_CODEGEN_NONE
+    MOZ_CRASH();
+#else
+    return reinterpret_cast<uint8_t*>(FP_sig(context));
 #endif
 }
 
@@ -794,16 +805,34 @@ HandleFault(PEXCEPTION_POINTERS exception)
         return false;
 
     // Don't allow recursive handling of signals, see AutoSetHandlingSegFault.
-    JSRuntime* rt = RuntimeForCurrentThread();
-    if (!rt || rt->handlingSegFault)
+    JSContext* cx = TlsContext.get();
+    if (!cx || cx->handlingSegFault)
         return false;
-    AutoSetHandlingSegFault handling(rt);
+    AutoSetHandlingSegFault handling(cx);
 
-    WasmActivation* activation = rt->wasmActivationStack();
+    WasmActivation* activation = cx->wasmActivationStack();
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    Code* code = activation->compartment()->wasm.lookupCode(pc);
+    if (!code)
+        return false;
+
+    if (!code->segment().containsFunctionPC(pc)) {
+        // On Windows, it is possible for InterruptRunningCode to execute
+        // between a faulting heap access and the handling of the fault due
+        // to InterruptRunningCode's use of SuspendThread. When this happens,
+        // after ResumeThread, the exception handler is called with pc equal to
+        // CodeSegment.interrupt, which is logically wrong. The Right Thing would
+        // be for the OS to make fault-handling atomic (so that CONTEXT.pc was
+        // always the logically-faulting pc). Fortunately, we can detect this
+        // case and silence the exception ourselves (the exception will
+        // retrigger after the interrupt jumps back to resumePC).
+        return pc == code->segment().interruptCode() &&
+               code->segment().containsFunctionPC(activation->resumePC());
+    }
+
+    const Instance* instance = LookupFaultingInstance(activation, pc, ContextToFP(context));
     if (!instance)
         return false;
 
@@ -813,20 +842,6 @@ HandleFault(PEXCEPTION_POINTERS exception)
     // sure we aren't covering up a real bug.
     if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
-
-    if (!instance->codeSegment().containsFunctionPC(pc)) {
-        // On Windows, it is possible for InterruptRunningCode to execute
-        // between a faulting heap access and the handling of the fault due
-        // to InterruptRunningCode's use of SuspendThread. When this happens,
-        // after ResumeThread, the exception handler is called with pc equal to
-        // instance.interrupt, which is logically wrong. The Right Thing would
-        // be for the OS to make fault-handling atomic (so that CONTEXT.pc was
-        // always the logically-faulting pc). Fortunately, we can detect this
-        // case and silence the exception ourselves (the exception will
-        // retrigger after the interrupt jumps back to resumePC).
-        return pc == instance->codeSegment().interruptCode() &&
-               instance->codeSegment().containsFunctionPC(activation->resumePC());
-    }
 
     HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
     return true;
@@ -865,6 +880,20 @@ ContextToPC(EMULATOR_CONTEXT* context)
 # endif
 }
 
+static void*
+ContextToFP(EMULATOR_CONTEXT* context)
+{
+# if defined(__x86_64__)
+    return (void*)context->thread.__rbp;
+# elif defined(__i386__)
+    return (void*)context->thread.uts.ts32.__ebp;
+# elif defined(__arm__)
+    return (void*)context->thread.__fp;
+# else
+#  error Unsupported architecture
+# endif
+}
+
 // This definition was generated by mig (the Mach Interface Generator) for the
 // routine 'exception_raise' (exc.defs).
 #pragma pack(4)
@@ -890,15 +919,15 @@ struct ExceptionRequest
 };
 
 static bool
-HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
+HandleMachException(JSContext* cx, const ExceptionRequest& request)
 {
     // Don't allow recursive handling of signals, see AutoSetHandlingSegFault.
-    if (rt->handlingSegFault)
+    if (cx->handlingSegFault)
         return false;
-    AutoSetHandlingSegFault handling(rt);
+    AutoSetHandlingSegFault handling(cx);
 
-    // Get the port of the JSRuntime's thread from the message.
-    mach_port_t rtThread = request.body.thread.name;
+    // Get the port of the JSContext's thread from the message.
+    mach_port_t cxThread = request.body.thread.name;
 
     // Read out the JSRuntime thread's register state.
     EMULATOR_CONTEXT context;
@@ -921,11 +950,11 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
 #  error Unsupported architecture
 # endif
     kern_return_t kret;
-    kret = thread_get_state(rtThread, thread_state,
+    kret = thread_get_state(cxThread, thread_state,
                             (thread_state_t)&context.thread, &thread_state_count);
     if (kret != KERN_SUCCESS)
         return false;
-    kret = thread_get_state(rtThread, float_state,
+    kret = thread_get_state(cxThread, float_state,
                             (thread_state_t)&context.float_, &float_state_count);
     if (kret != KERN_SUCCESS)
         return false;
@@ -936,11 +965,11 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
     if (request.body.exception != EXC_BAD_ACCESS || request.body.codeCnt != 2)
         return false;
 
-    WasmActivation* activation = rt->wasmActivationStack();
+    WasmActivation* activation = cx->wasmActivationStack();
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    const Instance* instance = LookupFaultingInstance(activation, pc, ContextToFP(&context));
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -954,10 +983,10 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
     HandleMemoryAccess(&context, pc, faultingAddress, *instance, ppc);
 
     // Update the thread state with the new pc and register values.
-    kret = thread_set_state(rtThread, float_state, (thread_state_t)&context.float_, float_state_count);
+    kret = thread_set_state(cxThread, float_state, (thread_state_t)&context.float_, float_state_count);
     if (kret != KERN_SUCCESS)
         return false;
-    kret = thread_set_state(rtThread, thread_state, (thread_state_t)&context.thread, thread_state_count);
+    kret = thread_set_state(cxThread, thread_state, (thread_state_t)&context.thread, thread_state_count);
     if (kret != KERN_SUCCESS)
         return false;
 
@@ -971,9 +1000,9 @@ static const mach_msg_id_t sExceptionId = 2405;
 static const mach_msg_id_t sQuitId = 42;
 
 static void
-MachExceptionHandlerThread(JSRuntime* rt)
+MachExceptionHandlerThread(JSContext* cx)
 {
-    mach_port_t port = rt->wasmMachExceptionHandler.port();
+    mach_port_t port = cx->wasmMachExceptionHandler.port();
     kern_return_t kret;
 
     while(true) {
@@ -1004,7 +1033,7 @@ MachExceptionHandlerThread(JSRuntime* rt)
         // of the reply to KERN_FAILURE) which tells the kernel to continue
         // searching at the process and system level. If this is an asm.js
         // expected exception, we handle it and return KERN_SUCCESS.
-        bool handled = HandleMachException(rt, request);
+        bool handled = HandleMachException(cx, request);
         kern_return_t replyCode = handled ? KERN_SUCCESS : KERN_FAILURE;
 
         // This magic incantation to send a reply back to the kernel was derived
@@ -1070,7 +1099,7 @@ MachExceptionHandler::uninstall()
 }
 
 bool
-MachExceptionHandler::install(JSRuntime* rt)
+MachExceptionHandler::install(JSContext* cx)
 {
     MOZ_ASSERT(!installed());
     kern_return_t kret;
@@ -1089,7 +1118,7 @@ MachExceptionHandler::install(JSRuntime* rt)
         return false;
 
     // Create a thread to block on reading port_.
-    if (!thread_.init(MachExceptionHandlerThread, rt))
+    if (!thread_.init(MachExceptionHandlerThread, cx))
         return false;
 
     // Direct exceptions on this thread to port_ (and thus our handler thread).
@@ -1138,16 +1167,16 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
     uint8_t* pc = *ppc;
 
     // Don't allow recursive handling of signals, see AutoSetHandlingSegFault.
-    JSRuntime* rt = RuntimeForCurrentThread();
-    if (!rt || rt->handlingSegFault)
+    JSContext* cx = TlsContext.get();
+    if (!cx || cx->handlingSegFault)
         return false;
-    AutoSetHandlingSegFault handling(rt);
+    AutoSetHandlingSegFault handling(cx);
 
-    WasmActivation* activation = rt->wasmActivationStack();
+    WasmActivation* activation = cx->wasmActivationStack();
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    const Instance* instance = LookupFaultingInstance(activation, pc, ContextToFP(context));
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -1223,42 +1252,52 @@ WasmFaultHandler(int signum, siginfo_t* info, void* context)
 # endif // XP_WIN || XP_DARWIN || assume unix
 
 static void
-RedirectIonBackedgesToInterruptCheck(JSRuntime* rt)
+RedirectIonBackedgesToInterruptCheck(JSContext* cx)
 {
-    if (jit::JitRuntime* jitRuntime = rt->jitRuntime()) {
+    if (!cx->runtime()->hasJitRuntime())
+        return;
+    jit::JitRuntime* jitRuntime = cx->runtime()->jitRuntime();
+    Zone* zone = cx->zoneRaw();
+    if (zone && !zone->isAtomsZone()) {
         // If the backedge list is being mutated, the pc must be in C++ code and
         // thus not in a JIT iloop. We assume that the interrupt flag will be
         // checked at least once before entering JIT code (if not, no big deal;
         // the browser will just request another interrupt in a second).
-        if (!jitRuntime->preventBackedgePatching())
-            jitRuntime->patchIonBackedges(rt, jit::JitRuntime::BackedgeInterruptCheck);
+        if (!jitRuntime->preventBackedgePatching()) {
+            jit::JitZoneGroup* jzg = zone->group()->jitZoneGroup;
+            jzg->patchIonBackedges(cx, jit::JitZoneGroup::BackedgeInterruptCheck);
+        }
     }
 }
 
 // The return value indicates whether the PC was changed, not whether there was
 // a failure.
 static bool
-RedirectJitCodeToInterruptCheck(JSRuntime* rt, CONTEXT* context)
+RedirectJitCodeToInterruptCheck(JSContext* cx, CONTEXT* context)
 {
-    RedirectIonBackedgesToInterruptCheck(rt);
+    // Jitcode may only be modified on the runtime's active thread.
+    if (cx != cx->runtime()->activeContext())
+        return false;
 
-    if (WasmActivation* activation = rt->wasmActivationStack()) {
+    RedirectIonBackedgesToInterruptCheck(cx);
+
+    if (WasmActivation* activation = cx->wasmActivationStack()) {
 #ifdef JS_SIMULATOR
         (void)ContextToPC(context);  // silence static 'unused' errors
 
-        void* pc = rt->simulator()->get_pc_as<void*>();
+        void* pc = cx->simulator()->get_pc_as<void*>();
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc))
-            rt->simulator()->set_resume_pc(instance->codeSegment().interruptCode());
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc))
+            cx->simulator()->set_resume_pc(code->segment().interruptCode());
 #else
         uint8_t** ppc = ContextToPC(context);
         uint8_t* pc = *ppc;
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc)) {
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc)) {
             activation->setResumePC(pc);
-            *ppc = instance->codeSegment().interruptCode();
+            *ppc = code->segment().interruptCode();
             return true;
         }
 #endif
@@ -1278,21 +1317,20 @@ static const int sInterruptSignal = SIGVTALRM;
 static void
 JitInterruptHandler(int signum, siginfo_t* info, void* context)
 {
-    if (JSRuntime* rt = RuntimeForCurrentThread()) {
+    if (JSContext* cx = TlsContext.get()) {
 
 #if defined(JS_SIMULATOR_ARM) || defined(JS_SIMULATOR_MIPS32) || defined(JS_SIMULATOR_MIPS64)
-        bool prevICacheCheckingState = Simulator::ICacheCheckingEnabled;
-        Simulator::ICacheCheckingEnabled = false;
+        SimulatorProcess::ICacheCheckingDisableCount++;
 #endif
 
-        RedirectJitCodeToInterruptCheck(rt, (CONTEXT*)context);
+        RedirectJitCodeToInterruptCheck(cx, (CONTEXT*)context);
 
 #if defined(JS_SIMULATOR_ARM) || defined(JS_SIMULATOR_MIPS32) || defined(JS_SIMULATOR_MIPS64)
-        Simulator::ICacheCheckingEnabled = prevICacheCheckingState;
-        rt->simulator()->cacheInvalidatedBySignalHandler_ = true;
+        SimulatorProcess::cacheInvalidatedBySignalHandler_ = true;
+        SimulatorProcess::ICacheCheckingDisableCount--;
 #endif
 
-        rt->finishHandlingJitInterrupt();
+        cx->finishHandlingJitInterrupt();
     }
 }
 #endif
@@ -1327,10 +1365,10 @@ ProcessHasSignalHandlers()
 # endif
 #endif
 
-    // The interrupt handler allows the main thread to be paused from another
+    // The interrupt handler allows the active thread to be paused from another
     // thread (see InterruptRunningJitCode).
 #if defined(XP_WIN)
-    // Windows uses SuspendThread to stop the main thread from another thread.
+    // Windows uses SuspendThread to stop the active thread from another thread.
 #else
     struct sigaction interruptHandler;
     interruptHandler.sa_flags = SA_SIGINFO;
@@ -1398,15 +1436,15 @@ ProcessHasSignalHandlers()
 }
 
 bool
-wasm::EnsureSignalHandlers(JSRuntime* rt)
+wasm::EnsureSignalHandlers(JSContext* cx)
 {
     // Nothing to do if the platform doesn't support it.
     if (!ProcessHasSignalHandlers())
         return true;
 
 #if defined(XP_DARWIN)
-    // On OSX, each JSRuntime gets its own handler thread.
-    if (!rt->wasmMachExceptionHandler.installed() && !rt->wasmMachExceptionHandler.install(rt))
+    // On OSX, each JSContext which runs wasm gets its own handler thread.
+    if (!cx->wasmMachExceptionHandler.installed() && !cx->wasmMachExceptionHandler.install(cx))
         return false;
 #endif
 
@@ -1427,10 +1465,10 @@ wasm::HaveSignalHandlers()
 // handled by this function:
 //  1. Ion loop backedges are patched to instead point to a stub that handles
 //     the interrupt;
-//  2. if the main thread's pc is inside wasm code, the pc is updated to point
+//  2. if the active thread's pc is inside wasm code, the pc is updated to point
 //     to a stub that handles the interrupt.
 void
-js::InterruptRunningJitCode(JSRuntime* rt)
+js::InterruptRunningJitCode(JSContext* cx)
 {
     // If signal handlers weren't installed, then Ion and wasm emit normal
     // interrupt checks and don't need asynchronous interruption.
@@ -1439,41 +1477,41 @@ js::InterruptRunningJitCode(JSRuntime* rt)
 
     // Do nothing if we're already handling an interrupt here, to avoid races
     // below and in JitRuntime::patchIonBackedges.
-    if (!rt->startHandlingJitInterrupt())
+    if (!cx->startHandlingJitInterrupt())
         return;
 
-    // If we are on runtime's main thread, then: pc is not in wasm code (so
-    // nothing to do for wasm) and we can patch Ion backedges without any
-    // special synchronization.
-    if (rt == RuntimeForCurrentThread()) {
-        RedirectIonBackedgesToInterruptCheck(rt);
-        rt->finishHandlingJitInterrupt();
+    // If we are on context's thread, then: pc is not in wasm code (so nothing
+    // to do for wasm) and we can patch Ion backedges without any special
+    // synchronization.
+    if (cx == TlsContext.get()) {
+        RedirectIonBackedgesToInterruptCheck(cx);
+        cx->finishHandlingJitInterrupt();
         return;
     }
 
-    // We are not on the runtime's main thread, so to do 1 and 2 above, we need
-    // to halt the runtime's main thread first.
+    // We are not on the runtime's active thread, so to do 1 and 2 above, we need
+    // to halt the runtime's active thread first.
 #if defined(XP_WIN)
-    // On Windows, we can simply suspend the main thread and work directly on
+    // On Windows, we can simply suspend the active thread and work directly on
     // its context from this thread. SuspendThread can sporadically fail if the
     // thread is in the middle of a syscall. Rather than retrying in a loop,
     // just wait for the next request for interrupt.
-    HANDLE thread = (HANDLE)rt->ownerThreadNative();
+    HANDLE thread = (HANDLE)cx->threadNative();
     if (SuspendThread(thread) != -1) {
         CONTEXT context;
         context.ContextFlags = CONTEXT_CONTROL;
         if (GetThreadContext(thread, &context)) {
-            if (RedirectJitCodeToInterruptCheck(rt, &context))
+            if (RedirectJitCodeToInterruptCheck(cx, &context))
                 SetThreadContext(thread, &context);
         }
         ResumeThread(thread);
     }
-    rt->finishHandlingJitInterrupt();
+    cx->finishHandlingJitInterrupt();
 #else
-    // On Unix, we instead deliver an async signal to the main thread which
+    // On Unix, we instead deliver an async signal to the active thread which
     // halts the thread and callers our JitInterruptHandler (which has already
     // been installed by EnsureSignalHandlersInstalled).
-    pthread_t thread = (pthread_t)rt->ownerThreadNative();
+    pthread_t thread = (pthread_t)cx->threadNative();
     pthread_kill(thread, sInterruptSignal);
 #endif
 }
@@ -1481,15 +1519,15 @@ js::InterruptRunningJitCode(JSRuntime* rt)
 MOZ_COLD bool
 js::wasm::IsPCInWasmCode(void *pc)
 {
-    JSRuntime* rt = RuntimeForCurrentThread();
-    if (!rt)
+    JSContext* cx = TlsContext.get();
+    if (!cx)
         return false;
 
-    MOZ_RELEASE_ASSERT(!rt->handlingSegFault);
+    MOZ_RELEASE_ASSERT(!cx->handlingSegFault);
 
-    WasmActivation* activation = rt->wasmActivationStack();
+    WasmActivation* activation = cx->wasmActivationStack();
     if (!activation)
         return false;
 
-    return !!activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    return !!activation->compartment()->wasm.lookupCode(pc);
 }

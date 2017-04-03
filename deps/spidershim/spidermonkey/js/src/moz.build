@@ -13,8 +13,6 @@ component_stl    = ('Core', 'JavaScript: Standard Library')
 
 FILES_PER_UNIFIED_FILE = 6
 
-with Files('../public/**'):
-    BUG_COMPONENT = component_engine
 with Files('*'):
     BUG_COMPONENT = component_engine
 
@@ -33,9 +31,6 @@ with Files('jit/**'):
 for gcfile in ['jsgc*', 'devtools/rootAnalysis', 'devtools/gc-ubench', 'devtools/gctrace']:
     with Files(gcfile):
         BUG_COMPONENT = component_gc
-for header in ('GCAnnotations.h', 'GCAPI.h', 'HeapAPI.h', 'RootingAPI.h', 'SliceBudget.h', 'SweepingAPI.h', 'TraceKind.h', 'TracingAPI.h', 'WeakMapPtr.h'):
-    with Files('../public/' + header):
-        BUG_COMPONENT = component_gc
 
 for stlfile in ['jsarray.*', 'jsbool*', 'jsdate.*', 'jsnum.*', 'json.*', 'jsstr.*']:
     with Files(stlfile):
@@ -45,9 +40,6 @@ with Files('builtin/Intl*'):
     BUG_COMPONENT = component_intl
 with Files('builtin/make_intl_data.py'):
     BUG_COMPONENT = component_intl
-
-with Files('../public/TrackedOptimizationInfo.h'):
-    BUG_COMPONENT = component_jit
 
 
 if CONFIG['JS_BUNDLED_EDITLINE']:
@@ -176,6 +168,7 @@ UNIFIED_SOURCES += [
     'builtin/WeakMapObject.cpp',
     'builtin/WeakSetObject.cpp',
     'devtools/sharkctl.cpp',
+    'ds/Bitmap.cpp',
     'ds/LifoAlloc.cpp',
     'ds/MemoryProtectionExceptionHandler.cpp',
     'frontend/BytecodeCompiler.cpp',
@@ -198,6 +191,7 @@ UNIFIED_SOURCES += [
     'gc/Tracer.cpp',
     'gc/Verifier.cpp',
     'gc/Zone.cpp',
+    'gc/ZoneGroup.cpp',
     'irregexp/NativeRegExpMacroAssembler.cpp',
     'irregexp/RegExpAST.cpp',
     'irregexp/RegExpCharacters.cpp',
@@ -225,6 +219,7 @@ UNIFIED_SOURCES += [
     'jit/C1Spewer.cpp',
     'jit/CacheIR.cpp',
     'jit/CacheIRCompiler.cpp',
+    'jit/CacheIRSpewer.cpp',
     'jit/CodeGenerator.cpp',
     'jit/CompileWrappers.cpp',
     'jit/Disassembler.cpp',
@@ -247,6 +242,7 @@ UNIFIED_SOURCES += [
     'jit/JitFrames.cpp',
     'jit/JitOptions.cpp',
     'jit/JitSpewer.cpp',
+    'jit/JSONPrinter.cpp',
     'jit/JSONSpewer.cpp',
     'jit/LICM.cpp',
     'jit/Linker.cpp',
@@ -260,6 +256,7 @@ UNIFIED_SOURCES += [
     'jit/MoveResolver.cpp',
     'jit/OptimizationTracking.cpp',
     'jit/PerfSpewer.cpp',
+    'jit/ProcessExecutableMemory.cpp',
     'jit/RangeAnalysis.cpp',
     'jit/Recover.cpp',
     'jit/RegisterAllocator.cpp',
@@ -310,6 +307,7 @@ UNIFIED_SOURCES += [
     'proxy/SecurityWrapper.cpp',
     'proxy/Wrapper.cpp',
     'threading/Mutex.cpp',
+    'threading/ProtectedData.cpp',
     'vm/ArgumentsObject.cpp',
     'vm/ArrayBufferObject.cpp',
     'vm/AsyncFunction.cpp',
@@ -375,7 +373,6 @@ UNIFIED_SOURCES += [
     'wasm/WasmCode.cpp',
     'wasm/WasmCompartment.cpp',
     'wasm/WasmCompile.cpp',
-    'wasm/WasmDebugFrame.cpp',
     'wasm/WasmFrameIterator.cpp',
     'wasm/WasmGenerator.cpp',
     'wasm/WasmInstance.cpp',
@@ -587,20 +584,14 @@ elif CONFIG['JS_CODEGEN_MIPS32'] or CONFIG['JS_CODEGEN_MIPS64']:
 
 if CONFIG['OS_ARCH'] == 'WINNT':
     SOURCES += [
-        'jit/ExecutableAllocatorWin.cpp',
-        'threading/windows/ConditionVariable.cpp',
         'threading/windows/CpuCount.cpp',
-        'threading/windows/MutexImpl.cpp',
         'threading/windows/Thread.cpp',
     ]
     # _CRT_RAND_S must be #defined before #including stdlib.h to get rand_s()
     DEFINES['_CRT_RAND_S'] = True
 else:
     SOURCES += [
-        'jit/ExecutableAllocatorPosix.cpp',
-        'threading/posix/ConditionVariable.cpp',
         'threading/posix/CpuCount.cpp',
-        'threading/posix/MutexImpl.cpp',
         'threading/posix/Thread.cpp',
     ]
 
@@ -617,7 +608,9 @@ if CONFIG['JS_HAS_CTYPES']:
 
 if CONFIG['MOZ_VTUNE']:
     SOURCES += [
-        'vtune/jitprofiling.c'
+        'vtune/ittnotify_static.c',
+        'vtune/jitprofiling.c',
+        'vtune/VTuneWrapper.cpp',
     ]
 
 if CONFIG['HAVE_LINUX_PERF_EVENT_H']:
@@ -631,11 +624,11 @@ else:
         'perf/pm_stub.cpp'
     ]
 
-GENERATED_FILES += ['jsautokw.h']
-jsautokw = GENERATED_FILES['jsautokw.h']
-jsautokw.script = 'jsautokw.py'
-jsautokw.inputs += [
-    'vm/Keywords.h'
+GENERATED_FILES += ['frontend/ReservedWordsGenerated.h']
+ReservedWordsGenerated = GENERATED_FILES['frontend/ReservedWordsGenerated.h']
+ReservedWordsGenerated.script = 'frontend/GenerateReservedWords.py'
+ReservedWordsGenerated.inputs += [
+    'frontend/ReservedWords.h'
 ]
 
 # JavaScript must be built shared, even for static builds, as it is used by

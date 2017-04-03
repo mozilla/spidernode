@@ -36,9 +36,8 @@ class CodeRange;
 class DebugFrame;
 class Instance;
 class SigIdDesc;
-struct CallThunk;
 struct FuncOffsets;
-struct ProfilingOffsets;
+struct CallableOffsets;
 struct TrapOffset;
 
 // Iterates over the frames of a single WasmActivation, called synchronously
@@ -60,7 +59,6 @@ class FrameIterator
     const CallSite* callsite_;
     const CodeRange* codeRange_;
     uint8_t* fp_;
-    uint8_t* pc_;
     Unwind unwind_;
     bool missingFrameMessage_;
 
@@ -77,6 +75,7 @@ class FrameIterator
     JSAtom* functionDisplayAtom() const;
     unsigned lineOrBytecode() const;
     const CodeRange* codeRange() const { return codeRange_; }
+    bool hasInstance() const;
     Instance* instance() const;
     bool debugEnabled() const;
     DebugFrame* debugFrame() const;
@@ -90,25 +89,23 @@ enum class ExitReason : uint32_t
     None,          // default state, the pc is in wasm code
     ImportJit,     // fast-path call directly into JIT code
     ImportInterp,  // slow-path call into C++ Invoke()
-    Native,        // call to native C++ code (e.g., Math.sin, ToInt32(), interrupt)
     Trap,          // call to trap handler for the trap in WasmActivation::trap
     DebugTrap      // call to debug trap handler
 };
 
 // Iterates over the frames of a single WasmActivation, given an
-// asynchrously-interrupted thread's state. If the activation's
-// module is not in profiling mode, the activation is skipped.
+// asynchronously-interrupted thread's state.
 class ProfilingFrameIterator
 {
     const WasmActivation* activation_;
     const Code* code_;
     const CodeRange* codeRange_;
-    uint8_t* callerFP_;
+    void* callerFP_;
     void* callerPC_;
     void* stackAddress_;
     ExitReason exitReason_;
 
-    void initFromFP();
+    void initFromExitFP();
 
   public:
     ProfilingFrameIterator();
@@ -126,26 +123,26 @@ class ProfilingFrameIterator
 
 void
 GenerateExitPrologue(jit::MacroAssembler& masm, unsigned framePushed, ExitReason reason,
-                     ProfilingOffsets* offsets);
+                     CallableOffsets* offsets);
 void
 GenerateExitEpilogue(jit::MacroAssembler& masm, unsigned framePushed, ExitReason reason,
-                     ProfilingOffsets* offsets);
+                     CallableOffsets* offsets);
 void
 GenerateFunctionPrologue(jit::MacroAssembler& masm, unsigned framePushed, const SigIdDesc& sigId,
                          FuncOffsets* offsets);
 void
 GenerateFunctionEpilogue(jit::MacroAssembler& masm, unsigned framePushed, FuncOffsets* offsets);
 
-// Runtime patching to enable/disable profiling
+// Mark all instance objects live on the stack.
 
 void
-ToggleProfiling(const Code& code, const CallSite& callSite, bool enabled);
+TraceActivations(JSContext* cx, const CooperatingContext& target, JSTracer* trc);
 
-void
-ToggleProfiling(const Code& code, const CallThunk& callThunk, bool enabled);
+// Given a fault at pc with register fp, return the faulting instance if there
+// is such a plausible instance, and otherwise null.
 
-void
-ToggleProfiling(const Code& code, const CodeRange& codeRange, bool enabled);
+Instance*
+LookupFaultingInstance(WasmActivation* activation, void* pc, void* fp);
 
 } // namespace wasm
 } // namespace js

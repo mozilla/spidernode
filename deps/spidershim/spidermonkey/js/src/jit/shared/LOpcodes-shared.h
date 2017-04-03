@@ -69,7 +69,6 @@
     _(NewArrayDynamicLength)        \
     _(NewTypedArray)                \
     _(NewTypedArrayDynamicLength)   \
-    _(ArraySplice)                  \
     _(NewObject)                    \
     _(NewTypedObject)               \
     _(NewNamedLambdaObject)         \
@@ -319,6 +318,8 @@
     _(StoreFixedSlotV)              \
     _(StoreFixedSlotT)              \
     _(FunctionEnvironment)          \
+    _(NewLexicalEnvironmentObject)  \
+    _(CopyLexicalEnvironmentObject) \
     _(GetPropertyCacheV)            \
     _(GetPropertyCacheT)            \
     _(GetPropertyPolymorphicV)      \
@@ -369,6 +370,8 @@
     _(CeilF)                        \
     _(Round)                        \
     _(RoundF)                       \
+    _(NearbyInt)                    \
+    _(NearbyIntF)                   \
     _(In)                           \
     _(InArray)                      \
     _(InstanceOfO)                  \
@@ -403,6 +406,7 @@
     _(ArrowNewTarget)               \
     _(CheckReturn)                  \
     _(CheckIsObj)                   \
+    _(CheckIsCallable)              \
     _(CheckObjCoercible)            \
     _(DebugCheckSelfHosted)         \
     _(AsmJSLoadHeap)                \
@@ -419,6 +423,7 @@
     _(WasmSelect)                   \
     _(WasmSelectI64)                \
     _(WasmBoundsCheck)              \
+    _(WasmLoadTls)                  \
     _(WasmAddOffset)                \
     _(WasmLoad)                     \
     _(WasmLoadI64)                  \

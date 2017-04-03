@@ -41,8 +41,11 @@ IonIC::scratchRegisterForEntryJump()
         TypedOrValueRegister output = asGetPropertyIC()->output();
         return output.hasValue() ? output.valueReg().scratchReg() : output.typedReg().gpr();
       }
-      case CacheKind::GetName:
       case CacheKind::SetProp:
+      case CacheKind::SetElem:
+        return asSetPropertyIC()->temp();
+      case CacheKind::GetName:
+      case CacheKind::In:
         MOZ_CRASH("Baseline-specific for now");
     }
 
@@ -50,7 +53,7 @@ IonIC::scratchRegisterForEntryJump()
 }
 
 void
-IonIC::reset(Zone* zone)
+IonIC::discardStubs(Zone* zone)
 {
     if (firstStub_ && zone->needsIncrementalBarrier()) {
         // We are removing edges from IonIC to gcthings. Perform one final trace
@@ -69,7 +72,14 @@ IonIC::reset(Zone* zone)
 
     firstStub_ = nullptr;
     codeRaw_ = fallbackLabel_.raw();
-    numStubs_ = 0;
+    state_.trackUnlinkedAllStubs();
+}
+
+void
+IonIC::reset(Zone* zone)
+{
+    discardStubs(zone);
+    state_.reset();
 }
 
 void
@@ -92,26 +102,16 @@ IonIC::trace(JSTracer* trc)
 }
 
 void
-IonGetPropertyIC::maybeDisable(Zone* zone, bool attached)
+IonIC::togglePreBarriers(bool enabled, ReprotectCode reprotect)
 {
-    if (attached) {
-        failedUpdates_ = 0;
-        return;
+    uint8_t* nextCodeRaw = codeRaw_;
+    for (IonICStub* stub = firstStub_; stub; stub = stub->next()) {
+        JitCode* code = JitCode::FromExecutable(nextCodeRaw);
+        code->togglePreBarriers(enabled, reprotect);
+        nextCodeRaw = stub->nextCodeRaw();
     }
 
-    if (!canAttachStub() && kind() == CacheKind::GetProp) {
-        // Don't disable the cache (and discard stubs) if we have a GETPROP and
-        // attached the maximum number of stubs. This can happen when JS code
-        // uses an AST-like data structure and accesses a field of a "base
-        // class", like node.nodeType. This should be temporary until we handle
-        // this case better, see bug 1107515.
-        return;
-    }
-
-    if (++failedUpdates_ > MAX_FAILED_UPDATES) {
-        JitSpew(JitSpew_IonIC, "Disable inline cache");
-        disable(zone);
-    }
+    MOZ_ASSERT(nextCodeRaw == fallbackLabel_.raw());
 }
 
 /* static */ bool
@@ -119,32 +119,33 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
 			 HandleValue val, HandleValue idVal, MutableHandleValue res)
 {
     // Override the return value if we are invalidated (bug 728188).
-    AutoDetectInvalidation adi(cx, res, outerScript->ionScript());
+    IonScript* ionScript = outerScript->ionScript();
+    AutoDetectInvalidation adi(cx, res, ionScript);
 
     // If the IC is idempotent, we will redo the op in the interpreter.
     if (ic->idempotent())
         adi.disable();
 
+    if (ic->state().maybeTransition())
+        ic->discardStubs(cx->zone());
+
     bool attached = false;
-    if (!JitOptions.disableCacheIR && !ic->disabled()) {
-        if (ic->canAttachStub()) {
-            // IonBuilder calls PropertyReadNeedsTypeBarrier to determine if it
-            // needs a type barrier. Unfortunately, PropertyReadNeedsTypeBarrier
-            // does not account for getters, so we should only attach a getter
-            // stub if we inserted a type barrier.
-            CanAttachGetter canAttachGetter =
-                ic->monitoredResult() ? CanAttachGetter::Yes : CanAttachGetter::No;
-            jsbytecode* pc = ic->idempotent() ? nullptr : ic->pc();
-            bool isTemporarilyUnoptimizable;
-            GetPropIRGenerator gen(cx, pc, ic->kind(), ICStubEngine::IonIC,
-                                   &isTemporarilyUnoptimizable,
-                                   val, idVal, canAttachGetter);
-            if (ic->idempotent() ? gen.tryAttachIdempotentStub() : gen.tryAttachStub()) {
-                attached = ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(),
-                                                 outerScript);
-            }
-        }
-        ic->maybeDisable(cx->zone(), attached);
+    if (ic->state().canAttachStub()) {
+        // IonBuilder calls PropertyReadNeedsTypeBarrier to determine if it
+        // needs a type barrier. Unfortunately, PropertyReadNeedsTypeBarrier
+        // does not account for getters, so we should only attach a getter
+        // stub if we inserted a type barrier.
+        CanAttachGetter canAttachGetter =
+            ic->monitoredResult() ? CanAttachGetter::Yes : CanAttachGetter::No;
+        jsbytecode* pc = ic->idempotent() ? nullptr : ic->pc();
+        bool isTemporarilyUnoptimizable = false;
+        GetPropIRGenerator gen(cx, outerScript, pc, ic->kind(), ic->state().mode(),
+                               &isTemporarilyUnoptimizable, val, idVal, canAttachGetter);
+        if (ic->idempotent() ? gen.tryAttachIdempotentStub() : gen.tryAttachStub())
+            ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript, &attached);
+
+        if (!attached && !isTemporarilyUnoptimizable)
+            ic->state().trackNotAttached();
     }
 
     if (!attached && ic->idempotent()) {
@@ -186,6 +187,88 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
     return true;
 }
 
+/* static */ bool
+IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonSetPropertyIC* ic,
+			 HandleObject obj, HandleValue idVal, HandleValue rhs)
+{
+    RootedShape oldShape(cx);
+    RootedObjectGroup oldGroup(cx);
+    IonScript* ionScript = outerScript->ionScript();
+
+    bool attached = false;
+    bool isTemporarilyUnoptimizable = false;
+
+    if (ic->state().maybeTransition())
+        ic->discardStubs(cx->zone());
+
+    if (ic->state().canAttachStub()) {
+        oldShape = obj->maybeShape();
+        oldGroup = JSObject::getGroup(cx, obj);
+        if (!oldGroup)
+            return false;
+        if (obj->is<UnboxedPlainObject>()) {
+            MOZ_ASSERT(!oldShape);
+            if (UnboxedExpandoObject* expando = obj->as<UnboxedPlainObject>().maybeExpando())
+                oldShape = expando->lastProperty();
+        }
+
+        RootedValue objv(cx, ObjectValue(*obj));
+        RootedScript script(cx, ic->script());
+        jsbytecode* pc = ic->pc();
+        SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state().mode(),
+                               &isTemporarilyUnoptimizable,
+                               objv, idVal, rhs, ic->needsTypeBarrier(), ic->guardHoles());
+        if (gen.tryAttachStub()) {
+            ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript, &attached,
+                                  gen.typeCheckInfo());
+        }
+    }
+
+    jsbytecode* pc = ic->pc();
+    if (ic->kind() == CacheKind::SetElem) {
+        if (IsPropertyInitOp(JSOp(*pc))) {
+            if (!InitElemOperation(cx, pc, obj, idVal, rhs))
+                return false;
+        } else {
+            MOZ_ASSERT(IsPropertySetOp(JSOp(*pc)));
+            if (!SetObjectElement(cx, obj, idVal, rhs, ic->strict()))
+                return false;
+        }
+    } else {
+        MOZ_ASSERT(ic->kind() == CacheKind::SetProp);
+
+        if (*pc == JSOP_INITGLEXICAL) {
+            RootedScript script(cx, ic->script());
+            MOZ_ASSERT(!script->hasNonSyntacticScope());
+            InitGlobalLexicalOperation(cx, &cx->global()->lexicalEnvironment(), script, pc, rhs);
+        } else {
+            RootedPropertyName name(cx, idVal.toString()->asAtom().asPropertyName());
+            if (!SetProperty(cx, obj, name, rhs, ic->strict(), pc))
+                return false;
+        }
+    }
+
+    if (!attached && ic->state().canAttachStub()) {
+        RootedValue objv(cx, ObjectValue(*obj));
+        RootedScript script(cx, ic->script());
+        jsbytecode* pc = ic->pc();
+        SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state().mode(),
+                               &isTemporarilyUnoptimizable,
+                               objv, idVal, rhs, ic->needsTypeBarrier(), ic->guardHoles());
+        if (gen.tryAttachAddSlotStub(oldGroup, oldShape)) {
+            ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript, &attached,
+                                  gen.typeCheckInfo());
+        } else {
+            gen.trackNotAttached();
+        }
+
+        if (!attached && !isTemporarilyUnoptimizable)
+            ic->state().trackNotAttached();
+    }
+
+    return true;
+}
+
 uint8_t*
 IonICStub::stubDataStart()
 {
@@ -195,7 +278,6 @@ IonICStub::stubDataStart()
 void
 IonIC::attachStub(IonICStub* newStub, JitCode* code)
 {
-    MOZ_ASSERT(canAttachStub());
     MOZ_ASSERT(newStub);
     MOZ_ASSERT(code);
 
@@ -209,5 +291,5 @@ IonIC::attachStub(IonICStub* newStub, JitCode* code)
         codeRaw_ = code->raw();
     }
 
-    numStubs_++;
+    state_.trackAttached();
 }

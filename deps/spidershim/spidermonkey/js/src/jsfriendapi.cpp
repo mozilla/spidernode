@@ -31,6 +31,7 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
+#include "gc/Nursery-inl.h"
 #include "vm/EnvironmentObject-inl.h"
 #include "vm/NativeObject-inl.h"
 
@@ -39,10 +40,12 @@ using namespace js;
 using mozilla::Move;
 using mozilla::PodArrayZero;
 
-js::ContextFriendFields::ContextFriendFields(bool isJSContext)
-  : JS::RootingContext(isJSContext),
-    compartment_(nullptr), zone_(nullptr)
+JS::RootingContext::RootingContext()
+  : autoGCRooters_(nullptr), compartment_(nullptr), zone_(nullptr)
 {
+    for (auto& stackRootPtr : stackRoots_)
+        stackRootPtr = nullptr;
+
     PodArrayZero(nativeStackLimit);
 #if JS_STACK_GROWTH_DIRECTION > 0
     for (int i=0; i<StackKindCount; i++)
@@ -53,19 +56,19 @@ js::ContextFriendFields::ContextFriendFields(bool isJSContext)
 JS_FRIEND_API(void)
 js::SetSourceHook(JSContext* cx, mozilla::UniquePtr<SourceHook> hook)
 {
-    cx->sourceHook = Move(hook);
+    cx->runtime()->sourceHook.ref() = Move(hook);
 }
 
 JS_FRIEND_API(mozilla::UniquePtr<SourceHook>)
 js::ForgetSourceHook(JSContext* cx)
 {
-    return Move(cx->sourceHook);
+    return Move(cx->runtime()->sourceHook.ref());
 }
 
 JS_FRIEND_API(void)
 JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data)
 {
-    cx->gc.setGrayRootsTracer(traceOp, data);
+    cx->runtime()->gc.setGrayRootsTracer(traceOp, data);
 }
 
 JS_FRIEND_API(JSObject*)
@@ -167,12 +170,12 @@ JS_SetCompartmentPrincipals(JSCompartment* compartment, JSPrincipals* principals
 
     // Any compartment with the trusted principals -- and there can be
     // multiple -- is a system compartment.
-    const JSPrincipals* trusted = compartment->runtimeFromMainThread()->trustedPrincipals();
+    const JSPrincipals* trusted = compartment->runtimeFromActiveCooperatingThread()->trustedPrincipals();
     bool isSystem = principals && principals == trusted;
 
     // Clear out the old principals, if any.
     if (compartment->principals()) {
-        JS_DropPrincipals(compartment->contextFromMainThread(), compartment->principals());
+        JS_DropPrincipals(TlsContext.get(), compartment->principals());
         compartment->setPrincipals(nullptr);
         // We'd like to assert that our new principals is always same-origin
         // with the old one, but JSPrincipals doesn't give us a way to do that.
@@ -375,6 +378,12 @@ js::AssertSameCompartment(JSContext* cx, JSObject* obj)
     assertSameCompartment(cx, obj);
 }
 
+JS_FRIEND_API(void)
+js::AssertSameCompartment(JSContext* cx, JS::HandleValue v)
+{
+    assertSameCompartment(cx, v);
+}
+
 #ifdef DEBUG
 JS_FRIEND_API(void)
 js::AssertSameCompartment(JSObject* objA, JSObject* objB)
@@ -388,7 +397,7 @@ js::NotifyAnimationActivity(JSObject* obj)
 {
     int64_t timeNow = PRMJ_Now();
     obj->compartment()->lastAnimationTime = timeNow;
-    obj->runtimeFromMainThread()->lastAnimationTime = timeNow;
+    obj->runtimeFromActiveCooperatingThread()->lastAnimationTime = timeNow;
 }
 
 JS_FRIEND_API(uint32_t)
@@ -550,7 +559,7 @@ js::SetReservedOrProxyPrivateSlotWithBarrier(JSObject* obj, size_t slot, const j
 void
 js::SetPreserveWrapperCallback(JSContext* cx, PreserveWrapperCallback callback)
 {
-    cx->preserveWrapperCallback = callback;
+    cx->runtime()->preserveWrapperCallback = callback;
 }
 
 /*
@@ -600,7 +609,7 @@ js::TraceWeakMaps(WeakMapTracer* trc)
 extern JS_FRIEND_API(bool)
 js::AreGCGrayBitsValid(JSContext* cx)
 {
-    return cx->areGCGrayBitsValid();
+    return cx->runtime()->gc.areGrayBitsValid();
 }
 
 JS_FRIEND_API(bool)
@@ -656,7 +665,7 @@ js::StringToLinearStringSlow(JSContext* cx, JSString* str)
 JS_FRIEND_API(void)
 JS_SetAccumulateTelemetryCallback(JSContext* cx, JSAccumulateTelemetryDataCallback callback)
 {
-    cx->setTelemetryCallback(cx, callback);
+    cx->runtime()->setTelemetryCallback(cx->runtime(), callback);
 }
 
 JS_FRIEND_API(JSObject*)
@@ -1045,7 +1054,7 @@ JS::FormatStackDump(JSContext* cx, char* buf, bool showArgs, bool showLocals, bo
 extern JS_FRIEND_API(bool)
 JS::ForceLexicalInitialization(JSContext *cx, HandleObject obj)
 {
-    AssertHeapIsIdle(cx);
+    AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, obj);
 
@@ -1119,8 +1128,8 @@ static void
 DumpHeapVisitCompartment(JSContext* cx, void* data, JSCompartment* comp)
 {
     char name[1024];
-    if (cx->compartmentNameCallback)
-        (*cx->compartmentNameCallback)(cx, comp, name, sizeof(name));
+    if (cx->runtime()->compartmentNameCallback)
+        (*cx->runtime()->compartmentNameCallback)(cx, comp, name, sizeof(name));
     else
         strcpy(name, "<unknown>");
 
@@ -1163,7 +1172,7 @@ void
 js::DumpHeap(JSContext* cx, FILE* fp, js::DumpHeapNurseryBehaviour nurseryBehaviour)
 {
     if (nurseryBehaviour == js::CollectNurseryBeforeDump)
-        cx->gc.evictNursery(JS::gcreason::API);
+        EvictAllNurseries(cx->runtime(), JS::gcreason::API);
 
     DumpHeapTracer dtrc(fp, cx);
 
@@ -1171,7 +1180,7 @@ js::DumpHeap(JSContext* cx, FILE* fp, js::DumpHeapNurseryBehaviour nurseryBehavi
     {
         JSRuntime* rt = cx->runtime();
         js::gc::AutoPrepareForTracing prep(cx, WithAtoms);
-        gcstats::AutoPhase ap(rt->gc.stats, gcstats::PHASE_TRACE_HEAP);
+        gcstats::AutoPhase ap(rt->gc.stats(), gcstats::PHASE_TRACE_HEAP);
         rt->gc.traceRuntime(&dtrc, prep.session().lock);
     }
 
@@ -1181,11 +1190,11 @@ js::DumpHeap(JSContext* cx, FILE* fp, js::DumpHeapNurseryBehaviour nurseryBehavi
     fprintf(dtrc.output, "==========\n");
 
     dtrc.prefix = "> ";
-    IterateZonesCompartmentsArenasCells(cx, &dtrc,
-                                        DumpHeapVisitZone,
-                                        DumpHeapVisitCompartment,
-                                        DumpHeapVisitArena,
-                                        DumpHeapVisitCell);
+    IterateHeapUnbarriered(cx, &dtrc,
+                                                   DumpHeapVisitZone,
+                                                   DumpHeapVisitCompartment,
+                                                   DumpHeapVisitArena,
+                                                   DumpHeapVisitCell);
 
     fflush(dtrc.output);
 }
@@ -1200,13 +1209,13 @@ js::SetActivityCallback(JSContext* cx, ActivityCallback cb, void* arg)
 JS_FRIEND_API(void)
 JS::NotifyDidPaint(JSContext* cx)
 {
-    cx->gc.notifyDidPaint();
+    cx->runtime()->gc.notifyDidPaint();
 }
 
 JS_FRIEND_API(void)
 JS::PokeGC(JSContext* cx)
 {
-    cx->gc.poke();
+    cx->runtime()->gc.poke();
 }
 
 JS_FRIEND_API(JSCompartment*)
@@ -1220,8 +1229,8 @@ js::GetAnyCompartmentInZone(JS::Zone* zone)
 void
 JS::ObjectPtr::finalize(JSRuntime* rt)
 {
-    if (IsIncrementalBarrierNeeded(rt->contextFromMainThread()))
-        IncrementalObjectBarrier(value);
+    if (IsIncrementalBarrierNeeded(rt->activeContextFromOwnThread()))
+        IncrementalPreWriteBarrier(value);
     value = nullptr;
 }
 
@@ -1268,13 +1277,13 @@ js::GetEnterCompartmentDepth(JSContext* cx)
 JS_FRIEND_API(void)
 js::SetDOMCallbacks(JSContext* cx, const DOMCallbacks* callbacks)
 {
-    cx->DOMcallbacks = callbacks;
+    cx->runtime()->DOMcallbacks = callbacks;
 }
 
 JS_FRIEND_API(const DOMCallbacks*)
 js::GetDOMCallbacks(JSContext* cx)
 {
-    return cx->DOMcallbacks;
+    return cx->runtime()->DOMcallbacks;
 }
 
 static const void* gDOMProxyHandlerFamily = nullptr;
@@ -1328,13 +1337,13 @@ js::PrepareScriptEnvironmentAndInvoke(JSContext* cx, HandleObject scope, ScriptE
 JS_FRIEND_API(void)
 js::SetScriptEnvironmentPreparer(JSContext* cx, ScriptEnvironmentPreparer* preparer)
 {
-    cx->scriptEnvironmentPreparer = preparer;
+    cx->runtime()->scriptEnvironmentPreparer = preparer;
 }
 
 JS_FRIEND_API(void)
 js::SetCTypesActivityCallback(JSContext* cx, CTypesActivityCallback cb)
 {
-    cx->ctypesActivityCallback = cb;
+    cx->runtime()->ctypesActivityCallback = cb;
 }
 
 js::AutoCTypesActivityCallback::AutoCTypesActivityCallback(JSContext* cx,
@@ -1402,14 +1411,14 @@ js::GetPropertyNameFromPC(JSScript* script, jsbytecode* pc)
 JS_FRIEND_API(void)
 js::SetWindowProxyClass(JSContext* cx, const js::Class* clasp)
 {
-    MOZ_ASSERT(!cx->maybeWindowProxyClass());
-    cx->setWindowProxyClass(clasp);
+    MOZ_ASSERT(!cx->runtime()->maybeWindowProxyClass());
+    cx->runtime()->setWindowProxyClass(clasp);
 }
 
 JS_FRIEND_API(void)
 js::SetWindowProxy(JSContext* cx, HandleObject global, HandleObject windowProxy)
 {
-    AssertHeapIsIdle(cx);
+    AssertHeapIsIdle();
     CHECK_REQUEST(cx);
 
     assertSameCompartment(cx, global, windowProxy);
@@ -1459,4 +1468,16 @@ AutoAssertNoContentJS::AutoAssertNoContentJS(JSContext* cx)
 AutoAssertNoContentJS::~AutoAssertNoContentJS()
 {
     context_->runtime()->allowContentJS_ = prevAllowContentJS_;
+}
+
+JS_FRIEND_API(void)
+js::EnableAccessValidation(JSContext* cx, bool enabled)
+{
+    cx->enableAccessValidation = enabled;
+}
+
+JS_FRIEND_API(void)
+js::SetCompartmentValidAccessPtr(JSContext* cx, JS::HandleObject global, bool* accessp)
+{
+    global->compartment()->setValidAccessPtr(accessp);
 }

@@ -15,7 +15,6 @@
     _(ArrayShift)                   \
     _(ArrayPush)                    \
     _(ArraySlice)                   \
-    _(ArraySplice)                  \
                                     \
     _(AtomicsCompareExchange)       \
     _(AtomicsExchange)              \
@@ -119,7 +118,6 @@
     _(IntrinsicToString)            \
     _(IntrinsicIsConstructing)      \
     _(IntrinsicSubstringKernel)     \
-    _(IntrinsicDefineDataProperty)  \
     _(IntrinsicObjectHasPrototype)  \
                                     \
     _(IntrinsicIsArrayIterator)     \

@@ -35,24 +35,19 @@ bool InitLibraries(JSContext* cx) {
 #define V(id)                                                                 \
   do {                                                                        \
     JS::CompileOptions options(cx);                                           \
-    uint8_t *filename = (uint8_t *)malloc(sizeof(id##_name) + 1);             \
-    memcpy(filename, id##_name, sizeof(id##_name));                           \
-    filename[sizeof(filename)] = '\0';                                        \
     options.setVersion(JSVERSION_DEFAULT)                                     \
         .setNoScriptRval(true)                                                \
-        .setUTF8(true)                                                        \
         .setSourceIsLazy(false)                                               \
-        .setFile(reinterpret_cast<const char*>(filename))                     \
+        .setFile(id##_name)                     \
         .setLine(1)                                                           \
         .setColumn(0)                                                         \
         .forceAsync = true;                                                   \
     JS::RootedValue value(cx);                                                \
     if (!JS::Evaluate(cx, options,                                            \
-                      reinterpret_cast<const char*>(id##_data),               \
-                      sizeof(id##_data), &value)) {                           \
+                      id##_data,               \
+                      mozilla::ArrayLength(id##_data), &value)) {             \
       return false;                                                           \
     }                                                                         \
-    free(filename);                                                           \
   } while (0);
   NODE_NATIVES_MAP(V)
 #undef V

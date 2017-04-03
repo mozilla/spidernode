@@ -837,7 +837,11 @@ BacktrackingAllocator::go()
         if (!processBundle(mir, item.bundle))
             return false;
     }
+
     JitSpew(JitSpew_RegAlloc, "Main allocation loop complete");
+
+    if (!tryAllocatingRegistersForSpillBundles())
+        return false;
 
     if (!pickStackSlots())
         return false;
@@ -1210,7 +1214,8 @@ BacktrackingAllocator::tryAllocateNonFixed(LiveBundle* bundle,
 
     // Spill bundles which have no hint or register requirement.
     if (requirement.kind() == Requirement::NONE && hint.kind() != Requirement::REGISTER) {
-        if (!spill(bundle))
+        JitSpew(JitSpew_RegAlloc, "  postponed spill (no hint or register requirement)");
+        if (!spilledBundles.append(bundle))
             return false;
         *success = true;
         return true;
@@ -1230,7 +1235,8 @@ BacktrackingAllocator::tryAllocateNonFixed(LiveBundle* bundle,
     // Spill bundles which have no register requirement if they didn't get
     // allocated.
     if (requirement.kind() == Requirement::NONE) {
-        if (!spill(bundle))
+        JitSpew(JitSpew_RegAlloc, "  postponed spill (no register requirement)");
+        if (!spilledBundles.append(bundle))
             return false;
         *success = true;
         return true;
@@ -1383,29 +1389,6 @@ BacktrackingAllocator::computeRequirement(LiveBundle* bundle,
     return true;
 }
 
-// Return whether |conflicting| has any fixed uses of registers which overlap
-// with |bundle|.
-bool
-BacktrackingAllocator::hasFixedUseOverlap(LiveBundle* bundle, const LiveBundleVector& conflicting)
-{
-    for (size_t i = 0; i < conflicting.length(); i++) {
-        LiveBundle* existing = conflicting[i];
-        for (LiveRange::BundleLinkIterator iter = existing->rangesBegin(); iter; iter++) {
-            LiveRange* range = LiveRange::get(*iter);
-            if (range->hasDefinition()) {
-                LDefinition* def = vregs[range->vreg()].def();
-                if (def->policy() == LDefinition::FIXED && bundle->rangeFor(range->from()))
-                    return true;
-            }
-            for (UsePositionIterator iter(range->usesBegin()); iter; iter++) {
-                if (iter->usePolicy() == LUse::FIXED && bundle->rangeFor(iter->pos))
-                    return true;
-            }
-        }
-    }
-    return false;
-}
-
 bool
 BacktrackingAllocator::tryAllocateRegister(PhysicalRegister& r, LiveBundle* bundle,
                                            bool* success, bool* pfixed, LiveBundleVector& conflicting)
@@ -1473,12 +1456,7 @@ BacktrackingAllocator::tryAllocateRegister(PhysicalRegister& r, LiveBundle* bund
         }
 #endif
 
-        if (hasFixedUseOverlap(bundle, aliasedConflicting)) {
-            // Ignore conflicting bundles whose eviction will not allow the
-            // bundle to be allocated.
-            JitSpew(JitSpew_RegAlloc,
-                    "  Ignoring conflict due to fixed use/def overlap with bundle");
-        } else if (conflicting.empty()) {
+        if (conflicting.empty()) {
             if (!conflicting.appendAll(aliasedConflicting))
                 return false;
         } else {
@@ -1586,6 +1564,38 @@ BacktrackingAllocator::spill(LiveBundle* bundle)
     }
 
     return bundle->spillSet()->addSpilledBundle(bundle);
+}
+
+bool
+BacktrackingAllocator::tryAllocatingRegistersForSpillBundles()
+{
+    for (auto it = spilledBundles.begin(); it != spilledBundles.end(); it++) {
+        LiveBundle* bundle = *it;
+        LiveBundleVector conflicting;
+        bool fixed = false;
+        bool success = false;
+
+        if (mir->shouldCancel("Backtracking Try Allocating Spilled Bundles"))
+            return false;
+
+        if (JitSpewEnabled(JitSpew_RegAlloc))
+            JitSpew(JitSpew_RegAlloc, "Spill or allocate %s", bundle->toString().get());
+
+        // Search for any available register which the bundle can be
+        // allocated to.
+        for (size_t i = 0; i < AnyRegister::Total; i++) {
+            if (!tryAllocateRegister(registers[i], bundle, &success, &fixed, conflicting))
+                return false;
+            if (success)
+                break;
+        }
+
+        // If the bundle still has no register, spill the bundle.
+        if (!success && !spill(bundle))
+            return false;
+    }
+
+    return true;
 }
 
 bool

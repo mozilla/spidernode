@@ -670,9 +670,10 @@ void
 MacroAssembler::lshift64(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    if (imm.value == 0) {
+    if (imm.value == 0)
         return;
-    } else if (imm.value < 32) {
+
+    if (imm.value < 32) {
         as_mov(dest.high, lsl(dest.high, imm.value));
         as_orr(dest.high, dest.high, lsr(dest.low, 32 - imm.value));
         as_mov(dest.low, lsl(dest.low, imm.value));
@@ -716,7 +717,8 @@ void
 MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 32);
-    ma_lsr(imm, dest, dest);
+    if (imm.value)
+        ma_lsr(imm, dest, dest);
 }
 
 void
@@ -736,13 +738,16 @@ void
 MacroAssembler::rshiftPtrArithmetic(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 32);
-    ma_asr(imm, dest, dest);
+    if (imm.value)
+        ma_asr(imm, dest, dest);
 }
 
 void
 MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+    if (!imm.value)
+        return;
 
     if (imm.value < 32) {
         as_mov(dest.low, lsr(dest.low, imm.value));
@@ -802,6 +807,9 @@ MacroAssembler::rshift64(Imm32 imm, Register64 dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+    if (!imm.value)
+        return;
+
     if (imm.value < 32) {
         as_mov(dest.low, lsr(dest.low, imm.value));
         as_orr(dest.low, dest.low, lsl(dest.high, 32 - imm.value));
@@ -1363,8 +1371,9 @@ MacroAssembler::branch64(Condition cond, Register64 lhs, Register64 rhs, Label* 
         bind(fail);
 }
 
+template <class L>
 void
-MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, Label* label)
+MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, L label)
 {
     branch32(cond, lhs, rhs, label);
 }
@@ -2118,31 +2127,21 @@ MacroAssembler::clampIntToUint8(Register reg)
 
 template <class L>
 void
-MacroAssembler::wasmBoundsCheck(Condition cond, Register index, L label)
+MacroAssembler::wasmBoundsCheck(Condition cond, Register index, Register boundsCheckLimit, L label)
 {
-    BufferOffset bo = as_cmp(index, Imm8(0));
-    append(wasm::BoundsCheck(bo.getOffset()));
-
+    as_cmp(index, O2Reg(boundsCheckLimit));
     as_b(label, cond);
 }
 
+template <class L>
 void
-MacroAssembler::wasmPatchBoundsCheck(uint8_t* patchAt, uint32_t limit)
+MacroAssembler::wasmBoundsCheck(Condition cond, Register index, Address boundsCheckLimit, L label)
 {
-    Instruction* inst = (Instruction*) patchAt;
-    MOZ_ASSERT(inst->is<InstCMP>());
-    InstCMP* cmp = inst->as<InstCMP>();
-
-    Register index;
-    cmp->extractOp1(&index);
-
-    MOZ_ASSERT(cmp->extractOp2().isImm8());
-
-    Imm8 imm8 = Imm8(limit);
-    MOZ_RELEASE_ASSERT(!imm8.invalid());
-
-    *inst = InstALU(InvalidReg, index, imm8, OpCmp, SetCC, Always);
-    // Don't call Auto Flush Cache; the wasm caller has done this for us.
+    ScratchRegisterScope scratch(*this);
+    MOZ_ASSERT(boundsCheckLimit.offset == offsetof(wasm::TlsData, boundsCheckLimit));
+    ma_ldr(DTRAddr(boundsCheckLimit.base, DtrOffImm(boundsCheckLimit.offset)), scratch);
+    as_cmp(index, O2Reg(scratch));
+    as_b(label, cond);
 }
 
 //}}} check_macroassembler_style

@@ -33,6 +33,7 @@
 #include "ElfLoader.h"
 #include "application.ini.h"
 
+#include "mozilla/arm.h"
 #include "mozilla/Bootstrap.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
@@ -325,31 +326,6 @@ loadNSSLibs(const char *apkName)
 }
 
 extern "C" APKOPEN_EXPORT void MOZ_JNICALL
-Java_org_mozilla_gecko_mozglue_GeckoLoader_extractGeckoLibsNative(
-    JNIEnv *jenv, jclass jGeckoAppShellClass, jstring jApkName)
-{
-  MOZ_ALWAYS_TRUE(!jenv->GetJavaVM(&sJavaVM));
-
-  const char* apkName = jenv->GetStringUTFChars(jApkName, nullptr);
-  if (apkName == nullptr) {
-    return;
-  }
-
-  // Extract and cache native lib to allow for efficient startup from cache.
-  void* handle = dlopenAPKLibrary(apkName, "libxul.so");
-  if (handle) {
-    __android_log_print(ANDROID_LOG_INFO, "GeckoLibLoad",
-                        "Extracted and cached libxul.so.");
-    // We have extracted and cached the lib, we can close it now.
-    __wrap_dlclose(handle);
-  } else {
-    JNI_Throw(jenv, "java/lang/Exception", "Error extracting gecko libraries");
-  }
-
-  jenv->ReleaseStringUTFChars(jApkName, apkName);
-}
-
-extern "C" APKOPEN_EXPORT void MOZ_JNICALL
 Java_org_mozilla_gecko_mozglue_GeckoLoader_loadGeckoLibsNative(JNIEnv *jenv, jclass jGeckoAppShellClass, jstring jApkName)
 {
   jenv->GetJavaVM(&sJavaVM);
@@ -459,7 +435,7 @@ Java_org_mozilla_gecko_mozglue_GeckoLoader_nativeRun(JNIEnv *jenv, jclass jc, jo
     gBootstrap->GeckoStart(jenv, argv, argc, sAppData);
     ElfLoader::Singleton.ExpectShutdown(true);
   } else {
-    gBootstrap->XRE_SetAndroidChildFds(crashFd, ipcFd);
+    gBootstrap->XRE_SetAndroidChildFds(jenv, crashFd, ipcFd);
     gBootstrap->XRE_SetProcessType(argv[argc - 1]);
 
     XREChildData childData;
@@ -498,3 +474,12 @@ ChildProcessInit(int argc, char* argv[])
   return NS_FAILED(gBootstrap->XRE_InitChildProcess(argc, argv, &childData));
 }
 
+extern "C" APKOPEN_EXPORT jboolean MOZ_JNICALL
+Java_org_mozilla_gecko_mozglue_GeckoLoader_neonCompatible(JNIEnv *jenv, jclass jc)
+{
+#ifdef __ARM_EABI__
+  return mozilla::supports_neon();
+#else
+  return true;
+#endif // __ARM_EABI__
+}

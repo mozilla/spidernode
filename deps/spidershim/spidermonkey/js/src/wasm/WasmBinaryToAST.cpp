@@ -66,14 +66,10 @@ struct AstDecodeStackItem
 // We don't define a Value type because OpIter doesn't push void values, which
 // we actually need here because we're building an AST, so we maintain our own
 // stack.
-struct AstDecodePolicy : OpIterPolicy
+struct AstDecodePolicy
 {
-    // Enable validation because we can be called from wasmBinaryToText on bytes
-    // which are not necessarily valid, and we shouldn't run the decoder in
-    // non-validating mode on invalid code.
-    static const bool Validate = true;
-
-    static const bool Output = true;
+    typedef Nothing Value;
+    typedef Nothing ControlItem;
 };
 
 typedef OpIter<AstDecodePolicy> AstDecodeOpIter;
@@ -134,12 +130,6 @@ class AstDecodeContext
     AstDecodeStackItem popCopy() { return exprs().popCopy(); }
     AstDecodeStackItem& top() { return exprs().back(); }
     MOZ_MUST_USE bool push(AstDecodeStackItem item) { return exprs().append(item); }
-
-    bool checkHasMemory() {
-        if (!module().hasMemory())
-            return iter().fail("can't touch memory without memory");
-        return true;
-    }
 
     bool needFirst() {
         for (size_t i = depths().back(); i < exprs().length(); ++i) {
@@ -256,30 +246,18 @@ GenerateRef(AstDecodeContext& c, const AstName& prefix, uint32_t index, AstRef* 
 static bool
 AstDecodeCallArgs(AstDecodeContext& c, const SigWithId& sig, AstExprVector* funcArgs)
 {
-    MOZ_ASSERT(c.iter().inReachableCode());
+    MOZ_ASSERT(!c.iter().currentBlockHasPolymorphicBase());
 
-    const ValTypeVector& args = sig.args();
-    uint32_t numArgs = args.length();
-
+    uint32_t numArgs = sig.args().length();
     if (!funcArgs->resize(numArgs))
         return false;
 
-    for (size_t i = 0; i < numArgs; ++i) {
-        ValType argType = args[i];
-        AstDecodeStackItem item;
-        if (!c.iter().readCallArg(argType, numArgs, i, nullptr))
-            return false;
+    for (size_t i = 0; i < numArgs; ++i)
         (*funcArgs)[i] = c.exprs()[c.exprs().length() - numArgs + i].expr;
-    }
+
     c.exprs().shrinkBy(numArgs);
 
-    return c.iter().readCallArgsEnd(numArgs);
-}
-
-static bool
-AstDecodeCallReturn(AstDecodeContext& c, const SigWithId& sig)
-{
-    return c.iter().readCallReturn(sig.ret());
+    return true;
 }
 
 static bool
@@ -311,19 +289,16 @@ static bool
 AstDecodeCall(AstDecodeContext& c)
 {
     uint32_t funcIndex;
-    if (!c.iter().readCall(&funcIndex))
+    AstDecodeOpIter::ValueVector unusedArgs;
+    if (!c.iter().readCall(&funcIndex, &unusedArgs))
         return false;
 
-    if (!c.iter().inReachableCode())
+    if (c.iter().currentBlockHasPolymorphicBase())
         return true;
-
-    if (funcIndex >= c.env().numFuncs())
-        return c.iter().fail("callee index out of range");
 
     AstRef funcRef;
     if (funcIndex < c.module().numFuncImports()) {
-        AstImport* import = c.module().imports()[funcIndex];
-        funcRef = AstRef(import->name());
+        funcRef = AstRef(c.module().funcImportNames()[funcIndex]);
     } else {
         if (!GenerateRef(c, AstName(u"func"), funcIndex, &funcRef))
             return false;
@@ -333,9 +308,6 @@ AstDecodeCall(AstDecodeContext& c)
 
     AstExprVector args(c.lifo);
     if (!AstDecodeCallArgs(c, *sig, &args))
-        return false;
-
-    if (!AstDecodeCallReturn(c, *sig))
         return false;
 
     AstCall* call = new(c.lifo) AstCall(Op::Call, sig->ret(), funcRef, Move(args));
@@ -355,18 +327,13 @@ AstDecodeCall(AstDecodeContext& c)
 static bool
 AstDecodeCallIndirect(AstDecodeContext& c)
 {
-    if (!c.env().tables.length())
-        return c.iter().fail("can't call_indirect without a table");
-
     uint32_t sigIndex;
-    if (!c.iter().readCallIndirect(&sigIndex, nullptr))
+    AstDecodeOpIter::ValueVector unusedArgs;
+    if (!c.iter().readCallIndirect(&sigIndex, nullptr, &unusedArgs))
         return false;
 
-    if (!c.iter().inReachableCode())
+    if (c.iter().currentBlockHasPolymorphicBase())
         return true;
-
-    if (sigIndex >= c.module().sigs().length())
-        return c.iter().fail("signature index out of range");
 
     AstDecodeStackItem index = c.popCopy();
 
@@ -377,9 +344,6 @@ AstDecodeCallIndirect(AstDecodeContext& c)
     const SigWithId& sig = c.env().sigs[sigIndex];
     AstExprVector args(c.lifo);
     if (!AstDecodeCallArgs(c, sig, &args))
-        return false;
-
-    if (!AstDecodeCallReturn(c, sig))
         return false;
 
     AstCallIndirect* call = new(c.lifo) AstCallIndirect(sigRef, sig.ret(), Move(args), index.expr);
@@ -418,26 +382,20 @@ AstDecodeGetBlockRef(AstDecodeContext& c, uint32_t depth, AstRef* ref)
 static bool
 AstDecodeBrTable(AstDecodeContext& c)
 {
-    uint32_t tableLength;
+    Uint32Vector depths;
+    uint32_t defaultDepth;
     ExprType type;
-    if (!c.iter().readBrTable(&tableLength, &type, nullptr, nullptr))
+    if (!c.iter().readBrTable(&depths, &defaultDepth, &type, nullptr, nullptr))
         return false;
 
     AstRefVector table(c.lifo);
-    if (!table.resize(tableLength))
+    if (!table.resize(depths.length()))
         return false;
 
-    uint32_t depth;
-    for (size_t i = 0, e = tableLength; i < e; ++i) {
-        if (!c.iter().readBrTableEntry(&type, nullptr, &depth))
-            return false;
-        if (!AstDecodeGetBlockRef(c, depth, &table[i]))
+    for (size_t i = 0; i < depths.length(); ++i) {
+        if (!AstDecodeGetBlockRef(c, depths[i], &table[i]))
             return false;
     }
-
-    // Read the default label.
-    if (!c.iter().readBrTableDefault(&type, nullptr, &depth))
-        return false;
 
     AstDecodeStackItem index = c.popCopy();
     AstDecodeStackItem value;
@@ -445,11 +403,10 @@ AstDecodeBrTable(AstDecodeContext& c)
         value = c.popCopy();
 
     AstRef def;
-    if (!AstDecodeGetBlockRef(c, depth, &def))
+    if (!AstDecodeGetBlockRef(c, defaultDepth, &def))
         return false;
 
-    AstBranchTable* branchTable = new(c.lifo) AstBranchTable(*index.expr,
-                                                             def, Move(table), value.expr);
+    auto branchTable = new(c.lifo) AstBranchTable(*index.expr, def, Move(table), value.expr);
     if (!branchTable)
         return false;
 
@@ -681,7 +638,7 @@ AstDecodeBinary(AstDecodeContext& c, ValType type, Op op)
 static bool
 AstDecodeSelect(AstDecodeContext& c)
 {
-    ValType type;
+    StackType type;
     if (!c.iter().readSelect(&type, nullptr, nullptr, nullptr))
         return false;
 
@@ -746,9 +703,6 @@ AstDecodeLoadStoreAddress(const LinearMemoryAddress<Nothing>& addr, const AstDec
 static bool
 AstDecodeLoad(AstDecodeContext& c, ValType type, uint32_t byteSize, Op op)
 {
-    if (!c.checkHasMemory())
-        return false;
-
     LinearMemoryAddress<Nothing> addr;
     if (!c.iter().readLoad(type, byteSize, &addr))
         return false;
@@ -768,9 +722,6 @@ AstDecodeLoad(AstDecodeContext& c, ValType type, uint32_t byteSize, Op op)
 static bool
 AstDecodeStore(AstDecodeContext& c, ValType type, uint32_t byteSize, Op op)
 {
-    if (!c.checkHasMemory())
-        return false;
-
     LinearMemoryAddress<Nothing> addr;
     if (!c.iter().readStore(type, byteSize, &addr, nullptr))
         return false;
@@ -939,7 +890,7 @@ static bool
 AstDecodeGetGlobal(AstDecodeContext& c)
 {
     uint32_t globalId;
-    if (!c.iter().readGetGlobal(c.env().globals, &globalId))
+    if (!c.iter().readGetGlobal(&globalId))
         return false;
 
     AstRef globalRef;
@@ -960,7 +911,7 @@ static bool
 AstDecodeSetGlobal(AstDecodeContext& c)
 {
     uint32_t globalId;
-    if (!c.iter().readSetGlobal(c.env().globals, &globalId, nullptr))
+    if (!c.iter().readSetGlobal(&globalId, nullptr))
         return false;
 
     AstDecodeStackItem value = c.popCopy();
@@ -1448,7 +1399,7 @@ AstDecodeFunctionBody(AstDecodeContext &c, uint32_t funcIndex, AstFunc** func)
     if (!DecodeLocalEntries(c.d, ModuleKind::Wasm, &locals))
         return false;
 
-    AstDecodeOpIter iter(c.d);
+    AstDecodeOpIter iter(c.env(), c.d);
     c.startFunction(&iter, &locals, sig->ret());
 
     AstName funcName;
@@ -1500,7 +1451,7 @@ AstDecodeFunctionBody(AstDecodeContext &c, uint32_t funcIndex, AstFunc** func)
     }
     c.exprs().shrinkTo(c.depths().popCopy());
 
-    if (!c.iter().readFunctionEnd())
+    if (!c.iter().readFunctionEnd(bodyEnd))
         return false;
 
     c.endFunction();
@@ -1589,6 +1540,7 @@ AstCreateImports(AstDecodeContext& c)
         AstName moduleName;
         if (!ToAstName(c, import.module.get(), &moduleName))
             return false;
+
         AstName fieldName;
         if (!ToAstName(c, import.field.get(), &fieldName))
             return false;
@@ -1899,7 +1851,7 @@ wasm::BinaryToAst(JSContext* cx, const uint8_t* bytes, uint32_t length, LifoAllo
         return false;
 
     UniqueChars error;
-    Decoder d(bytes, bytes + length, &error, /* resilient */ true);
+    Decoder d(bytes, bytes + length, 0, &error, /* resilient */ true);
     AstDecodeContext c(cx, lifo, d, *result, true);
 
     if (!AstDecodeEnvironment(c) ||

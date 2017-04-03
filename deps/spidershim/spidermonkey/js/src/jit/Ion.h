@@ -8,7 +8,6 @@
 #define jit_Ion_h
 
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/Move.h"
 #include "mozilla/Result.h"
 
 #include "jscntxt.h"
@@ -30,7 +29,7 @@ enum MethodStatus
     Method_Compiled
 };
 
-enum class AbortReason {
+enum class AbortReason : uint8_t {
     Alloc,
     Inlining,
     PreliminaryObjects,
@@ -41,18 +40,13 @@ enum class AbortReason {
 
 template <typename V>
 using AbortReasonOr = mozilla::Result<V, AbortReason>;
+using mozilla::Err;
 using mozilla::Ok;
 
-// This is the equivalent of the following, except that these are functions and
-// not types, which makes this syntax invalid:
-//     using Err = mozilla::MakeGenericErrorResult;
-template <typename E>
-inline mozilla::GenericErrorResult<E>
-Err(E&& aErrorValue)
-{
-    return mozilla::MakeGenericErrorResult(mozilla::Forward<E>(aErrorValue));
-}
-
+static_assert(sizeof(AbortReasonOr<Ok>) <= sizeof(uintptr_t),
+    "Unexpected size of AbortReasonOr<Ok>");
+static_assert(sizeof(AbortReasonOr<bool>) <= sizeof(uintptr_t),
+    "Unexpected size of AbortReasonOr<bool>");
 
 // A JIT context is needed to enter into either an JIT method or an instance
 // of a JIT compiler. It points to a temporary allocator and the active
@@ -63,7 +57,6 @@ class JitContext
 {
   public:
     JitContext(JSContext* cx, TempAllocator* temp);
-    JitContext(ExclusiveContext* cx, TempAllocator* temp);
     JitContext(CompileRuntime* rt, CompileCompartment* comp, TempAllocator* temp);
     JitContext(CompileRuntime* rt, TempAllocator* temp);
     explicit JitContext(CompileRuntime* rt);
@@ -71,7 +64,7 @@ class JitContext
     JitContext();
     ~JitContext();
 
-    // Running context when executing on the main thread. Not available during
+    // Running context when executing on the active thread. Not available during
     // compilation.
     JSContext* cx;
 
@@ -83,9 +76,6 @@ class JitContext
     CompileRuntime* runtime;
     CompileCompartment* compartment;
 
-    bool onMainThread() const {
-        return runtime && runtime->onMainThread();
-    }
     bool hasProfilingScripts() const {
         return runtime && !!runtime->profilingScripts();
     }
@@ -174,7 +164,7 @@ void FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder,
                             const AutoLockHelperThreadState& lock);
 
 void LinkIonScript(JSContext* cx, HandleScript calleescript);
-uint8_t* LazyLinkTopActivation(JSContext* cx);
+uint8_t* LazyLinkTopActivation();
 
 static inline bool
 IsIonEnabled(JSContext* cx)

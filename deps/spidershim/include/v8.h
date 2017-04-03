@@ -994,6 +994,8 @@ class V8_EXPORT ScriptCompiler {
   static V8_WARN_UNUSED_RESULT MaybeLocal<Script> Compile(
       Local<Context> context, Source* source,
       CompileOptions options = kNoCompileOptions);
+
+  static uint32_t CachedDataVersionTag() { return 0; }
 };
 
 class V8_EXPORT UnboundScript {

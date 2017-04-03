@@ -140,12 +140,12 @@ ExecuteRegExpImpl(JSContext* cx, RegExpStatics* res, RegExpShared& re, HandleLin
 
 /* Legacy ExecuteRegExp behavior is baked into the JSAPI. */
 bool
-js::ExecuteRegExpLegacy(JSContext* cx, RegExpStatics* res, RegExpObject& reobj,
+js::ExecuteRegExpLegacy(JSContext* cx, RegExpStatics* res, Handle<RegExpObject*> reobj,
                         HandleLinearString input, size_t* lastIndex, bool test,
                         MutableHandleValue rval)
 {
     RegExpGuard shared(cx);
-    if (!reobj.getShared(cx, &shared))
+    if (!RegExpObject::getShared(cx, reobj, &shared))
         return false;
 
     ScopedMatchPairs matches(&cx->tempLifoAlloc());
@@ -345,7 +345,6 @@ regexp_compile_impl(JSContext* cx, const CallArgs& args)
             sourceAtom = g->getSource();
             flags = g->getFlags();
         }
-        cx->markAtom(sourceAtom);
 
         // Step 5, minus lastIndex zeroing.
         regexp->initIgnoringLastIndex(sourceAtom, flags);
@@ -919,7 +918,7 @@ ExecuteRegExp(JSContext* cx, HandleObject regexp, HandleString string,
     Rooted<RegExpObject*> reobj(cx, &regexp->as<RegExpObject>());
 
     RegExpGuard re(cx);
-    if (!reobj->getShared(cx, &re))
+    if (!RegExpObject::getShared(cx, reobj, &re))
         return RegExpRunStatus_Error;
 
     RegExpStatics* res;

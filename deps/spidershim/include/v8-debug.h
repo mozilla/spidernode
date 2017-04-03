@@ -34,6 +34,7 @@ namespace v8 {
 class V8_EXPORT Debug {
  public:
   class ClientData {};
+  class EventDetails {};
 
   class Message {
    public:
@@ -44,6 +45,7 @@ class V8_EXPORT Debug {
 
   typedef void (*DebugMessageDispatchHandler)();
   typedef void (*MessageHandler)(const Message& message);
+  typedef void (*EventCallback)(const EventDetails& details);
 
   static void DebugBreak(Isolate* isolate = NULL) {}
   static void SetDebugMessageDispatchHandler(
@@ -62,6 +64,7 @@ class V8_EXPORT Debug {
                                      Handle<Value> obj) {
     return MaybeLocal<Value>();
   }
+  static bool SetDebugEventListener(Isolate*, EventCallback) { return false; }
 };
 
 }  // namespace v8
