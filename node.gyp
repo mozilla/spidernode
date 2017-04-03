@@ -637,16 +637,9 @@
         'GTEST_DONT_DEFINE_ASSERT_NE=1',
         'NODE_WANT_INTERNALS=1',
       ],
+
       'conditions': [
         [ 'node_engine=="v8"', {
-          'include_dirs': [
-            'deps/v8/include'
-          ],
-          'dependencies': [
-            'deps/v8/tools/gyp/v8.gyp:v8',
-            'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
-          ],
-
           'sources': [
             'test/cctest/test_util.cc',
             'test/cctest/test_url.cc'
@@ -655,66 +648,49 @@
           'sources!': [
             'src/node_main.cc'
           ],
-
-          'conditions' : [
-            ['v8_enable_inspector==1', {
-              'defines': [
-                'HAVE_INSPECTOR=1',
-              ],
-              'dependencies': [
-                'v8_inspector_compress_protocol_json#host'
-              ],
-              'include_dirs': [
-                '<(SHARED_INTERMEDIATE_DIR)'
-              ],
-              'sources': [
-                'test/cctest/test_inspector_socket.cc',
-                'test/cctest/test_inspector_socket_server.cc'
-              ],
-              'conditions': [
-                [ 'node_shared_zlib=="false"', {
-                  'dependencies': [
-                    'deps/zlib/zlib.gyp:zlib',
-                  ]
-                }],
-                [ 'node_shared_openssl=="false"', {
-                  'dependencies': [
-                    'deps/openssl/openssl.gyp:openssl'
-                  ]
-                }],
-                [ 'node_shared_http_parser=="false"', {
-                  'dependencies': [
-                    'deps/http_parser/http_parser.gyp:http_parser'
-                  ]
-                }],
-                [ 'node_shared_libuv=="false"', {
-                  'dependencies': [
-                    'deps/uv/uv.gyp:libuv'
-                  ]
-                }]
-              ]
-            }],
-            ['node_use_v8_platform=="true"', {
-               'dependencies': [
-                  'deps/v8/tools/gyp/v8.gyp:v8_libplatform',
-              ],
-            }],
-            ['node_use_bundled_v8=="true"', {
-              'dependencies': [
-                  'deps/v8/tools/gyp/v8.gyp:v8',
-                  'deps/v8/tools/gyp/v8.gyp:v8_libplatform'
-              ],
-            }],
-          ]
         }],
         ['node_engine=="chakracore"', {
-          'dependencies': [ 
+          'dependencies': [
              'deps/chakrashim/chakrashim.gyp:chakrashim',
              'deps/uv/uv.gyp:libuv'
           ],
         }],
         ['node_engine=="spidermonkey"', {
           'dependencies': [ 'deps/spidershim/spidershim.gyp:spidershim' ],
+        }],
+
+        ['node_engine=="v8" and v8_enable_inspector==1', {
+          'sources': [
+            'test/cctest/test_inspector_socket.cc',
+            'test/cctest/test_inspector_socket_server.cc'
+          ],
+          'conditions': [
+            [ 'node_shared_zlib=="false"', {
+              'dependencies': [
+                'deps/zlib/zlib.gyp:zlib',
+              ]
+            }],
+            [ 'node_shared_openssl=="false"', {
+              'dependencies': [
+                'deps/openssl/openssl.gyp:openssl'
+              ]
+            }],
+            [ 'node_shared_http_parser=="false"', {
+              'dependencies': [
+                'deps/http_parser/http_parser.gyp:http_parser'
+              ]
+            }],
+            [ 'node_shared_libuv=="false"', {
+              'dependencies': [
+                'deps/uv/uv.gyp:libuv'
+              ]
+            }]
+          ]
+        }],
+        [ 'node_engine=="v8" and node_use_v8_platform=="true"', {
+          'dependencies': [
+            'deps/v8/src/v8.gyp:v8_libplatform',
+          ],
         }],
         [ 'node_use_dtrace=="true" and OS!="mac" and OS!="linux"', {
           'copies': [{
@@ -729,25 +705,7 @@
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
-      ],
-      'msvs_settings': {
-        'VCLinkerTool': {
-          'SubSystem': 1, # /subsystem:console
-        },
-      },
-      'defines': [
-        # gtest's ASSERT macros conflict with our own.
-        'GTEST_DONT_DEFINE_ASSERT_EQ=1',
-        'GTEST_DONT_DEFINE_ASSERT_GE=1',
-        'GTEST_DONT_DEFINE_ASSERT_GT=1',
-        'GTEST_DONT_DEFINE_ASSERT_LE=1',
-        'GTEST_DONT_DEFINE_ASSERT_LT=1',
-        'GTEST_DONT_DEFINE_ASSERT_NE=1',
-        'NODE_WANT_INTERNALS=1',
-      ],
-      'sources': [
-        'test/cctest/util.cc',
-      ],
+      ]
     }
   ], # end targets
 
