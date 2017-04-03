@@ -26,7 +26,7 @@
         'deps/v8/src/v8.gyp:v8_libplatform'
       ],
     }],
-    [ 'node_use_v8_platform=="true"', {
+    [ 'node_engine=="v8" and node_use_v8_platform=="true"', {
       'defines': [
         'NODE_USE_V8_PLATFORM=1',
       ],
