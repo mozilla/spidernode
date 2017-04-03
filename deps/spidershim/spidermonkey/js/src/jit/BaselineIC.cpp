@@ -847,12 +847,6 @@ DoGetElemFallback(JSContext* cx, BaselineFrame* frame, ICGetElem_Fallback* stub_
     if (attached)
         return true;
 
-    // GetElem operations on non-native objects cannot be cached by either
-    // Baseline or Ion. Indicate this in the cache so that Ion does not
-    // generate a cache for this op.
-    if (lhs.isObject() && !lhs.toObject().isNative())
-        stub->noteNonNativeAccess();
-
     // GetElem operations which could access negative indexes generally can't
     // be optimized without the potential for bailouts, as we can't statically
     // determine that an object has no properties on such indexes.
@@ -1578,7 +1572,15 @@ DoSetPropFallback(JSContext* cx, BaselineFrame* frame, ICSetProp_Fallback* stub_
     if (stub.invalid())
         return true;
 
-    if (!attached && stub->state().canAttachStub()) {
+    if (attached)
+        return true;
+
+    // The SetProperty call might have entered this IC recursively, so try
+    // to transition.
+    if (stub->state().maybeTransition())
+        stub->discardStubs(cx);
+
+    if (stub->state().canAttachStub()) {
         RootedValue idVal(cx, StringValue(name));
         SetPropIRGenerator gen(cx, script, pc, CacheKind::SetProp, stub->state().mode(),
                                &isTemporarilyUnoptimizable, lhs, idVal, rhs);
@@ -3374,6 +3376,7 @@ ICCall_Native::Compiler::generateStubCode(MacroAssembler& masm)
     EmitBaselineCreateStubFrameDescriptor(masm, scratch, ExitFrameLayout::Size());
     masm.push(scratch);
     masm.push(ICTailCallReg);
+    masm.loadJSContext(scratch);
     masm.enterFakeExitFrameForNative(scratch, isConstructing_);
 
     // Execute call.
@@ -3471,6 +3474,7 @@ ICCall_ClassHook::Compiler::generateStubCode(MacroAssembler& masm)
     EmitBaselineCreateStubFrameDescriptor(masm, scratch, ExitFrameLayout::Size());
     masm.push(scratch);
     masm.push(ICTailCallReg);
+    masm.loadJSContext(scratch);
     masm.enterFakeExitFrameForNative(scratch, isConstructing_);
 
     // Execute call.

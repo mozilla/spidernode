@@ -392,8 +392,11 @@ ModuleGenerator::patchCallSites()
             if (jumps.empty() ||
                 uint32_t(abs(int32_t(jumps.back()) - int32_t(callerOffset))) >= JumpRange())
             {
+                // See BaseCompiler::insertBreakablePoint for why we must
+                // reload the TLS register on this path.
                 Offsets offsets;
                 offsets.begin = masm_.currentOffset();
+                masm_.loadPtr(Address(FramePointer, offsetof(Frame, tls)), WasmTlsReg);
                 uint32_t jumpOffset = masm_.farJumpWithPatch().offset();
                 offsets.end = masm_.currentOffset();
                 if (masm_.oom())
@@ -612,7 +615,7 @@ ModuleGenerator::finishCodegen()
         return false;
 
     interruptExit.offsetBy(offsetInWhole);
-    if (!metadata_->codeRanges.emplaceBack(CodeRange::Inline, interruptExit))
+    if (!metadata_->codeRanges.emplaceBack(CodeRange::Interrupt, interruptExit))
         return false;
 
     throwStub.offsetBy(offsetInWhole);
@@ -646,7 +649,7 @@ ModuleGenerator::finishCodegen()
 }
 
 bool
-ModuleGenerator::finishLinkData(Bytes& code)
+ModuleGenerator::finishLinkData()
 {
     // Inflate the global bytes up to page size so that the total bytes are a
     // page size (as required by the allocator functions).
@@ -1178,7 +1181,7 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
     }
 #endif
 
-    if (!finishLinkData(code))
+    if (!finishLinkData())
         return nullptr;
 
     return SharedModule(js_new<Module>(Move(assumptions_),

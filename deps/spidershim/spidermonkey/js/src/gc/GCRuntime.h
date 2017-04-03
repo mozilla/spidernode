@@ -37,6 +37,12 @@ class MarkingValidator;
 class AutoTraceSession;
 struct MovingTracer;
 
+enum IncrementalProgress
+{
+    NotFinished = 0,
+    Finished
+};
+
 class ChunkPool
 {
     Chunk* head_;
@@ -769,6 +775,10 @@ class GCRuntime
 
     bool isCompactingGCEnabled() const;
 
+    bool isShrinkingGC() const { return invocationKind == GC_SHRINK; }
+
+    static bool initializeSweepActions();
+
     void setGrayRootsTracer(JSTraceDataOp traceOp, void* data);
     MOZ_MUST_USE bool addBlackRootsTracer(JSTraceDataOp traceOp, void* data);
     void removeBlackRootsTracer(JSTraceDataOp traceOp, void* data);
@@ -890,12 +900,6 @@ class GCRuntime
     static TenuredCell* refillFreeListInGC(Zone* zone, AllocKind thingKind);
 
   private:
-    enum IncrementalProgress
-    {
-        NotFinished = 0,
-        Finished
-    };
-
     enum IncrementalResult
     {
         Reset = 0,
@@ -985,7 +989,16 @@ class GCRuntime
     void beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock);
     bool shouldReleaseObservedTypes();
     void endSweepingSweepGroup();
-    IncrementalProgress sweepPhase(SliceBudget& sliceBudget, AutoLockForExclusiveAccess& lock);
+    IncrementalProgress performSweepActions(SliceBudget& sliceBudget,
+                                            AutoLockForExclusiveAccess& lock);
+    static IncrementalProgress sweepTypeInformation(GCRuntime* gc, FreeOp* fop, Zone* zone,
+                                                    SliceBudget& budget, AllocKind kind);
+    static IncrementalProgress mergeSweptObjectArenas(GCRuntime* gc, FreeOp* fop, Zone* zone,
+                                                      SliceBudget& budget, AllocKind kind);
+    static IncrementalProgress finalizeAllocKind(GCRuntime* gc, FreeOp* fop, Zone* zone,
+                                                 SliceBudget& budget, AllocKind kind);
+    static IncrementalProgress sweepShapeTree(GCRuntime* gc, FreeOp* fop, Zone* zone,
+                                              SliceBudget& budget, AllocKind kind);
     void endSweepPhase(bool lastGC, AutoLockForExclusiveAccess& lock);
     bool allCCVisibleZonesWereCollected() const;
     void sweepZones(FreeOp* fop, ZoneGroup* group, bool lastGC);
@@ -1204,10 +1217,9 @@ class GCRuntime
      */
     ActiveThreadData<JS::Zone*> sweepGroups;
     ActiveThreadOrGCTaskData<JS::Zone*> currentSweepGroup;
-    ActiveThreadData<bool> sweepingTypes;
-    ActiveThreadData<unsigned> finalizePhase;
+    ActiveThreadData<size_t> sweepPhaseIndex;
     ActiveThreadData<JS::Zone*> sweepZone;
-    ActiveThreadData<AllocKind> sweepKind;
+    ActiveThreadData<size_t> sweepActionIndex;
     ActiveThreadData<bool> abortSweepAfterCurrentGroup;
 
     /*

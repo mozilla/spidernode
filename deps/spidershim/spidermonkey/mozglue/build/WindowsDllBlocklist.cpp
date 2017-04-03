@@ -225,6 +225,14 @@ static const DllBlockInfo sWindowsDllBlocklist[] = {
   // K7TotalSecurity, bug 1339083.
   { "k7pswsen.dll", MAKE_VERSION(15, 2, 2, 95) },
 
+  // smci*.dll - goobzo crashware (bug 1339908)
+  { "smci32.dll", ALL_VERSIONS },
+  { "smci64.dll", ALL_VERSIONS },
+
+  // Crashes with Internet Download Manager, bug 1333486
+  { "idmcchandler7.dll", ALL_VERSIONS },
+  { "idmcchandler7_64.dll", ALL_VERSIONS },
+
   { nullptr, 0 }
 };
 
@@ -535,6 +543,8 @@ patched_LdrLoadDll (PWCHAR filePath, PULONG flags, PUNICODE_STRING moduleFileNam
   wchar_t *fname = moduleFileName->Buffer;
   UniquePtr<wchar_t[]> full_fname;
 
+  const DllBlockInfo* info = &sWindowsDllBlocklist[0];
+
   // The filename isn't guaranteed to be null terminated, but in practice
   // it always will be; ensure that this is so, and bail if not.
   // This is done instead of the more robust approach because of bug 527122,
@@ -615,7 +625,6 @@ patched_LdrLoadDll (PWCHAR filePath, PULONG flags, PUNICODE_STRING moduleFileNam
   }
 
   // then compare to everything on the blocklist
-  const DllBlockInfo* info = &sWindowsDllBlocklist[0];
   while (info->name) {
     if (strcmp(info->name, dllName) == 0)
       break;
