@@ -143,7 +143,7 @@
       'type': '<(node_target_type)',
 
       'dependencies': [
-        'node_js2c#host'
+        'node_js2c#host',
       ],
 
       'includes': [
