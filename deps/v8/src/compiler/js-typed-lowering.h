@@ -5,9 +5,11 @@
 #ifndef V8_COMPILER_JS_TYPED_LOWERING_H_
 #define V8_COMPILER_JS_TYPED_LOWERING_H_
 
+#include "src/base/compiler-specific.h"
 #include "src/base/flags.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/opcodes.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -26,7 +28,8 @@ class SimplifiedOperatorBuilder;
 class TypeCache;
 
 // Lowers JS-level operators to simplified operators based on types.
-class JSTypedLowering final : public AdvancedReducer {
+class V8_EXPORT_PRIVATE JSTypedLowering final
+    : public NON_EXPORTED_BASE(AdvancedReducer) {
  public:
   // Flags that control the mode of operation.
   enum Flag {
@@ -52,12 +55,15 @@ class JSTypedLowering final : public AdvancedReducer {
   Reduction ReduceJSOrdinaryHasInstance(Node* node);
   Reduction ReduceJSLoadContext(Node* node);
   Reduction ReduceJSStoreContext(Node* node);
+  Reduction ReduceJSLoadModule(Node* node);
+  Reduction ReduceJSStoreModule(Node* node);
   Reduction ReduceJSEqualTypeOf(Node* node, bool invert);
   Reduction ReduceJSEqual(Node* node, bool invert);
   Reduction ReduceJSStrictEqual(Node* node, bool invert);
   Reduction ReduceJSToBoolean(Node* node);
   Reduction ReduceJSToInteger(Node* node);
   Reduction ReduceJSToLength(Node* node);
+  Reduction ReduceJSToName(Node* node);
   Reduction ReduceJSToNumberInput(Node* input);
   Reduction ReduceJSToNumber(Node* node);
   Reduction ReduceJSToStringInput(Node* input);
@@ -67,9 +73,12 @@ class JSTypedLowering final : public AdvancedReducer {
   Reduction ReduceJSCallConstruct(Node* node);
   Reduction ReduceJSCallFunction(Node* node);
   Reduction ReduceJSForInNext(Node* node);
+  Reduction ReduceJSLoadMessage(Node* node);
+  Reduction ReduceJSStoreMessage(Node* node);
   Reduction ReduceJSGeneratorStore(Node* node);
   Reduction ReduceJSGeneratorRestoreContinuation(Node* node);
   Reduction ReduceJSGeneratorRestoreRegister(Node* node);
+  Reduction ReduceJSTypeOf(Node* node);
   Reduction ReduceNumberBinop(Node* node);
   Reduction ReduceInt32Binop(Node* node);
   Reduction ReduceUI32Shift(Node* node, Signedness signedness);
@@ -89,7 +98,6 @@ class JSTypedLowering final : public AdvancedReducer {
   Flags flags_;
   JSGraph* jsgraph_;
   Type* shifted_int32_ranges_[4];
-  Type* const the_hole_type_;
   TypeCache const& type_cache_;
 };
 

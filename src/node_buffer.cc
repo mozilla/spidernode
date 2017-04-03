@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "node.h"
 #include "node_buffer.h"
 
@@ -148,7 +169,8 @@ void CallbackInfo::WeakCallback(Isolate* isolate) {
 // Parse index for external array data.
 inline MUST_USE_RESULT bool ParseArrayIndex(Local<Value> arg,
                                             size_t def,
-                                            size_t* ret) {
+                                            size_t* ret,
+                                            size_t needed = 0) {
   if (arg->IsUndefined()) {
     *ret = def;
     return true;
@@ -162,7 +184,7 @@ inline MUST_USE_RESULT bool ParseArrayIndex(Local<Value> arg,
   // Check that the result fits in a size_t.
   const uint64_t kSizeMax = static_cast<uint64_t>(static_cast<size_t>(-1));
   // coverity[pointless_expression]
-  if (static_cast<uint64_t>(tmp_i) > kSizeMax)
+  if (static_cast<uint64_t>(tmp_i) > kSizeMax - needed)
     return false;
 
   *ret = static_cast<size_t>(tmp_i);
@@ -794,17 +816,28 @@ void WriteFloatGeneric(const FunctionCallbackInfo<Value>& args) {
     CHECK_NE(ts_obj_data, nullptr);
 
   T val = args[1]->NumberValue(env->context()).FromMaybe(0);
-  size_t offset = args[2]->IntegerValue(env->context()).FromMaybe(0);
 
   size_t memcpy_num = sizeof(T);
+  size_t offset;
 
-  if (should_assert) {
-    THROW_AND_RETURN_IF_OOB(offset + memcpy_num >= memcpy_num);
-    THROW_AND_RETURN_IF_OOB(offset + memcpy_num <= ts_obj_length);
+  // If the offset is negative or larger than the size of the ArrayBuffer,
+  // throw an error (if needed) and return directly.
+  if (!ParseArrayIndex(args[2], 0, &offset, memcpy_num) ||
+      offset >= ts_obj_length) {
+    if (should_assert)
+      THROW_AND_RETURN_IF_OOB(false);
+    return;
   }
 
-  if (offset + memcpy_num > ts_obj_length)
-    memcpy_num = ts_obj_length - offset;
+  // If the offset is too large for the entire value, but small enough to fit
+  // part of the value, throw an error and return only if should_assert is
+  // true. Otherwise, write the part of the value that fits.
+  if (offset + memcpy_num > ts_obj_length) {
+    if (should_assert)
+      THROW_AND_RETURN_IF_OOB(false);
+    else
+      memcpy_num = ts_obj_length - offset;
+  }
 
   union NoAlias {
     T val;

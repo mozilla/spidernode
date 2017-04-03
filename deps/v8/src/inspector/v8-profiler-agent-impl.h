@@ -20,7 +20,7 @@ namespace v8_inspector {
 
 class V8InspectorSessionImpl;
 
-using protocol::ErrorString;
+using protocol::Response;
 
 class V8ProfilerAgentImpl : public protocol::Profiler::Backend {
  public:
@@ -31,20 +31,17 @@ class V8ProfilerAgentImpl : public protocol::Profiler::Backend {
   bool enabled() const { return m_enabled; }
   void restore();
 
-  void enable(ErrorString*) override;
-  void disable(ErrorString*) override;
-  void setSamplingInterval(ErrorString*, int) override;
-  void start(ErrorString*) override;
-  void stop(ErrorString*,
-            std::unique_ptr<protocol::Profiler::Profile>*) override;
+  Response enable() override;
+  Response disable() override;
+  Response setSamplingInterval(int) override;
+  Response start() override;
+  Response stop(std::unique_ptr<protocol::Profiler::Profile>*) override;
 
   void consoleProfile(const String16& title);
   void consoleProfileEnd(const String16& title);
 
   bool idleStarted();
   bool idleFinished();
-
-  void collectSample();
 
  private:
   String16 nextProfileId();

@@ -27,6 +27,7 @@
 #include "src/runtime-profiler.h"
 #include "src/source-position-table.h"
 #include "src/string-stream.h"
+#include "src/tracing/tracing-category-observer.h"
 #include "src/vm-state-inl.h"
 
 namespace v8 {
@@ -893,64 +894,6 @@ void Logger::LeaveExternal(Isolate* isolate) {
 TIMER_EVENTS_LIST(V)
 #undef V
 
-
-namespace {
-// Emits the source code of a regexp. Used by regexp events.
-void LogRegExpSource(Handle<JSRegExp> regexp, Isolate* isolate,
-                     Log::MessageBuilder* msg) {
-  // Prints "/" + re.source + "/" +
-  //      (re.global?"g":"") + (re.ignorecase?"i":"") + (re.multiline?"m":"")
-
-  Handle<Object> source =
-      JSReceiver::GetProperty(isolate, regexp, "source").ToHandleChecked();
-  if (!source->IsString()) {
-    msg->Append("no source");
-    return;
-  }
-
-  switch (regexp->TypeTag()) {
-    case JSRegExp::ATOM:
-      msg->Append('a');
-      break;
-    default:
-      break;
-  }
-  msg->Append('/');
-  msg->AppendDetailed(*Handle<String>::cast(source), false);
-  msg->Append('/');
-
-  // global flag
-  Handle<Object> global =
-      JSReceiver::GetProperty(isolate, regexp, "global").ToHandleChecked();
-  if (global->IsTrue(isolate)) {
-    msg->Append('g');
-  }
-  // ignorecase flag
-  Handle<Object> ignorecase =
-      JSReceiver::GetProperty(isolate, regexp, "ignoreCase").ToHandleChecked();
-  if (ignorecase->IsTrue(isolate)) {
-    msg->Append('i');
-  }
-  // multiline flag
-  Handle<Object> multiline =
-      JSReceiver::GetProperty(isolate, regexp, "multiline").ToHandleChecked();
-  if (multiline->IsTrue(isolate)) {
-    msg->Append('m');
-  }
-}
-}  // namespace
-
-
-void Logger::RegExpCompileEvent(Handle<JSRegExp> regexp, bool in_cache) {
-  if (!log_->IsEnabled() || !FLAG_log_regexp) return;
-  Log::MessageBuilder msg(log_);
-  msg.Append("regexp-compile,");
-  LogRegExpSource(regexp, isolate_, &msg);
-  msg.Append(in_cache ? ",hit" : ",miss");
-  msg.WriteToLogFile();
-}
-
-
 void Logger::ApiNamedPropertyAccess(const char* tag,
                                     JSObject* holder,
                                     Object* name) {
@@ -1206,12 +1149,13 @@ void Logger::CodeLinePosInfoRecordEvent(AbstractCode* code,
          iter.Advance()) {
       if (iter.is_statement()) {
         jit_logger_->AddCodeLinePosInfoEvent(
-            jit_handler_data, iter.code_offset(), iter.source_position(),
+            jit_handler_data, iter.code_offset(),
+            iter.source_position().ScriptOffset(),
             JitCodeEvent::STATEMENT_POSITION);
       }
-      jit_logger_->AddCodeLinePosInfoEvent(jit_handler_data, iter.code_offset(),
-                                           iter.source_position(),
-                                           JitCodeEvent::POSITION);
+      jit_logger_->AddCodeLinePosInfoEvent(
+          jit_handler_data, iter.code_offset(),
+          iter.source_position().ScriptOffset(), JitCodeEvent::POSITION);
     }
     jit_logger_->EndCodePosInfoEvent(code, jit_handler_data);
   }
@@ -1335,13 +1279,14 @@ void Logger::RuntimeCallTimerEvent() {
   if (counter == nullptr) return;
   Log::MessageBuilder msg(log_);
   msg.Append("active-runtime-timer,");
-  msg.AppendDoubleQuotedString(counter->name);
+  msg.AppendDoubleQuotedString(counter->name());
   msg.WriteToLogFile();
 }
 
 void Logger::TickEvent(v8::TickSample* sample, bool overflow) {
   if (!log_->IsEnabled() || !FLAG_prof_cpp) return;
-  if (FLAG_runtime_call_stats) {
+  if (V8_UNLIKELY(FLAG_runtime_stats ==
+                  v8::tracing::TracingCategoryObserver::ENABLED_BY_NATIVE)) {
     RuntimeCallTimerEvent();
   }
   Log::MessageBuilder msg(log_);
@@ -1384,6 +1329,17 @@ void Logger::LogFailure() {
   StopProfiler();
 }
 
+static void AddFunctionAndCode(SharedFunctionInfo* sfi,
+                               AbstractCode* code_object,
+                               Handle<SharedFunctionInfo>* sfis,
+                               Handle<AbstractCode>* code_objects, int offset) {
+  if (sfis != NULL) {
+    sfis[offset] = Handle<SharedFunctionInfo>(sfi);
+  }
+  if (code_objects != NULL) {
+    code_objects[offset] = Handle<AbstractCode>(code_object);
+  }
+}
 
 class EnumerateOptimizedFunctionsVisitor: public OptimizedFunctionVisitor {
  public:
@@ -1400,14 +1356,11 @@ class EnumerateOptimizedFunctionsVisitor: public OptimizedFunctionVisitor {
     Object* maybe_script = sfi->script();
     if (maybe_script->IsScript()
         && !Script::cast(maybe_script)->HasValidSource()) return;
-    if (sfis_ != NULL) {
-      sfis_[*count_] = Handle<SharedFunctionInfo>(sfi);
-    }
-    if (code_objects_ != NULL) {
-      DCHECK(function->abstract_code()->kind() ==
-             AbstractCode::OPTIMIZED_FUNCTION);
-      code_objects_[*count_] = Handle<AbstractCode>(function->abstract_code());
-    }
+
+    DCHECK(function->abstract_code()->kind() ==
+           AbstractCode::OPTIMIZED_FUNCTION);
+    AddFunctionAndCode(sfi, function->abstract_code(), sfis_, code_objects_,
+                       *count_);
     *count_ = *count_ + 1;
   }
 
@@ -1432,14 +1385,19 @@ static int EnumerateCompiledFunctions(Heap* heap,
     if (sfi->is_compiled()
         && (!sfi->script()->IsScript()
             || Script::cast(sfi->script())->HasValidSource())) {
-      if (sfis != NULL) {
-        sfis[compiled_funcs_count] = Handle<SharedFunctionInfo>(sfi);
+      // In some cases, an SFI might have (and have executing!) both bytecode
+      // and baseline code, so check for both and add them both if needed.
+      if (sfi->HasBytecodeArray()) {
+        AddFunctionAndCode(sfi, AbstractCode::cast(sfi->bytecode_array()), sfis,
+                           code_objects, compiled_funcs_count);
+        ++compiled_funcs_count;
       }
-      if (code_objects != NULL) {
-        code_objects[compiled_funcs_count] =
-            Handle<AbstractCode>(sfi->abstract_code());
+
+      if (!sfi->IsInterpreted()) {
+        AddFunctionAndCode(sfi, AbstractCode::cast(sfi->code()), sfis,
+                           code_objects, compiled_funcs_count);
+        ++compiled_funcs_count;
       }
-      ++compiled_funcs_count;
     }
   }
 
@@ -1524,6 +1482,10 @@ void Logger::LogCodeObject(Object* object) {
       description = "A Wasm to JavaScript adapter";
       tag = CodeEventListener::STUB_TAG;
       break;
+    case AbstractCode::WASM_INTERPRETER_ENTRY:
+      description = "A Wasm to Interpreter adapter";
+      tag = CodeEventListener::STUB_TAG;
+      break;
     case AbstractCode::NUMBER_OF_KINDS:
       UNIMPLEMENTED();
   }
@@ -1542,8 +1504,6 @@ void Logger::LogCodeObjects() {
 }
 
 void Logger::LogBytecodeHandlers() {
-  if (!FLAG_ignition) return;
-
   const interpreter::OperandScale kOperandScales[] = {
 #define VALUE(Name, _) interpreter::OperandScale::k##Name,
       OPERAND_SCALE_LIST(VALUE)
@@ -1569,7 +1529,6 @@ void Logger::LogBytecodeHandlers() {
 
 void Logger::LogExistingFunction(Handle<SharedFunctionInfo> shared,
                                  Handle<AbstractCode> code) {
-  Handle<String> func_name(shared->DebugName());
   if (shared->script()->IsScript()) {
     Handle<Script> script(Script::cast(shared->script()));
     int line_num = Script::GetLineNumber(script, shared->start_position()) + 1;
@@ -1608,11 +1567,12 @@ void Logger::LogExistingFunction(Handle<SharedFunctionInfo> shared,
 #if USES_FUNCTION_DESCRIPTORS
       entry_point = *FUNCTION_ENTRYPOINT_ADDRESS(entry_point);
 #endif
-      PROFILE(isolate_, CallbackEvent(*func_name, entry_point));
+      PROFILE(isolate_, CallbackEvent(shared->DebugName(), entry_point));
     }
   } else {
-    PROFILE(isolate_, CodeCreateEvent(CodeEventListener::LAZY_COMPILE_TAG,
-                                      *code, *shared, *func_name));
+    PROFILE(isolate_,
+            CodeCreateEvent(CodeEventListener::LAZY_COMPILE_TAG, *code, *shared,
+                            isolate_->heap()->empty_string()));
   }
 }
 

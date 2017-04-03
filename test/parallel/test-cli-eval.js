@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 'use strict';
 if (module.parent) {
   // Signal we've been loaded as a module.
@@ -122,6 +143,17 @@ child.exec(`${nodejs} --use-strict -p process.execArgv`,
                assert.strictEqual(stdout, '');
                assert.strictEqual(stderr, '');
              }));
+
+  // Make sure that monkey-patching process.execArgv doesn't cause child_process
+  // to incorrectly munge execArgv.
+  child.exec(
+    `${nodejs} -e "process.execArgv = ['-e', 'console.log(42)', 'thirdArg'];` +
+                  `require('child_process').fork('${emptyFile}')"`,
+    common.mustCall((err, stdout, stderr) => {
+      assert.ifError(err);
+      assert.strictEqual(stdout, '42\n');
+      assert.strictEqual(stderr, '');
+    }));
 }
 
 // Regression test for https://github.com/nodejs/node/issues/8534.
@@ -137,6 +169,25 @@ child.exec(`${nodejs} --use-strict -p process.execArgv`,
   const proc = child.spawnSync(process.execPath, ['-e', script], options);
   assert.strictEqual(proc.stderr, '');
   assert.strictEqual(proc.stdout, 'start\nbeforeExit\nexit\n');
+}
+
+// Regression test for https://github.com/nodejs/node/issues/11948.
+{
+  const script = `
+      process.on('message', (message) => {
+        if (message === 'ping') process.send('pong');
+        if (message === 'exit') process.disconnect();
+      });
+  `;
+  const proc = child.fork('-e', [script]);
+  proc.on('exit', common.mustCall((exitCode, signalCode) => {
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(signalCode, null);
+  }));
+  proc.on('message', (message) => {
+    if (message === 'pong') proc.send('exit');
+  });
+  proc.send('ping');
 }
 
 [ '-arg1',

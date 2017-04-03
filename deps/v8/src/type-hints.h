@@ -33,6 +33,8 @@ enum class CompareOperationHint : uint8_t {
   kSignedSmall,
   kNumber,
   kNumberOrOddball,
+  kInternalizedString,
+  kString,
   kAny
 };
 
@@ -55,16 +57,37 @@ enum class ToBooleanHint : uint16_t {
   kHeapNumber = 1u << 7,
   kSimdValue = 1u << 8,
   kAny = kUndefined | kBoolean | kNull | kSmallInteger | kReceiver | kString |
-         kSymbol | kHeapNumber | kSimdValue
+         kSymbol | kHeapNumber | kSimdValue,
+  kNeedsMap = kReceiver | kString | kSymbol | kHeapNumber | kSimdValue,
+  kCanBeUndetectable = kReceiver,
 };
 
 std::ostream& operator<<(std::ostream&, ToBooleanHint);
+std::string ToString(ToBooleanHint);
 
 typedef base::Flags<ToBooleanHint, uint16_t> ToBooleanHints;
 
 std::ostream& operator<<(std::ostream&, ToBooleanHints);
+std::string ToString(ToBooleanHints);
 
 DEFINE_OPERATORS_FOR_FLAGS(ToBooleanHints)
+
+enum StringAddFlags {
+  // Omit both parameter checks.
+  STRING_ADD_CHECK_NONE = 0,
+  // Check left parameter.
+  STRING_ADD_CHECK_LEFT = 1 << 0,
+  // Check right parameter.
+  STRING_ADD_CHECK_RIGHT = 1 << 1,
+  // Check both parameters.
+  STRING_ADD_CHECK_BOTH = STRING_ADD_CHECK_LEFT | STRING_ADD_CHECK_RIGHT,
+  // Convert parameters when check fails (instead of throwing an exception).
+  STRING_ADD_CONVERT = 1 << 2,
+  STRING_ADD_CONVERT_LEFT = STRING_ADD_CHECK_LEFT | STRING_ADD_CONVERT,
+  STRING_ADD_CONVERT_RIGHT = STRING_ADD_CHECK_RIGHT | STRING_ADD_CONVERT
+};
+
+std::ostream& operator<<(std::ostream& os, const StringAddFlags& flags);
 
 }  // namespace internal
 }  // namespace v8

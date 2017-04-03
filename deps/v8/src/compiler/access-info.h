@@ -26,7 +26,8 @@ class Type;
 class TypeCache;
 
 // Whether we are loading a property or storing to a property.
-enum class AccessMode { kLoad, kStore };
+// For a store during literal creation, do not walk up the prototype chain.
+enum class AccessMode { kLoad, kStore, kStoreInLiteral };
 
 std::ostream& operator<<(std::ostream&, AccessMode);
 
@@ -61,7 +62,8 @@ class PropertyAccessInfo final {
     kNotFound,
     kDataConstant,
     kDataField,
-    kAccessorConstant
+    kAccessorConstant,
+    kGeneric
   };
 
   static PropertyAccessInfo NotFound(MapList const& receiver_maps,
@@ -78,6 +80,7 @@ class PropertyAccessInfo final {
   static PropertyAccessInfo AccessorConstant(MapList const& receiver_maps,
                                              Handle<Object> constant,
                                              MaybeHandle<JSObject> holder);
+  static PropertyAccessInfo Generic(MapList const& receiver_maps);
 
   PropertyAccessInfo();
 
@@ -87,6 +90,7 @@ class PropertyAccessInfo final {
   bool IsDataConstant() const { return kind() == kDataConstant; }
   bool IsDataField() const { return kind() == kDataField; }
   bool IsAccessorConstant() const { return kind() == kAccessorConstant; }
+  bool IsGeneric() const { return kind() == kGeneric; }
 
   bool HasTransitionMap() const { return !transition_map().is_null(); }
 

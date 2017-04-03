@@ -37,33 +37,56 @@
     'icu_use_data_file_flag%': 0,
 
     'conditions': [
-      ['OS == "win"', {
-        'os_posix': 0,
-        'v8_postmortem_support%': 'false',
-      }, {
-        'os_posix': 1,
-        'v8_postmortem_support%': 'true',
-      }],
-      ['GENERATOR == "ninja" or OS == "mac"', {
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj',
-      }, {
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
-      }],
-      ['(GENERATOR == "ninja" or OS == "mac") and node_engine == "v8"', {
-        'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
-      }],
-      ['not(GENERATOR == "ninja" or OS == "mac") and node_engine == "v8"', {
-        'V8_BASE': '<(PRODUCT_DIR)/obj.target/deps/v8/tools/gyp/libv8_base.a',
+      ['node_engine=="v8"', {
+        'conditions': [
+          ['OS == "win"', {
+            'os_posix': 0,
+            'v8_postmortem_support%': 'false',
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+            'V8_BASE': '<(PRODUCT_DIR)/lib/v8_libbase.lib',
+          }, {
+            'os_posix': 1,
+            'v8_postmortem_support%': 'true',
+          }],
+          ['OS== "mac"', {
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
+            'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
+          }, {
+            'conditions': [
+              ['GENERATOR=="ninja"', {
+                'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+                'V8_BASE': '<(PRODUCT_DIR)/obj/deps/v8/src/libv8_base.a',
+              }, {
+                'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+                'V8_BASE%': '<(PRODUCT_DIR)/obj.target/deps/v8/src/libv8_base.a',
+              }],
+            ],
+          }],
+        ],
       }],
       ['openssl_fips != ""', {
         'OPENSSL_PRODUCT': 'libcrypto.a',
       }, {
         'OPENSSL_PRODUCT': 'libopenssl.a',
       }],
+      ['OS == "win"', {
+        'os_posix': 0,
+        'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+      }, {
+        'os_posix': 1,
+      }],
       ['OS=="mac"', {
         'clang%': 1,
+        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
       }, {
         'clang%': 0,
+        'conditions': [
+          ['GENERATOR=="ninja"', {
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+          }, {
+            'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+          }],
+        ],
       }],
     ],
   },
@@ -364,12 +387,12 @@
 	    'ldflags': [ '-m64' ],
 	   }],
           [ 'target_arch=="s390"', {
-            'cflags': [ '-m31' ],
-            'ldflags': [ '-m31' ],
+            'cflags': [ '-m31', '-march=z196' ],
+            'ldflags': [ '-m31', '-march=z196' ],
           }],
           [ 'target_arch=="s390x"', {
-            'cflags': [ '-m64' ],
-            'ldflags': [ '-m64' ],
+            'cflags': [ '-m64', '-march=z196' ],
+            'ldflags': [ '-m64', '-march=z196' ],
           }],
           [ 'OS=="solaris"', {
             'cflags': [ '-pthreads' ],

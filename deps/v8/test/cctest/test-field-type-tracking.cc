@@ -73,23 +73,12 @@ static Handle<AccessorPair> CreateAccessorPair(bool with_getter,
 }
 
 
-static bool EqualDetails(DescriptorArray* descriptors, int descriptor,
-                         PropertyType type, PropertyAttributes attributes,
-                         Representation representation, int field_index = -1) {
-  PropertyDetails details = descriptors->GetDetails(descriptor);
-  if (details.type() != type) return false;
-  if (details.attributes() != attributes) return false;
-  if (!details.representation().Equals(representation)) return false;
-  if (field_index >= 0 && details.field_index() != field_index) return false;
-  return true;
-}
-
-
 class Expectations {
   static const int MAX_PROPERTIES = 10;
   Isolate* isolate_;
   ElementsKind elements_kind_;
-  PropertyType types_[MAX_PROPERTIES];
+  PropertyKind kinds_[MAX_PROPERTIES];
+  PropertyLocation locations_[MAX_PROPERTIES];
   PropertyAttributes attributes_[MAX_PROPERTIES];
   Representation representations_[MAX_PROPERTIES];
   // FieldType for kField, value for DATA_CONSTANT and getter for
@@ -110,10 +99,12 @@ class Expectations {
             isolate,
             isolate->object_function()->initial_map()->elements_kind()) {}
 
-  void Init(int index, PropertyType type, PropertyAttributes attributes,
-            Representation representation, Handle<Object> value) {
+  void Init(int index, PropertyKind kind, PropertyAttributes attributes,
+            PropertyLocation location, Representation representation,
+            Handle<Object> value) {
     CHECK(index < MAX_PROPERTIES);
-    types_[index] = type;
+    kinds_[index] = kind;
+    locations_[index] = location;
     attributes_[index] = attributes;
     representations_[index] = representation;
     values_[index] = value;
@@ -125,29 +116,23 @@ class Expectations {
     for (int i = 0; i < number_of_properties_; i++) {
       os << " " << i << ": ";
       os << "Descriptor @ ";
-      if (types_[i] == ACCESSOR_CONSTANT) {
+
+      if (kinds_[i] == kData) {
+        os << Brief(*values_[i]);
+      } else {
+        // kAccessor
         os << "(get: " << Brief(*values_[i])
            << ", set: " << Brief(*setter_values_[i]) << ") ";
-      } else {
-        os << Brief(*values_[i]);
       }
-      os << " (";
-      switch (types_[i]) {
-        case DATA_CONSTANT:
-          os << "immutable ";
-        // Fall through.
-        case DATA:
-          os << "data";
-          break;
 
-        case ACCESSOR_CONSTANT:
-          os << "immutable ";
-        // Fall through.
-        case ACCESSOR:
-          os << "accessor";
-          break;
+      os << " (";
+      os << (kinds_[i] == kData ? "data " : "accessor ");
+      if (locations_[i] == kField) {
+        os << "field"
+           << ": " << representations_[i].Mnemonic();
+      } else {
+        os << "descriptor";
       }
-      os << ": " << representations_[i].Mnemonic();
       os << ", attrs: " << attributes_[i] << ")\n";
     }
     os << "\n";
@@ -159,22 +144,23 @@ class Expectations {
 
   Handle<FieldType> GetFieldType(int index) {
     CHECK(index < MAX_PROPERTIES);
-    CHECK(types_[index] == DATA || types_[index] == ACCESSOR);
+    CHECK_EQ(kField, locations_[index]);
     return Handle<FieldType>::cast(values_[index]);
   }
 
   void SetDataField(int index, PropertyAttributes attrs,
-                    Representation representation, Handle<FieldType> value) {
-    Init(index, DATA, attrs, representation, value);
+                    Representation representation,
+                    Handle<FieldType> field_type) {
+    Init(index, kData, attrs, kField, representation, field_type);
   }
 
   void SetDataField(int index, Representation representation,
-                    Handle<FieldType> value) {
-    SetDataField(index, attributes_[index], representation, value);
+                    Handle<FieldType> field_type) {
+    SetDataField(index, attributes_[index], representation, field_type);
   }
 
   void SetAccessorField(int index, PropertyAttributes attrs) {
-    Init(index, ACCESSOR, attrs, Representation::Tagged(),
+    Init(index, kAccessor, attrs, kDescriptor, Representation::Tagged(),
          FieldType::Any(isolate_));
   }
 
@@ -184,7 +170,7 @@ class Expectations {
 
   void SetDataConstant(int index, PropertyAttributes attrs,
                        Handle<JSFunction> value) {
-    Init(index, DATA_CONSTANT, attrs, Representation::HeapObject(), value);
+    Init(index, kData, attrs, kDescriptor, Representation::HeapObject(), value);
   }
 
   void SetDataConstant(int index, Handle<JSFunction> value) {
@@ -193,14 +179,16 @@ class Expectations {
 
   void SetAccessorConstant(int index, PropertyAttributes attrs,
                            Handle<Object> getter, Handle<Object> setter) {
-    Init(index, ACCESSOR_CONSTANT, attrs, Representation::Tagged(), getter);
+    Init(index, kAccessor, attrs, kDescriptor, Representation::Tagged(),
+         getter);
     setter_values_[index] = setter;
   }
 
   void SetAccessorConstantComponent(int index, PropertyAttributes attrs,
                                     AccessorComponent component,
                                     Handle<Object> accessor) {
-    CHECK_EQ(ACCESSOR_CONSTANT, types_[index]);
+    CHECK_EQ(kAccessor, kinds_[index]);
+    CHECK_EQ(kDescriptor, locations_[index]);
     CHECK(index < number_of_properties_);
     if (component == ACCESSOR_GETTER) {
       values_[index] = accessor;
@@ -230,31 +218,41 @@ class Expectations {
   void GeneralizeRepresentation(int index) {
     CHECK(index < number_of_properties_);
     representations_[index] = Representation::Tagged();
-    if (types_[index] == DATA || types_[index] == ACCESSOR) {
+    if (locations_[index] == kField) {
       values_[index] = FieldType::Any(isolate_);
     }
   }
 
 
   bool Check(DescriptorArray* descriptors, int descriptor) const {
-    PropertyType type = types_[descriptor];
-    if (!EqualDetails(descriptors, descriptor, type, attributes_[descriptor],
-                      representations_[descriptor])) {
-      return false;
-    }
+    PropertyDetails details = descriptors->GetDetails(descriptor);
+
+    if (details.kind() != kinds_[descriptor]) return false;
+    if (details.location() != locations_[descriptor]) return false;
+
+    PropertyAttributes expected_attributes = attributes_[descriptor];
+    if (details.attributes() != expected_attributes) return false;
+
+    Representation expected_representation = representations_[descriptor];
+    if (!details.representation().Equals(expected_representation)) return false;
+
     Object* value = descriptors->GetValue(descriptor);
     Object* expected_value = *values_[descriptor];
-    switch (type) {
-      case DATA:
-      case ACCESSOR: {
+    if (details.location() == kField) {
+      if (details.kind() == kData) {
         FieldType* type = descriptors->GetFieldType(descriptor);
         return FieldType::cast(expected_value) == type;
+      } else {
+        // kAccessor
+        UNREACHABLE();
+        return false;
       }
-
-      case DATA_CONSTANT:
+    } else {
+      // kDescriptor
+      if (details.kind() == kData) {
         return value == expected_value;
-
-      case ACCESSOR_CONSTANT: {
+      } else {
+        // kAccessor
         if (value == expected_value) return true;
         if (!value->IsAccessorPair()) return false;
         AccessorPair* pair = AccessorPair::cast(value);
@@ -376,8 +374,8 @@ class Expectations {
 
     Handle<String> name = MakeName("prop", property_index);
 
-    AccessorConstantDescriptor new_desc(name, pair, attributes);
-    return Map::CopyInsertDescriptor(map, &new_desc, INSERT_TRANSITION);
+    Descriptor d = Descriptor::AccessorConstant(name, pair, attributes);
+    return Map::CopyInsertDescriptor(map, &d, INSERT_TRANSITION);
   }
 
   Handle<Map> AddAccessorConstant(Handle<Map> map,
@@ -396,14 +394,14 @@ class Expectations {
     if (!getter->IsNull(isolate_)) {
       Handle<AccessorPair> pair = factory->NewAccessorPair();
       pair->SetComponents(*getter, *factory->null_value());
-      AccessorConstantDescriptor new_desc(name, pair, attributes);
-      map = Map::CopyInsertDescriptor(map, &new_desc, INSERT_TRANSITION);
+      Descriptor d = Descriptor::AccessorConstant(name, pair, attributes);
+      map = Map::CopyInsertDescriptor(map, &d, INSERT_TRANSITION);
     }
     if (!setter->IsNull(isolate_)) {
       Handle<AccessorPair> pair = factory->NewAccessorPair();
       pair->SetComponents(*getter, *setter);
-      AccessorConstantDescriptor new_desc(name, pair, attributes);
-      map = Map::CopyInsertDescriptor(map, &new_desc, INSERT_TRANSITION);
+      Descriptor d = Descriptor::AccessorConstant(name, pair, attributes);
+      map = Map::CopyInsertDescriptor(map, &d, INSERT_TRANSITION);
     }
     return map;
   }
@@ -457,7 +455,7 @@ TEST(ReconfigureAccessorToNonExistingDataField) {
   CHECK(expectations.Check(*map));
 
   Handle<Map> new_map = Map::ReconfigureProperty(
-      map, 0, kData, NONE, Representation::None(), none_type, FORCE_FIELD);
+      map, 0, kData, NONE, Representation::None(), none_type);
   // |map| did not change except marked unstable.
   CHECK(!map->is_deprecated());
   CHECK(!map->is_stable());
@@ -470,10 +468,10 @@ TEST(ReconfigureAccessorToNonExistingDataField) {
   CHECK(expectations.Check(*new_map));
 
   Handle<Map> new_map2 = Map::ReconfigureProperty(
-      map, 0, kData, NONE, Representation::None(), none_type, FORCE_FIELD);
+      map, 0, kData, NONE, Representation::None(), none_type);
   CHECK_EQ(*new_map, *new_map2);
 
-  Handle<Object> value(Smi::FromInt(0), isolate);
+  Handle<Object> value(Smi::kZero, isolate);
   Handle<Map> prepared_map = Map::PrepareForDataProperty(new_map, 0, value);
   // None to Smi generalization is trivial, map does not change.
   CHECK_EQ(*new_map, *prepared_map);
@@ -589,12 +587,12 @@ static void TestGeneralizeRepresentation(
   CHECK(map->is_stable());
   CHECK(expectations.Check(*map));
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
 
   if (is_detached_map) {
     detach_point_map = Map::ReconfigureProperty(
         detach_point_map, detach_property_at_index, kData, NONE,
-        Representation::Tagged(), any_type, FORCE_FIELD);
+        Representation::Tagged(), any_type);
     expectations.SetDataField(detach_property_at_index,
                               Representation::Tagged(), any_type);
     CHECK(map->is_deprecated());
@@ -607,11 +605,10 @@ static void TestGeneralizeRepresentation(
   CompilationDependencies dependencies(isolate, &zone);
   CHECK(!dependencies.HasAborted());
 
-  dependencies.AssumeFieldType(field_owner);
+  dependencies.AssumeFieldOwner(field_owner);
 
-  Handle<Map> new_map =
-      Map::ReconfigureProperty(map, property_index, kData, NONE,
-                               to_representation, to_type, FORCE_FIELD);
+  Handle<Map> new_map = Map::ReconfigureProperty(
+      map, property_index, kData, NONE, to_representation, to_type);
 
   expectations.SetDataField(property_index, expected_representation,
                             expected_type);
@@ -902,7 +899,7 @@ TEST(GeneralizeRepresentationWithAccessorProperties) {
       continue;
     }
     Handle<Map> new_map = Map::ReconfigureProperty(
-        map, i, kData, NONE, Representation::Double(), any_type, FORCE_FIELD);
+        map, i, kData, NONE, Representation::Double(), any_type);
     maps[i] = new_map;
 
     expectations.SetDataField(i, Representation::Double(), any_type);
@@ -981,11 +978,11 @@ static void TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
   CHECK(map2->is_stable());
   CHECK(expectations2.Check(*map2));
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
   Handle<Map> field_owner(map->FindFieldOwner(kSplitProp), isolate);
   CompilationDependencies dependencies(isolate, &zone);
   CHECK(!dependencies.HasAborted());
-  dependencies.AssumeFieldType(field_owner);
+  dependencies.AssumeFieldOwner(field_owner);
 
   // Reconfigure attributes of property |kSplitProp| of |map2| to NONE, which
   // should generalize representations in |map1|.
@@ -1066,11 +1063,11 @@ static void TestReconfigureDataFieldAttribute_GeneralizeRepresentationTrivial(
   CHECK(map2->is_stable());
   CHECK(expectations2.Check(*map2));
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
   Handle<Map> field_owner(map->FindFieldOwner(kSplitProp), isolate);
   CompilationDependencies dependencies(isolate, &zone);
   CHECK(!dependencies.HasAborted());
-  dependencies.AssumeFieldType(field_owner);
+  dependencies.AssumeFieldOwner(field_owner);
 
   // Reconfigure attributes of property |kSplitProp| of |map2| to NONE, which
   // should generalize representations in |map1|.
@@ -1239,7 +1236,7 @@ struct CheckUnrelated {
 
 // Checks that given |map| is NOT deprecated, and |new_map| is a result of
 // copy-generalize-all-representations.
-struct CheckCopyGeneralizeAllRepresentations {
+struct CheckCopyGeneralizeAllFields {
   void Check(Handle<Map> map, Handle<Map> new_map, Expectations& expectations) {
     CHECK(!map->is_deprecated());
     CHECK_NE(*map, *new_map);
@@ -1379,11 +1376,23 @@ TEST(ReconfigureDataFieldAttribute_DataConstantToDataFieldAfterTargetMap) {
   struct TestConfig {
     Handle<JSFunction> js_func1_;
     Handle<JSFunction> js_func2_;
+    Handle<FieldType> function_type_;
     TestConfig() {
       Isolate* isolate = CcTest::i_isolate();
       Factory* factory = isolate->factory();
-      js_func1_ = factory->NewFunction(factory->empty_string());
-      js_func2_ = factory->NewFunction(factory->empty_string());
+      Handle<String> name = factory->empty_string();
+      Handle<Map> sloppy_map =
+          factory->CreateSloppyFunctionMap(FUNCTION_WITH_WRITEABLE_PROTOTYPE);
+      Handle<SharedFunctionInfo> info = factory->NewSharedFunctionInfo(
+          name, MaybeHandle<Code>(), sloppy_map->is_constructor());
+      function_type_ = FieldType::Class(sloppy_map, isolate);
+      CHECK(sloppy_map->is_stable());
+
+      js_func1_ =
+          factory->NewFunction(sloppy_map, info, isolate->native_context());
+
+      js_func2_ =
+          factory->NewFunction(sloppy_map, info, isolate->native_context());
     }
 
     Handle<Map> AddPropertyAtBranch(int branch_id, Expectations& expectations,
@@ -1394,11 +1403,8 @@ TEST(ReconfigureDataFieldAttribute_DataConstantToDataFieldAfterTargetMap) {
     }
 
     void UpdateExpectations(int property_index, Expectations& expectations) {
-      Isolate* isolate = CcTest::i_isolate();
-      Handle<FieldType> function_type =
-          FieldType::Class(isolate->sloppy_function_map(), isolate);
       expectations.SetDataField(property_index, Representation::HeapObject(),
-                                function_type);
+                                function_type_);
     }
   };
 
@@ -1502,11 +1508,11 @@ TEST(ReconfigureDataFieldAttribute_AccConstantToAccFieldAfterTargetMap) {
 
   TestConfig config;
   if (IS_ACCESSOR_FIELD_SUPPORTED) {
-    CheckCopyGeneralizeAllRepresentations checker;
+    CheckCopyGeneralizeAllFields checker;
     TestReconfigureProperty_CustomPropertyAfterTargetMap(config, checker);
   } else {
     // Currently we have a copy-generalize-all-representations case.
-    CheckCopyGeneralizeAllRepresentations checker;
+    CheckCopyGeneralizeAllFields checker;
     TestReconfigureProperty_CustomPropertyAfterTargetMap(config, checker);
   }
 }
@@ -1597,11 +1603,11 @@ static void TestReconfigureElementsKind_GeneralizeRepresentation(
   CHECK(map2->is_stable());
   CHECK(expectations2.Check(*map2));
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
   Handle<Map> field_owner(map->FindFieldOwner(kDiffProp), isolate);
   CompilationDependencies dependencies(isolate, &zone);
   CHECK(!dependencies.HasAborted());
-  dependencies.AssumeFieldType(field_owner);
+  dependencies.AssumeFieldOwner(field_owner);
 
   // Reconfigure elements kinds of |map2|, which should generalize
   // representations in |map|.
@@ -1690,11 +1696,11 @@ static void TestReconfigureElementsKind_GeneralizeRepresentationTrivial(
   CHECK(map2->is_stable());
   CHECK(expectations2.Check(*map2));
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
   Handle<Map> field_owner(map->FindFieldOwner(kDiffProp), isolate);
   CompilationDependencies dependencies(isolate, &zone);
   CHECK(!dependencies.HasAborted());
-  dependencies.AssumeFieldType(field_owner);
+  dependencies.AssumeFieldOwner(field_owner);
 
   // Reconfigure elements kinds of |map2|, which should generalize
   // representations in |map|.
@@ -1847,8 +1853,7 @@ TEST(ReconfigurePropertySplitMapTransitionsOverflow) {
     }
 
     map2 = Map::ReconfigureProperty(map2, kSplitProp, kData, NONE,
-                                    Representation::Double(), any_type,
-                                    FORCE_FIELD);
+                                    Representation::Double(), any_type);
     expectations.SetDataField(kSplitProp, Representation::Double(), any_type);
 
     CHECK(expectations.Check(*split_map, kSplitProp));
@@ -1947,8 +1952,8 @@ static void TestGeneralizeRepresentationWithSpecialTransition(
   // Create new maps by generalizing representation of propX field.
   Handle<Map> maps[kPropCount];
   for (int i = 0; i < kPropCount; i++) {
-    Handle<Map> new_map = Map::ReconfigureProperty(
-        map, i, kData, NONE, to_representation, to_type, FORCE_FIELD);
+    Handle<Map> new_map = Map::ReconfigureProperty(map, i, kData, NONE,
+                                                   to_representation, to_type);
     maps[i] = new_map;
 
     expectations.SetDataField(i, expected_representation, expected_type);
@@ -2332,7 +2337,7 @@ TEST(TransitionDataFieldToDataField) {
   Isolate* isolate = CcTest::i_isolate();
   Handle<FieldType> any_type = FieldType::Any(isolate);
 
-  Handle<Object> value1 = handle(Smi::FromInt(0), isolate);
+  Handle<Object> value1 = handle(Smi::kZero, isolate);
   TransitionToDataFieldOperator transition_op1(Representation::Smi(), any_type,
                                                value1);
 
@@ -2365,13 +2370,20 @@ TEST(TransitionDataConstantToAnotherDataConstant) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
   Factory* factory = isolate->factory();
-  Handle<FieldType> function_type =
-      FieldType::Class(isolate->sloppy_function_map(), isolate);
+  Handle<String> name = factory->empty_string();
+  Handle<Map> sloppy_map =
+      factory->CreateSloppyFunctionMap(FUNCTION_WITH_WRITEABLE_PROTOTYPE);
+  Handle<SharedFunctionInfo> info = factory->NewSharedFunctionInfo(
+      name, MaybeHandle<Code>(), sloppy_map->is_constructor());
+  Handle<FieldType> function_type = FieldType::Class(sloppy_map, isolate);
+  CHECK(sloppy_map->is_stable());
 
-  Handle<JSFunction> js_func1 = factory->NewFunction(factory->empty_string());
+  Handle<JSFunction> js_func1 =
+      factory->NewFunction(sloppy_map, info, isolate->native_context());
   TransitionToDataConstantOperator transition_op1(js_func1);
 
-  Handle<JSFunction> js_func2 = factory->NewFunction(factory->empty_string());
+  Handle<JSFunction> js_func2 =
+      factory->NewFunction(sloppy_map, info, isolate->native_context());
   TransitionToDataConstantOperator transition_op2(js_func2);
 
   FieldGeneralizationChecker checker(
@@ -2416,7 +2428,7 @@ TEST(FieldTypeConvertSimple) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
 
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
 
   CHECK_EQ(FieldType::Any()->Convert(&zone), AstType::NonInternal());
   CHECK_EQ(FieldType::None()->Convert(&zone), AstType::None());

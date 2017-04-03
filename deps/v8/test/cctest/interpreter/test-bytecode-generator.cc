@@ -9,6 +9,7 @@
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-generator.h"
 #include "src/interpreter/interpreter.h"
+#include "src/objects-inl.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/interpreter/bytecode-expectations-printer.h"
 #include "test/cctest/test-feedback-vector.h"
@@ -74,7 +75,6 @@ class InitializedIgnitionHandleScope : public InitializedHandleScope {
     i::FLAG_ignition = true;
     i::FLAG_always_opt = false;
     i::FLAG_allow_natives_syntax = true;
-    CcTest::i_isolate()->interpreter()->Initialize();
   }
 };
 
@@ -464,6 +464,9 @@ TEST(PropertyCall) {
       REPEAT_127(" a.func;\n")  //
       " return a.func(); }\n"
       "f(" FUNC_ARG ")",
+
+      "function f(a) { return a.func(1).func(2).func(3); }\n"
+      "f(new (function Obj() { this.func = function(a) { return this; }})())",
   };
 
   CHECK(CompareTexts(BuildActual(printer, snippets),
@@ -1743,6 +1746,54 @@ TEST(RemoveRedundantLdar) {
                      LoadGolden("RemoveRedundantLdar.golden")));
 }
 
+TEST(GenerateTestUndetectable) {
+  InitializedIgnitionHandleScope scope;
+  BytecodeExpectationsPrinter printer(CcTest::isolate());
+  const char* snippets[] = {
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a == null) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a == undefined) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a != null) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a != undefined) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a === null) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a === undefined) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a !== null) { b = 20;}\n"
+      "return b;\n",
+
+      "var obj_a = {val:1};\n"
+      "var b = 10;\n"
+      "if (obj_a !== undefined) { b = 20;}\n"
+      "return b;\n"};
+
+  CHECK(CompareTexts(BuildActual(printer, snippets),
+                     LoadGolden("GenerateTestUndetectable.golden")));
+}
+
 TEST(AssignmentsInBinaryExpression) {
   InitializedIgnitionHandleScope scope;
   BytecodeExpectationsPrinter printer(CcTest::isolate());
@@ -2118,6 +2169,9 @@ TEST(ClassDeclarations) {
       "var count = 0;\n"
       "class C { constructor() { count++; }}\n"
       "return new C();\n",
+
+      "(class {})\n"
+      "class E { static name () {}}\n",
   };
 
   CHECK(CompareTexts(BuildActual(printer, snippets),
@@ -2238,10 +2292,55 @@ TEST(Modules) {
       "export {foo as goo} from \"bar\"\n",
 
       "export * from \"bar\"\n",
+
+      "import * as foo from \"bar\"\n"
+      "foo.f(foo, foo.x);\n",
   };
 
   CHECK(CompareTexts(BuildActual(printer, snippets),
                      LoadGolden("Modules.golden")));
+}
+
+TEST(SuperCallAndSpread) {
+  InitializedIgnitionHandleScope scope;
+  BytecodeExpectationsPrinter printer(CcTest::isolate());
+  printer.set_wrap(false);
+  printer.set_test_function_name("test");
+  const char* snippets[] = {
+      "var test;\n"
+      "(function() {\n"
+      "  class A {\n"
+      "    constructor(...args) { this.baseArgs = args; }\n"
+      "  }\n"
+      "  class B extends A {}\n"
+      "  test = new B(1, 2, 3).constructor;\n"
+      "})();\n",
+
+      "var test;\n"
+      "(function() {\n"
+      "  class A {\n"
+      "    constructor(...args) { this.baseArgs = args; }\n"
+      "  }\n"
+      "  class B extends A {\n"
+      "    constructor(...args) { super(1, ...args); }\n"
+      "  }\n"
+      "  test = new B(1, 2, 3).constructor;\n"
+      "})();\n",
+
+      "var test;\n"
+      "(function() {\n"
+      "  class A {\n"
+      "    constructor(...args) { this.baseArgs = args; }\n"
+      "  }\n"
+      "  class B extends A {\n"
+      "    constructor(...args) { super(1, ...args, 1); }\n"
+      "  }\n"
+      "  test = new B(1, 2, 3).constructor;\n"
+      "})();\n",
+  };
+
+  CHECK(CompareTexts(BuildActual(printer, snippets),
+                     LoadGolden("SuperCallAndSpread.golden")));
 }
 
 }  // namespace interpreter

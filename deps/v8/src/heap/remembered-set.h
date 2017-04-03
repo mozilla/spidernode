@@ -17,7 +17,7 @@ enum PointerDirection { OLD_TO_OLD, OLD_TO_NEW };
 
 // TODO(ulan): Investigate performance of de-templatizing this class.
 template <PointerDirection direction>
-class RememberedSet {
+class RememberedSet : public AllStatic {
  public:
   // Given a page and a slot in that page, this function adds the slot to the
   // remembered set.
@@ -29,6 +29,19 @@ class RememberedSet {
     }
     uintptr_t offset = slot_addr - chunk->address();
     slot_set[offset / Page::kPageSize].Insert(offset % Page::kPageSize);
+  }
+
+  // Given a page and a slot in that page, this function returns true if
+  // the remembered set contains the slot.
+  static bool Contains(MemoryChunk* chunk, Address slot_addr) {
+    DCHECK(chunk->Contains(slot_addr));
+    SlotSet* slot_set = GetSlotSet(chunk);
+    if (slot_set == nullptr) {
+      return false;
+    }
+    uintptr_t offset = slot_addr - chunk->address();
+    return slot_set[offset / Page::kPageSize].Contains(offset %
+                                                       Page::kPageSize);
   }
 
   // Given a page and a slot in that page, this function removes the slot from
@@ -45,7 +58,8 @@ class RememberedSet {
 
   // Given a page and a range of slots in that page, this function removes the
   // slots from the remembered set.
-  static void RemoveRange(MemoryChunk* chunk, Address start, Address end) {
+  static void RemoveRange(MemoryChunk* chunk, Address start, Address end,
+                          SlotSet::EmptyBucketMode mode) {
     SlotSet* slot_set = GetSlotSet(chunk);
     if (slot_set != nullptr) {
       uintptr_t start_offset = start - chunk->address();
@@ -53,7 +67,7 @@ class RememberedSet {
       DCHECK_LT(start_offset, end_offset);
       if (end_offset < static_cast<uintptr_t>(Page::kPageSize)) {
         slot_set->RemoveRange(static_cast<int>(start_offset),
-                              static_cast<int>(end_offset));
+                              static_cast<int>(end_offset), mode);
       } else {
         // The large page has multiple slot sets.
         // Compute slot set indicies for the range [start_offset, end_offset).
@@ -67,17 +81,17 @@ class RememberedSet {
             end_offset - static_cast<uintptr_t>(end_chunk) * Page::kPageSize);
         if (start_chunk == end_chunk) {
           slot_set[start_chunk].RemoveRange(offset_in_start_chunk,
-                                            offset_in_end_chunk);
+                                            offset_in_end_chunk, mode);
         } else {
           // Clear all slots from start_offset to the end of first chunk.
           slot_set[start_chunk].RemoveRange(offset_in_start_chunk,
-                                            Page::kPageSize);
+                                            Page::kPageSize, mode);
           // Clear all slots in intermediate chunks.
           for (int i = start_chunk + 1; i < end_chunk; i++) {
-            slot_set[i].RemoveRange(0, Page::kPageSize);
+            slot_set[i].RemoveRange(0, Page::kPageSize, mode);
           }
           // Clear slots from the beginning of the last page to end_offset.
-          slot_set[end_chunk].RemoveRange(0, offset_in_end_chunk);
+          slot_set[end_chunk].RemoveRange(0, offset_in_end_chunk, mode);
         }
       }
     }
@@ -201,9 +215,7 @@ class RememberedSet {
   // slots that are not part of live objects anymore. This method must be
   // called after marking, when the whole transitive closure is known and
   // must be called before sweeping when mark bits are still intact.
-  static void ClearInvalidSlots(Heap* heap);
-
-  static void VerifyValidSlots(Heap* heap);
+  static void ClearInvalidTypedSlots(Heap* heap, MemoryChunk* chunk);
 
  private:
   static SlotSet* GetSlotSet(MemoryChunk* chunk) {

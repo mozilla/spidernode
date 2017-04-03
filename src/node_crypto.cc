@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "node.h"
 #include "node_buffer.h"
 #include "node_crypto.h"
@@ -120,9 +141,11 @@ static X509_NAME *cnnic_ev_name =
 
 static Mutex* mutexes;
 
+#if !defined(NODE_OPENSSL_CERT_STORE)
 const char* const root_certs[] = {
 #include "node_root_certs.h"  // NOLINT(build/include_order)
 };
+#endif
 
 std::string extra_root_certs_file;  // NOLINT(runtime/string)
 
@@ -147,7 +170,7 @@ template void SSLWrap<TLSWrap>::OnClientHello(
     void* arg,
     const ClientHelloParser::ClientHello& hello);
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
 template int SSLWrap<TLSWrap>::AdvertiseNextProtoCallback(
     SSL* s,
     const unsigned char** data,
@@ -697,6 +720,7 @@ static int X509_up_ref(X509* cert) {
 
 
 static X509_STORE* NewRootCertStore() {
+#if !defined(NODE_OPENSSL_CERT_STORE)
   if (root_certs_vector.empty()) {
     for (size_t i = 0; i < arraysize(root_certs); i++) {
       BIO* bp = NodeBIO::NewFixed(root_certs[i], strlen(root_certs[i]));
@@ -709,6 +733,7 @@ static X509_STORE* NewRootCertStore() {
       root_certs_vector.push_back(x509);
     }
   }
+#endif
 
   X509_STORE* store = X509_STORE_new();
   if (ssl_openssl_cert_store) {
@@ -913,7 +938,7 @@ void SecureContext::SetDHParam(const FunctionCallbackInfo<Value>& args) {
   (void) &clear_error_on_return;  // Silence compiler warning.
 
   // Auto DH is not supported in openssl 1.0.1, so dhparam needs
-  // to be specifed explicitly
+  // to be specified explicitly
   if (args.Length() != 1)
     return env->ThrowTypeError("DH argument is mandatory");
 
@@ -933,7 +958,7 @@ void SecureContext::SetDHParam(const FunctionCallbackInfo<Value>& args) {
     return env->ThrowError("DH parameter is less than 1024 bits");
   } else if (size < 2048) {
     args.GetReturnValue().Set(FIXED_ONE_BYTE_STRING(
-        env->isolate(), "WARNING: DH parameter is less than 2048 bits"));
+        env->isolate(), "DH parameter is less than 2048 bits"));
   }
 
   SSL_CTX_set_options(sc->ctx_, SSL_OP_SINGLE_DH_USE);
@@ -1314,11 +1339,11 @@ void SSLWrap<Base>::AddMethods(Environment* env, Local<FunctionTemplate> t) {
   env->SetProtoMethod(t, "setMaxSendFragment", SetMaxSendFragment);
 #endif  // SSL_set_max_send_fragment
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   env->SetProtoMethod(t, "getNegotiatedProtocol", GetNegotiatedProto);
-#endif  // OPENSSL_NPN_NEGOTIATED
+#endif  // OPENSSL_NO_NEXTPROTONEG
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   env->SetProtoMethod(t, "setNPNProtocols", SetNPNProtocols);
 #endif
 
@@ -1338,7 +1363,7 @@ void SSLWrap<Base>::AddMethods(Environment* env, Local<FunctionTemplate> t) {
 
 template <class Base>
 void SSLWrap<Base>::InitNPN(SecureContext* sc) {
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   // Server should advertise NPN protocols
   SSL_CTX_set_next_protos_advertised_cb(sc->ctx_,
                                         AdvertiseNextProtoCallback,
@@ -1346,7 +1371,7 @@ void SSLWrap<Base>::InitNPN(SecureContext* sc) {
   // Client should select protocol from list of advertised
   // If server supports NPN
   SSL_CTX_set_next_proto_select_cb(sc->ctx_, SelectNextProtoCallback, nullptr);
-#endif  // OPENSSL_NPN_NEGOTIATED
+#endif  // OPENSSL_NO_NEXTPROTONEG
 
 #ifdef NODE__HAVE_TLSEXT_STATUS_CB
   // OCSP stapling
@@ -1813,7 +1838,6 @@ template <class Base>
 void SSLWrap<Base>::LoadSession(const FunctionCallbackInfo<Value>& args) {
   Base* w;
   ASSIGN_OR_RETURN_UNWRAP(&w, args.Holder());
-  Environment* env = w->ssl_env();
 
   if (args.Length() >= 1 && Buffer::HasInstance(args[0])) {
     ssize_t slen = Buffer::Length(args[0]);
@@ -1826,17 +1850,6 @@ void SSLWrap<Base>::LoadSession(const FunctionCallbackInfo<Value>& args) {
     if (w->next_sess_ != nullptr)
       SSL_SESSION_free(w->next_sess_);
     w->next_sess_ = sess;
-
-    Local<Object> info = Object::New(env->isolate());
-#ifndef OPENSSL_NO_TLSEXT
-    if (sess->tlsext_hostname == nullptr) {
-      info->Set(env->servername_string(), False(args.GetIsolate()));
-    } else {
-      info->Set(env->servername_string(),
-                OneByteString(args.GetIsolate(), sess->tlsext_hostname));
-    }
-#endif
-    args.GetReturnValue().Set(info);
   }
 }
 
@@ -2067,8 +2080,7 @@ void SSLWrap<Base>::VerifyError(const FunctionCallbackInfo<Value>& args) {
   Local<String> reason_string = OneByteString(isolate, reason);
   Local<Value> exception_value = Exception::Error(reason_string);
   Local<Object> exception_object = exception_value->ToObject(isolate);
-  exception_object->Set(FIXED_ONE_BYTE_STRING(isolate, "code"),
-                        OneByteString(isolate, code));
+  exception_object->Set(w->env()->code_string(), OneByteString(isolate, code));
   args.GetReturnValue().Set(exception_object);
 }
 
@@ -2103,7 +2115,7 @@ void SSLWrap<Base>::GetProtocol(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
 template <class Base>
 int SSLWrap<Base>::AdvertiseNextProtoCallback(SSL* s,
                                               const unsigned char** data,
@@ -2243,7 +2255,7 @@ void SSLWrap<Base>::SetNPNProtocols(const FunctionCallbackInfo<Value>& args) {
           env->npn_buffer_private_symbol(),
           args[0]).FromJust());
 }
-#endif  // OPENSSL_NPN_NEGOTIATED
+#endif  // OPENSSL_NO_NEXTPROTONEG
 
 #ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
 template <class Base>
@@ -3236,11 +3248,7 @@ void Connection::Start(const FunctionCallbackInfo<Value>& args) {
 void Connection::Close(const FunctionCallbackInfo<Value>& args) {
   Connection* conn;
   ASSIGN_OR_RETURN_UNWRAP(&conn, args.Holder());
-
-  if (conn->ssl_ != nullptr) {
-    SSL_free(conn->ssl_);
-    conn->ssl_ = nullptr;
-  }
+  conn->DestroySSL();
 }
 
 
@@ -3267,7 +3275,7 @@ void Connection::SetSNICallback(const FunctionCallbackInfo<Value>& args) {
   }
 
   Local<Object> obj = Object::New(env->isolate());
-  obj->Set(FIXED_ONE_BYTE_STRING(args.GetIsolate(), "onselect"), args[0]);
+  obj->Set(env->onselect_string(), args[0]);
   conn->sniObject_.Reset(args.GetIsolate(), obj);
 }
 #endif
@@ -5596,7 +5604,7 @@ void RandomBytes(const FunctionCallbackInfo<Value>& args) {
   RandomBytesRequest* req = new RandomBytesRequest(env, obj, size);
 
   if (args[1]->IsFunction()) {
-    obj->Set(FIXED_ONE_BYTE_STRING(args.GetIsolate(), "ondone"), args[1]);
+    obj->Set(env->ondone_string(), args[1]);
 
     if (env->in_domain())
       obj->Set(env->domain_string(), env->domain_array()->Get(0));
@@ -6011,7 +6019,6 @@ void SetFipsCrypto(const FunctionCallbackInfo<Value>& args) {
 #endif /* NODE_FIPS_MODE */
 }
 
-// FIXME(bnoordhuis) Handle global init correctly.
 void InitCrypto(Local<Object> target,
                 Local<Value> unused,
                 Local<Context> context,

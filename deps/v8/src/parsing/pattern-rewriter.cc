@@ -4,6 +4,7 @@
 
 #include "src/ast/ast.h"
 #include "src/messages.h"
+#include "src/objects-inl.h"
 #include "src/parsing/parameter-initializer-rewriter.h"
 #include "src/parsing/parser.h"
 
@@ -65,16 +66,6 @@ Expression* Parser::PatternRewriter::RewriteDestructuringAssignment(
   auto to_rewrite = parser->factory()->NewRewritableExpression(assignment);
   RewriteDestructuringAssignment(parser, to_rewrite, scope);
   return to_rewrite->expression();
-}
-
-
-bool Parser::PatternRewriter::IsAssignmentContext(PatternContext c) const {
-  return c == ASSIGNMENT || c == ASSIGNMENT_INITIALIZER;
-}
-
-
-bool Parser::PatternRewriter::IsBindingContext(PatternContext c) const {
-  return c == BINDING || c == INITIALIZER;
 }
 
 
@@ -142,9 +133,8 @@ void Parser::PatternRewriter::VisitVariableProxy(VariableProxy* pattern) {
   // an initial value in the declaration (because they are initialized upon
   // entering the function).
   const AstRawString* name = pattern->raw_name();
-  VariableProxy* proxy = factory()->NewVariableProxy(
-      name, NORMAL_VARIABLE, parser_->scanner()->location().beg_pos,
-      parser_->scanner()->location().end_pos);
+  VariableProxy* proxy =
+      factory()->NewVariableProxy(name, NORMAL_VARIABLE, pattern->position());
   Declaration* declaration = factory()->NewVariableDeclaration(
       proxy, descriptor_->scope, descriptor_->declaration_pos);
   Variable* var = parser_->Declare(
@@ -230,9 +220,18 @@ void Parser::PatternRewriter::VisitVariableProxy(VariableProxy* pattern) {
     // But for var declarations we need to do a new lookup.
     if (descriptor_->mode == VAR) {
       proxy = var_init_scope->NewUnresolved(factory(), name);
+      // TODO(neis): Set is_assigned on proxy.
     } else {
       DCHECK_NOT_NULL(proxy);
       DCHECK_NOT_NULL(proxy->var());
+      if (var_init_scope->is_script_scope() ||
+          var_init_scope->is_module_scope()) {
+        // We have to pessimistically assume that top-level variables will be
+        // assigned.  This is because there may be lazily parsed top-level
+        // functions, which, for efficiency, we preparse without variable
+        // tracking.
+        proxy->set_is_assigned();
+      }
     }
     // Add break location for destructured sub-pattern.
     int pos = IsSubPattern() ? pattern->position() : value->position();
@@ -318,7 +317,7 @@ void Parser::PatternRewriter::VisitRewritableExpression(
     block_->statements()->Add(factory()->NewExpressionStatement(expr, pos),
                               zone());
   }
-  return set_context(old_context);
+  set_context(old_context);
 }
 
 // When an extra declaration scope needs to be inserted to account for
@@ -370,7 +369,7 @@ void Parser::PatternRewriter::VisitArrayLiteral(ArrayLiteral* node,
   DCHECK(block_->ignore_completion_value());
 
   auto temp = *temp_var = CreateTempVar(current_value_);
-  auto iterator = CreateTempVar(parser_->GetIterator(
+  auto iterator = CreateTempVar(factory()->NewGetIterator(
       factory()->NewVariableProxy(temp), kNoSourcePosition));
   auto done =
       CreateTempVar(factory()->NewBooleanLiteral(false, kNoSourcePosition));
@@ -684,6 +683,7 @@ NOT_A_PATTERN(ForOfStatement)
 NOT_A_PATTERN(ForStatement)
 NOT_A_PATTERN(FunctionDeclaration)
 NOT_A_PATTERN(FunctionLiteral)
+NOT_A_PATTERN(GetIterator)
 NOT_A_PATTERN(IfStatement)
 NOT_A_PATTERN(Literal)
 NOT_A_PATTERN(NativeFunctionLiteral)

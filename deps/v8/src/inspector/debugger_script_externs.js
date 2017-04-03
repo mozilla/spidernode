@@ -19,21 +19,6 @@ var Scope;
 var RawLocation;
 
 /** @typedef {{
-        id: number,
-        name: string,
-        sourceURL: (string|undefined),
-        sourceMappingURL: (string|undefined),
-        source: string,
-        startLine: number,
-        endLine: number,
-        startColumn: number,
-        endColumn: number,
-        executionContextId: number,
-        executionContextAuxData: string
-    }} */
-var FormattedScript;
-
-/** @typedef {{
         functionName: string,
         location: !RawLocation,
         this: !Object,
@@ -44,9 +29,10 @@ var FormattedScript;
 var JavaScriptCallFrameDetails;
 
 /** @typedef {{
-        sourceID: function():(number|undefined),
+        sourceID: function():(number),
         line: function():number,
         column: function():number,
+        contextId: function():number,
         thisObject: !Object,
         evaluate: function(string):*,
         restart: function():undefined,
@@ -60,19 +46,6 @@ var JavaScriptCallFrame;
  * @const
  */
 var Debug = {};
-
-Debug.setBreakOnException = function() {}
-
-Debug.clearBreakOnException = function() {}
-
-Debug.setBreakOnUncaughtException = function() {}
-
-/**
- * @return {undefined}
- */
-Debug.clearBreakOnUncaughtException = function() {}
-
-Debug.clearStepping = function() {}
 
 Debug.clearAllBreakPoints = function() {}
 
@@ -187,13 +160,6 @@ BreakPoint.prototype.number = function() {}
 
 
 /** @interface */
-function CompileEvent() {}
-
-/** @return {!ScriptMirror} */
-CompileEvent.prototype.script = function() {}
-
-
-/** @interface */
 function BreakEvent() {}
 
 /** @return {!Array<!BreakPoint>|undefined} */
@@ -203,15 +169,10 @@ BreakEvent.prototype.breakPointsHit = function() {}
 /** @interface */
 function ExecutionState() {}
 
-/** @param {!Debug.StepAction} action */
-ExecutionState.prototype.prepareStep = function(action) {}
-
 /**
  * @param {string} source
- * @param {boolean} disableBreak
- * @param {*=} additionalContext
  */
-ExecutionState.prototype.evaluateGlobal = function(source, disableBreak, additionalContext) {}
+ExecutionState.prototype.evaluateGlobal = function(source) {}
 
 /** @return {number} */
 ExecutionState.prototype.frameCount = function() {}
@@ -236,7 +197,9 @@ var ScopeType = { Global: 0,
                   Closure: 3,
                   Catch: 4,
                   Block: 5,
-                  Script: 6 };
+                  Script: 6,
+                  Eval: 7,
+                  Module: 8};
 
 
 /** @typedef {{
@@ -253,15 +216,6 @@ var SourceLocation;
 /** @typedef{{
  *    id: number,
  *    context_data: (string|undefined),
- *    source_url: (string|undefined),
- *    source_mapping_url: (string|undefined),
- *    is_debugger_script: boolean,
- *    source: string,
- *    line_ends: !Array<number>,
- *    line_offset: number,
- *    column_offset: number,
- *    nameOrSourceURL: function():string,
- *    compilationType: function():!ScriptCompilationType,
  *    }}
  */
 var Script;
@@ -287,6 +241,9 @@ FrameDetails.prototype.receiver = function() {}
 
 /** @return {function()} */
 FrameDetails.prototype.func = function() {}
+
+/** @return {!Object} */
+FrameDetails.prototype.script = function() {}
 
 /** @return {boolean} */
 FrameDetails.prototype.isAtReturn = function() {}
@@ -435,6 +392,15 @@ GeneratorMirror.prototype.sourceLocation = function() {}
 /** @return {!FunctionMirror} */
 GeneratorMirror.prototype.func = function() {}
 
+/** @return {number} */
+GeneratorMirror.prototype.scopeCount = function() {}
+
+/**
+ * @param {number} index
+ * @return {!ScopeMirror|undefined}
+ */
+GeneratorMirror.prototype.scope = function(index) {}
+
 
 /**
  * @interface
@@ -466,11 +432,13 @@ FrameMirror.prototype.allScopes = function(ignoreNestedScopes) {}
 /** @return {!FrameDetails} */
 FrameMirror.prototype.details = function() {}
 
+/** @return {!ScriptMirror} */
+FrameMirror.prototype.script = function() {}
+
 /**
  * @param {string} source
- * @param {boolean} disableBreak
  */
-FrameMirror.prototype.evaluate = function(source, disableBreak) {}
+FrameMirror.prototype.evaluate = function(source) {}
 
 FrameMirror.prototype.restart = function() {}
 

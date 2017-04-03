@@ -559,6 +559,13 @@ class Assembler : public AssemblerBase {
   static const int kDebugBreakSlotLength =
       kDebugBreakSlotInstructions * kInstrSize;
 
+  // Max offset for instructions with 16-bit offset field
+  static const int kMaxBranchOffset = (1 << (18 - 1)) - 1;
+
+  // Max offset for compact branch instructions with 26-bit offset field
+  static const int kMaxCompactBranchOffset = (1 << (28 - 1)) - 1;
+
+  static const int kTrampolineSlotsSize = 2 * kInstrSize;
 
   // ---------------------------------------------------------------------------
   // Code generation.
@@ -1091,9 +1098,6 @@ class Assembler : public AssemblerBase {
 
   // Debugging.
 
-  // Mark generator continuation.
-  void RecordGeneratorContinuation();
-
   // Mark address of a debug break slot.
   void RecordDebugBreakSlot(RelocInfo::Mode mode);
 
@@ -1117,7 +1121,8 @@ class Assembler : public AssemblerBase {
 
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
-  void RecordDeoptReason(DeoptimizeReason reason, int raw_position, int id);
+  void RecordDeoptReason(DeoptimizeReason reason, SourcePosition position,
+                         int id);
 
   static int RelocateInternalReference(RelocInfo::Mode rmode, byte* pc,
                                        intptr_t pc_delta);
@@ -1225,6 +1230,7 @@ class Assembler : public AssemblerBase {
   }
 
   bool IsPrevInstrCompactBranch() { return prev_instr_compact_branch_; }
+  static bool IsCompactBranchSupported() { return kArchVariant == kMips64r6; }
 
   inline int UnboundLabelsCount() { return unbound_labels_count_; }
 
@@ -1235,6 +1241,7 @@ class Assembler : public AssemblerBase {
 
   // Helpers.
   void LoadRegPlusOffsetToAt(const MemOperand& src);
+  int32_t LoadRegPlusUpperOffsetPartToAt(const MemOperand& src);
 
   // Relocation for a type-recording IC has the AST id added to it.  This
   // member variable is a way to pass the information from the call site to
@@ -1496,14 +1503,15 @@ class Assembler : public AssemblerBase {
   // branch instruction generation, where we use jump instructions rather
   // than regular branch instructions.
   bool trampoline_emitted_;
-  static const int kTrampolineSlotsSize = 2 * kInstrSize;
-  static const int kMaxBranchOffset = (1 << (18 - 1)) - 1;
-  static const int kMaxCompactBranchOffset = (1 << (28 - 1)) - 1;
   static const int kInvalidSlotPos = -1;
 
   // Internal reference positions, required for unbounded internal reference
   // labels.
   std::set<int64_t> internal_reference_positions_;
+  bool is_internal_reference(Label* L) {
+    return internal_reference_positions_.find(L->pos()) !=
+           internal_reference_positions_.end();
+  }
 
   void EmittedCompactBranchInstruction() { prev_instr_compact_branch_ = true; }
   void ClearCompactBranchState() { prev_instr_compact_branch_ = false; }

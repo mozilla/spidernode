@@ -211,6 +211,8 @@ InjectedScript.closureTypes["block"] = "Block";
 InjectedScript.closureTypes["script"] = "Script";
 InjectedScript.closureTypes["with"] = "With Block";
 InjectedScript.closureTypes["global"] = "Global";
+InjectedScript.closureTypes["eval"] = "Eval";
+InjectedScript.closureTypes["module"] = "Module";
 
 InjectedScript.prototype = {
     /**
@@ -257,18 +259,6 @@ InjectedScript.prototype = {
             if (typeof array[i] === "object" && property in array[i])
                 array[i][property] = this.wrapObject(array[i][property], groupName, forceValueType, generatePreview);
         }
-    },
-
-    /**
-     * @param {!Array<*>} array
-     * @param {string} groupName
-     * @param {boolean} forceValueType
-     * @param {boolean} generatePreview
-     */
-    wrapObjectsInArray: function(array, groupName, forceValueType, generatePreview)
-    {
-        for (var i = 0; i < array.length; ++i)
-            array[i] = this.wrapObject(array[i], groupName, forceValueType, generatePreview);
     },
 
     /**
@@ -629,7 +619,13 @@ InjectedScript.prototype = {
         var className = InjectedScriptHost.internalConstructorName(obj);
         if (subtype === "array" || subtype === "typedarray") {
             if (typeof obj.length === "number")
-                className += "[" + obj.length + "]";
+                return className + "(" + obj.length + ")";
+            return className;
+        }
+
+        if (subtype === "map" || subtype === "set") {
+            if (typeof obj.size === "number")
+                return className + "(" + obj.size + ")";
             return className;
         }
 
@@ -941,16 +937,15 @@ InjectedScript.RemoteObject.prototype = {
             if (!descriptor.isOwn)
                 continue;
 
-            // Ignore computed properties.
-            if (!("value" in descriptor))
+            // Ignore computed properties unless they have getters.
+            if (!("value" in descriptor)) {
+                if (descriptor.get)
+                    this._appendPropertyPreview(preview, { name: name, type: "accessor", __proto__: null }, propertiesThreshold);
                 continue;
+            }
 
             var value = descriptor.value;
             var type = typeof value;
-
-            // Never render functions in object preview.
-            if (type === "function" && (this.subtype !== "array" || !isUInt32(name)))
-                continue;
 
             // Special-case HTMLAll.
             if (type === "undefined" && injectedScript._isHTMLAllCollection(value))

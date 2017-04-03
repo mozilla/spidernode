@@ -5,6 +5,7 @@
 #ifndef V8_INTERPRETER_CONSTANT_ARRAY_BUILDER_H_
 #define V8_INTERPRETER_CONSTANT_ARRAY_BUILDER_H_
 
+#include "src/globals.h"
 #include "src/identity-map.h"
 #include "src/interpreter/bytecodes.h"
 #include "src/zone/zone-containers.h"
@@ -20,7 +21,7 @@ namespace interpreter {
 // interpreter. Each instance of this class is intended to be used to
 // generate exactly one FixedArray of constants via the ToFixedArray
 // method.
-class ConstantArrayBuilder final BASE_EMBEDDED {
+class V8_EXPORT_PRIVATE ConstantArrayBuilder final BASE_EMBEDDED {
  public:
   // Capacity of the 8-bit operand slice.
   static const size_t k8BitCapacity = 1u << kBitsPerByte;
@@ -81,7 +82,10 @@ class ConstantArrayBuilder final BASE_EMBEDDED {
     size_t Allocate(Handle<Object> object);
     Handle<Object> At(size_t index) const;
     void InsertAt(size_t index, Handle<Object> object);
-    bool AllElementsAreUnique() const;
+
+#if DEBUG
+    void CheckAllElementsAreUnique() const;
+#endif
 
     inline size_t available() const { return capacity() - reserved() - size(); }
     inline size_t reserved() const { return reserved_; }

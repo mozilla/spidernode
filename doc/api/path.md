@@ -57,11 +57,15 @@ path.posix.basename('/tmp/myfile.html');
 ## path.basename(path[, ext])
 <!-- YAML
 added: v0.1.25
+changes:
+  - version: v6.0.0
+    pr-url: https://github.com/nodejs/node/pull/5348
+    description: Passing a non-string as the `path` argument will throw now.
 -->
 
-* `path` {String}
-* `ext` {String} An optional file extension
-* Returns: {String}
+* `path` {string}
+* `ext` {string} An optional file extension
+* Returns: {string}
 
 The `path.basename()` methods returns the last portion of a `path`, similar to
 the Unix `basename` command.
@@ -84,7 +88,7 @@ and is not a string.
 added: v0.9.3
 -->
 
-* {String}
+* {string}
 
 Provides the platform-specific path delimiter:
 
@@ -114,10 +118,14 @@ process.env.PATH.split(path.delimiter)
 ## path.dirname(path)
 <!-- YAML
 added: v0.1.16
+changes:
+  - version: v6.0.0
+    pr-url: https://github.com/nodejs/node/pull/5348
+    description: Passing a non-string as the `path` argument will throw now.
 -->
 
-* `path` {String}
-* Returns: {String}
+* `path` {string}
+* Returns: {string}
 
 The `path.dirname()` method returns the directory name of a `path`, similar to
 the Unix `dirname` command.
@@ -134,10 +142,14 @@ A [`TypeError`][] is thrown if `path` is not a string.
 ## path.extname(path)
 <!-- YAML
 added: v0.1.25
+changes:
+  - version: v6.0.0
+    pr-url: https://github.com/nodejs/node/pull/5348
+    description: Passing a non-string as the `path` argument will throw now.
 -->
 
-* `path` {String}
-* Returns: {String}
+* `path` {string}
+* Returns: {string}
 
 The `path.extname()` method returns the extension of the `path`, from the last
 occurrence of the `.` (period) character to end of string in the last portion of
@@ -172,12 +184,12 @@ added: v0.11.15
 -->
 
 * `pathObject` {Object}
-  * `dir` {String}
-  * `root` {String}
-  * `base` {String}
-  * `name` {String}
-  * `ext` {String}
-* Returns: {String}
+  * `dir` {string}
+  * `root` {string}
+  * `base` {string}
+  * `name` {string}
+  * `ext` {string}
+* Returns: {string}
 
 The `path.format()` method returns a path string from an object. This is the
 opposite of [`path.parse()`][].
@@ -235,8 +247,8 @@ path.format({
 added: v0.11.2
 -->
 
-* `path` {String}
-* Returns: {Boolean}
+* `path` {string}
+* Returns: {boolean}
 
 The `path.isAbsolute()` method determines if `path` is an absolute path.
 
@@ -270,8 +282,8 @@ A [`TypeError`][] is thrown if `path` is not a string.
 added: v0.1.16
 -->
 
-* `...paths` {String} A sequence of path segments
-* Returns: {String}
+* `...paths` {string} A sequence of path segments
+* Returns: {string}
 
 The `path.join()` method joins all given `path` segments together using the
 platform specific separator as a delimiter, then normalizes the resulting path.
@@ -297,8 +309,8 @@ A [`TypeError`][] is thrown if any of the path segments is not a string.
 added: v0.1.23
 -->
 
-* `path` {String}
-* Returns: {String}
+* `path` {string}
+* Returns: {string}
 
 The `path.normalize()` method normalizes the given `path`, resolving `'..'` and
 `'.'` segments.
@@ -331,7 +343,7 @@ A [`TypeError`][] is thrown if `path` is not a string.
 added: v0.11.15
 -->
 
-* `path` {String}
+* `path` {string}
 * Returns: {Object}
 
 The `path.parse()` method returns an object whose properties represent
@@ -339,11 +351,11 @@ significant elements of the `path`.
 
 The returned object will have the following properties:
 
-* `root` {String}
-* `dir` {String}
-* `base` {String}
-* `ext` {String}
-* `name` {String}
+* `root` {string}
+* `dir` {string}
+* `base` {string}
+* `ext` {string}
+* `name` {string}
 
 For example on POSIX:
 
@@ -408,11 +420,16 @@ of the `path` methods.
 ## path.relative(from, to)
 <!-- YAML
 added: v0.5.0
+changes:
+  - version: v6.8.0
+    pr-url: https://github.com/nodejs/node/pull/8523
+    description: On Windows, the leading slashes for UNC paths are now included
+                 in the return value.
 -->
 
-* `from` {String}
-* `to` {String}
-* Returns: {String}
+* `from` {string}
+* `to` {string}
+* Returns: {string}
 
 The `path.relative()` method returns the relative path from `from` to `to`.
 If `from` and `to` each resolve to the same path (after calling `path.resolve()`
@@ -442,8 +459,8 @@ A [`TypeError`][] is thrown if neither `from` nor `to` is a string.
 added: v0.3.4
 -->
 
-* `...paths` {String} A sequence of paths or path segments
-* Returns: {String}
+* `...paths` {string} A sequence of paths or path segments
+* Returns: {string}
 
 The `path.resolve()` method resolves a sequence of paths or path segments into
 an absolute path.
@@ -485,7 +502,7 @@ A [`TypeError`][] is thrown if any of the arguments is not a string.
 added: v0.7.9
 -->
 
-* {String}
+* {string}
 
 Provides the platform-specific path segment separator:
 

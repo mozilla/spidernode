@@ -77,6 +77,7 @@ MUST_USE_RESULT MaybeHandle<Object> HandleApiCallHelper(
         !isolate->MayAccess(handle(isolate->context()), js_receiver)) {
       isolate->ReportFailedAccessCheck(js_receiver);
       RETURN_EXCEPTION_IF_SCHEDULED_EXCEPTION(isolate, Object);
+      return isolate->factory()->undefined_value();
     }
 
     raw_holder = GetCompatibleReceiver(isolate, *fun_data, *js_receiver);
@@ -122,7 +123,7 @@ MUST_USE_RESULT MaybeHandle<Object> HandleApiCallHelper(
 
 BUILTIN(HandleApiCall) {
   HandleScope scope(isolate);
-  Handle<JSFunction> function = args.target<JSFunction>();
+  Handle<JSFunction> function = args.target();
   Handle<Object> receiver = args.receiver();
   Handle<HeapObject> new_target = args.new_target();
   Handle<FunctionTemplateInfo> fun_data(function->shared()->get_api_func_data(),

@@ -70,11 +70,6 @@ class JSTypedLoweringTest : public TypedGraphTest {
     return buffer;
   }
 
-  Matcher<Node*> IsIntPtrConstant(intptr_t value) {
-    return sizeof(value) == 4 ? IsInt32Constant(static_cast<int32_t>(value))
-                              : IsInt64Constant(static_cast<int64_t>(value));
-  }
-
   JSOperatorBuilder* javascript() { return &javascript_; }
 
  private:
@@ -116,6 +111,25 @@ TEST_F(JSTypedLoweringTest, JSToBooleanWithNumber) {
   EXPECT_THAT(r.replacement(), IsNumberToBoolean(input));
 }
 
+TEST_F(JSTypedLoweringTest, JSToBooleanWithDetectableReceiverOrNull) {
+  Node* input = Parameter(Type::DetectableReceiverOrNull(), 0);
+  Node* context = Parameter(Type::Any(), 1);
+  Reduction r = Reduce(graph()->NewNode(
+      javascript()->ToBoolean(ToBooleanHint::kAny), input, context));
+  ASSERT_TRUE(r.Changed());
+  EXPECT_THAT(r.replacement(),
+              IsBooleanNot(IsReferenceEqual(input, IsNullConstant())));
+}
+
+TEST_F(JSTypedLoweringTest, JSToBooleanWithReceiverOrNullOrUndefined) {
+  Node* input = Parameter(Type::ReceiverOrNullOrUndefined(), 0);
+  Node* context = Parameter(Type::Any(), 1);
+  Reduction r = Reduce(graph()->NewNode(
+      javascript()->ToBoolean(ToBooleanHint::kAny), input, context));
+  ASSERT_TRUE(r.Changed());
+  EXPECT_THAT(r.replacement(), IsBooleanNot(IsObjectIsUndetectable(input)));
+}
+
 TEST_F(JSTypedLoweringTest, JSToBooleanWithAny) {
   Node* input = Parameter(Type::Any(), 0);
   Node* context = Parameter(Type::Any(), 1);
@@ -126,8 +140,42 @@ TEST_F(JSTypedLoweringTest, JSToBooleanWithAny) {
 
 
 // -----------------------------------------------------------------------------
-// JSToNumber
+// JSToName
 
+TEST_F(JSTypedLoweringTest, JSToNameWithString) {
+  Node* const input = Parameter(Type::String(), 0);
+  Node* const context = Parameter(Type::Any(), 1);
+  Node* const effect = graph()->start();
+  Node* const control = graph()->start();
+  Reduction r = Reduce(graph()->NewNode(javascript()->ToName(), input, context,
+                                        EmptyFrameState(), effect, control));
+  ASSERT_TRUE(r.Changed());
+  EXPECT_EQ(input, r.replacement());
+}
+
+TEST_F(JSTypedLoweringTest, JSToNameWithSymbol) {
+  Node* const input = Parameter(Type::Symbol(), 0);
+  Node* const context = Parameter(Type::Any(), 1);
+  Node* const effect = graph()->start();
+  Node* const control = graph()->start();
+  Reduction r = Reduce(graph()->NewNode(javascript()->ToName(), input, context,
+                                        EmptyFrameState(), effect, control));
+  ASSERT_TRUE(r.Changed());
+  EXPECT_EQ(input, r.replacement());
+}
+
+TEST_F(JSTypedLoweringTest, JSToNameWithAny) {
+  Node* const input = Parameter(Type::Any(), 0);
+  Node* const context = Parameter(Type::Any(), 1);
+  Node* const effect = graph()->start();
+  Node* const control = graph()->start();
+  Reduction r = Reduce(graph()->NewNode(javascript()->ToName(), input, context,
+                                        EmptyFrameState(), effect, control));
+  ASSERT_FALSE(r.Changed());
+}
+
+// -----------------------------------------------------------------------------
+// JSToNumber
 
 TEST_F(JSTypedLoweringTest, JSToNumberWithPlainPrimitive) {
   Node* const input = Parameter(Type::PlainPrimitive(), 0);
@@ -222,7 +270,7 @@ TEST_F(JSTypedLoweringTest, JSStrictEqualWithUnique) {
       graph()->NewNode(javascript()->StrictEqual(CompareOperationHint::kAny),
                        lhs, rhs, context, effect, control));
   ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(r.replacement(), IsReferenceEqual(Type::Unique(), lhs, rhs));
+  EXPECT_THAT(r.replacement(), IsReferenceEqual(lhs, rhs));
 }
 
 
@@ -475,17 +523,15 @@ TEST_F(JSTypedLoweringTest, JSLoadContext) {
   static bool kBooleans[] = {false, true};
   TRACED_FOREACH(size_t, index, kIndices) {
     TRACED_FOREACH(bool, immutable, kBooleans) {
-      Reduction const r1 = Reduce(
-          graph()->NewNode(javascript()->LoadContext(0, index, immutable),
-                           context, context, effect));
+      Reduction const r1 = Reduce(graph()->NewNode(
+          javascript()->LoadContext(0, index, immutable), context, effect));
       ASSERT_TRUE(r1.Changed());
       EXPECT_THAT(r1.replacement(),
                   IsLoadField(AccessBuilder::ForContextSlot(index), context,
                               effect, graph()->start()));
 
-      Reduction const r2 = Reduce(
-          graph()->NewNode(javascript()->LoadContext(1, index, immutable),
-                           context, context, effect));
+      Reduction const r2 = Reduce(graph()->NewNode(
+          javascript()->LoadContext(1, index, immutable), context, effect));
       ASSERT_TRUE(r2.Changed());
       EXPECT_THAT(r2.replacement(),
                   IsLoadField(AccessBuilder::ForContextSlot(index),
@@ -511,16 +557,16 @@ TEST_F(JSTypedLoweringTest, JSStoreContext) {
       Node* const value = Parameter(type);
 
       Reduction const r1 =
-          Reduce(graph()->NewNode(javascript()->StoreContext(0, index), context,
-                                  value, context, effect, control));
+          Reduce(graph()->NewNode(javascript()->StoreContext(0, index), value,
+                                  context, effect, control));
       ASSERT_TRUE(r1.Changed());
       EXPECT_THAT(r1.replacement(),
                   IsStoreField(AccessBuilder::ForContextSlot(index), context,
                                value, effect, control));
 
       Reduction const r2 =
-          Reduce(graph()->NewNode(javascript()->StoreContext(1, index), context,
-                                  value, context, effect, control));
+          Reduce(graph()->NewNode(javascript()->StoreContext(1, index), value,
+                                  context, effect, control));
       ASSERT_TRUE(r2.Changed());
       EXPECT_THAT(r2.replacement(),
                   IsStoreField(AccessBuilder::ForContextSlot(index),
@@ -551,13 +597,12 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArray) {
     Node* key = Parameter(
         Type::Range(kMinInt / element_size, kMaxInt / element_size, zone()));
     Node* base = HeapConstant(array);
-    Node* vector = UndefinedConstant();
     Node* context = UndefinedConstant();
     Node* effect = graph()->start();
     Node* control = graph()->start();
-    Reduction r = Reduce(graph()->NewNode(javascript()->LoadProperty(feedback),
-                                          base, key, vector, context,
-                                          EmptyFrameState(), effect, control));
+    Reduction r =
+        Reduce(graph()->NewNode(javascript()->LoadProperty(feedback), base, key,
+                                context, EmptyFrameState(), effect, control));
 
     Matcher<Node*> offset_matcher =
         element_size == 1
@@ -569,7 +614,7 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArray) {
     EXPECT_THAT(
         r.replacement(),
         IsLoadBuffer(BufferAccess(type),
-                     IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
+                     IsPointerConstant(bit_cast<intptr_t>(&backing_store[0])),
                      offset_matcher,
                      IsNumberConstant(array->byte_length()->Number()), effect,
                      control));
@@ -593,19 +638,18 @@ TEST_F(JSTypedLoweringTest, JSLoadPropertyFromExternalTypedArrayWithSafeKey) {
     if (min > max) std::swap(min, max);
     Node* key = Parameter(Type::Range(min, max, zone()));
     Node* base = HeapConstant(array);
-    Node* vector = UndefinedConstant();
     Node* context = UndefinedConstant();
     Node* effect = graph()->start();
     Node* control = graph()->start();
-    Reduction r = Reduce(graph()->NewNode(javascript()->LoadProperty(feedback),
-                                          base, key, vector, context,
-                                          EmptyFrameState(), effect, control));
+    Reduction r =
+        Reduce(graph()->NewNode(javascript()->LoadProperty(feedback), base, key,
+                                context, EmptyFrameState(), effect, control));
 
     ASSERT_TRUE(r.Changed());
     EXPECT_THAT(
         r.replacement(),
         IsLoadElement(access,
-                      IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
+                      IsPointerConstant(bit_cast<intptr_t>(&backing_store[0])),
                       key, effect, control));
   }
 }
@@ -631,13 +675,12 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArray) {
       Node* base = HeapConstant(array);
       Node* value =
           Parameter(AccessBuilder::ForTypedArrayElement(type, true).type);
-      Node* vector = UndefinedConstant();
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
       VectorSlotPair feedback;
       const Operator* op = javascript()->StoreProperty(language_mode, feedback);
-      Node* node = graph()->NewNode(op, base, key, value, vector, context,
+      Node* node = graph()->NewNode(op, base, key, value, context,
                                     EmptyFrameState(), effect, control);
       Reduction r = Reduce(node);
 
@@ -650,11 +693,11 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArray) {
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(
           r.replacement(),
-          IsStoreBuffer(BufferAccess(type),
-                        IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
-                        offset_matcher,
-                        IsNumberConstant(array->byte_length()->Number()), value,
-                        effect, control));
+          IsStoreBuffer(
+              BufferAccess(type),
+              IsPointerConstant(bit_cast<intptr_t>(&backing_store[0])),
+              offset_matcher, IsNumberConstant(array->byte_length()->Number()),
+              value, effect, control));
     }
   }
 }
@@ -674,8 +717,7 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithConversion) {
       Node* key = Parameter(
           Type::Range(kMinInt / element_size, kMaxInt / element_size, zone()));
       Node* base = HeapConstant(array);
-      Node* value = Parameter(Type::Any());
-      Node* vector = UndefinedConstant();
+      Node* value = Parameter(Type::PlainPrimitive());
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
@@ -685,7 +727,7 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithConversion) {
                                           EmptyFrameState(), effect, control);
       VectorSlotPair feedback;
       const Operator* op = javascript()->StoreProperty(language_mode, feedback);
-      Node* node = graph()->NewNode(op, base, key, value, vector, context,
+      Node* node = graph()->NewNode(op, base, key, value, context,
                                     EmptyFrameState(), checkpoint, control);
       Reduction r = Reduce(node);
 
@@ -695,19 +737,16 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithConversion) {
               : IsNumberShiftLeft(
                     key, IsNumberConstant(WhichPowerOf2(element_size)));
 
-      Matcher<Node*> value_matcher =
-          IsToNumber(value, context, checkpoint, control);
-      Matcher<Node*> effect_matcher = value_matcher;
-      Matcher<Node*> control_matcher = IsIfSuccess(value_matcher);
+      Matcher<Node*> value_matcher = IsPlainPrimitiveToNumber(value);
 
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(
           r.replacement(),
-          IsStoreBuffer(BufferAccess(type),
-                        IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
-                        offset_matcher,
-                        IsNumberConstant(array->byte_length()->Number()),
-                        value_matcher, effect_matcher, control_matcher));
+          IsStoreBuffer(
+              BufferAccess(type),
+              IsPointerConstant(bit_cast<intptr_t>(&backing_store[0])),
+              offset_matcher, IsNumberConstant(array->byte_length()->Number()),
+              value_matcher, checkpoint, control));
     }
   }
 }
@@ -730,13 +769,12 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithSafeKey) {
       Node* key = Parameter(Type::Range(min, max, zone()));
       Node* base = HeapConstant(array);
       Node* value = Parameter(access.type);
-      Node* vector = UndefinedConstant();
       Node* context = UndefinedConstant();
       Node* effect = graph()->start();
       Node* control = graph()->start();
       VectorSlotPair feedback;
       const Operator* op = javascript()->StoreProperty(language_mode, feedback);
-      Node* node = graph()->NewNode(op, base, key, value, vector, context,
+      Node* node = graph()->NewNode(op, base, key, value, context,
                                     EmptyFrameState(), effect, control);
       Reduction r = Reduce(node);
 
@@ -744,7 +782,7 @@ TEST_F(JSTypedLoweringTest, JSStorePropertyToExternalTypedArrayWithSafeKey) {
       EXPECT_THAT(
           r.replacement(),
           IsStoreElement(
-              access, IsIntPtrConstant(bit_cast<intptr_t>(&backing_store[0])),
+              access, IsPointerConstant(bit_cast<intptr_t>(&backing_store[0])),
               key, value, effect, control));
     }
   }
@@ -759,13 +797,12 @@ TEST_F(JSTypedLoweringTest, JSLoadNamedStringLength) {
   VectorSlotPair feedback;
   Handle<Name> name = factory()->length_string();
   Node* const receiver = Parameter(Type::String(), 0);
-  Node* const vector = Parameter(Type::Internal(), 1);
   Node* const context = UndefinedConstant();
   Node* const effect = graph()->start();
   Node* const control = graph()->start();
-  Reduction const r = Reduce(
-      graph()->NewNode(javascript()->LoadNamed(name, feedback), receiver,
-                       vector, context, EmptyFrameState(), effect, control));
+  Reduction const r =
+      Reduce(graph()->NewNode(javascript()->LoadNamed(name, feedback), receiver,
+                              context, EmptyFrameState(), effect, control));
   ASSERT_TRUE(r.Changed());
   EXPECT_THAT(r.replacement(), IsLoadField(AccessBuilder::ForStringLength(),
                                            receiver, effect, control));

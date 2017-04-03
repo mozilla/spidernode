@@ -5,9 +5,11 @@
 #ifndef V8_COMPILER_ESCAPE_ANALYSIS_REDUCER_H_
 #define V8_COMPILER_ESCAPE_ANALYSIS_REDUCER_H_
 
+#include "src/base/compiler-specific.h"
 #include "src/bit-vector.h"
 #include "src/compiler/escape-analysis.h"
 #include "src/compiler/graph-reducer.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -16,7 +18,8 @@ namespace compiler {
 // Forward declarations.
 class JSGraph;
 
-class EscapeAnalysisReducer final : public AdvancedReducer {
+class V8_EXPORT_PRIVATE EscapeAnalysisReducer final
+    : public NON_EXPORTED_BASE(AdvancedReducer) {
  public:
   EscapeAnalysisReducer(Editor* editor, JSGraph* jsgraph,
                         EscapeAnalysis* escape_analysis, Zone* zone);
@@ -27,7 +30,10 @@ class EscapeAnalysisReducer final : public AdvancedReducer {
   // after this reducer has been applied. Has no effect in release mode.
   void VerifyReplacement() const;
 
+  bool compilation_failed() const { return compilation_failed_; }
+
  private:
+  Reduction ReduceNode(Node* node);
   Reduction ReduceLoad(Node* node);
   Reduction ReduceStore(Node* node);
   Reduction ReduceAllocate(Node* node);
@@ -52,6 +58,7 @@ class EscapeAnalysisReducer final : public AdvancedReducer {
   // and nodes that do not need a visit from ReduceDeoptState etc.
   BitVector fully_reduced_;
   bool exists_virtual_allocate_;
+  bool compilation_failed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(EscapeAnalysisReducer);
 };

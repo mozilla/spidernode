@@ -13,8 +13,6 @@ var IsNaN = global.isNaN;
 var JSONStringify = global.JSON.stringify;
 var MapEntries;
 var MapIteratorNext;
-var promiseStateSymbol = utils.ImportNow("promise_state_symbol");
-var promiseResultSymbol = utils.ImportNow("promise_result_symbol");
 var SetIteratorNext;
 var SetValues;
 
@@ -106,12 +104,6 @@ function ClearMirrorCache(value) {
 }
 
 
-function ObjectIsPromise(value) {
-  return IS_RECEIVER(value) &&
-         !IS_UNDEFINED(%DebugGetProperty(value, promiseStateSymbol));
-}
-
-
 /**
  * Returns the mirror for a specified value or object.
  *
@@ -156,7 +148,7 @@ function MakeMirror(value, opt_transient) {
     mirror = new DateMirror(value);
   } else if (IS_FUNCTION(value)) {
     mirror = new FunctionMirror(value);
-  } else if (IS_REGEXP(value)) {
+  } else if (%IsRegExp(value)) {
     mirror = new RegExpMirror(value);
   } else if (IS_ERROR(value)) {
     mirror = new ErrorMirror(value);
@@ -168,7 +160,7 @@ function MakeMirror(value, opt_transient) {
     mirror = new SetMirror(value);
   } else if (IS_MAP_ITERATOR(value) || IS_SET_ITERATOR(value)) {
     mirror = new IteratorMirror(value);
-  } else if (ObjectIsPromise(value)) {
+  } else if (%is_promise(value)) {
     mirror = new PromiseMirror(value);
   } else if (IS_GENERATOR(value)) {
     mirror = new GeneratorMirror(value);
@@ -231,11 +223,10 @@ function inherits(ctor, superCtor) {
 var kMaxProtocolStringLength = 80;
 
 
-// A copy of the PropertyType enum from property-details.h
+// A copy of the PropertyKind enum from property-details.h
 var PropertyType = {};
-PropertyType.Data                        = 0;
-PropertyType.DataConstant                = 2;
-PropertyType.AccessorConstant            = 3;
+PropertyType.Data     = 0;
+PropertyType.Accessor = 1;
 
 
 // Different attributes for a property.
@@ -257,6 +248,7 @@ var ScopeType = { Global:  0,
                   Block:   5,
                   Script:  6,
                   Eval:    7,
+                  Module:  8,
                 };
 
 /**
@@ -806,7 +798,7 @@ ObjectMirror.prototype.lookupProperty = function(value) {
 
     // Skip properties which are defined through accessors.
     var property = properties[i];
-    if (property.propertyType() != PropertyType.AccessorConstant) {
+    if (property.propertyType() == PropertyType.Data) {
       if (property.value_ === value.value_) {
         return property;
       }
@@ -1272,7 +1264,7 @@ inherits(PromiseMirror, ObjectMirror);
 
 
 function PromiseGetStatus_(value) {
-  var status = %DebugGetProperty(value, promiseStateSymbol);
+  var status = %PromiseStatus(value);
   if (status == 0) return "pending";
   if (status == 1) return "resolved";
   return "rejected";
@@ -1280,7 +1272,7 @@ function PromiseGetStatus_(value) {
 
 
 function PromiseGetValue_(value) {
-  return %DebugGetProperty(value, promiseResultSymbol);
+  return %PromiseResult(value);
 }
 
 
@@ -1539,7 +1531,7 @@ PropertyMirror.prototype.value = function() {
 
 /**
  * Returns whether this property value is an exception.
- * @return {booolean} True if this property value is an exception
+ * @return {boolean} True if this property value is an exception
  */
 PropertyMirror.prototype.isException = function() {
   return this.exception_ ? true : false;
@@ -1552,13 +1544,13 @@ PropertyMirror.prototype.attributes = function() {
 
 
 PropertyMirror.prototype.propertyType = function() {
-  return %DebugPropertyTypeFromDetails(this.details_);
+  return %DebugPropertyKindFromDetails(this.details_);
 };
 
 
 /**
  * Returns whether this property has a getter defined through __defineGetter__.
- * @return {booolean} True if this property has a getter
+ * @return {boolean} True if this property has a getter
  */
 PropertyMirror.prototype.hasGetter = function() {
   return this.getter_ ? true : false;
@@ -1567,7 +1559,7 @@ PropertyMirror.prototype.hasGetter = function() {
 
 /**
  * Returns whether this property has a setter defined through __defineSetter__.
- * @return {booolean} True if this property has a setter
+ * @return {boolean} True if this property has a setter
  */
 PropertyMirror.prototype.hasSetter = function() {
   return this.setter_ ? true : false;
@@ -1610,7 +1602,7 @@ PropertyMirror.prototype.setter = function() {
  */
 PropertyMirror.prototype.isNative = function() {
   return this.is_interceptor_ ||
-         ((this.propertyType() == PropertyType.AccessorConstant) &&
+         ((this.propertyType() == PropertyType.Accessor) &&
           !this.hasGetter() && !this.hasSetter());
 };
 
@@ -1878,6 +1870,15 @@ FrameMirror.prototype.func = function() {
 };
 
 
+FrameMirror.prototype.script = function() {
+  if (!this.script_) {
+    this.script_ = MakeMirror(this.details_.script());
+  }
+
+  return this.script_;
+}
+
+
 FrameMirror.prototype.receiver = function() {
   return MakeMirror(this.details_.receiver());
 };
@@ -1954,12 +1955,9 @@ FrameMirror.prototype.sourcePosition = function() {
 
 
 FrameMirror.prototype.sourceLocation = function() {
-  var func = this.func();
-  if (func.resolved()) {
-    var script = func.script();
-    if (script) {
-      return script.locationFromPosition(this.sourcePosition(), true);
-    }
+  var script = this.script();
+  if (script) {
+    return script.locationFromPosition(this.sourcePosition(), true);
   }
 };
 
@@ -2012,14 +2010,11 @@ FrameMirror.prototype.allScopes = function(opt_ignore_nested_scopes) {
 };
 
 
-FrameMirror.prototype.evaluate = function(source, disable_break,
-                                          opt_context_object) {
+FrameMirror.prototype.evaluate = function(source) {
   return MakeMirror(%DebugEvaluate(this.break_id_,
                                    this.details_.frameId(),
                                    this.details_.inlinedFrameIndex(),
-                                   source,
-                                   TO_BOOLEAN(disable_break),
-                                   opt_context_object));
+                                   source));
 };
 
 

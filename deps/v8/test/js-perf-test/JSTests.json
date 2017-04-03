@@ -1,13 +1,30 @@
 {
   "name": "JSTests",
   "run_count": 3,
-  "run_count_android_arm": 1,
-  "run_count_android_arm64": 1,
+  "run_count_arm": 1,
+  "run_count_arm64": 1,
   "timeout": 120,
   "units": "score",
   "total": true,
   "resources": ["base.js"],
   "tests": [
+    {
+      "name": "AsyncAwait",
+      "path": ["AsyncAwait"],
+      "main": "run.js",
+      "resources": [
+        "native.js",
+        "baseline-babel-es2017.js",
+        "baseline-naive-promises.js"
+      ],
+      "flags": ["--allow-natives-syntax"],
+      "results_regexp": "^%s\\-AsyncAwait\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "BaselineES2017"},
+        {"name": "BaselineNaivePromises"},
+        {"name": "Native"}
+      ]
+    },
     {
       "name": "Generators",
       "path": ["Generators"],
@@ -76,6 +93,28 @@
       ]
     },
     {
+      "name": "Closures",
+      "path": ["Closures"],
+      "main": "run.js",
+      "resources": ["closures.js"],
+      "flags": [],
+      "results_regexp": "^%s\\-Closures\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "Closures"}
+      ]
+    },
+    {
+      "name": "ClosuresMarkForTierUp",
+      "path": ["Closures"],
+      "main": "run.js",
+      "resources": ["closures.js"],
+      "flags": ["--mark_shared_functions_for_tier_up"],
+      "results_regexp": "^%s\\-Closures\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "Closures"}
+      ]
+    },
+    {
       "name": "Collections",
       "path": ["Collections"],
       "main": "run.js",
@@ -119,6 +158,7 @@
       "results_regexp": "^%s\\-Strings\\(Score\\): (.+)$",
       "run_count": 1,
       "timeout": 240,
+      "timeout_arm": 420,
       "tests": [
         {"name": "StringFunctions"}
       ]
@@ -162,12 +202,14 @@
       "flags": ["--harmony"],
       "resources": [
         "assign.js",
-        "values.js",
-        "entries.js"
+        "create.js",
+        "entries.js",
+        "values.js"
       ],
       "results_regexp": "^%s\\-Object\\(Score\\): (.+)$",
       "tests": [
         {"name": "Assign"},
+        {"name": "Create"},
         {"name": "Entries"},
         {"name": "EntriesMegamorphic"},
         {"name": "Values"},

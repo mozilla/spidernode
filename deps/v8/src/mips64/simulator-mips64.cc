@@ -2475,11 +2475,11 @@ void Simulator::DecodeTypeRegisterSRsType() {
       break;
     case MADDF_S:
       DCHECK(kArchVariant == kMips64r6);
-      set_fpu_register_float(fd_reg(), fd + (fs * ft));
+      set_fpu_register_float(fd_reg(), std::fma(fs, ft, fd));
       break;
     case MSUBF_S:
       DCHECK(kArchVariant == kMips64r6);
-      set_fpu_register_float(fd_reg(), fd - (fs * ft));
+      set_fpu_register_float(fd_reg(), std::fma(-fs, ft, fd));
       break;
     case MUL_S:
       set_fpu_register_float(
@@ -2901,11 +2901,11 @@ void Simulator::DecodeTypeRegisterDRsType() {
       break;
     case MADDF_D:
       DCHECK(kArchVariant == kMips64r6);
-      set_fpu_register_double(fd_reg(), fd + (fs * ft));
+      set_fpu_register_double(fd_reg(), std::fma(fs, ft, fd));
       break;
     case MSUBF_D:
       DCHECK(kArchVariant == kMips64r6);
-      set_fpu_register_double(fd_reg(), fd - (fs * ft));
+      set_fpu_register_double(fd_reg(), std::fma(-fs, ft, fd));
       break;
     case MUL_D:
       set_fpu_register_double(
@@ -4879,7 +4879,7 @@ void Simulator::Execute() {
     while (program_counter != end_sim_pc) {
       Instruction* instr = reinterpret_cast<Instruction*>(program_counter);
       icount_++;
-      if (icount_ == static_cast<uint64_t>(::v8::internal::FLAG_stop_sim_at)) {
+      if (icount_ == static_cast<int64_t>(::v8::internal::FLAG_stop_sim_at)) {
         MipsDebugger dbg(this);
         dbg.Debug();
       } else {

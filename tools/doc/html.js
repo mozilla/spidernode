@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 'use strict';
 
 const common = require('./common.js');
@@ -269,12 +290,40 @@ function parseYAML(text) {
   const meta = common.extractAndParseYAML(text);
   const html = ['<div class="api_metadata">'];
 
+  const added = { description: '' };
+  const deprecated = { description: '' };
+
   if (meta.added) {
-    html.push(`<span>Added in: ${meta.added.join(', ')}</span>`);
+    added.version = meta.added.join(', ');
+    added.description = `<span>Added in: ${added.version}</span>`;
   }
 
   if (meta.deprecated) {
-    html.push(`<span>Deprecated since: ${meta.deprecated.join(', ')} </span>`);
+    deprecated.version = meta.deprecated.join(', ');
+    deprecated.description =
+        `<span>Deprecated since: ${deprecated.version}</span>`;
+  }
+
+  if (meta.changes.length > 0) {
+    let changes = meta.changes.slice();
+    if (added.description) changes.push(added);
+    if (deprecated.description) changes.push(deprecated);
+
+    changes = changes.sort((a, b) => versionSort(a.version, b.version));
+
+    html.push('<details class="changelog"><summary>History</summary>');
+    html.push('<table>');
+    html.push('<tr><th>Version</th><th>Changes</th></tr>');
+
+    changes.forEach((change) => {
+      html.push(`<tr><td>${change.version}</td>`);
+      html.push(`<td>${marked(change.description)}</td></tr>`);
+    });
+
+    html.push('</table>');
+    html.push('</details>');
+  } else {
+    html.push(`${added.description}${deprecated.description}`);
   }
 
   html.push('</div>');
@@ -288,17 +337,19 @@ var BSD_ONLY_SYSCALLS = new Set(['lchmod']);
 // Returns modified text, with such refs replace with HTML links, for example
 // '<a href="http://man7.org/linux/man-pages/man2/open.2.html">open(2)</a>'
 function linkManPages(text) {
-  return text.replace(/ ([a-z.]+)\((\d)\)/gm, function(match, name, number) {
-    // name consists of lowercase letters, number is a single digit
-    var displayAs = name + '(' + number + ')';
-    if (BSD_ONLY_SYSCALLS.has(name)) {
-      return ' <a href="https://www.freebsd.org/cgi/man.cgi?query=' + name +
-             '&sektion=' + number + '">' + displayAs + '</a>';
-    } else {
-      return ' <a href="http://man7.org/linux/man-pages/man' + number +
-             '/' + name + '.' + number + '.html">' + displayAs + '</a>';
-    }
-  });
+  return text.replace(
+    / ([a-z.]+)\((\d)([a-z]?)\)/gm,
+    (match, name, number, optionalCharacter) => {
+      // name consists of lowercase letters, number is a single digit
+      var displayAs = `${name}(${number}${optionalCharacter})`;
+      if (BSD_ONLY_SYSCALLS.has(name)) {
+        return ` <a href="https://www.freebsd.org/cgi/man.cgi?query=${name}` +
+          `&sektion=${number}">${displayAs}</a>`;
+      } else {
+        return ` <a href="http://man7.org/linux/man-pages/man${number}` +
+          `/${name}.${number}${optionalCharacter}.html">${displayAs}</a>`;
+      }
+    });
 }
 
 function linkJsTypeDocs(text) {
@@ -322,9 +373,12 @@ function linkJsTypeDocs(text) {
 }
 
 function parseAPIHeader(text) {
+  const classNames = 'api_stability api_stability_$2';
+  const docsUrl = 'documentation.html#documentation_stability_index';
+
   text = text.replace(
     STABILITY_TEXT_REG_EXP,
-    '<pre class="api_stability api_stability_$2">$1 $2$3</pre>'
+    `<pre class="${classNames}"><a href="${docsUrl}">$1 $2</a>$3</pre>`
   );
   return text;
 }
@@ -389,4 +443,15 @@ function getId(text) {
     idCounters[text] = 0;
   }
   return text;
+}
+
+const numberRe = /^(\d*)/;
+function versionSort(a, b) {
+  a = a.trim();
+  b = b.trim();
+  let i = 0;  // common prefix length
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  a = a.substr(i);
+  b = b.substr(i);
+  return +b.match(numberRe)[1] - +a.match(numberRe)[1];
 }

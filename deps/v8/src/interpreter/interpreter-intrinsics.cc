@@ -105,12 +105,8 @@ Node* IntrinsicsHelper::InvokeIntrinsic(Node* function_id, Node* context,
 
 Node* IntrinsicsHelper::CompareInstanceType(Node* object, int type,
                                             InstanceTypeCompareMode mode) {
-  InterpreterAssembler::Variable return_value(assembler_,
-                                              MachineRepresentation::kTagged);
   Node* instance_type = __ LoadInstanceType(object);
 
-  InterpreterAssembler::Label if_true(assembler_), if_false(assembler_),
-      end(assembler_);
   if (mode == kInstanceTypeEqual) {
     return __ Word32Equal(instance_type, __ Int32Constant(type));
   } else {
@@ -122,10 +118,11 @@ Node* IntrinsicsHelper::CompareInstanceType(Node* object, int type,
 Node* IntrinsicsHelper::IsInstanceType(Node* input, int type) {
   InterpreterAssembler::Variable return_value(assembler_,
                                               MachineRepresentation::kTagged);
+  // TODO(ishell): Use Select here.
   InterpreterAssembler::Label if_not_smi(assembler_), return_true(assembler_),
       return_false(assembler_), end(assembler_);
   Node* arg = __ LoadRegister(input);
-  __ GotoIf(__ WordIsSmi(arg), &return_false);
+  __ GotoIf(__ TaggedIsSmi(arg), &return_false);
 
   Node* condition = CompareInstanceType(arg, type, kInstanceTypeEqual);
   __ Branch(condition, &return_true, &return_false);
@@ -148,13 +145,15 @@ Node* IntrinsicsHelper::IsInstanceType(Node* input, int type) {
 
 Node* IntrinsicsHelper::IsJSReceiver(Node* input, Node* arg_count,
                                      Node* context) {
+  // TODO(ishell): Use Select here.
+  // TODO(ishell): Use CSA::IsJSReceiverInstanceType here.
   InterpreterAssembler::Variable return_value(assembler_,
                                               MachineRepresentation::kTagged);
   InterpreterAssembler::Label return_true(assembler_), return_false(assembler_),
       end(assembler_);
 
   Node* arg = __ LoadRegister(input);
-  __ GotoIf(__ WordIsSmi(arg), &return_false);
+  __ GotoIf(__ TaggedIsSmi(arg), &return_false);
 
   STATIC_ASSERT(LAST_TYPE == LAST_JS_RECEIVER_TYPE);
   Node* condition = CompareInstanceType(arg, FIRST_JS_RECEIVER_TYPE,
@@ -185,16 +184,13 @@ Node* IntrinsicsHelper::IsJSProxy(Node* input, Node* arg_count, Node* context) {
   return IsInstanceType(input, JS_PROXY_TYPE);
 }
 
-Node* IntrinsicsHelper::IsRegExp(Node* input, Node* arg_count, Node* context) {
-  return IsInstanceType(input, JS_REGEXP_TYPE);
-}
-
 Node* IntrinsicsHelper::IsTypedArray(Node* input, Node* arg_count,
                                      Node* context) {
   return IsInstanceType(input, JS_TYPED_ARRAY_TYPE);
 }
 
 Node* IntrinsicsHelper::IsSmi(Node* input, Node* arg_count, Node* context) {
+  // TODO(ishell): Use SelectBooleanConstant here.
   InterpreterAssembler::Variable return_value(assembler_,
                                               MachineRepresentation::kTagged);
   InterpreterAssembler::Label if_smi(assembler_), if_not_smi(assembler_),
@@ -202,7 +198,7 @@ Node* IntrinsicsHelper::IsSmi(Node* input, Node* arg_count, Node* context) {
 
   Node* arg = __ LoadRegister(input);
 
-  __ Branch(__ WordIsSmi(arg), &if_smi, &if_not_smi);
+  __ Branch(__ TaggedIsSmi(arg), &if_smi, &if_not_smi);
   __ Bind(&if_smi);
   {
     return_value.Bind(__ BooleanConstant(true));
@@ -222,14 +218,22 @@ Node* IntrinsicsHelper::IsSmi(Node* input, Node* arg_count, Node* context) {
 Node* IntrinsicsHelper::IntrinsicAsStubCall(Node* args_reg, Node* context,
                                             Callable const& callable) {
   int param_count = callable.descriptor().GetParameterCount();
-  Node** args = zone()->NewArray<Node*>(param_count + 1);  // 1 for context
+  int input_count = param_count + 2;  // +2 for target and context
+  Node** args = zone()->NewArray<Node*>(input_count);
+  int index = 0;
+  args[index++] = __ HeapConstant(callable.code());
   for (int i = 0; i < param_count; i++) {
-    args[i] = __ LoadRegister(args_reg);
+    args[index++] = __ LoadRegister(args_reg);
     args_reg = __ NextRegister(args_reg);
   }
-  args[param_count] = context;
+  args[index++] = context;
+  return __ CallStubN(callable.descriptor(), 1, input_count, args);
+}
 
-  return __ CallStubN(callable, args);
+Node* IntrinsicsHelper::CreateIterResultObject(Node* input, Node* arg_count,
+                                               Node* context) {
+  return IntrinsicAsStubCall(input, context,
+                             CodeFactory::CreateIterResultObject(isolate()));
 }
 
 Node* IntrinsicsHelper::HasProperty(Node* input, Node* arg_count,
@@ -238,21 +242,10 @@ Node* IntrinsicsHelper::HasProperty(Node* input, Node* arg_count,
                              CodeFactory::HasProperty(isolate()));
 }
 
-Node* IntrinsicsHelper::NewObject(Node* input, Node* arg_count, Node* context) {
-  return IntrinsicAsStubCall(input, context,
-                             CodeFactory::FastNewObject(isolate()));
-}
-
 Node* IntrinsicsHelper::NumberToString(Node* input, Node* arg_count,
                                        Node* context) {
   return IntrinsicAsStubCall(input, context,
                              CodeFactory::NumberToString(isolate()));
-}
-
-Node* IntrinsicsHelper::RegExpConstructResult(Node* input, Node* arg_count,
-                                              Node* context) {
-  return IntrinsicAsStubCall(input, context,
-                             CodeFactory::RegExpConstructResult(isolate()));
 }
 
 Node* IntrinsicsHelper::RegExpExec(Node* input, Node* arg_count,
@@ -321,7 +314,7 @@ Node* IntrinsicsHelper::ValueOf(Node* args_reg, Node* arg_count,
   return_value.Bind(object);
 
   // If the object is a smi return the object.
-  __ GotoIf(__ WordIsSmi(object), &done);
+  __ GotoIf(__ TaggedIsSmi(object), &done);
 
   // If the object is not a value type, return the object.
   Node* condition =
@@ -346,7 +339,7 @@ Node* IntrinsicsHelper::ClassOf(Node* args_reg, Node* arg_count,
   Node* object = __ LoadRegister(args_reg);
 
   // If the object is not a JSReceiver, we return null.
-  __ GotoIf(__ WordIsSmi(object), &null);
+  __ GotoIf(__ TaggedIsSmi(object), &null);
   STATIC_ASSERT(LAST_JS_RECEIVER_TYPE == LAST_TYPE);
   Node* is_js_receiver = CompareInstanceType(object, FIRST_JS_RECEIVER_TYPE,
                                              kInstanceTypeGreaterThanOrEqual);

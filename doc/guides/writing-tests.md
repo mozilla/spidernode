@@ -231,8 +231,12 @@ assert.throws(
 
 For performance considerations, we only use a selected subset of ES.Next
 features in JavaScript code in the `lib` directory. However, when writing
-tests, it is encouraged to use ES.Next features that have already landed
-in the ECMAScript specification. For example:
+tests, for the ease of backporting, it is encouraged to use those ES.Next
+features that can be used directly without a flag in [all maintained branches]
+(https://github.com/nodejs/lts), you can check [node.green](http://node.green)
+for all available features in each release.
+
+For example:
 
 * `let` and `const` over `var`
 * Template literals over string concatenation
@@ -275,3 +279,65 @@ If you want to improve tests that have been imported this way, please send
 a PR to the upstream project first. When your proposed change is merged in
 the upstream project, send another PR here to update Node.js accordingly.
 Be sure to update the hash in the URL following `WPT Refs:`.
+
+## C++ Unit test
+C++ code can be tested using [Google Test][]. Most features in Node.js can be
+tested using the methods described previously in this document. But there are
+cases where these might not be enough, for example writing code for Node.js
+that will only be called when Node.js is embedded.
+
+### Adding a new test
+The unit test should be placed in `test/cctest` and be named with the prefix
+`test` followed by the name of unit being tested. For example, the code below
+would be placed in `test/cctest/test_env.cc`:
+
+```c++
+#include "gtest/gtest.h"
+#include "node_test_fixture.h"
+#include "env.h"
+#include "node.h"
+#include "v8.h"
+
+static bool called_cb = false;
+static void at_exit_callback(void* arg);
+
+class EnvTest : public NodeTestFixture { };
+
+TEST_F(EnvTest, RunAtExit) {
+  v8::HandleScope handle_scope(isolate_);
+  v8::Local<v8::Context> context = v8::Context::New(isolate_);
+  node::IsolateData* isolateData = node::CreateIsolateData(isolate_, uv_default_loop());
+  Argv argv{"node", "-e", ";"};
+  auto env = Environment:CreateEnvironment(isolateData, context, 1, *argv, 2, *argv);
+  node::AtExit(at_exit_callback);
+  node::RunAtExit(env);
+  EXPECT_TRUE(called_cb);
+}
+
+static void at_exit_callback(void* arg) {
+  called_cb = true;
+}
+```
+
+Next add the test to the `sources` in the `cctest` target in node.gyp:
+```
+'sources': [
+  'test/cctest/test_env.cc',
+  ...
+],
+```
+The test can be executed by running the `cctest` target:
+```
+$ make cctest
+```
+
+### Node test fixture
+There is a [test fixture] named `node_test_fixture.h` which can be included by
+unit tests. The fixture takes care of setting up the Node.js environment
+and tearing it down after the tests have finished.
+
+It also contains a helper to create arguments to be passed into Node.js. It
+will depend on what is being tested if this is required or not.
+
+[Google Test]: https://github.com/google/googletest
+[Test fixture]: https://github.com/google/googletest/blob/master/googletest/docs/Primer.md#test-fixtures-using-the-same-data-configuration-for-multiple-tests

@@ -20,6 +20,7 @@
 #include "src/globals.h"
 #include "src/list.h"
 #include "src/vector.h"
+#include "src/zone/zone.h"
 
 namespace v8 {
 namespace internal {
@@ -922,7 +923,7 @@ class BailoutId {
   bool operator==(const BailoutId& other) const { return id_ == other.id_; }
   bool operator!=(const BailoutId& other) const { return id_ != other.id_; }
   friend size_t hash_value(BailoutId);
-  friend std::ostream& operator<<(std::ostream&, BailoutId);
+  V8_EXPORT_PRIVATE friend std::ostream& operator<<(std::ostream&, BailoutId);
 
  private:
   static const int kNoneId = -1;
@@ -946,25 +947,12 @@ class BailoutId {
   int id_;
 };
 
-class TokenDispenserForFinally {
- public:
-  int GetBreakContinueToken() { return next_token_++; }
-  static const int kFallThroughToken = 0;
-  static const int kThrowToken = 1;
-  static const int kReturnToken = 2;
-
-  static const int kFirstBreakContinueToken = 3;
-  static const int kInvalidToken = -1;
-
- private:
-  int next_token_ = kFirstBreakContinueToken;
-};
 
 // ----------------------------------------------------------------------------
 // I/O support.
 
 // Our version of printf().
-void PRINTF_FORMAT(1, 2) PrintF(const char* format, ...);
+V8_EXPORT_PRIVATE void PRINTF_FORMAT(1, 2) PrintF(const char* format, ...);
 void PRINTF_FORMAT(2, 3) PrintF(FILE* out, const char* format, ...);
 
 // Prepends the current process ID to the output.
@@ -1150,9 +1138,9 @@ inline void MemsetPointer(T** dest, U* value, int counter) {
 // Simple support to read a file into a 0-terminated C-string.
 // The returned buffer must be freed by the caller.
 // On return, *exits tells whether the file existed.
-Vector<const char> ReadFile(const char* filename,
-                            bool* exists,
-                            bool verbose = true);
+V8_EXPORT_PRIVATE Vector<const char> ReadFile(const char* filename,
+                                              bool* exists,
+                                              bool verbose = true);
 Vector<const char> ReadFile(FILE* file,
                             bool* exists,
                             bool verbose = true);
@@ -1597,6 +1585,123 @@ static inline void WriteLittleEndianValue(void* p, V value) {
   }
 #endif  // V8_TARGET_LITTLE_ENDIAN
 }
+
+// Represents a linked list that threads through the nodes in the linked list.
+// Entries in the list are pointers to nodes. The nodes need to have a T**
+// next() method that returns the location where the next value is stored.
+template <typename T>
+class ThreadedList final {
+ public:
+  ThreadedList() : head_(nullptr), tail_(&head_) {}
+  void Add(T* v) {
+    DCHECK_NULL(*tail_);
+    DCHECK_NULL(*v->next());
+    *tail_ = v;
+    tail_ = v->next();
+  }
+
+  void Clear() {
+    head_ = nullptr;
+    tail_ = &head_;
+  }
+
+  class Iterator final {
+   public:
+    Iterator& operator++() {
+      entry_ = (*entry_)->next();
+      return *this;
+    }
+    bool operator!=(const Iterator& other) { return entry_ != other.entry_; }
+    T* operator*() { return *entry_; }
+    Iterator& operator=(T* entry) {
+      T* next = *(*entry_)->next();
+      *entry->next() = next;
+      *entry_ = entry;
+      return *this;
+    }
+
+   private:
+    explicit Iterator(T** entry) : entry_(entry) {}
+
+    T** entry_;
+
+    friend class ThreadedList;
+  };
+
+  class ConstIterator final {
+   public:
+    ConstIterator& operator++() {
+      entry_ = (*entry_)->next();
+      return *this;
+    }
+    bool operator!=(const ConstIterator& other) {
+      return entry_ != other.entry_;
+    }
+    const T* operator*() const { return *entry_; }
+
+   private:
+    explicit ConstIterator(T* const* entry) : entry_(entry) {}
+
+    T* const* entry_;
+
+    friend class ThreadedList;
+  };
+
+  Iterator begin() { return Iterator(&head_); }
+  Iterator end() { return Iterator(tail_); }
+
+  ConstIterator begin() const { return ConstIterator(&head_); }
+  ConstIterator end() const { return ConstIterator(tail_); }
+
+  void Rewind(Iterator reset_point) {
+    tail_ = reset_point.entry_;
+    *tail_ = nullptr;
+  }
+
+  void MoveTail(ThreadedList<T>* parent, Iterator location) {
+    if (parent->end() != location) {
+      DCHECK_NULL(*tail_);
+      *tail_ = *location;
+      tail_ = parent->tail_;
+      parent->Rewind(location);
+    }
+  }
+
+  bool is_empty() const { return head_ == nullptr; }
+
+  // Slow. For testing purposes.
+  int LengthForTest() {
+    int result = 0;
+    for (Iterator t = begin(); t != end(); ++t) ++result;
+    return result;
+  }
+  T* AtForTest(int i) {
+    Iterator t = begin();
+    while (i-- > 0) ++t;
+    return *t;
+  }
+
+ private:
+  T* head_;
+  T** tail_;
+  DISALLOW_COPY_AND_ASSIGN(ThreadedList);
+};
+
+// Can be used to create a threaded list of |T|.
+template <typename T>
+class ThreadedListZoneEntry final : public ZoneObject {
+ public:
+  explicit ThreadedListZoneEntry(T value) : value_(value), next_(nullptr) {}
+
+  T value() { return value_; }
+  ThreadedListZoneEntry<T>** next() { return &next_; }
+
+ private:
+  T value_;
+  ThreadedListZoneEntry<T>* next_;
+  DISALLOW_COPY_AND_ASSIGN(ThreadedListZoneEntry);
+};
+
 }  // namespace internal
 }  // namespace v8
 

@@ -32,6 +32,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
   switch (f->function_id) {
     case Runtime::kInlineCreateIterResultObject:
       return ReduceCreateIterResultObject(node);
+    case Runtime::kInlineDebugIsActive:
+      return ReduceDebugIsActive(node);
     case Runtime::kInlineDeoptimizeNow:
       return ReduceDeoptimizeNow(node);
     case Runtime::kInlineGeneratorClose:
@@ -40,12 +42,12 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceGeneratorGetInputOrDebugPos(node);
     case Runtime::kInlineGeneratorGetResumeMode:
       return ReduceGeneratorGetResumeMode(node);
+    case Runtime::kInlineGeneratorGetContext:
+      return ReduceGeneratorGetContext(node);
     case Runtime::kInlineIsArray:
       return ReduceIsInstanceType(node, JS_ARRAY_TYPE);
     case Runtime::kInlineIsTypedArray:
       return ReduceIsInstanceType(node, JS_TYPED_ARRAY_TYPE);
-    case Runtime::kInlineIsRegExp:
-      return ReduceIsInstanceType(node, JS_REGEXP_TYPE);
     case Runtime::kInlineIsJSReceiver:
       return ReduceIsJSReceiver(node);
     case Runtime::kInlineIsSmi:
@@ -54,14 +56,8 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceFixedArrayGet(node);
     case Runtime::kInlineFixedArraySet:
       return ReduceFixedArraySet(node);
-    case Runtime::kInlineRegExpConstructResult:
-      return ReduceRegExpConstructResult(node);
     case Runtime::kInlineRegExpExec:
       return ReduceRegExpExec(node);
-    case Runtime::kInlineRegExpFlags:
-      return ReduceRegExpFlags(node);
-    case Runtime::kInlineRegExpSource:
-      return ReduceRegExpSource(node);
     case Runtime::kInlineSubString:
       return ReduceSubString(node);
     case Runtime::kInlineToInteger:
@@ -76,8 +72,6 @@ Reduction JSIntrinsicLowering::Reduce(Node* node) {
       return ReduceToString(node);
     case Runtime::kInlineCall:
       return ReduceCall(node);
-    case Runtime::kInlineNewObject:
-      return ReduceNewObject(node);
     case Runtime::kInlineGetSuperConstructor:
       return ReduceGetSuperConstructor(node);
     default:
@@ -96,6 +90,15 @@ Reduction JSIntrinsicLowering::ReduceCreateIterResultObject(Node* node) {
                 context, effect);
 }
 
+Reduction JSIntrinsicLowering::ReduceDebugIsActive(Node* node) {
+  Node* const value = jsgraph()->ExternalConstant(
+      ExternalReference::debug_is_active_address(isolate()));
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+  Operator const* const op =
+      simplified()->LoadField(AccessBuilder::ForExternalUint8Value());
+  return Change(node, op, value, effect, control);
+}
 
 Reduction JSIntrinsicLowering::ReduceDeoptimizeNow(Node* node) {
   if (mode() != kDeoptimizationEnabled) return NoChange();
@@ -135,6 +138,16 @@ Reduction JSIntrinsicLowering::ReduceGeneratorGetInputOrDebugPos(Node* node) {
   Node* const control = NodeProperties::GetControlInput(node);
   Operator const* const op = simplified()->LoadField(
       AccessBuilder::ForJSGeneratorObjectInputOrDebugPos());
+
+  return Change(node, op, generator, effect, control);
+}
+
+Reduction JSIntrinsicLowering::ReduceGeneratorGetContext(Node* node) {
+  Node* const generator = NodeProperties::GetValueInput(node, 0);
+  Node* const effect = NodeProperties::GetEffectInput(node);
+  Node* const control = NodeProperties::GetControlInput(node);
+  Operator const* const op =
+      simplified()->LoadField(AccessBuilder::ForJSGeneratorObjectContext());
 
   return Change(node, op, generator, effect, control);
 }
@@ -234,34 +247,8 @@ Reduction JSIntrinsicLowering::ReduceFixedArraySet(Node* node) {
 }
 
 
-Reduction JSIntrinsicLowering::ReduceRegExpConstructResult(Node* node) {
-  // TODO(bmeurer): Introduce JSCreateRegExpResult?
-  return Change(node, CodeFactory::RegExpConstructResult(isolate()), 0);
-}
-
-
 Reduction JSIntrinsicLowering::ReduceRegExpExec(Node* node) {
   return Change(node, CodeFactory::RegExpExec(isolate()), 4);
-}
-
-
-Reduction JSIntrinsicLowering::ReduceRegExpFlags(Node* node) {
-  Node* const receiver = NodeProperties::GetValueInput(node, 0);
-  Node* const effect = NodeProperties::GetEffectInput(node);
-  Node* const control = NodeProperties::GetControlInput(node);
-  Operator const* const op =
-      simplified()->LoadField(AccessBuilder::ForJSRegExpFlags());
-  return Change(node, op, receiver, effect, control);
-}
-
-
-Reduction JSIntrinsicLowering::ReduceRegExpSource(Node* node) {
-  Node* const receiver = NodeProperties::GetValueInput(node, 0);
-  Node* const effect = NodeProperties::GetEffectInput(node);
-  Node* const control = NodeProperties::GetControlInput(node);
-  Operator const* const op =
-      simplified()->LoadField(AccessBuilder::ForJSRegExpSource());
-  return Change(node, op, receiver, effect, control);
 }
 
 
@@ -307,10 +294,6 @@ Reduction JSIntrinsicLowering::ReduceCall(Node* node) {
                                        ConvertReceiverMode::kAny,
                                        TailCallMode::kDisallow));
   return Changed(node);
-}
-
-Reduction JSIntrinsicLowering::ReduceNewObject(Node* node) {
-  return Change(node, CodeFactory::FastNewObject(isolate()), 0);
 }
 
 Reduction JSIntrinsicLowering::ReduceGetSuperConstructor(Node* node) {

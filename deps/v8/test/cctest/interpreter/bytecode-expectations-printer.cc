@@ -25,6 +25,21 @@ namespace v8 {
 namespace internal {
 namespace interpreter {
 
+static const char* NameForNativeContextIntrinsicIndex(uint32_t idx) {
+  switch (idx) {
+#define COMPARE_NATIVE_CONTEXT_INTRINSIC_IDX(NAME, Type, name) \
+  case Context::NAME:                                          \
+    return #name;
+
+    NATIVE_CONTEXT_INTRINSIC_FUNCTIONS(COMPARE_NATIVE_CONTEXT_INTRINSIC_IDX)
+
+    default:
+      break;
+  }
+
+  return "UnknownIntrinsicIndex";
+}
+
 // static
 const char* const BytecodeExpectationsPrinter::kDefaultTopFunctionName =
     "__genbckexp_wrapper__";
@@ -83,7 +98,9 @@ i::Handle<i::BytecodeArray>
 BytecodeExpectationsPrinter::GetBytecodeArrayForModule(
     v8::Local<v8::Module> module) const {
   i::Handle<i::Module> i_module = v8::Utils::OpenHandle(*module);
-  return i::handle(i_module->shared()->bytecode_array(), i_isolate());
+  CHECK(!i_module->instantiated());
+  return i::handle(SharedFunctionInfo::cast(i_module->code())->bytecode_array(),
+                   i_isolate());
 }
 
 i::Handle<i::BytecodeArray>
@@ -160,9 +177,15 @@ void BytecodeExpectationsPrinter::PrintBytecodeOperand(
       case OperandType::kFlag8:
         stream << bytecode_iterator.GetFlagOperand(op_index);
         break;
-      case OperandType::kIdx:
-        stream << bytecode_iterator.GetIndexOperand(op_index);
+      case OperandType::kIdx: {
+        uint32_t idx = bytecode_iterator.GetIndexOperand(op_index);
+        if (bytecode == Bytecode::kCallJSRuntime && op_index == 0) {
+          stream << "%" << NameForNativeContextIntrinsicIndex(idx);
+        } else {
+          stream << idx;
+        }
         break;
+      }
       case OperandType::kUImm:
         stream << bytecode_iterator.GetUnsignedImmediateOperand(op_index);
         break;
@@ -217,7 +240,7 @@ void BytecodeExpectationsPrinter::PrintSourcePosition(
   if (!source_iterator.done() &&
       source_iterator.code_offset() == bytecode_offset) {
     stream << "/* " << std::setw(kPositionWidth)
-           << source_iterator.source_position();
+           << source_iterator.source_position().ScriptOffset();
     if (source_iterator.is_statement()) {
       stream << " S> */ ";
     } else {

@@ -115,10 +115,13 @@ to the `constants` property exposed by the relevant module. For instance,
 <a id="DEP0009"></a>
 ### DEP0009: crypto.pbkdf2 without digest
 
-Type: Runtime
+Type: End-of-life
 
-Use of the [`crypto.pbkdf2()`][] API without specifying a digest is deprecated.
-Please specify a digest.
+Use of the [`crypto.pbkdf2()`][] API without specifying a digest was deprecated
+in Node.js 6.0 because the method defaulted to using the non-recommendend
+`'SHA1'` digest. Previously, a deprecation warning was printed. Starting in
+Node.js 8.0.0, calling `crypto.pbkdf2()` or `crypto.pbkdf2Sync()` with an
+undefined `digest` will throw a `TypeError`.
 
 <a id="DEP0010"></a>
 ### DEP0010: crypto.createCredentials
@@ -506,10 +509,10 @@ The [`util._extend()`][] API has been deprecated.
 <a id="DEP0061"></a>
 ### DEP0061: fs.SyncWriteStream
 
-Type: Documentation-only
+Type: Runtime
 
 The `fs.SyncWriteStream` class was never intended to be a publicly accessible
-API.
+API. No alternative API is available. Please use a userland alternative.
 
 <a id="DEP0062"></a>
 ### DEP0062: node --debug
@@ -519,6 +522,65 @@ Type: Runtime
 `--debug` activates the legacy V8 debugger interface, which has been removed as
 of V8 5.8. It is replaced by Inspector which is activated with `--inspect`
 instead.
+
+<a id="DEP0063"></a>
+### DEP0063: ServerResponse.prototype.writeHeader()
+
+Type: Documentation-only
+
+The `http` module `ServerResponse.prototype.writeHeader()` API has been
+deprecated. Please use `ServerResponse.prototype.writeHead()` instead.
+
+*Note*: The `ServerResponse.prototype.writeHeader()` method was never documented
+as an officially supported API.
+
+<a id="DEP0064"></a>
+### DEP0064: tls.createSecurePair()
+
+Type: Runtime
+
+The `tls.createSecurePair()` API was deprecated in documentation in Node.js
+0.11.3. Users should use `tls.Socket` instead.
+
+<a id="DEP0065"></a>
+### DEP0065: repl.REPL_MODE_MAGIC and NODE_REPL_MODE=magic
+
+Type: Documentation-only
+
+The `repl` module's `REPL_MODE_MAGIC` constant, used for `replMode` option, has
+been deprecated. Its behavior has been functionally identical to that of
+`REPL_MODE_SLOPPY` since Node.js v6.0.0, when V8 5.0 was imported. Please use
+`REPL_MODE_SLOPPY` instead.
+
+The `NODE_REPL_MODE` environment variable is used to set the underlying
+`replMode` of an interactive `node` session. Its default value, `magic`, is
+similarly deprecated in favor of `sloppy`.
+
+<a id="DEP0066"></a>
+### DEP0066: outgoingMessage.\_headers, outgoingMessage.\_headerNames
+
+Type: Documentation-only
+
+The `http` module `outgoingMessage._headers` and `outgoingMessage._headerNames`
+properties have been deprecated. Please instead use one of the public methods
+(e.g. `outgoingMessage.getHeader()`, `outgoingMessage.getHeaders()`,
+`outgoingMessage.getHeaderNames()`, `outgoingMessage.hasHeader()`,
+`outgoingMessage.removeHeader()`, `outgoingMessage.setHeader()`) for working
+with outgoing headers.
+
+*Note*: `outgoingMessage._headers` and `outgoingMessage._headerNames` were never
+documented as officially supported properties.
+
+<a id="DEP0067"></a>
+### DEP0067: OutgoingMessage.prototype.\_renderHeaders
+
+Type: Documentation-only
+
+The `http` module `OutgoingMessage.prototype._renderHeaders()` API has been
+deprecated.
+
+*Note*: `OutgoingMessage.prototype._renderHeaders` was never documented as
+an officially supported API.
 
 [alloc]: buffer.html#buffer_class_method_buffer_alloc_size_fill_encoding
 [alloc_unsafe_size]: buffer.html#buffer_class_method_buffer_allocunsafe_size

@@ -66,9 +66,7 @@ class IA32OperandConverter : public InstructionOperandConverter {
   Immediate ToImmediate(InstructionOperand* operand) {
     Constant constant = ToConstant(operand);
     if (constant.type() == Constant::kInt32 &&
-        (constant.rmode() == RelocInfo::WASM_MEMORY_REFERENCE ||
-         constant.rmode() == RelocInfo::WASM_GLOBAL_REFERENCE ||
-         constant.rmode() == RelocInfo::WASM_MEMORY_SIZE_REFERENCE)) {
+        RelocInfo::IsWasmReference(constant.rmode())) {
       return Immediate(reinterpret_cast<Address>(constant.ToInt32()),
                        constant.rmode());
     }
@@ -184,7 +182,6 @@ namespace {
 bool HasImmediateInput(Instruction* instr, size_t index) {
   return instr->InputAt(index)->IsImmediate();
 }
-
 
 class OutOfLineLoadInteger final : public OutOfLineCode {
  public:
@@ -316,7 +313,6 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
     __ bind(ool->exit());                                                 \
   } while (false)
 
-
 #define ASSEMBLE_CHECKED_STORE_FLOAT(asm_instr)                 \
   do {                                                          \
     auto offset = i.InputRegister(0);                           \
@@ -330,7 +326,6 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
     __ asm_instr(i.MemoryOperand(3), i.InputDoubleRegister(2)); \
     __ bind(&done);                                             \
   } while (false)
-
 
 #define ASSEMBLE_CHECKED_STORE_INTEGER(asm_instr)            \
   do {                                                       \
@@ -580,18 +575,15 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       frame_access_state()->ClearSPDelta();
       break;
     }
-    case kArchTailCallJSFunctionFromJSFunction:
-    case kArchTailCallJSFunction: {
+    case kArchTailCallJSFunctionFromJSFunction: {
       Register func = i.InputRegister(0);
       if (FLAG_debug_code) {
         // Check the function's context matches the context argument.
         __ cmp(esi, FieldOperand(func, JSFunction::kContextOffset));
         __ Assert(equal, kWrongFunctionContext);
       }
-      if (arch_opcode == kArchTailCallJSFunctionFromJSFunction) {
-        AssemblePopArgumentsAdaptorFrame(kJavaScriptCallArgCountRegister,
-                                         no_reg, no_reg, no_reg);
-      }
+      AssemblePopArgumentsAdaptorFrame(kJavaScriptCallArgCountRegister, no_reg,
+                                       no_reg, no_reg);
       __ jmp(FieldOperand(func, JSFunction::kCodeEntryOffset));
       frame_access_state()->ClearSPDelta();
       frame_access_state()->SetFrameAccessToDefault();
@@ -652,7 +644,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kArchRet:
-      AssembleReturn();
+      AssembleReturn(instr->InputAt(0));
       break;
     case kArchStackPointer:
       __ mov(i.OutputRegister(), esp);
@@ -899,10 +891,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       } else {
         __ add(i.OutputRegister(0), i.InputRegister(2));
       }
-      __ adc(i.InputRegister(1), Operand(i.InputRegister(3)));
       if (i.OutputRegister(1).code() != i.InputRegister(1).code()) {
         __ Move(i.OutputRegister(1), i.InputRegister(1));
       }
+      __ adc(i.OutputRegister(1), Operand(i.InputRegister(3)));
       if (use_temp) {
         __ Move(i.OutputRegister(0), i.TempRegister(0));
       }
@@ -924,10 +916,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       } else {
         __ sub(i.OutputRegister(0), i.InputRegister(2));
       }
-      __ sbb(i.InputRegister(1), Operand(i.InputRegister(3)));
       if (i.OutputRegister(1).code() != i.InputRegister(1).code()) {
         __ Move(i.OutputRegister(1), i.InputRegister(1));
       }
+      __ sbb(i.OutputRegister(1), Operand(i.InputRegister(3)));
       if (use_temp) {
         __ Move(i.OutputRegister(0), i.TempRegister(0));
       }
@@ -1461,7 +1453,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
           if (i.InputRegister(1).is(i.OutputRegister())) {
             __ shl(i.OutputRegister(), 1);
           } else {
-            __ lea(i.OutputRegister(), i.MemoryOperand());
+            __ add(i.OutputRegister(), i.InputRegister(1));
           }
         } else if (mode == kMode_M2) {
           __ shl(i.OutputRegister(), 1);
@@ -1472,6 +1464,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         } else {
           __ lea(i.OutputRegister(), i.MemoryOperand());
         }
+      } else if (mode == kMode_MR1 &&
+                 i.InputRegister(1).is(i.OutputRegister())) {
+        __ add(i.OutputRegister(), i.InputRegister(0));
       } else {
         __ lea(i.OutputRegister(), i.MemoryOperand());
       }
@@ -1611,61 +1606,66 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
   return kSuccess;
 }  // NOLINT(readability/fn_size)
 
+static Condition FlagsConditionToCondition(FlagsCondition condition) {
+  switch (condition) {
+    case kUnorderedEqual:
+    case kEqual:
+      return equal;
+      break;
+    case kUnorderedNotEqual:
+    case kNotEqual:
+      return not_equal;
+      break;
+    case kSignedLessThan:
+      return less;
+      break;
+    case kSignedGreaterThanOrEqual:
+      return greater_equal;
+      break;
+    case kSignedLessThanOrEqual:
+      return less_equal;
+      break;
+    case kSignedGreaterThan:
+      return greater;
+      break;
+    case kUnsignedLessThan:
+      return below;
+      break;
+    case kUnsignedGreaterThanOrEqual:
+      return above_equal;
+      break;
+    case kUnsignedLessThanOrEqual:
+      return below_equal;
+      break;
+    case kUnsignedGreaterThan:
+      return above;
+      break;
+    case kOverflow:
+      return overflow;
+      break;
+    case kNotOverflow:
+      return no_overflow;
+      break;
+    default:
+      UNREACHABLE();
+      return no_condition;
+      break;
+  }
+}
 
 // Assembles a branch after an instruction.
 void CodeGenerator::AssembleArchBranch(Instruction* instr, BranchInfo* branch) {
-  IA32OperandConverter i(this, instr);
   Label::Distance flabel_distance =
       branch->fallthru ? Label::kNear : Label::kFar;
   Label* tlabel = branch->true_label;
   Label* flabel = branch->false_label;
-  switch (branch->condition) {
-    case kUnorderedEqual:
-      __ j(parity_even, flabel, flabel_distance);
-    // Fall through.
-    case kEqual:
-      __ j(equal, tlabel);
-      break;
-    case kUnorderedNotEqual:
-      __ j(parity_even, tlabel);
-    // Fall through.
-    case kNotEqual:
-      __ j(not_equal, tlabel);
-      break;
-    case kSignedLessThan:
-      __ j(less, tlabel);
-      break;
-    case kSignedGreaterThanOrEqual:
-      __ j(greater_equal, tlabel);
-      break;
-    case kSignedLessThanOrEqual:
-      __ j(less_equal, tlabel);
-      break;
-    case kSignedGreaterThan:
-      __ j(greater, tlabel);
-      break;
-    case kUnsignedLessThan:
-      __ j(below, tlabel);
-      break;
-    case kUnsignedGreaterThanOrEqual:
-      __ j(above_equal, tlabel);
-      break;
-    case kUnsignedLessThanOrEqual:
-      __ j(below_equal, tlabel);
-      break;
-    case kUnsignedGreaterThan:
-      __ j(above, tlabel);
-      break;
-    case kOverflow:
-      __ j(overflow, tlabel);
-      break;
-    case kNotOverflow:
-      __ j(no_overflow, tlabel);
-      break;
-    default:
-      UNREACHABLE();
-      break;
+  if (branch->condition == kUnorderedEqual) {
+    __ j(parity_even, flabel, flabel_distance);
+  } else if (branch->condition == kUnorderedNotEqual) {
+    __ j(parity_even, tlabel);
   }
+  __ j(FlagsConditionToCondition(branch->condition), tlabel);
+
   // Add a jump if not falling through to the next block.
   if (!branch->fallthru) __ jmp(flabel);
 }
@@ -1675,6 +1675,71 @@ void CodeGenerator::AssembleArchJump(RpoNumber target) {
   if (!IsNextInAssemblyOrder(target)) __ jmp(GetLabel(target));
 }
 
+void CodeGenerator::AssembleArchTrap(Instruction* instr,
+                                     FlagsCondition condition) {
+  class OutOfLineTrap final : public OutOfLineCode {
+   public:
+    OutOfLineTrap(CodeGenerator* gen, bool frame_elided, Instruction* instr)
+        : OutOfLineCode(gen),
+          frame_elided_(frame_elided),
+          instr_(instr),
+          gen_(gen) {}
+
+    void Generate() final {
+      IA32OperandConverter i(gen_, instr_);
+
+      Runtime::FunctionId trap_id = static_cast<Runtime::FunctionId>(
+          i.InputInt32(instr_->InputCount() - 1));
+      bool old_has_frame = __ has_frame();
+      if (frame_elided_) {
+        __ set_has_frame(true);
+        __ EnterFrame(StackFrame::WASM_COMPILED);
+      }
+      GenerateCallToTrap(trap_id);
+      if (frame_elided_) {
+        ReferenceMap* reference_map =
+            new (gen_->zone()) ReferenceMap(gen_->zone());
+        gen_->RecordSafepoint(reference_map, Safepoint::kSimple, 0,
+                              Safepoint::kNoLazyDeopt);
+        __ set_has_frame(old_has_frame);
+      }
+      if (FLAG_debug_code) {
+        __ ud2();
+      }
+    }
+
+   private:
+    void GenerateCallToTrap(Runtime::FunctionId trap_id) {
+      if (trap_id == Runtime::kNumFunctions) {
+        // We cannot test calls to the runtime in cctest/test-run-wasm.
+        // Therefore we emit a call to C here instead of a call to the runtime.
+        __ PrepareCallCFunction(0, esi);
+        __ CallCFunction(
+            ExternalReference::wasm_call_trap_callback_for_testing(isolate()),
+            0);
+      } else {
+        __ Move(esi, isolate()->native_context());
+        gen_->AssembleSourcePosition(instr_);
+        __ CallRuntime(trap_id);
+      }
+    }
+
+    bool frame_elided_;
+    Instruction* instr_;
+    CodeGenerator* gen_;
+  };
+  bool frame_elided = !frame_access_state()->has_frame();
+  auto ool = new (zone()) OutOfLineTrap(this, frame_elided, instr);
+  Label* tlabel = ool->entry();
+  Label end;
+  if (condition == kUnorderedEqual) {
+    __ j(parity_even, &end);
+  } else if (condition == kUnorderedNotEqual) {
+    __ j(parity_even, tlabel);
+  }
+  __ j(FlagsConditionToCondition(condition), tlabel);
+  __ bind(&end);
+}
 
 // Assembles boolean materializations after an instruction.
 void CodeGenerator::AssembleArchBoolean(Instruction* instr,
@@ -1687,58 +1752,17 @@ void CodeGenerator::AssembleArchBoolean(Instruction* instr,
   Label check;
   DCHECK_NE(0u, instr->OutputCount());
   Register reg = i.OutputRegister(instr->OutputCount() - 1);
-  Condition cc = no_condition;
-  switch (condition) {
-    case kUnorderedEqual:
-      __ j(parity_odd, &check, Label::kNear);
-      __ Move(reg, Immediate(0));
-      __ jmp(&done, Label::kNear);
-    // Fall through.
-    case kEqual:
-      cc = equal;
-      break;
-    case kUnorderedNotEqual:
-      __ j(parity_odd, &check, Label::kNear);
-      __ mov(reg, Immediate(1));
-      __ jmp(&done, Label::kNear);
-    // Fall through.
-    case kNotEqual:
-      cc = not_equal;
-      break;
-    case kSignedLessThan:
-      cc = less;
-      break;
-    case kSignedGreaterThanOrEqual:
-      cc = greater_equal;
-      break;
-    case kSignedLessThanOrEqual:
-      cc = less_equal;
-      break;
-    case kSignedGreaterThan:
-      cc = greater;
-      break;
-    case kUnsignedLessThan:
-      cc = below;
-      break;
-    case kUnsignedGreaterThanOrEqual:
-      cc = above_equal;
-      break;
-    case kUnsignedLessThanOrEqual:
-      cc = below_equal;
-      break;
-    case kUnsignedGreaterThan:
-      cc = above;
-      break;
-    case kOverflow:
-      cc = overflow;
-      break;
-    case kNotOverflow:
-      cc = no_overflow;
-      break;
-    default:
-      UNREACHABLE();
-      break;
+  if (condition == kUnorderedEqual) {
+    __ j(parity_odd, &check, Label::kNear);
+    __ Move(reg, Immediate(0));
+    __ jmp(&done, Label::kNear);
+  } else if (condition == kUnorderedNotEqual) {
+    __ j(parity_odd, &check, Label::kNear);
+    __ mov(reg, Immediate(1));
+    __ jmp(&done, Label::kNear);
   }
+  Condition cc = FlagsConditionToCondition(condition);
+
   __ bind(&check);
   if (reg.is_byte_register()) {
     // setcc for byte registers (al, bl, cl, dl).
@@ -1790,7 +1814,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleDeoptimizerCall(
   if (deopt_entry == nullptr) return kTooManyDeoptimizationBailouts;
   DeoptimizeReason deoptimization_reason =
       GetDeoptimizationReason(deoptimization_id);
-  __ RecordDeoptReason(deoptimization_reason, pos.raw(), deoptimization_id);
+  __ RecordDeoptReason(deoptimization_reason, pos, deoptimization_id);
   __ call(deopt_entry, RelocInfo::RUNTIME_ENTRY);
   return kSuccess;
 }
@@ -1945,12 +1969,16 @@ void CodeGenerator::AssembleConstructFrame() {
       __ mov(ebp, esp);
     } else if (descriptor->IsJSFunctionCall()) {
       __ Prologue(this->info()->GeneratePreagedPrologue());
+      if (descriptor->PushArgumentCount()) {
+        __ push(kJavaScriptCallArgCountRegister);
+      }
     } else {
       __ StubPrologue(info()->GetOutputStackFrameType());
     }
   }
 
-  int shrink_slots = frame()->GetSpillSlotCount();
+  int shrink_slots =
+      frame()->GetTotalFrameSlotCount() - descriptor->CalculateFixedFrameSize();
 
   if (info()->is_osr()) {
     // TurboFan OSR-compiled functions cannot be entered directly.
@@ -1981,8 +2009,7 @@ void CodeGenerator::AssembleConstructFrame() {
   }
 }
 
-
-void CodeGenerator::AssembleReturn() {
+void CodeGenerator::AssembleReturn(InstructionOperand* pop) {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
 
   const RegList saves = descriptor->CalleeSavedRegisters();
@@ -1994,22 +2021,41 @@ void CodeGenerator::AssembleReturn() {
     }
   }
 
+  // Might need ecx for scratch if pop_size is too big or if there is a variable
+  // pop count.
+  DCHECK_EQ(0u, descriptor->CalleeSavedRegisters() & ecx.bit());
+  size_t pop_size = descriptor->StackParameterCount() * kPointerSize;
+  IA32OperandConverter g(this, nullptr);
   if (descriptor->IsCFunctionCall()) {
     AssembleDeconstructFrame();
   } else if (frame_access_state()->has_frame()) {
-    // Canonicalize JSFunction return sites for now.
-    if (return_label_.is_bound()) {
-      __ jmp(&return_label_);
-      return;
+    // Canonicalize JSFunction return sites for now if they always have the same
+    // number of return args.
+    if (pop->IsImmediate() && g.ToConstant(pop).ToInt32() == 0) {
+      if (return_label_.is_bound()) {
+        __ jmp(&return_label_);
+        return;
+      } else {
+        __ bind(&return_label_);
+        AssembleDeconstructFrame();
+      }
     } else {
-      __ bind(&return_label_);
       AssembleDeconstructFrame();
     }
   }
-  size_t pop_size = descriptor->StackParameterCount() * kPointerSize;
-  // Might need ecx for scratch if pop_size is too big.
+  DCHECK_EQ(0u, descriptor->CalleeSavedRegisters() & edx.bit());
   DCHECK_EQ(0u, descriptor->CalleeSavedRegisters() & ecx.bit());
-  __ Ret(static_cast<int>(pop_size), ecx);
+  if (pop->IsImmediate()) {
+    DCHECK_EQ(Constant::kInt32, g.ToConstant(pop).type());
+    pop_size += g.ToConstant(pop).ToInt32() * kPointerSize;
+    __ Ret(static_cast<int>(pop_size), ecx);
+  } else {
+    Register pop_reg = g.ToRegister(pop);
+    Register scratch_reg = pop_reg.is(ecx) ? edx : ecx;
+    __ pop(scratch_reg);
+    __ lea(esp, Operand(esp, pop_reg, times_4, static_cast<int>(pop_size)));
+    __ jmp(scratch_reg);
+  }
 }
 
 
@@ -2060,7 +2106,7 @@ void CodeGenerator::AssembleMove(InstructionOperand* source,
       __ Move(dst, g.ToImmediate(source));
     } else if (src_constant.type() == Constant::kFloat32) {
       // TODO(turbofan): Can we do better here?
-      uint32_t src = bit_cast<uint32_t>(src_constant.ToFloat32());
+      uint32_t src = src_constant.ToFloat32AsInt();
       if (destination->IsFPRegister()) {
         XMMRegister dst = g.ToDoubleRegister(destination);
         __ Move(dst, src);
@@ -2071,7 +2117,7 @@ void CodeGenerator::AssembleMove(InstructionOperand* source,
       }
     } else {
       DCHECK_EQ(Constant::kFloat64, src_constant.type());
-      uint64_t src = bit_cast<uint64_t>(src_constant.ToFloat64());
+      uint64_t src = src_constant.ToFloat64AsInt();
       uint32_t lower = static_cast<uint32_t>(src);
       uint32_t upper = static_cast<uint32_t>(src >> 32);
       if (destination->IsFPRegister()) {

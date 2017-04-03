@@ -26,10 +26,8 @@ class CallICState final BASE_EMBEDDED {
  public:
   explicit CallICState(ExtraICState extra_ic_state)
       : bit_field_(extra_ic_state) {}
-  CallICState(int argc, ConvertReceiverMode convert_mode,
-              TailCallMode tail_call_mode)
-      : bit_field_(ArgcBits::encode(argc) |
-                   ConvertModeBits::encode(convert_mode) |
+  CallICState(ConvertReceiverMode convert_mode, TailCallMode tail_call_mode)
+      : bit_field_(ConvertModeBits::encode(convert_mode) |
                    TailCallModeBits::encode(tail_call_mode)) {}
 
   ExtraICState GetExtraICState() const { return bit_field_; }
@@ -38,7 +36,6 @@ class CallICState final BASE_EMBEDDED {
                                   void (*Generate)(Isolate*,
                                                    const CallICState&));
 
-  int argc() const { return ArgcBits::decode(bit_field_); }
   ConvertReceiverMode convert_mode() const {
     return ConvertModeBits::decode(bit_field_);
   }
@@ -47,8 +44,7 @@ class CallICState final BASE_EMBEDDED {
   }
 
  private:
-  typedef BitField<int, 0, Code::kArgumentsBits> ArgcBits;
-  typedef BitField<ConvertReceiverMode, ArgcBits::kNext, 2> ConvertModeBits;
+  typedef BitField<ConvertReceiverMode, 0, 2> ConvertModeBits;
   typedef BitField<TailCallMode, ConvertModeBits::kNext, 1> TailCallModeBits;
 
   int const bit_field_;
@@ -86,6 +82,7 @@ class BinaryOpICState final BASE_EMBEDDED {
   }
 
   ExtraICState GetExtraICState() const;
+  std::string ToString() const;
 
   static void GenerateAheadOfTime(Isolate*,
                                   void (*Generate)(Isolate*,
@@ -238,6 +235,13 @@ class LoadGlobalICState final BASE_EMBEDDED {
   static TypeofMode GetTypeofMode(ExtraICState state) {
     return LoadGlobalICState(state).typeof_mode();
   }
+
+  // For convenience, a statically declared encoding of typeof mode
+  // IC state.
+  static const ExtraICState kInsideTypeOfState = INSIDE_TYPEOF
+                                                 << TypeofModeBits::kShift;
+  static const ExtraICState kNotInsideTypeOfState = NOT_INSIDE_TYPEOF
+                                                    << TypeofModeBits::kShift;
 };
 
 

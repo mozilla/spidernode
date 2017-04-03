@@ -6,6 +6,7 @@
 // Scanner are in cctest/test-parsing.cc, rather than here.
 
 #include "src/handles-inl.h"
+#include "src/objects-inl.h"
 #include "src/parsing/scanner-character-streams.h"
 #include "src/parsing/scanner.h"
 #include "src/unicode-cache.h"
@@ -17,10 +18,29 @@ namespace {
 
 const char src_simple[] = "function foo() { var x = 2 * a() + b; }";
 
-std::unique_ptr<Scanner> make_scanner(const char* src) {
-  std::unique_ptr<Scanner> scanner(new Scanner(new UnicodeCache()));
-  scanner->Initialize(ScannerStream::ForTesting(src).release());
-  return scanner;
+struct ScannerTestHelper {
+  ScannerTestHelper() = default;
+  ScannerTestHelper(ScannerTestHelper&& other)
+      : unicode_cache(std::move(other.unicode_cache)),
+        stream(std::move(other.stream)),
+        scanner(std::move(other.scanner)) {}
+
+  std::unique_ptr<UnicodeCache> unicode_cache;
+  std::unique_ptr<Utf16CharacterStream> stream;
+  std::unique_ptr<Scanner> scanner;
+
+  Scanner* operator->() const { return scanner.get(); }
+  Scanner* get() const { return scanner.get(); }
+};
+
+ScannerTestHelper make_scanner(const char* src) {
+  ScannerTestHelper helper;
+  helper.unicode_cache = std::unique_ptr<UnicodeCache>(new UnicodeCache);
+  helper.stream = ScannerStream::ForTesting(src);
+  helper.scanner =
+      std::unique_ptr<Scanner>(new Scanner(helper.unicode_cache.get()));
+  helper.scanner->Initialize(helper.stream.get());
+  return helper;
 }
 
 }  // anonymous namespace

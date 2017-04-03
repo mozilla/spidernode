@@ -328,12 +328,13 @@ Handle<FixedArray> GetFastEnumPropertyKeys(Isolate* isolate,
     if (key->IsSymbol()) continue;
     storage->set(index, key);
     if (!indices.is_null()) {
-      if (details.type() != DATA) {
-        indices = Handle<FixedArray>();
-      } else {
+      if (details.location() == kField) {
+        DCHECK_EQ(kData, details.kind());
         FieldIndex field_index = FieldIndex::ForDescriptor(*map, i);
         int load_by_field_index = field_index.GetLoadByFieldIndex();
         indices->set(index, Smi::FromInt(load_by_field_index));
+      } else {
+        indices = Handle<FixedArray>();
       }
     }
     index++;
@@ -780,7 +781,7 @@ Maybe<bool> KeyAccumulator::CollectOwnJSProxyKeys(Handle<JSReceiver> receiver,
                                        target_keys->get(i));
       nonconfigurable_keys_length++;
       // The key was moved, null it out in the original list.
-      target_keys->set(i, Smi::FromInt(0));
+      target_keys->set(i, Smi::kZero);
     } else {
       // 14c. Else,
       // 14c i. Append key as an element of targetConfigurableKeys.
@@ -794,7 +795,7 @@ Maybe<bool> KeyAccumulator::CollectOwnJSProxyKeys(Handle<JSReceiver> receiver,
     return AddKeysFromJSProxy(proxy, trap_result);
   }
   // 16. Let uncheckedResultKeys be a new List which is a copy of trapResult.
-  Zone set_zone(isolate_->allocator());
+  Zone set_zone(isolate_->allocator(), ZONE_NAME);
   const int kPresent = 1;
   const int kGone = 0;
   IdentityMap<int> unchecked_result_keys(isolate_->heap(), &set_zone);

@@ -2,7 +2,16 @@
 
 import sys
 if sys.version_info[0] != 2 or sys.version_info[1] not in (6, 7):
-  sys.stdout.write("Please use either Python 2.6 or 2.7\n")
+  sys.stderr.write('Please use either Python 2.6 or 2.7')
+
+  from distutils.spawn import find_executable as which
+  python2 = which('python2') or which('python2.6') or which('python2.7')
+
+  if python2:
+    sys.stderr.write(':\n\n')
+    sys.stderr.write('  ' + python2 + ' ' + ' '.join(sys.argv))
+
+  sys.stderr.write('\n')
   sys.exit(1)
 
 import errno
@@ -523,7 +532,7 @@ def warn(msg):
   prefix = '\033[1m\033[93mWARNING\033[0m' if os.isatty(1) else 'WARNING'
   print('%s: %s' % (prefix, msg))
 
-# track if warnings occured
+# track if warnings occurred
 warn.warned = False
 
 def b(value):
@@ -596,11 +605,11 @@ def get_version_helper(cc, regexp):
 
 def get_llvm_version(cc):
   return get_version_helper(
-      cc, r"(^clang version|based on LLVM) ([3-9]\.[0-9]+)")
+    cc, r"(^(?:FreeBSD )?clang version|based on LLVM) ([3-9]\.[0-9]+)")
 
 def get_xcode_version(cc):
   return get_version_helper(
-      cc, r"(^Apple LLVM version) ([5-9]\.[0-9]+)")
+    cc, r"(^Apple LLVM version) ([5-9]\.[0-9]+)")
 
 def get_gas_version(cc):
   try:
@@ -1330,7 +1339,7 @@ def configure_inspector(o):
   disable_inspector = (options.without_inspector or
                        options.with_intl in (None, 'none') or
                        options.without_ssl)
-  o['variables']['v8_inspector'] = b(not disable_inspector)
+  o['variables']['v8_enable_inspector'] = 0 if disable_inspector else 1
 
 output = {
   'variables': {},

@@ -37,6 +37,7 @@
 #include "src/api.h"
 #include "src/factory.h"
 #include "src/messages.h"
+#include "src/objects-inl.h"
 #include "src/objects.h"
 #include "src/unicode-decoder.h"
 #include "test/cctest/cctest.h"
@@ -600,6 +601,42 @@ TEST(Traverse) {
   printf("18\n");
 }
 
+TEST(ConsStringWithEmptyFirstFlatten) {
+  printf("ConsStringWithEmptyFirstFlatten\n");
+  CcTest::InitializeVM();
+  v8::HandleScope scope(CcTest::isolate());
+  Isolate* isolate = CcTest::i_isolate();
+
+  i::Handle<i::String> initial_fst =
+      isolate->factory()->NewStringFromAsciiChecked("fst012345");
+  i::Handle<i::String> initial_snd =
+      isolate->factory()->NewStringFromAsciiChecked("snd012345");
+  i::Handle<i::String> str = isolate->factory()
+                                 ->NewConsString(initial_fst, initial_snd)
+                                 .ToHandleChecked();
+  CHECK(str->IsConsString());
+  auto cons = i::Handle<i::ConsString>::cast(str);
+
+  const int initial_length = cons->length();
+
+  // set_first / set_second does not update the length (which the heap verifier
+  // checks), so we need to ensure the length stays the same.
+
+  i::Handle<i::String> new_fst = isolate->factory()->empty_string();
+  i::Handle<i::String> new_snd =
+      isolate->factory()->NewStringFromAsciiChecked("snd012345012345678");
+  cons->set_first(*new_fst);
+  cons->set_second(*new_snd);
+  CHECK(!cons->IsFlat());
+  CHECK_EQ(initial_length, new_fst->length() + new_snd->length());
+  CHECK_EQ(initial_length, cons->length());
+
+  // Make sure Flatten doesn't alloc a new string.
+  DisallowHeapAllocation no_alloc;
+  i::Handle<i::String> flat = i::String::Flatten(cons);
+  CHECK(flat->IsFlat());
+  CHECK_EQ(initial_length, flat->length());
+}
 
 static void VerifyCharacterStream(
     String* flat_string, String* cons_string) {
@@ -1571,4 +1608,39 @@ TEST(Regress609831) {
         "432, 432, 432, 432, 432, 432, 432, 432, 432)");
     CHECK(v8::Utils::OpenHandle(*result)->IsSeqTwoByteString());
   }
+}
+
+TEST(ExternalStringIndexOf) {
+  CcTest::InitializeVM();
+  LocalContext context;
+  v8::HandleScope scope(CcTest::isolate());
+
+  const char* raw_string = "abcdefghijklmnopqrstuvwxyz";
+  v8::Local<v8::String> string =
+      v8::String::NewExternalOneByte(CcTest::isolate(),
+                                     new StaticOneByteResource(raw_string))
+          .ToLocalChecked();
+  v8::Local<v8::Object> global = context->Global();
+  global->Set(context.local(), v8_str("external"), string).FromJust();
+
+  char source[] = "external.indexOf('%')";
+  for (size_t i = 0; i < strlen(raw_string); i++) {
+    source[18] = raw_string[i];
+    int result_position = static_cast<int>(i);
+    CHECK_EQ(result_position,
+             CompileRun(source)->Int32Value(context.local()).FromJust());
+  }
+  CHECK_EQ(-1,
+           CompileRun("external.indexOf('abcdefghijklmnopqrstuvwxyz%%%%%%')")
+               ->Int32Value(context.local())
+               .FromJust());
+  CHECK_EQ(1, CompileRun("external.indexOf('', 1)")
+                  ->Int32Value(context.local())
+                  .FromJust());
+  CHECK_EQ(-1, CompileRun("external.indexOf('a', 1)")
+                   ->Int32Value(context.local())
+                   .FromJust());
+  CHECK_EQ(-1, CompileRun("external.indexOf('$')")
+                   ->Int32Value(context.local())
+                   .FromJust());
 }

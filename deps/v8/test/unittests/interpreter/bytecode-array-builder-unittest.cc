@@ -8,6 +8,7 @@
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-label.h"
 #include "src/interpreter/bytecode-register-allocator.h"
+#include "src/objects-inl.h"
 #include "test/unittests/test-utils.h"
 
 namespace v8 {
@@ -42,7 +43,7 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .CreateArguments(CreateArgumentsType::kRestParameter);
 
   // Emit constant loads.
-  builder.LoadLiteral(Smi::FromInt(0))
+  builder.LoadLiteral(Smi::kZero)
       .StoreAccumulatorInRegister(reg)
       .LoadLiteral(Smi::FromInt(8))
       .CompareOperation(Token::Value::NE, reg,
@@ -54,7 +55,7 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .LoadLiteral(factory->NewStringFromStaticChars("A constant"))
       .StoreAccumulatorInRegister(reg)
       .LoadUndefined()
-      .Debugger()  // Prevent peephole optimization LdaNull, Star -> LdrNull.
+      .StoreAccumulatorInRegister(reg)
       .LoadNull()
       .StoreAccumulatorInRegister(reg)
       .LoadTheHole()
@@ -77,8 +78,8 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
 
   // Emit global load / store operations.
   Handle<String> name = factory->NewStringFromStaticChars("var_name");
-  builder.LoadGlobal(1, TypeofMode::NOT_INSIDE_TYPEOF)
-      .LoadGlobal(1, TypeofMode::INSIDE_TYPEOF)
+  builder.LoadGlobal(name, 1, TypeofMode::NOT_INSIDE_TYPEOF)
+      .LoadGlobal(name, 1, TypeofMode::INSIDE_TYPEOF)
       .StoreGlobal(name, 1, LanguageMode::SLOPPY)
       .StoreGlobal(name, 1, LanguageMode::STRICT);
 
@@ -87,6 +88,10 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .PopContext(reg)
       .LoadContextSlot(reg, 1, 0)
       .StoreContextSlot(reg, 1, 0);
+
+  // Emit context operations which operate on the local context.
+  builder.LoadContextSlot(Register::current_context(), 1, 0)
+      .StoreContextSlot(Register::current_context(), 1, 0);
 
   // Emit load / store property operations.
   builder.LoadNamedProperty(reg, name, 0)
@@ -111,25 +116,29 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .LoadLookupGlobalSlot(name, TypeofMode::INSIDE_TYPEOF, 1, 0);
 
   // Emit closure operations.
-  builder.CreateClosure(0, NOT_TENURED);
+  builder.CreateClosure(0, 1, NOT_TENURED);
 
   // Emit create context operation.
   builder.CreateBlockContext(factory->NewScopeInfo(1));
   builder.CreateCatchContext(reg, name, factory->NewScopeInfo(1));
   builder.CreateFunctionContext(1);
+  builder.CreateEvalContext(1);
   builder.CreateWithContext(reg, factory->NewScopeInfo(1));
 
   // Emit literal creation operations.
-  builder.CreateRegExpLiteral(factory->NewStringFromStaticChars("a"), 0, 0)
-      .CreateArrayLiteral(factory->NewFixedArray(1), 0, 0)
-      .CreateObjectLiteral(factory->NewFixedArray(1), 0, 0, reg);
+  builder.CreateRegExpLiteral(factory->NewStringFromStaticChars("a"), 0, 0);
+  builder.CreateArrayLiteral(0, 0, 0);
+  builder.CreateObjectLiteral(0, 0, 0, reg);
 
   // Call operations.
-  builder.Call(reg, reg_list, 1)
-      .Call(reg, reg_list, 1, TailCallMode::kAllow)
+  builder.Call(reg, reg_list, 1, Call::GLOBAL_CALL)
+      .Call(reg, reg_list, 1, Call::NAMED_PROPERTY_CALL,
+            TailCallMode::kDisallow)
+      .Call(reg, reg_list, 1, Call::GLOBAL_CALL, TailCallMode::kAllow)
       .CallRuntime(Runtime::kIsArray, reg)
       .CallRuntimeForPair(Runtime::kLoadLookupSlotForCall, reg_list, pair)
-      .CallJSRuntime(Context::SPREAD_ITERABLE_INDEX, reg_list);
+      .CallJSRuntime(Context::SPREAD_ITERABLE_INDEX, reg_list)
+      .NewWithSpread(reg_list);
 
   // Emit binary operator invocations.
   builder.BinaryOperation(Token::Value::ADD, reg, 1)
@@ -189,14 +198,28 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .CompareOperation(Token::Value::INSTANCEOF, reg, 8)
       .CompareOperation(Token::Value::IN, reg, 9);
 
+  // Emit peephole optimizations of equality with Null or Undefined.
+  builder.LoadUndefined()
+      .CompareOperation(Token::Value::EQ, reg, 1)
+      .LoadNull()
+      .CompareOperation(Token::Value::EQ, reg, 1)
+      .LoadUndefined()
+      .CompareOperation(Token::Value::EQ_STRICT, reg, 1)
+      .LoadNull()
+      .CompareOperation(Token::Value::EQ_STRICT, reg, 1);
+
   // Emit conversion operator invocations.
   builder.ConvertAccumulatorToNumber(reg)
       .ConvertAccumulatorToObject(reg)
       .ConvertAccumulatorToName(reg);
 
+  // Emit GetSuperConstructor.
+  builder.GetSuperConstructor(reg);
+
   // Short jumps with Imm8 operands
   {
-    BytecodeLabel start, after_jump1, after_jump2, after_jump3, after_jump4;
+    BytecodeLabel start, after_jump1, after_jump2, after_jump3, after_jump4,
+        after_jump5;
     builder.Bind(&start)
         .Jump(&after_jump1)
         .Bind(&after_jump1)
@@ -206,11 +229,13 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
         .Bind(&after_jump3)
         .JumpIfNotHole(&after_jump4)
         .Bind(&after_jump4)
+        .JumpIfJSReceiver(&after_jump5)
+        .Bind(&after_jump5)
         .JumpLoop(&start, 0);
   }
 
   // Longer jumps with constant operands
-  BytecodeLabel end[8];
+  BytecodeLabel end[9];
   {
     BytecodeLabel after_jump;
     builder.Jump(&end[0])
@@ -219,13 +244,15 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
         .JumpIfTrue(&end[1])
         .LoadTrue()
         .JumpIfFalse(&end[2])
-        .LoadLiteral(Smi::FromInt(0))
+        .LoadLiteral(Smi::kZero)
         .JumpIfTrue(&end[3])
-        .LoadLiteral(Smi::FromInt(0))
+        .LoadLiteral(Smi::kZero)
         .JumpIfFalse(&end[4])
         .JumpIfNull(&end[5])
         .JumpIfUndefined(&end[6])
-        .JumpIfNotHole(&end[7]);
+        .JumpIfNotHole(&end[7])
+        .LoadLiteral(factory->prototype_string())
+        .JumpIfJSReceiver(&end[8]);
   }
 
   // Perform an operation that returns boolean value to
@@ -252,6 +279,9 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
         .Bind(&after_jump2);
   }
 
+  // Emit set pending message bytecode.
+  builder.SetPendingMessage();
+
   // Emit stack check bytecode.
   builder.StackCheck(0);
 
@@ -276,14 +306,14 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
   Handle<String> wide_name = factory->NewStringFromStaticChars("var_wide_name");
 
   // Emit wide global load / store operations.
-  builder.LoadGlobal(1024, TypeofMode::NOT_INSIDE_TYPEOF)
-      .LoadGlobal(1024, TypeofMode::INSIDE_TYPEOF)
-      .LoadGlobal(1024, TypeofMode::INSIDE_TYPEOF)
+  builder.LoadGlobal(name, 1024, TypeofMode::NOT_INSIDE_TYPEOF)
+      .LoadGlobal(name, 1024, TypeofMode::INSIDE_TYPEOF)
+      .LoadGlobal(name, 1024, TypeofMode::INSIDE_TYPEOF)
       .StoreGlobal(name, 1024, LanguageMode::SLOPPY)
       .StoreGlobal(wide_name, 1, LanguageMode::STRICT);
 
   // Emit extra wide global load.
-  builder.LoadGlobal(1024 * 1024, TypeofMode::NOT_INSIDE_TYPEOF);
+  builder.LoadGlobal(name, 1024 * 1024, TypeofMode::NOT_INSIDE_TYPEOF);
 
   // Emit wide load / store property operations.
   builder.LoadNamedProperty(reg, wide_name, 0)
@@ -292,6 +322,9 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .StoreKeyedProperty(reg, reg, 2056, LanguageMode::SLOPPY)
       .StoreNamedProperty(reg, wide_name, 0, LanguageMode::STRICT)
       .StoreKeyedProperty(reg, reg, 2056, LanguageMode::STRICT);
+
+  builder.StoreDataPropertyInLiteral(reg, reg,
+                                     DataPropertyInLiteralFlag::kNoFlags, 0);
 
   // Emit wide context operations.
   builder.LoadContextSlot(reg, 1024, 0).StoreContextSlot(reg, 1024, 0);
@@ -302,29 +335,25 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .StoreLookupSlot(wide_name, LanguageMode::SLOPPY)
       .StoreLookupSlot(wide_name, LanguageMode::STRICT);
 
-  // Emit loads which will be transformed to Ldr equivalents by the peephole
-  // optimizer.
-  builder.LoadNamedProperty(reg, name, 0)
-      .StoreAccumulatorInRegister(reg)
-      .LoadKeyedProperty(reg, 0)
-      .StoreAccumulatorInRegister(reg)
-      .LoadContextSlot(reg, 1, 0)
-      .StoreAccumulatorInRegister(reg)
-      .LoadGlobal(0, TypeofMode::NOT_INSIDE_TYPEOF)
-      .StoreAccumulatorInRegister(reg)
-      .LoadUndefined()
-      .StoreAccumulatorInRegister(reg);
-
   // CreateClosureWide
-  builder.CreateClosure(1000, NOT_TENURED);
+  builder.CreateClosure(1000, 321, NOT_TENURED);
 
   // Emit wide variant of literal creation operations.
-  builder.CreateRegExpLiteral(factory->NewStringFromStaticChars("wide_literal"),
-                              0, 0)
-      .CreateArrayLiteral(factory->NewFixedArray(2), 0, 0)
-      .CreateObjectLiteral(factory->NewFixedArray(2), 0, 0, reg);
+  builder
+      .CreateRegExpLiteral(factory->NewStringFromStaticChars("wide_literal"), 0,
+                           0)
+      .CreateArrayLiteral(0, 0, 0)
+      .CreateObjectLiteral(0, 0, 0, reg);
 
-  // Emit generator operations
+  // Emit load and store operations for module variables.
+  builder.LoadModuleVariable(-1, 42)
+      .LoadModuleVariable(0, 42)
+      .LoadModuleVariable(1, 42)
+      .StoreModuleVariable(-1, 42)
+      .StoreModuleVariable(0, 42)
+      .StoreModuleVariable(1, 42);
+
+  // Emit generator operations.
   builder.SuspendGenerator(reg)
       .ResumeGenerator(reg);
 
@@ -380,11 +409,6 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
 
   if (!FLAG_ignition_peephole) {
     // Insert entries for bytecodes only emitted by peephole optimizer.
-    scorecard[Bytecodes::ToByte(Bytecode::kLdrNamedProperty)] = 1;
-    scorecard[Bytecodes::ToByte(Bytecode::kLdrKeyedProperty)] = 1;
-    scorecard[Bytecodes::ToByte(Bytecode::kLdrGlobal)] = 1;
-    scorecard[Bytecodes::ToByte(Bytecode::kLdrContextSlot)] = 1;
-    scorecard[Bytecodes::ToByte(Bytecode::kLdrUndefined)] = 1;
     scorecard[Bytecodes::ToByte(Bytecode::kLogicalNot)] = 1;
     scorecard[Bytecodes::ToByte(Bytecode::kJump)] = 1;
     scorecard[Bytecodes::ToByte(Bytecode::kJumpIfTrue)] = 1;
@@ -397,6 +421,9 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
     scorecard[Bytecodes::ToByte(Bytecode::kBitwiseOrSmi)] = 1;
     scorecard[Bytecodes::ToByte(Bytecode::kShiftLeftSmi)] = 1;
     scorecard[Bytecodes::ToByte(Bytecode::kShiftRightSmi)] = 1;
+    scorecard[Bytecodes::ToByte(Bytecode::kTestUndetectable)] = 1;
+    scorecard[Bytecodes::ToByte(Bytecode::kTestUndefined)] = 1;
+    scorecard[Bytecodes::ToByte(Bytecode::kTestNull)] = 1;
   }
 
   // Check return occurs at the end and only once in the BytecodeArray.
@@ -421,12 +448,12 @@ TEST_F(BytecodeArrayBuilderTest, FrameSizesLookGood) {
         BytecodeArrayBuilder builder(isolate(), zone(), 0, contexts, locals);
         BytecodeRegisterAllocator* allocator(builder.register_allocator());
         for (int i = 0; i < locals + contexts; i++) {
-          builder.LoadLiteral(Smi::FromInt(0));
+          builder.LoadLiteral(Smi::kZero);
           builder.StoreAccumulatorInRegister(Register(i));
         }
         for (int i = 0; i < temps; i++) {
           Register temp = allocator->NewRegister();
-          builder.LoadLiteral(Smi::FromInt(0));
+          builder.LoadLiteral(Smi::kZero);
           builder.StoreAccumulatorInRegister(temp);
           // Ensure temporaries are used so not optimized away by the
           // register optimizer.

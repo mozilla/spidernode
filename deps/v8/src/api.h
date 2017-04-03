@@ -7,10 +7,10 @@
 
 #include "include/v8-testing.h"
 #include "src/contexts.h"
+#include "src/debug/debug-interface.h"
 #include "src/factory.h"
 #include "src/isolate.h"
 #include "src/list.h"
-#include "src/objects-inl.h"
 
 namespace v8 {
 
@@ -28,7 +28,7 @@ class Consts {
 
 template <typename T> inline T ToCData(v8::internal::Object* obj) {
   STATIC_ASSERT(sizeof(T) == sizeof(v8::internal::Address));
-  if (obj == v8::internal::Smi::FromInt(0)) return nullptr;
+  if (obj == v8::internal::Smi::kZero) return nullptr;
   return reinterpret_cast<T>(
       reinterpret_cast<intptr_t>(
           v8::internal::Foreign::cast(obj)->foreign_address()));
@@ -39,7 +39,7 @@ template <typename T>
 inline v8::internal::Handle<v8::internal::Object> FromCData(
     v8::internal::Isolate* isolate, T obj) {
   STATIC_ASSERT(sizeof(T) == sizeof(v8::internal::Address));
-  if (obj == nullptr) return handle(v8::internal::Smi::FromInt(0), isolate);
+  if (obj == nullptr) return handle(v8::internal::Smi::kZero, isolate);
   return isolate->factory()->NewForeign(
       reinterpret_cast<v8::internal::Address>(reinterpret_cast<intptr_t>(obj)));
 }
@@ -108,7 +108,8 @@ class RegisteredExtension {
   V(StackTrace, JSArray)                     \
   V(StackFrame, JSObject)                    \
   V(Proxy, JSProxy)                          \
-  V(NativeWeakMap, JSWeakMap)
+  V(NativeWeakMap, JSWeakMap)                \
+  V(debug::Script, Script)
 
 class Utils {
  public:

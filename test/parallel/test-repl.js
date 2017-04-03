@@ -1,4 +1,26 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 /* eslint-disable max-len, strict */
+'use strict';
 const common = require('../common');
 const assert = require('assert');
 
@@ -166,18 +188,32 @@ function error_test() {
     { client: client_unix, send: 'new RegExp("foo", "wrong modifier");',
       expect: /\bSyntaxError: Invalid flags supplied to RegExp constructor/ },
     // strict mode syntax errors should be caught (GH-5178)
-    { client: client_unix, send: '(function() { "use strict"; return 0755; })()',
+    { client: client_unix,
+      send: '(function() { "use strict"; return 0755; })()',
       expect: /\bSyntaxError: Octal literals are not allowed in strict mode/ },
-    { client: client_unix, send: '(function(a, a, b) { "use strict"; return a + b + c; })()',
-      expect: /\bSyntaxError: Duplicate parameter name not allowed in this context/ },
-    { client: client_unix, send: '(function() { "use strict"; with (this) {} })()',
-      expect: /\bSyntaxError: Strict mode code may not include a with statement/ },
-    { client: client_unix, send: '(function() { "use strict"; var x; delete x; })()',
-      expect: /\bSyntaxError: Delete of an unqualified identifier in strict mode/ },
-    { client: client_unix, send: '(function() { "use strict"; eval = 17; })()',
+    {
+      client: client_unix,
+      send: '(function(a, a, b) { "use strict"; return a + b + c; })()',
+      expect: /\bSyntaxError: Duplicate parameter name not allowed in this context/ // eslint-disable-line max-len
+    },
+    {
+      client: client_unix,
+      send: '(function() { "use strict"; with (this) {} })()',
+      expect: /\bSyntaxError: Strict mode code may not include a with statement/
+    },
+    {
+      client: client_unix,
+      send: '(function() { "use strict"; var x; delete x; })()',
+      expect: /\bSyntaxError: Delete of an unqualified identifier in strict mode/ // eslint-disable-line max-len
+    },
+    { client: client_unix,
+      send: '(function() { "use strict"; eval = 17; })()',
       expect: /\bSyntaxError: Unexpected eval or arguments in strict mode/ },
-    { client: client_unix, send: '(function() { "use strict"; if (true) function f() { } })()',
-      expect: /\bSyntaxError: In strict mode code, functions can only be declared at top level or inside a block./ },
+    {
+      client: client_unix,
+      send: '(function() { "use strict"; if (true) function f() { } })()',
+      expect: /\bSyntaxError: In strict mode code, functions can only be declared at top level or inside a block./ // eslint-disable-line max-len
+    },
     // Named functions can be used:
     { client: client_unix, send: 'function blah() { return 1; }',
       expect: prompt_unix },
@@ -310,16 +346,20 @@ function error_test() {
     { client: client_unix, send: 'require("internal/repl")',
       expect: /^Error: Cannot find module 'internal\/repl'/ },
     // REPL should handle quotes within regexp literal in multiline mode
-    { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
+    { client: client_unix,
+      send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
-    { client: client_unix, send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
+    { client: client_unix,
+      send: "function x(s) {\nreturn s.replace(/'/,'');\n}",
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
-    { client: client_unix, send: 'function x(s) {\nreturn s.replace(/"/,"");\n}',
+    { client: client_unix,
+      send: 'function x(s) {\nreturn s.replace(/"/,"");\n}',
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
-    { client: client_unix, send: 'function x(s) {\nreturn s.replace(/.*/,"");\n}',
+    { client: client_unix,
+      send: 'function x(s) {\nreturn s.replace(/.*/,"");\n}',
       expect: prompt_multiline + prompt_multiline +
             'undefined\n' + prompt_unix },
     { client: client_unix, send: '{ var x = 4; }',
@@ -354,14 +394,27 @@ function error_test() {
       expect: '{ value: undefined, done: true }' },
 
     // https://github.com/nodejs/node/issues/9300
-    { client: client_unix, send: 'function foo() {\nvar bar = 1 / 1; // "/"\n}',
-      expect: prompt_multiline + prompt_multiline + 'undefined\n' + prompt_unix },
+    {
+      client: client_unix, send: 'function foo() {\nvar bar = 1 / 1; // "/"\n}',
+      expect: `${prompt_multiline}${prompt_multiline}undefined\n${prompt_unix}`
+    },
 
-    { client: client_unix, send: '(function() {\nreturn /foo/ / /bar/;\n}())',
-      expect: prompt_multiline + prompt_multiline + 'NaN\n' + prompt_unix },
+    {
+      client: client_unix, send: '(function() {\nreturn /foo/ / /bar/;\n}())',
+      expect: prompt_multiline + prompt_multiline + 'NaN\n' + prompt_unix
+    },
 
-    { client: client_unix, send: '(function() {\nif (false) {} /bar"/;\n}())',
-      expect: prompt_multiline + prompt_multiline + 'undefined\n' + prompt_unix }
+    {
+      client: client_unix, send: '(function() {\nif (false) {} /bar"/;\n}())',
+      expect: prompt_multiline + prompt_multiline + 'undefined\n' + prompt_unix
+    },
+
+    // Newline within template string maintains whitespace.
+    { client: client_unix, send: '`foo \n`',
+      expect: prompt_multiline + '\'foo \\n\'\n' + prompt_unix },
+    // Whitespace is not evaluated.
+    { client: client_unix, send: ' \t  \n',
+      expect: prompt_unix }
   ]);
 }
 

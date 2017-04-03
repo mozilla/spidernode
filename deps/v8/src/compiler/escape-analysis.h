@@ -6,6 +6,7 @@
 #define V8_COMPILER_ESCAPE_ANALYSIS_H_
 
 #include "src/compiler/graph.h"
+#include "src/globals.h"
 
 namespace v8 {
 namespace internal {
@@ -20,7 +21,7 @@ class VirtualObject;
 
 // EscapeObjectAnalysis simulates stores to determine values of loads if
 // an object is virtual and eliminated.
-class EscapeAnalysis {
+class V8_EXPORT_PRIVATE EscapeAnalysis {
  public:
   EscapeAnalysis(Graph* graph, CommonOperatorBuilder* common, Zone* zone);
   ~EscapeAnalysis();
@@ -34,6 +35,7 @@ class EscapeAnalysis {
   Node* GetOrCreateObjectState(Node* effect, Node* node);
   bool IsCyclicObjectState(Node* effect, Node* node);
   bool ExistsVirtualAllocate();
+  bool SetReplacement(Node* node, Node* rep);
 
  private:
   void RunObjectAnalysis();
@@ -58,7 +60,6 @@ class EscapeAnalysis {
 
   Node* replacement(Node* node);
   Node* ResolveReplacement(Node* node);
-  bool SetReplacement(Node* node, Node* rep);
   bool UpdateReplacement(VirtualState* state, Node* node, Node* rep);
 
   VirtualObject* GetVirtualObject(VirtualState* state, Node* node);

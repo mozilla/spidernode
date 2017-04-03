@@ -9,6 +9,7 @@
 #include "src/interpreter/bytecode-register.h"
 #include "src/interpreter/constant-array-builder.h"
 #include "src/log.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -94,9 +95,9 @@ void BytecodeArrayWriter::UpdateSourcePositionTable(
   int bytecode_offset = static_cast<int>(bytecodes()->size());
   const BytecodeSourceInfo& source_info = node->source_info();
   if (source_info.is_valid()) {
-    source_position_table_builder()->AddPosition(bytecode_offset,
-                                                 source_info.source_position(),
-                                                 source_info.is_statement());
+    source_position_table_builder()->AddPosition(
+        bytecode_offset, SourcePosition(source_info.source_position()),
+        source_info.is_statement());
   }
 }
 
@@ -163,6 +164,8 @@ Bytecode GetJumpWithConstantOperand(Bytecode jump_bytecode) {
       return Bytecode::kJumpIfNullConstant;
     case Bytecode::kJumpIfUndefined:
       return Bytecode::kJumpIfUndefinedConstant;
+    case Bytecode::kJumpIfJSReceiver:
+      return Bytecode::kJumpIfJSReceiverConstant;
     default:
       UNREACHABLE();
       return Bytecode::kIllegal;
@@ -211,8 +214,6 @@ void BytecodeArrayWriter::PatchJumpWith16BitOperand(size_t jump_location,
     // and update the jump instruction and operand.
     size_t entry = constant_array_builder()->CommitReservedEntry(
         OperandSize::kShort, Smi::FromInt(delta));
-    DCHECK_EQ(Bytecodes::SizeForUnsignedOperand(static_cast<uint32_t>(entry)),
-              OperandSize::kShort);
     jump_bytecode = GetJumpWithConstantOperand(jump_bytecode);
     bytecodes()->at(jump_location) = Bytecodes::ToByte(jump_bytecode);
     WriteUnalignedUInt16(operand_bytes, static_cast<uint16_t>(entry));
@@ -275,7 +276,7 @@ void BytecodeArrayWriter::PatchJump(size_t jump_target, size_t jump_location) {
 
 void BytecodeArrayWriter::EmitJump(BytecodeNode* node, BytecodeLabel* label) {
   DCHECK(Bytecodes::IsJump(node->bytecode()));
-  DCHECK_EQ(0, node->operand(0));
+  DCHECK_EQ(0u, node->operand(0));
 
   size_t current_offset = bytecodes()->size();
 
@@ -292,7 +293,7 @@ void BytecodeArrayWriter::EmitJump(BytecodeNode* node, BytecodeLabel* label) {
       delta -= 1;
     }
     DCHECK_EQ(Bytecode::kJumpLoop, node->bytecode());
-    node->set_bytecode(node->bytecode(), delta, node->operand(1));
+    node->update_operand0(delta);
   } else {
     // The label has not yet been bound so this is a forward reference
     // that will be patched when the label is bound. We create a
@@ -310,13 +311,13 @@ void BytecodeArrayWriter::EmitJump(BytecodeNode* node, BytecodeLabel* label) {
         UNREACHABLE();
         break;
       case OperandSize::kByte:
-        node->set_bytecode(node->bytecode(), k8BitJumpPlaceholder);
+        node->update_operand0(k8BitJumpPlaceholder);
         break;
       case OperandSize::kShort:
-        node->set_bytecode(node->bytecode(), k16BitJumpPlaceholder);
+        node->update_operand0(k16BitJumpPlaceholder);
         break;
       case OperandSize::kQuad:
-        node->set_bytecode(node->bytecode(), k32BitJumpPlaceholder);
+        node->update_operand0(k32BitJumpPlaceholder);
         break;
     }
   }

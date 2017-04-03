@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 'use strict';
 const common = require('../common');
 const assert = require('assert');
@@ -21,7 +42,7 @@ if (cluster.isWorker) {
     const socket = net.connect(port, '127.0.0.1', () => {
       // buffer result
       let result = '';
-      socket.on('data', common.mustCall((chunk) => { result += chunk; }));
+      socket.on('data', (chunk) => { result += chunk; });
 
       // check result
       socket.on('end', common.mustCall(() => {
@@ -34,7 +55,7 @@ if (cluster.isWorker) {
   const testCluster = function(cb) {
     let done = 0;
 
-    for (let i = 0, l = servers; i < l; i++) {
+    for (let i = 0; i < servers; i++) {
       testConnection(common.PORT + i, (success) => {
         assert.ok(success);
         done += 1;
@@ -60,40 +81,21 @@ if (cluster.isWorker) {
     }
   };
 
-
-  const results = {
-    start: 0,
-    test: 0,
-    disconnect: 0
-  };
-
   const test = function(again) {
     //1. start cluster
-    startCluster(() => {
-      results.start += 1;
-
+    startCluster(common.mustCall(() => {
       //2. test cluster
-      testCluster(() => {
-        results.test += 1;
-
+      testCluster(common.mustCall(() => {
         //3. disconnect cluster
-        cluster.disconnect(() => {
-          results.disconnect += 1;
-
+        cluster.disconnect(common.mustCall(() => {
           // run test again to confirm cleanup
           if (again) {
             test();
           }
-        });
-      });
-    });
+        }));
+      }));
+    }));
   };
 
   test(true);
-
-  process.once('exit', () => {
-    assert.strictEqual(results.start, 2);
-    assert.strictEqual(results.test, 2);
-    assert.strictEqual(results.disconnect, 2);
-  });
 }

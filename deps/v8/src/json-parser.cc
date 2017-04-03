@@ -104,7 +104,7 @@ JsonParser<seq_one_byte>::JsonParser(Isolate* isolate, Handle<String> source)
       source_length_(source->length()),
       isolate_(isolate),
       factory_(isolate_->factory()),
-      zone_(isolate_->allocator()),
+      zone_(isolate_->allocator(), ZONE_NAME),
       object_constructor_(isolate_->native_context()->object_function(),
                           isolate_),
       position_(-1) {
@@ -399,8 +399,8 @@ Handle<Object> JsonParser<seq_one_byte>::ParseJsonObject() {
                    ->NowContains(value)) {
             Handle<FieldType> value_type(
                 value->OptimalType(isolate(), expected_representation));
-            Map::GeneralizeFieldType(target, descriptor,
-                                     expected_representation, value_type);
+            Map::GeneralizeField(target, descriptor, expected_representation,
+                                 value_type);
           }
           DCHECK(target->instance_descriptors()
                      ->GetFieldType(descriptor)
@@ -482,6 +482,7 @@ void JsonParser<seq_one_byte>::CommitStateToJsonObject(
   int length = properties->length();
   for (int i = 0; i < length; i++) {
     Handle<Object> value = (*properties)[i];
+    // Initializing store.
     json_object->WriteToField(i, *value);
   }
 }

@@ -261,6 +261,9 @@ void VisitBinop(InstructionSelector* selector, Node* node,
   if (cont->IsDeoptimize()) {
     selector->EmitDeoptimize(opcode, output_count, outputs, input_count, inputs,
                              cont->reason(), cont->frame_state());
+  } else if (cont->IsTrap()) {
+    inputs[input_count++] = g.UseImmediate(cont->trap_id());
+    selector->Emit(opcode, output_count, outputs, input_count, inputs);
   } else {
     selector->Emit(opcode, output_count, outputs, input_count, inputs);
   }
@@ -343,7 +346,7 @@ void InstructionSelector::VisitStore(Node* node) {
   MachineRepresentation rep = store_rep.representation();
 
   if (write_barrier_kind != kNoWriteBarrier) {
-    DCHECK_EQ(MachineRepresentation::kTagged, rep);
+    DCHECK(CanBeTaggedPointer(rep));
     AddressingMode addressing_mode;
     InstructionOperand inputs[3];
     size_t input_count = 0;
@@ -438,6 +441,11 @@ void InstructionSelector::VisitStore(Node* node) {
     Emit(code, 0, static_cast<InstructionOperand*>(nullptr), input_count,
          inputs);
   }
+}
+
+void InstructionSelector::VisitProtectedStore(Node* node) {
+  // TODO(eholk)
+  UNIMPLEMENTED();
 }
 
 // Architecture supports unaligned access, therefore VisitLoad is used instead
@@ -539,6 +547,7 @@ void InstructionSelector::VisitCheckedStore(Node* node) {
        g.UseOperand(length, kUint32Imm), g.UseRegister(value));
 }
 
+#if 0
 static inline bool IsContiguousMask32(uint32_t value, int* mb, int* me) {
   int mask_width = base::bits::CountPopulation32(value);
   int mask_msb = base::bits::CountLeadingZeros32(value);
@@ -549,6 +558,7 @@ static inline bool IsContiguousMask32(uint32_t value, int* mb, int* me) {
   *me = mask_lsb;
   return true;
 }
+#endif
 
 #if V8_TARGET_ARCH_S390X
 static inline bool IsContiguousMask64(uint64_t value, int* mb, int* me) {
@@ -564,36 +574,6 @@ static inline bool IsContiguousMask64(uint64_t value, int* mb, int* me) {
 #endif
 
 void InstructionSelector::VisitWord32And(Node* node) {
-  S390OperandGenerator g(this);
-  Int32BinopMatcher m(node);
-  int mb = 0;
-  int me = 0;
-  if (m.right().HasValue() && IsContiguousMask32(m.right().Value(), &mb, &me)) {
-    int sh = 0;
-    Node* left = m.left().node();
-    if ((m.left().IsWord32Shr() || m.left().IsWord32Shl()) &&
-        CanCover(node, left)) {
-      Int32BinopMatcher mleft(m.left().node());
-      if (mleft.right().IsInRange(0, 31)) {
-        left = mleft.left().node();
-        sh = mleft.right().Value();
-        if (m.left().IsWord32Shr()) {
-          // Adjust the mask such that it doesn't include any rotated bits.
-          if (mb > 31 - sh) mb = 31 - sh;
-          sh = (32 - sh) & 0x1f;
-        } else {
-          // Adjust the mask such that it doesn't include any rotated bits.
-          if (me < sh) me = sh;
-        }
-      }
-    }
-    if (mb >= me) {
-      Emit(kS390_RotLeftAndMask32, g.DefineAsRegister(node),
-           g.UseRegister(left), g.TempImmediate(sh), g.TempImmediate(mb),
-           g.TempImmediate(me));
-      return;
-    }
-  }
   VisitBinop<Int32BinopMatcher>(this, node, kS390_And32, kUint32Imm);
 }
 
@@ -685,25 +665,6 @@ void InstructionSelector::VisitWord64Xor(Node* node) {
 #endif
 
 void InstructionSelector::VisitWord32Shl(Node* node) {
-  S390OperandGenerator g(this);
-  Int32BinopMatcher m(node);
-  if (m.left().IsWord32And() && m.right().IsInRange(0, 31)) {
-    Int32BinopMatcher mleft(m.left().node());
-    int sh = m.right().Value();
-    int mb;
-    int me;
-    if (mleft.right().HasValue() &&
-        IsContiguousMask32(mleft.right().Value() << sh, &mb, &me)) {
-      // Adjust the mask such that it doesn't include any rotated bits.
-      if (me < sh) me = sh;
-      if (mb >= me) {
-        Emit(kS390_RotLeftAndMask32, g.DefineAsRegister(node),
-             g.UseRegister(mleft.left().node()), g.TempImmediate(sh),
-             g.TempImmediate(mb), g.TempImmediate(me));
-        return;
-      }
-    }
-  }
   VisitRRO(this, kS390_ShiftLeft32, node, kShift32Imm);
 }
 
@@ -752,26 +713,6 @@ void InstructionSelector::VisitWord64Shl(Node* node) {
 #endif
 
 void InstructionSelector::VisitWord32Shr(Node* node) {
-  S390OperandGenerator g(this);
-  Int32BinopMatcher m(node);
-  if (m.left().IsWord32And() && m.right().IsInRange(0, 31)) {
-    Int32BinopMatcher mleft(m.left().node());
-    int sh = m.right().Value();
-    int mb;
-    int me;
-    if (mleft.right().HasValue() &&
-        IsContiguousMask32((uint32_t)(mleft.right().Value()) >> sh, &mb, &me)) {
-      // Adjust the mask such that it doesn't include any rotated bits.
-      if (mb > 31 - sh) mb = 31 - sh;
-      sh = (32 - sh) & 0x1f;
-      if (mb >= me) {
-        Emit(kS390_RotLeftAndMask32, g.DefineAsRegister(node),
-             g.UseRegister(mleft.left().node()), g.TempImmediate(sh),
-             g.TempImmediate(mb), g.TempImmediate(me));
-        return;
-      }
-    }
-  }
   VisitRRO(this, kS390_ShiftRight32, node, kShift32Imm);
 }
 
@@ -835,48 +776,69 @@ void InstructionSelector::VisitWord32Sar(Node* node) {
 }
 
 #if !V8_TARGET_ARCH_S390X
-void VisitPairBinop(InstructionSelector* selector, ArchOpcode opcode,
-                    Node* node) {
+void VisitPairBinop(InstructionSelector* selector, InstructionCode opcode,
+                    InstructionCode opcode2, Node* node) {
   S390OperandGenerator g(selector);
 
-  // We use UseUniqueRegister here to avoid register sharing with the output
-  // registers.
-  InstructionOperand inputs[] = {
-      g.UseRegister(node->InputAt(0)), g.UseUniqueRegister(node->InputAt(1)),
-      g.UseRegister(node->InputAt(2)), g.UseUniqueRegister(node->InputAt(3))};
+  Node* projection1 = NodeProperties::FindProjection(node, 1);
+  if (projection1) {
+    // We use UseUniqueRegister here to avoid register sharing with the output
+    // registers.
+    InstructionOperand inputs[] = {
+        g.UseRegister(node->InputAt(0)), g.UseUniqueRegister(node->InputAt(1)),
+        g.UseRegister(node->InputAt(2)), g.UseUniqueRegister(node->InputAt(3))};
 
-  InstructionOperand outputs[] = {
-      g.DefineAsRegister(node),
-      g.DefineAsRegister(NodeProperties::FindProjection(node, 1))};
+    InstructionOperand outputs[] = {
+        g.DefineAsRegister(node),
+        g.DefineAsRegister(NodeProperties::FindProjection(node, 1))};
 
-  selector->Emit(opcode, 2, outputs, 4, inputs);
+    selector->Emit(opcode, 2, outputs, 4, inputs);
+  } else {
+    // The high word of the result is not used, so we emit the standard 32 bit
+    // instruction.
+    selector->Emit(opcode2, g.DefineSameAsFirst(node),
+                   g.UseRegister(node->InputAt(0)),
+                   g.UseRegister(node->InputAt(2)));
+  }
 }
 
 void InstructionSelector::VisitInt32PairAdd(Node* node) {
-  VisitPairBinop(this, kS390_AddPair, node);
+  VisitPairBinop(this, kS390_AddPair, kS390_Add32, node);
 }
 
 void InstructionSelector::VisitInt32PairSub(Node* node) {
-  VisitPairBinop(this, kS390_SubPair, node);
+  VisitPairBinop(this, kS390_SubPair, kS390_Sub32, node);
 }
 
 void InstructionSelector::VisitInt32PairMul(Node* node) {
   S390OperandGenerator g(this);
-  InstructionOperand inputs[] = {g.UseUniqueRegister(node->InputAt(0)),
-                                 g.UseUniqueRegister(node->InputAt(1)),
-                                 g.UseUniqueRegister(node->InputAt(2)),
-                                 g.UseUniqueRegister(node->InputAt(3))};
+  Node* projection1 = NodeProperties::FindProjection(node, 1);
+  if (projection1) {
+    InstructionOperand inputs[] = {g.UseUniqueRegister(node->InputAt(0)),
+                                   g.UseUniqueRegister(node->InputAt(1)),
+                                   g.UseUniqueRegister(node->InputAt(2)),
+                                   g.UseUniqueRegister(node->InputAt(3))};
 
-  InstructionOperand outputs[] = {
-      g.DefineAsRegister(node),
-      g.DefineAsRegister(NodeProperties::FindProjection(node, 1))};
+    InstructionOperand outputs[] = {
+        g.DefineAsRegister(node),
+        g.DefineAsRegister(NodeProperties::FindProjection(node, 1))};
 
-  Emit(kS390_MulPair, 2, outputs, 4, inputs);
+    Emit(kS390_MulPair, 2, outputs, 4, inputs);
+  } else {
+    // The high word of the result is not used, so we emit the standard 32 bit
+    // instruction.
+    Emit(kS390_Mul32, g.DefineSameAsFirst(node),
+         g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(2)));
+  }
 }
 
-void VisitPairShift(InstructionSelector* selector, ArchOpcode opcode,
+namespace {
+// Shared routine for multiple shift operations.
+void VisitPairShift(InstructionSelector* selector, InstructionCode opcode,
                     Node* node) {
   S390OperandGenerator g(selector);
+  // We use g.UseUniqueRegister here to guarantee that there is
+  // no register aliasing of input registers with output registers.
   Int32Matcher m(node->InputAt(2));
   InstructionOperand shift_operand;
   if (m.HasValue()) {
@@ -885,16 +847,27 @@ void VisitPairShift(InstructionSelector* selector, ArchOpcode opcode,
     shift_operand = g.UseUniqueRegister(m.node());
   }
 
-  InstructionOperand inputs[] = {g.UseRegister(node->InputAt(0)),
-                                 g.UseRegister(node->InputAt(1)),
+  InstructionOperand inputs[] = {g.UseUniqueRegister(node->InputAt(0)),
+                                 g.UseUniqueRegister(node->InputAt(1)),
                                  shift_operand};
 
-  InstructionOperand outputs[] = {
-      g.DefineSameAsFirst(node),
-      g.DefineAsRegister(NodeProperties::FindProjection(node, 1))};
+  Node* projection1 = NodeProperties::FindProjection(node, 1);
 
-  selector->Emit(opcode, 2, outputs, 3, inputs);
+  InstructionOperand outputs[2];
+  InstructionOperand temps[1];
+  int32_t output_count = 0;
+  int32_t temp_count = 0;
+
+  outputs[output_count++] = g.DefineAsRegister(node);
+  if (projection1) {
+    outputs[output_count++] = g.DefineAsRegister(projection1);
+  } else {
+    temps[temp_count++] = g.TempRegister();
+  }
+
+  selector->Emit(opcode, output_count, outputs, 3, inputs, temp_count, temps);
 }
+}  // namespace
 
 void InstructionSelector::VisitWord32PairShl(Node* node) {
   VisitPairShift(this, kS390_ShiftLeftPair, node);
@@ -1509,9 +1482,12 @@ void VisitCompare(InstructionSelector* selector, InstructionCode opcode,
   } else if (cont->IsDeoptimize()) {
     selector->EmitDeoptimize(opcode, g.NoOutput(), left, right, cont->reason(),
                              cont->frame_state());
-  } else {
-    DCHECK(cont->IsSet());
+  } else if (cont->IsSet()) {
     selector->Emit(opcode, g.DefineAsRegister(cont->result()), left, right);
+  } else {
+    DCHECK(cont->IsTrap());
+    selector->Emit(opcode, g.NoOutput(), left, right,
+                   g.UseImmediate(cont->trap_id()));
   }
 }
 
@@ -1575,19 +1551,38 @@ void VisitFloat64Compare(InstructionSelector* selector, Node* node,
 void VisitWordCompareZero(InstructionSelector* selector, Node* user,
                           Node* value, InstructionCode opcode,
                           FlagsContinuation* cont) {
-  while (selector->CanCover(user, value)) {
+  // Try to combine with comparisons against 0 by simply inverting the branch.
+  while (value->opcode() == IrOpcode::kWord32Equal &&
+         selector->CanCover(user, value)) {
+    Int32BinopMatcher m(value);
+    if (!m.right().Is(0)) break;
+
+    user = value;
+    value = m.left().node();
+    cont->Negate();
+  }
+
+  if (selector->CanCover(user, value)) {
     switch (value->opcode()) {
       case IrOpcode::kWord32Equal: {
-        // Combine with comparisons against 0 by simply inverting the
-        // continuation.
+        cont->OverwriteAndNegateIfEqual(kEqual);
         Int32BinopMatcher m(value);
         if (m.right().Is(0)) {
-          user = value;
-          value = m.left().node();
-          cont->Negate();
-          continue;
+          // Try to combine the branch with a comparison.
+          Node* const user = m.node();
+          Node* const value = m.left().node();
+          if (selector->CanCover(user, value)) {
+            switch (value->opcode()) {
+              case IrOpcode::kInt32Sub:
+                return VisitWord32Compare(selector, value, cont);
+              case IrOpcode::kWord32And:
+                return VisitWordCompare(selector, value, kS390_Tst64, cont,
+                                        true, kUint32Imm);
+              default:
+                break;
+            }
+          }
         }
-        cont->OverwriteAndNegateIfEqual(kEqual);
         return VisitWord32Compare(selector, value, cont);
       }
       case IrOpcode::kInt32LessThan:
@@ -1603,9 +1598,27 @@ void VisitWordCompareZero(InstructionSelector* selector, Node* user,
         cont->OverwriteAndNegateIfEqual(kUnsignedLessThanOrEqual);
         return VisitWord32Compare(selector, value, cont);
 #if V8_TARGET_ARCH_S390X
-      case IrOpcode::kWord64Equal:
+      case IrOpcode::kWord64Equal: {
         cont->OverwriteAndNegateIfEqual(kEqual);
+        Int64BinopMatcher m(value);
+        if (m.right().Is(0)) {
+          // Try to combine the branch with a comparison.
+          Node* const user = m.node();
+          Node* const value = m.left().node();
+          if (selector->CanCover(user, value)) {
+            switch (value->opcode()) {
+              case IrOpcode::kInt64Sub:
+                return VisitWord64Compare(selector, value, cont);
+              case IrOpcode::kWord64And:
+                return VisitWordCompare(selector, value, kS390_Tst64, cont,
+                                        true, kUint32Imm);
+              default:
+                break;
+            }
+          }
+        }
         return VisitWord64Compare(selector, value, cont);
+      }
       case IrOpcode::kInt64LessThan:
         cont->OverwriteAndNegateIfEqual(kSignedLessThan);
         return VisitWord64Compare(selector, value, cont);
@@ -1708,7 +1721,6 @@ void VisitWordCompareZero(InstructionSelector* selector, Node* user,
       default:
         break;
     }
-    break;
   }
 
   // Branch could not be combined with a compare, emit compare against 0.
@@ -1746,6 +1758,19 @@ void InstructionSelector::VisitDeoptimizeIf(Node* node) {
 void InstructionSelector::VisitDeoptimizeUnless(Node* node) {
   FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
       kEqual, DeoptimizeReasonOf(node->op()), node->InputAt(1));
+  VisitWord32CompareZero(this, node, node->InputAt(0), &cont);
+}
+
+void InstructionSelector::VisitTrapIf(Node* node, Runtime::FunctionId func_id) {
+  FlagsContinuation cont =
+      FlagsContinuation::ForTrap(kNotEqual, func_id, node->InputAt(1));
+  VisitWord32CompareZero(this, node, node->InputAt(0), &cont);
+}
+
+void InstructionSelector::VisitTrapUnless(Node* node,
+                                          Runtime::FunctionId func_id) {
+  FlagsContinuation cont =
+      FlagsContinuation::ForTrap(kEqual, func_id, node->InputAt(1));
   VisitWord32CompareZero(this, node, node->InputAt(0), &cont);
 }
 

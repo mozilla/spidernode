@@ -4,25 +4,21 @@
 
 #include "src/compiler/js-inlining.h"
 
-#include "src/ast/ast-numbering.h"
 #include "src/ast/ast.h"
 #include "src/compilation-info.h"
 #include "src/compiler.h"
 #include "src/compiler/all-nodes.h"
-#include "src/compiler/ast-graph-builder.h"
-#include "src/compiler/ast-loop-assignment-analyzer.h"
 #include "src/compiler/bytecode-graph-builder.h"
 #include "src/compiler/common-operator.h"
+#include "src/compiler/compiler-source-position-table.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
 #include "src/compiler/simplified-operator.h"
-#include "src/compiler/type-hint-analyzer.h"
 #include "src/isolate-inl.h"
 #include "src/parsing/parse-info.h"
-#include "src/parsing/rewriter.h"
 
 namespace v8 {
 namespace internal {
@@ -116,7 +112,7 @@ Reduction JSInliner::InlineCall(Node* call, Node* new_target, Node* context,
           Replace(use, new_target);
         } else if (index == inlinee_arity_index) {
           // The projection is requesting the number of arguments.
-          Replace(use, jsgraph()->Int32Constant(inliner_inputs - 2));
+          Replace(use, jsgraph()->Constant(inliner_inputs - 2));
         } else if (index == inlinee_context_index) {
           // The projection is requesting the inlinee function context.
           Replace(use, context);
@@ -184,7 +180,7 @@ Reduction JSInliner::InlineCall(Node* call, Node* new_target, Node* context,
   for (Node* const input : end->inputs()) {
     switch (input->opcode()) {
       case IrOpcode::kReturn:
-        values.push_back(NodeProperties::GetValueInput(input, 0));
+        values.push_back(NodeProperties::GetValueInput(input, 1));
         effects.push_back(NodeProperties::GetEffectInput(input));
         controls.push_back(NodeProperties::GetControlInput(input));
         break;
@@ -235,14 +231,14 @@ Node* JSInliner::CreateArtificialFrameState(Node* node, Node* outer_frame_state,
 
   const Operator* op = common()->FrameState(
       BailoutId(-1), OutputFrameStateCombine::Ignore(), state_info);
-  const Operator* op0 = common()->StateValues(0);
+  const Operator* op0 = common()->StateValues(0, SparseInputMask::Dense());
   Node* node0 = graph()->NewNode(op0);
   NodeVector params(local_zone_);
   for (int parameter = 0; parameter < parameter_count + 1; ++parameter) {
     params.push_back(node->InputAt(1 + parameter));
   }
-  const Operator* op_param =
-      common()->StateValues(static_cast<int>(params.size()));
+  const Operator* op_param = common()->StateValues(
+      static_cast<int>(params.size()), SparseInputMask::Dense());
   Node* params_node = graph()->NewNode(
       op_param, static_cast<int>(params.size()), &params.front());
   return graph()->NewNode(op, params_node, node0, node0,
@@ -273,7 +269,7 @@ Node* JSInliner::CreateTailCallerFrameState(Node* node, Node* frame_state) {
 
   const Operator* op = common()->FrameState(
       BailoutId(-1), OutputFrameStateCombine::Ignore(), state_info);
-  const Operator* op0 = common()->StateValues(0);
+  const Operator* op0 = common()->StateValues(0, SparseInputMask::Dense());
   Node* node0 = graph()->NewNode(op0);
   return graph()->NewNode(op, node0, node0, node0,
                           jsgraph()->UndefinedConstant(), function,
@@ -281,6 +277,19 @@ Node* JSInliner::CreateTailCallerFrameState(Node* node, Node* frame_state) {
 }
 
 namespace {
+
+// TODO(turbofan): Shall we move this to the NodeProperties? Or some (untyped)
+// alias analyzer?
+bool IsSame(Node* a, Node* b) {
+  if (a == b) {
+    return true;
+  } else if (a->opcode() == IrOpcode::kCheckHeapObject) {
+    return IsSame(a->InputAt(0), b);
+  } else if (b->opcode() == IrOpcode::kCheckHeapObject) {
+    return IsSame(a, b->InputAt(0));
+  }
+  return false;
+}
 
 // TODO(bmeurer): Unify this with the witness helper functions in the
 // js-builtin-reducer.cc once we have a better understanding of the
@@ -296,13 +305,12 @@ namespace {
 bool NeedsConvertReceiver(Node* receiver, Node* effect) {
   for (Node* dominator = effect;;) {
     if (dominator->opcode() == IrOpcode::kCheckMaps &&
-        dominator->InputAt(0) == receiver) {
+        IsSame(dominator->InputAt(0), receiver)) {
       // Check if all maps have the given {instance_type}.
-      for (int i = 1; i < dominator->op()->ValueInputCount(); ++i) {
-        HeapObjectMatcher m(NodeProperties::GetValueInput(dominator, i));
-        if (!m.HasValue()) return true;
-        Handle<Map> const map = Handle<Map>::cast(m.Value());
-        if (!map->IsJSReceiverMap()) return true;
+      ZoneHandleSet<Map> const& maps =
+          CheckMapsParametersOf(dominator->op()).maps();
+      for (size_t i = 0; i < maps.size(); ++i) {
+        if (!maps[i]->IsJSReceiverMap()) return true;
       }
       return false;
     }
@@ -371,6 +379,14 @@ Reduction JSInliner::ReduceJSCall(Node* node, Handle<JSFunction> function) {
   DCHECK(IrOpcode::IsInlineeOpcode(node->opcode()));
   JSCallAccessor call(node);
   Handle<SharedFunctionInfo> shared_info(function->shared());
+
+  // Inlining is only supported in the bytecode pipeline.
+  if (!info_->is_optimizing_from_bytecode()) {
+    TRACE("Inlining %s into %s is not supported in the deprecated pipeline\n",
+          shared_info->DebugName()->ToCString().get(),
+          info_->shared_info()->DebugName()->ToCString().get());
+    return NoChange();
+  }
 
   // Function must be inlineable.
   if (!shared_info->IsInlineable()) {
@@ -471,14 +487,13 @@ Reduction JSInliner::ReduceJSCall(Node* node, Handle<JSFunction> function) {
     }
   }
 
-  Zone zone(info_->isolate()->allocator());
-  ParseInfo parse_info(&zone, function);
-  CompilationInfo info(&parse_info, function);
+  Zone zone(info_->isolate()->allocator(), ZONE_NAME);
+  ParseInfo parse_info(&zone, shared_info);
+  CompilationInfo info(&parse_info, Handle<JSFunction>::null());
   if (info_->is_deoptimization_enabled()) info.MarkAsDeoptimizationEnabled();
-  if (info_->is_type_feedback_enabled()) info.MarkAsTypeFeedbackEnabled();
-  if (info_->is_optimizing_from_bytecode()) info.MarkAsOptimizeFromBytecode();
+  info.MarkAsOptimizeFromBytecode();
 
-  if (info.is_optimizing_from_bytecode() && !Compiler::EnsureBytecode(&info)) {
+  if (!Compiler::EnsureBytecode(&info)) {
     TRACE("Not inlining %s into %s because bytecode generation failed\n",
           shared_info->DebugName()->ToCString().get(),
           info_->shared_info()->DebugName()->ToCString().get());
@@ -488,29 +503,11 @@ Reduction JSInliner::ReduceJSCall(Node* node, Handle<JSFunction> function) {
     return NoChange();
   }
 
-  if (!info.is_optimizing_from_bytecode() &&
-      !Compiler::ParseAndAnalyze(info.parse_info())) {
-    TRACE("Not inlining %s into %s because parsing failed\n",
-          shared_info->DebugName()->ToCString().get(),
-          info_->shared_info()->DebugName()->ToCString().get());
-    if (info_->isolate()->has_pending_exception()) {
-      info_->isolate()->clear_pending_exception();
-    }
-    return NoChange();
-  }
-
-  if (!info.is_optimizing_from_bytecode() &&
-      !Compiler::EnsureDeoptimizationSupport(&info)) {
-    TRACE("Not inlining %s into %s because deoptimization support failed\n",
-          shared_info->DebugName()->ToCString().get(),
-          info_->shared_info()->DebugName()->ToCString().get());
-    return NoChange();
-  }
-
   // Remember that we inlined this function. This needs to be called right
   // after we ensure deoptimization support so that the code flusher
   // does not remove the code with the deoptimization support.
-  info_->AddInlinedFunction(shared_info);
+  int inlining_id = info_->AddInlinedFunction(
+      shared_info, source_positions_->GetSourcePosition(node));
 
   // ----------------------------------------------------------------
   // After this point, we've made a decision to inline this function.
@@ -526,31 +523,13 @@ Reduction JSInliner::ReduceJSCall(Node* node, Handle<JSFunction> function) {
   // Create the subgraph for the inlinee.
   Node* start;
   Node* end;
-  if (info.is_optimizing_from_bytecode()) {
+  {
     // Run the BytecodeGraphBuilder to create the subgraph.
     Graph::SubgraphScope scope(graph());
-    BytecodeGraphBuilder graph_builder(&zone, &info, jsgraph(),
-                                       call.frequency());
-    graph_builder.CreateGraph();
-
-    // Extract the inlinee start/end nodes.
-    start = graph()->start();
-    end = graph()->end();
-  } else {
-    // Run the loop assignment analyzer on the inlinee.
-    AstLoopAssignmentAnalyzer loop_assignment_analyzer(&zone, &info);
-    LoopAssignmentAnalysis* loop_assignment =
-        loop_assignment_analyzer.Analyze();
-
-    // Run the type hint analyzer on the inlinee.
-    TypeHintAnalyzer type_hint_analyzer(&zone);
-    TypeHintAnalysis* type_hint_analysis =
-        type_hint_analyzer.Analyze(handle(shared_info->code(), info.isolate()));
-
-    // Run the AstGraphBuilder to create the subgraph.
-    Graph::SubgraphScope scope(graph());
-    AstGraphBuilder graph_builder(&zone, &info, jsgraph(), call.frequency(),
-                                  loop_assignment, type_hint_analysis);
+    BytecodeGraphBuilder graph_builder(
+        &zone, shared_info, handle(function->feedback_vector()),
+        BailoutId::None(), jsgraph(), call.frequency(), source_positions_,
+        inlining_id);
     graph_builder.CreateGraph(false);
 
     // Extract the inlinee start/end nodes.
@@ -590,7 +569,7 @@ Reduction JSInliner::ReduceJSCall(Node* node, Handle<JSFunction> function) {
     // constructor dispatch (allocate implicit receiver and check return value).
     // This models the behavior usually accomplished by our {JSConstructStub}.
     // Note that the context has to be the callers context (input to call node).
-    Node* receiver = jsgraph()->UndefinedConstant();  // Implicit receiver.
+    Node* receiver = jsgraph()->TheHoleConstant();  // Implicit receiver.
     if (NeedsImplicitReceiver(shared_info)) {
       Node* frame_state_before = NodeProperties::FindFrameStateBefore(node);
       Node* effect = NodeProperties::GetEffectInput(node);

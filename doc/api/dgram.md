@@ -74,18 +74,18 @@ The `'message'` event is emitted when a new datagram is available on a socket.
 The event handler function is passed two arguments: `msg` and `rinfo`.
 * `msg` {Buffer} - The message
 * `rinfo` {Object} - Remote address information
-  * `address` {String} The sender address
-  * `family` {String} The address family (`'IPv4'` or `'IPv6'`)
-  * `port` {Number} The sender port
-  * `size` {Number} The message size
+  * `address` {string} The sender address
+  * `family` {string} The address family (`'IPv4'` or `'IPv6'`)
+  * `port` {number} The sender port
+  * `size` {number} The message size
 
 ### socket.addMembership(multicastAddress[, multicastInterface])
 <!-- YAML
 added: v0.6.9
 -->
 
-* `multicastAddress` {String}
-* `multicastInterface` {String}, Optional
+* `multicastAddress` {string}
+* `multicastInterface` {string}, Optional
 
 Tells the kernel to join a multicast group at the given `multicastAddress` and
 `multicastInterface` using the `IP_ADD_MEMBERSHIP` socket option. If the
@@ -107,8 +107,8 @@ properties.
 added: v0.1.99
 -->
 
-* `port` {Number} - Integer, Optional
-* `address` {String}, Optional
+* `port` {number} - Integer, Optional
+* `address` {string}, Optional
 * `callback` {Function} with no parameters, Optional. Called when
   binding is complete.
 
@@ -160,9 +160,9 @@ added: v0.11.14
 -->
 
 * `options` {Object} - Required. Supports the following properties:
-  * `port` {Number} - Optional.
-  * `address` {String} - Optional.
-  * `exclusive` {Boolean} - Optional.
+  * `port` {number} - Optional.
+  * `address` {string} - Optional.
+  * `exclusive` {boolean} - Optional.
 * `callback` {Function} - Optional.
 
 For UDP sockets, causes the `dgram.Socket` to listen for datagram
@@ -214,8 +214,8 @@ provided, it is added as a listener for the [`'close'`][] event.
 added: v0.6.9
 -->
 
-* `multicastAddress` {String}
-* `multicastInterface` {String}, Optional
+* `multicastAddress` {string}
+* `multicastInterface` {string}, Optional
 
 Instructs the kernel to leave a multicast group at `multicastAddress` using the
 `IP_DROP_MEMBERSHIP` socket option. This method is automatically called by the
@@ -225,23 +225,55 @@ never have reason to call this.
 If `multicastInterface` is not specified, the operating system will attempt to
 drop membership on all valid interfaces.
 
-### socket.send(msg, [offset, length,] port, address[, callback])
+### socket.ref()
 <!-- YAML
-added: v0.1.99
+added: v0.9.1
 -->
 
-* `msg` {Buffer|String|Array} Message to be sent
-* `offset` {Number} Integer. Optional. Offset in the buffer where the message starts.
-* `length` {Number} Integer. Optional. Number of bytes in the message.
-* `port` {Number} Integer. Destination port.
-* `address` {String} Destination hostname or IP address.
+By default, binding a socket will cause it to block the Node.js process from
+exiting as long as the socket is open. The `socket.unref()` method can be used
+to exclude the socket from the reference counting that keeps the Node.js
+process active. The `socket.ref()` method adds the socket back to the reference
+counting and restores the default behavior.
+
+Calling `socket.ref()` multiples times will have no additional effect.
+
+The `socket.ref()` method returns a reference to the socket so calls can be
+chained.
+
+### socket.send(msg, [offset, length,] port [, address] [, callback])
+<!-- YAML
+added: v0.1.99
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/11985
+    description: The `msg` parameter can be an Uint8Array now.
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/10473
+    description: The `address` parameter is always optional now.
+  - version: v6.0.0
+    pr-url: https://github.com/nodejs/node/pull/5929
+    description: On success, `callback` will now be called with an `error`
+                 argument of `null` rather than `0`.
+  - version: v5.7.0
+    pr-url: https://github.com/nodejs/node/pull/4374
+    description: The `msg` parameter can be an array now. Also, the `offset`
+                 and `length` parameters are optional now.
+-->
+
+* `msg` {Buffer|Uint8Array|string|array} Message to be sent
+* `offset` {number} Integer. Optional. Offset in the buffer where the message starts.
+* `length` {number} Integer. Optional. Number of bytes in the message.
+* `port` {number} Integer. Destination port.
+* `address` {string} Destination hostname or IP address. Optional.
 * `callback` {Function} Called when the message has been sent. Optional.
 
 Broadcasts a datagram on the socket. The destination `port` and `address` must
 be specified.
 
 The `msg` argument contains the message to be sent.
-Depending on its type, different behavior can apply. If `msg` is a `Buffer`,
+Depending on its type, different behavior can apply. If `msg` is a `Buffer`
+or `Uint8Array`,
 the `offset` and `length` specify the offset within the `Buffer` where the
 message begins and the number of bytes in the message, respectively.
 If `msg` is a `String`, then it is automatically converted to a `Buffer`
@@ -251,8 +283,9 @@ respect to [byte length][] and not the character position.
 If `msg` is an array, `offset` and `length` must not be specified.
 
 The `address` argument is a string. If the value of `address` is a host name,
-DNS will be used to resolve the address of the host. If the `address` is not
-specified or is an empty string, `'127.0.0.1'` or `'::1'` will be used instead.
+DNS will be used to resolve the address of the host.  If `address` is not
+provided or otherwise falsy, `'127.0.0.1'` (for `udp4` sockets) or `'::1'`
+(for `udp6` sockets) will be used by default.
 
 If the socket has not been previously bound with a call to `bind`, the socket
 is assigned a random port number and is bound to the "all interfaces" address
@@ -270,7 +303,7 @@ the error is emitted as an `'error'` event on the `socket` object.
 
 Offset and length are optional, but if you specify one you would need to
 specify the other. Also, they are supported only when the first
-argument is a `Buffer`.
+argument is a `Buffer` or `Uint8Array`.
 
 Example of sending a UDP packet to a random port on `localhost`;
 
@@ -283,14 +316,15 @@ client.send(message, 41234, 'localhost', (err) => {
 });
 ```
 
-Example of sending a UDP packet composed of multiple buffers to a random port on `localhost`;
+Example of sending a UDP packet composed of multiple buffers to a random port
+on `127.0.0.1`;
 
 ```js
 const dgram = require('dgram');
 const buf1 = Buffer.from('Some ');
 const buf2 = Buffer.from('bytes');
 const client = dgram.createSocket('udp4');
-client.send([buf1, buf2], 41234, 'localhost', (err) => {
+client.send([buf1, buf2], 41234, (err) => {
   client.close();
 });
 ```
@@ -330,7 +364,7 @@ source that the data did not reach its intended recipient.
 added: v0.6.9
 -->
 
-* `flag` {Boolean}
+* `flag` {boolean}
 
 Sets or clears the `SO_BROADCAST` socket option.  When set to `true`, UDP
 packets may be sent to a local interface's broadcast address.
@@ -340,7 +374,7 @@ packets may be sent to a local interface's broadcast address.
 added: v0.3.8
 -->
 
-* `flag` {Boolean}
+* `flag` {boolean}
 
 Sets or clears the `IP_MULTICAST_LOOP` socket option.  When set to `true`,
 multicast packets will also be received on the local interface.
@@ -350,7 +384,7 @@ multicast packets will also be received on the local interface.
 added: v0.3.8
 -->
 
-* `ttl` {Number} Integer
+* `ttl` {number} Integer
 
 Sets the `IP_MULTICAST_TTL` socket option.  While TTL generally stands for
 "Time to Live", in this context it specifies the number of IP hops that a
@@ -366,7 +400,7 @@ between 0 and 255. The default on most systems is `1` but can vary.
 added: v0.1.101
 -->
 
-* `ttl` {Number} Integer
+* `ttl` {number} Integer
 
 Sets the `IP_TTL` socket option. While TTL generally stands for "Time to Live",
 in this context it specifies the number of IP hops that a packet is allowed to
@@ -376,22 +410,6 @@ Changing TTL values is typically done for network probes or when multicasting.
 
 The argument to `socket.setTTL()` is a number of hops between 1 and 255.
 The default on most systems is 64 but can vary.
-
-### socket.ref()
-<!-- YAML
-added: v0.9.1
--->
-
-By default, binding a socket will cause it to block the Node.js process from
-exiting as long as the socket is open. The `socket.unref()` method can be used
-to exclude the socket from the reference counting that keeps the Node.js
-process active. The `socket.ref()` method adds the socket back to the reference
-counting and restores the default behavior.
-
-Calling `socket.ref()` multiples times will have no additional effect.
-
-The `socket.ref()` method returns a reference to the socket so calls can be
-chained.
 
 ### socket.unref()
 <!-- YAML
@@ -463,7 +481,7 @@ and `udp6` sockets). The bound address and port can be retrieved using
 added: v0.1.99
 -->
 
-* `type` {String} - Either 'udp4' or 'udp6'
+* `type` {string} - Either 'udp4' or 'udp6'
 * `callback` {Function} - Attached as a listener to `'message'` events.
   Optional
 * Returns: {dgram.Socket}

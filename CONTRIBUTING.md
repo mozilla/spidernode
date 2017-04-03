@@ -46,15 +46,6 @@ $ git remote add upstream git://github.com/nodejs/node.git
 For developing new features and bug fixes, the `master` branch should be pulled
 and built upon.
 
-#### Respect the stability index
-
-The rules for the master branch are less strict; consult the
-[stability index](./doc/api/documentation.md#stability-index) for details.
-
-In a nutshell, modules are at varying levels of API stability. Bug fixes are
-always welcome but API or behavioral changes to modules at stability level 3
-(Locked) are off-limits.
-
 #### Dependencies
 
 Node.js has several bundled dependencies in the *deps/* and the *tools/*
@@ -85,6 +76,9 @@ Create a branch and start hacking:
 $ git checkout -b my-branch -t origin/master
 ```
 
+Any text you write should follow the [Style Guide](doc/STYLE_GUIDE.md),
+including comments and API documentation.
+
 ### Step 3: Commit
 
 Make sure git knows your name and email address:
@@ -100,6 +94,8 @@ Add and commit:
 $ git add my/changed/files
 $ git commit
 ```
+
+### Commit guidelines
 
 Writing good commit logs is important. A commit log should describe what
 changed and why. Follow these guidelines when writing one:
@@ -182,8 +178,7 @@ Running `make test`/`vcbuild test` will run the linter as well unless one or
 more tests fail.
 
 If you want to run the linter without running tests, use
-`make lint`/`vcbuild jslint`. At this time, only JavaScript linting is
-available on Windows. `make lint` on POSIX will run both JavaScript linting and
+`make lint`/`vcbuild lint`. It will run both JavaScript linting and
 C++ linting.
 
 If you are updating tests and just want to run a single test to check it, you

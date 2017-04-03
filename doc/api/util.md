@@ -15,7 +15,7 @@ const util = require('util');
 added: v0.11.3
 -->
 
-* `section` {String} A string identifying the portion of the application for
+* `section` {string} A string identifying the portion of the application for
   which the `debuglog` function is being created.
 * Returns: {Function} The logging function
 
@@ -93,7 +93,7 @@ property take precedence over `--trace-deprecation` and
 added: v0.5.3
 -->
 
-* `format` {String} A `printf`-like format string.
+* `format` {string} A `printf`-like format string.
 
 The `util.format()` method returns a formatted string using the first argument
 as a `printf`-like format.
@@ -136,6 +136,10 @@ util.format(1, 2, 3); // '1 2 3'
 ## util.inherits(constructor, superConstructor)
 <!-- YAML
 added: v0.3.0
+changes:
+  - version: v5.0.0
+    pr-url: https://github.com/nodejs/node/pull/3455
+    description: The `constructor` parameter can refer to an ES6 class now.
 -->
 
 _Note: usage of `util.inherits()` is discouraged. Please use the ES6 `class` and
@@ -203,6 +207,20 @@ stream.write('With ES6');
 ## util.inspect(object[, options])
 <!-- YAML
 added: v0.3.0
+changes:
+  - version: v6.6.0
+    pr-url: https://github.com/nodejs/node/pull/8174
+    description: Custom inspection functions can now return `this`.
+  - version: v6.3.0
+    pr-url: https://github.com/nodejs/node/pull/7499
+    description: The `breakLength` option is supported now.
+  - version: v6.1.0
+    pr-url: https://github.com/nodejs/node/pull/6334
+    description: The `maxArrayLength` option is supported now; in particular,
+                 long arrays are truncated by default.
+  - version: v6.1.0
+    pr-url: https://github.com/nodejs/node/pull/6465
+    description: The `showProxy` option is supported now.
 -->
 
 * `object` {any} Any JavaScript primitive or Object.
@@ -343,6 +361,14 @@ util.inspect(obj);
 // Returns: "{ bar: 'baz' }"
 ```
 
+### util.inspect.custom
+<!-- YAML
+added: v6.6.0
+-->
+
+A Symbol that can be used to declare custom inspect functions, see
+[Custom inspection functions on Objects][].
+
 ### util.inspect.defaultOptions
 <!-- YAML
 added: v6.4.0
@@ -363,18 +389,24 @@ util.inspect.defaultOptions.maxArrayLength = null;
 console.log(arr); // logs the full array
 ```
 
-### util.inspect.custom
-<!-- YAML
-added: v6.6.0
--->
-
-A Symbol that can be used to declare custom inspect functions, see
-[Custom inspection functions on Objects][].
-
 ## Deprecated APIs
 
 The following APIs have been deprecated and should no longer be used. Existing
 applications and modules should be updated to find alternative approaches.
+
+### util.\_extend(target, source)
+<!-- YAML
+added: v0.7.5
+deprecated: v6.0.0
+-->
+
+> Stability: 0 - Deprecated: Use [`Object.assign()`] instead.
+
+The `util._extend()` method was never intended to be used outside of internal
+Node.js modules. The community found and used it anyway.
+
+It is deprecated and should not be used in new code. JavaScript comes with very
+similar built-in functionality through [`Object.assign()`].
 
 ### util.debug(string)
 <!-- YAML
@@ -384,7 +416,7 @@ deprecated: v0.11.3
 
 > Stability: 0 - Deprecated: Use [`console.error()`][] instead.
 
-* `string` {String} The message to print to `stderr`
+* `string` {string} The message to print to `stderr`
 
 Deprecated predecessor of `console.error`.
 
@@ -396,7 +428,7 @@ deprecated: v0.11.3
 
 > Stability: 0 - Deprecated: Use [`console.error()`][] instead.
 
-* `...strings` {String} The message to print to `stderr`
+* `...strings` {string} The message to print to `stderr`
 
 Deprecated predecessor of `console.error`.
 
@@ -798,7 +830,7 @@ deprecated: v6.0.0
 
 > Stability: 0 - Deprecated: Use a third party module instead.
 
-* `string` {String}
+* `string` {string}
 
 The `util.log()` method prints the given `string` to `stdout` with an included
 timestamp.
@@ -828,20 +860,6 @@ deprecated: v0.11.3
 > Stability: 0 - Deprecated: Use [`console.log()`][] instead.
 
 Deprecated predecessor of `console.log`.
-
-### util.\_extend(target, source)
-<!-- YAML
-added: v0.7.5
-deprecated: v6.0.0
--->
-
-> Stability: 0 - Deprecated: Use [`Object.assign()`] instead.
-
-The `util._extend()` method was never intended to be used outside of internal
-Node.js modules. The community found and used it anyway.
-
-It is deprecated and should not be used in new code. JavaScript comes with very
-similar built-in functionality through [`Object.assign()`].
 
 [`Array.isArray`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 [constructor]: https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Object/constructor

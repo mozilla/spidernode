@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "node.h"
 #include "node_file.h"
 #include "node_buffer.h"
@@ -27,8 +48,9 @@
 namespace node {
 
 using v8::Array;
+using v8::ArrayBuffer;
 using v8::Context;
-using v8::EscapableHandleScope;
+using v8::Float64Array;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -188,6 +210,14 @@ static void After(uv_fs_t *req) {
         argc = 1;
         break;
 
+      case UV_FS_STAT:
+      case UV_FS_LSTAT:
+      case UV_FS_FSTAT:
+        argc = 1;
+        FillStatsArray(env->fs_stats_field_array(),
+                       static_cast<const uv_stat_t*>(req->ptr));
+        break;
+
       case UV_FS_UTIME:
       case UV_FS_FUTIME:
         argc = 0;
@@ -199,13 +229,6 @@ static void After(uv_fs_t *req) {
 
       case UV_FS_WRITE:
         argv[1] = Integer::New(env->isolate(), req->result);
-        break;
-
-      case UV_FS_STAT:
-      case UV_FS_LSTAT:
-      case UV_FS_FSTAT:
-        argv[1] = BuildStatsObject(env,
-                                   static_cast<const uv_stat_t*>(req->ptr));
         break;
 
       case UV_FS_MKDTEMP:
@@ -418,114 +441,35 @@ static void Close(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-Local<Value> BuildStatsObject(Environment* env, const uv_stat_t* s) {
-  EscapableHandleScope handle_scope(env->isolate());
-
-  // If you hit this assertion, you forgot to enter the v8::Context first.
-  CHECK_EQ(env->context(), env->isolate()->GetCurrentContext());
-
-  // The code below is very nasty-looking but it prevents a segmentation fault
-  // when people run JS code like the snippet below. It's apparently more
-  // common than you would expect, several people have reported this crash...
-  //
-  //   function crash() {
-  //     fs.statSync('.');
-  //     crash();
-  //   }
-  //
-  // We need to check the return value of Number::New() and Date::New()
-  // and make sure that we bail out when V8 returns an empty handle.
-
-  // Unsigned integers. It does not actually seem to be specified whether
-  // uid and gid are unsigned or not, but in practice they are unsigned,
-  // and Node’s (F)Chown functions do check their arguments for unsignedness.
-#define X(name)                                                               \
-  Local<Value> name = Integer::NewFromUnsigned(env->isolate(), s->st_##name); \
-  if (name.IsEmpty())                                                         \
-    return Local<Object>();                                                   \
-
-  X(uid)
-  X(gid)
-# if defined(__POSIX__)
-  X(blksize)
-# else
-  Local<Value> blksize = Undefined(env->isolate());
-# endif
-#undef X
-
-  // Integers.
-#define X(name)                                                               \
-  Local<Value> name = Integer::New(env->isolate(), s->st_##name);             \
-  if (name.IsEmpty())                                                         \
-    return Local<Object>();                                                   \
-
-  X(dev)
-  X(mode)
-  X(nlink)
-  X(rdev)
-#undef X
-
-  // Numbers.
-#define X(name)                                                               \
-  Local<Value> name = Number::New(env->isolate(),                             \
-                                  static_cast<double>(s->st_##name));         \
-  if (name.IsEmpty())                                                         \
-    return Local<Object>();                                                   \
-
-  X(ino)
-  X(size)
-# if defined(__POSIX__)
-  X(blocks)
-# else
-  Local<Value> blocks = Undefined(env->isolate());
-# endif
-#undef X
-
+void FillStatsArray(double* fields, const uv_stat_t* s) {
+  fields[0] = s->st_dev;
+  fields[1] = s->st_mode;
+  fields[2] = s->st_nlink;
+  fields[3] = s->st_uid;
+  fields[4] = s->st_gid;
+  fields[5] = s->st_rdev;
+#if defined(__POSIX__)
+  fields[6] = s->st_blksize;
+#else
+  fields[6] = -1;
+#endif
+  fields[7] = s->st_ino;
+  fields[8] = s->st_size;
+#if defined(__POSIX__)
+  fields[9] = s->st_blocks;
+#else
+  fields[9] = -1;
+#endif
   // Dates.
-#define X(name)                                                               \
-  Local<Value> name##_msec =                                                  \
-    Number::New(env->isolate(),                                               \
-        (static_cast<double>(s->st_##name.tv_sec) * 1000) +                   \
-        (static_cast<double>(s->st_##name.tv_nsec / 1000000)));               \
-                                                                              \
-  if (name##_msec.IsEmpty())                                                  \
-    return Local<Object>();                                                   \
+#define X(idx, name)                                                          \
+  fields[idx] = (static_cast<double>(s->st_##name.tv_sec) * 1000) +           \
+                (static_cast<double>(s->st_##name.tv_nsec / 1000000));        \
 
-  X(atim)
-  X(mtim)
-  X(ctim)
-  X(birthtim)
+  X(10, atim)
+  X(11, mtim)
+  X(12, ctim)
+  X(13, birthtim)
 #undef X
-
-  // Pass stats as the first argument, this is the object we are modifying.
-  Local<Value> argv[] = {
-    dev,
-    mode,
-    nlink,
-    uid,
-    gid,
-    rdev,
-    blksize,
-    ino,
-    size,
-    blocks,
-    atim_msec,
-    mtim_msec,
-    ctim_msec,
-    birthtim_msec
-  };
-
-  // Call out to JavaScript to create the stats object.
-  Local<Value> stats =
-      env->fs_stats_constructor_function()->NewInstance(
-          env->context(),
-          arraysize(argv),
-          argv).FromMaybe(Local<Value>());
-
-  if (stats.IsEmpty())
-    return handle_scope.Escape(Local<Object>());
-
-  return handle_scope.Escape(stats);
 }
 
 // Used to speed up module loading.  Returns the contents of the file as
@@ -616,8 +560,8 @@ static void Stat(const FunctionCallbackInfo<Value>& args) {
     ASYNC_CALL(stat, args[1], UTF8, *path)
   } else {
     SYNC_CALL(stat, *path, *path)
-    args.GetReturnValue().Set(
-        BuildStatsObject(env, static_cast<const uv_stat_t*>(SYNC_REQ.ptr)));
+    FillStatsArray(env->fs_stats_field_array(),
+                   static_cast<const uv_stat_t*>(SYNC_REQ.ptr));
   }
 }
 
@@ -634,8 +578,8 @@ static void LStat(const FunctionCallbackInfo<Value>& args) {
     ASYNC_CALL(lstat, args[1], UTF8, *path)
   } else {
     SYNC_CALL(lstat, *path, *path)
-    args.GetReturnValue().Set(
-        BuildStatsObject(env, static_cast<const uv_stat_t*>(SYNC_REQ.ptr)));
+    FillStatsArray(env->fs_stats_field_array(),
+                   static_cast<const uv_stat_t*>(SYNC_REQ.ptr));
   }
 }
 
@@ -652,9 +596,9 @@ static void FStat(const FunctionCallbackInfo<Value>& args) {
   if (args[1]->IsObject()) {
     ASYNC_CALL(fstat, args[1], UTF8, fd)
   } else {
-    SYNC_CALL(fstat, 0, fd)
-    args.GetReturnValue().Set(
-        BuildStatsObject(env, static_cast<const uv_stat_t*>(SYNC_REQ.ptr)));
+    SYNC_CALL(fstat, nullptr, fd)
+    FillStatsArray(env->fs_stats_field_array(),
+                   static_cast<const uv_stat_t*>(SYNC_REQ.ptr));
   }
 }
 
@@ -1433,12 +1377,20 @@ static void Mkdtemp(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
-void FSInitialize(const FunctionCallbackInfo<Value>& args) {
-  Local<Function> stats_constructor = args[0].As<Function>();
-  CHECK(stats_constructor->IsFunction());
-
+void GetStatValues(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  env->set_fs_stats_constructor_function(stats_constructor);
+  double* fields = env->fs_stats_field_array();
+  if (fields == nullptr) {
+    // stat fields contains twice the number of entries because `fs.StatWatcher`
+    // needs room to store data for *two* `fs.Stats` instances.
+    fields = new double[2 * 14];
+    env->set_fs_stats_field_array(fields);
+  }
+  Local<ArrayBuffer> ab = ArrayBuffer::New(env->isolate(),
+                                           fields,
+                                           sizeof(double) * 2 * 14);
+  Local<Float64Array> fields_array = Float64Array::New(ab, 0, 2 * 14);
+  args.GetReturnValue().Set(fields_array);
 }
 
 void InitFs(Local<Object> target,
@@ -1446,10 +1398,6 @@ void InitFs(Local<Object> target,
             Local<Context> context,
             void* priv) {
   Environment* env = Environment::GetCurrent(context);
-
-  // Function which creates a new Stats object.
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "FSInitialize"),
-              env->NewFunctionTemplate(FSInitialize)->GetFunction());
 
   env->SetMethod(target, "access", Access);
   env->SetMethod(target, "close", Close);
@@ -1488,6 +1436,8 @@ void InitFs(Local<Object> target,
   env->SetMethod(target, "futimes", FUTimes);
 
   env->SetMethod(target, "mkdtemp", Mkdtemp);
+
+  env->SetMethod(target, "getStatValues", GetStatValues);
 
   StatWatcher::Initialize(env, target);
 

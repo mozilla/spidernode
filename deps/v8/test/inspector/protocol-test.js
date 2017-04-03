@@ -31,12 +31,13 @@ Protocol = new Proxy({}, {
 
 InspectorTest.log = print.bind(null);
 
-InspectorTest.logMessage = function(message)
+InspectorTest.logMessage = function(originalMessage)
 {
+  var message = JSON.parse(JSON.stringify(originalMessage));
   if (message.id)
     message.id = "<messageId>";
 
-  const nonStableFields = new Set(["objectId", "scriptId", "exceptionId", "timestamp", "executionContextId", "callFrameId"]);
+  const nonStableFields = new Set(["objectId", "scriptId", "exceptionId", "timestamp", "executionContextId", "callFrameId", "breakpointId"]);
   var objects = [ message ];
   while (objects.length) {
     var object = objects.shift();
@@ -49,7 +50,7 @@ InspectorTest.logMessage = function(message)
   }
 
   InspectorTest.logObject(message);
-  return message;
+  return originalMessage;
 }
 
 InspectorTest.logObject = function(object, title)
@@ -96,11 +97,25 @@ InspectorTest.logObject = function(object, title)
     lines.push(prefix + "]");
   }
 
-  dumpValue(object, "", title);
+  dumpValue(object, "", title || "");
   InspectorTest.log(lines.join("\n"));
 }
 
-InspectorTest.completeTest = quit.bind(null);
+InspectorTest.logCallFrames = function(callFrames)
+{
+  for (var frame of callFrames) {
+    var functionName = frame.functionName || '(anonymous)';
+    var url = frame.url ? frame.url : InspectorTest._scriptMap.get(frame.location.scriptId).url;
+    var lineNumber = frame.location ? frame.location.lineNumber : frame.lineNumber;
+    var columnNumber = frame.location ? frame.location.columnNumber : frame.columnNumber;
+    InspectorTest.log(`${functionName} (${url}:${lineNumber}:${columnNumber})`);
+  }
+}
+
+InspectorTest.completeTest = function()
+{
+  Protocol.Debugger.disable().then(() => quit());
+}
 
 InspectorTest.completeTestAfterPendingTimeouts = function()
 {
@@ -109,18 +124,8 @@ InspectorTest.completeTestAfterPendingTimeouts = function()
     awaitPromise: true }).then(InspectorTest.completeTest);
 }
 
-InspectorTest.addScript = function(string)
-{
-  return InspectorTest._sendCommandPromise("Runtime.evaluate", { "expression": string }).then(dumpErrorIfNeeded);
-
-  function dumpErrorIfNeeded(message)
-  {
-    if (message.error) {
-      InspectorTest.log("Error while executing '" + string + "': " + message.error.message);
-      InspectorTest.completeTest();
-    }
-  }
-};
+InspectorTest.addScript = (string, lineOffset, columnOffset) => compileAndRunWithOrigin(string, "", lineOffset || 0, columnOffset || 0);
+InspectorTest.addScriptWithUrl = (string, url) => compileAndRunWithOrigin(string, url, 0, 0);
 
 InspectorTest.startDumpingProtocolMessages = function()
 {
@@ -148,6 +153,12 @@ InspectorTest.checkExpectation = function(fail, name, messageObject)
 }
 InspectorTest.expectedSuccess = InspectorTest.checkExpectation.bind(null, false);
 InspectorTest.expectedError = InspectorTest.checkExpectation.bind(null, true);
+
+InspectorTest.setupScriptMap = function() {
+  if (InspectorTest._scriptMap)
+    return;
+  InspectorTest._scriptMap = new Map();
+}
 
 InspectorTest.runTestSuite = function(testSuite)
 {
@@ -200,6 +211,8 @@ InspectorTest._dispatchMessage = function(messageObject)
     } else {
       var eventName = messageObject["method"];
       var eventHandler = InspectorTest._eventHandler[eventName];
+      if (InspectorTest._scriptMap && eventName === "Debugger.scriptParsed")
+        InspectorTest._scriptMap.set(messageObject.params.scriptId, JSON.parse(JSON.stringify(messageObject.params)));
       if (eventHandler)
         eventHandler(messageObject);
     }

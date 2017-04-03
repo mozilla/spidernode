@@ -5,7 +5,6 @@
 #include "src/compiler/linkage.h"
 
 #include "src/ast/scopes.h"
-#include "src/builtins/builtins-utils.h"
 #include "src/code-stubs.h"
 #include "src/compilation-info.h"
 #include "src/compiler/common-operator.h"
@@ -107,6 +106,23 @@ bool CallDescriptor::CanTailCall(const Node* node) const {
   return HasSameReturnLocationsAs(CallDescriptorOf(node->op()));
 }
 
+int CallDescriptor::CalculateFixedFrameSize() const {
+  switch (kind_) {
+    case kCallJSFunction:
+      return PushArgumentCount()
+                 ? OptimizedBuiltinFrameConstants::kFixedSlotCount
+                 : StandardFrameConstants::kFixedSlotCount;
+      break;
+    case kCallAddress:
+      return CommonFrameConstants::kFixedSlotCountAboveFp +
+             CommonFrameConstants::kCPSlotCount;
+      break;
+    case kCallCodeObject:
+      return TypedFrameConstants::kFixedSlotCount;
+  }
+  UNREACHABLE();
+  return 0;
+}
 
 CallDescriptor* Linkage::ComputeIncoming(Zone* zone, CompilationInfo* info) {
   DCHECK(!info->IsStub());
@@ -135,7 +151,6 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
     case Runtime::kDefineGetterPropertyUnchecked:  // TODO(jarin): Is it safe?
     case Runtime::kDefineSetterPropertyUnchecked:  // TODO(jarin): Is it safe?
     case Runtime::kGeneratorGetContinuation:
-    case Runtime::kGetSuperConstructor:
     case Runtime::kIsFunction:
     case Runtime::kNewClosure:
     case Runtime::kNewClosure_Tenured:
@@ -162,14 +177,11 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
     case Runtime::kInlineGeneratorClose:
     case Runtime::kInlineGeneratorGetInputOrDebugPos:
     case Runtime::kInlineGeneratorGetResumeMode:
-    case Runtime::kInlineGetSuperConstructor:
     case Runtime::kInlineIsArray:
     case Runtime::kInlineIsJSReceiver:
     case Runtime::kInlineIsRegExp:
     case Runtime::kInlineIsSmi:
     case Runtime::kInlineIsTypedArray:
-    case Runtime::kInlineRegExpFlags:
-    case Runtime::kInlineRegExpSource:
       return false;
 
     default:

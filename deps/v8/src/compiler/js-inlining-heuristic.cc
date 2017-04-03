@@ -23,7 +23,7 @@ namespace {
 
 int CollectFunctions(Node* node, Handle<JSFunction>* functions,
                      int functions_size) {
-  DCHECK_NE(0u, functions_size);
+  DCHECK_NE(0, functions_size);
   HeapObjectMatcher m(node);
   if (m.HasValue() && m.Value()->IsJSFunction()) {
     functions[0] = Handle<JSFunction>::cast(m.Value());
@@ -46,8 +46,8 @@ bool CanInlineFunction(Handle<JSFunction> function) {
   // Built-in functions are handled by the JSBuiltinReducer.
   if (function->shared()->HasBuiltinFunctionId()) return false;
 
-  // Don't inline builtins.
-  if (function->shared()->IsBuiltin()) return false;
+  // Only choose user code for inlining.
+  if (!function->shared()->IsUserJavaScript()) return false;
 
   // Quick check on the size of the AST to avoid parsing large candidate.
   if (function->shared()->ast_node_count() > FLAG_max_inlined_nodes) {

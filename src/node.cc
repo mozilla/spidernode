@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "node.h"
 #include "node_buffer.h"
 #include "node_constants.h"
@@ -2270,25 +2291,22 @@ void MemoryUsage(const FunctionCallbackInfo<Value>& args) {
     return env->ThrowUVException(err, "uv_resident_set_memory");
   }
 
+  Isolate* isolate = env->isolate();
   // V8 memory usage
   HeapStatistics v8_heap_stats;
-  env->isolate()->GetHeapStatistics(&v8_heap_stats);
+  isolate->GetHeapStatistics(&v8_heap_stats);
 
-  Local<Number> heap_total =
-      Number::New(env->isolate(), v8_heap_stats.total_heap_size());
-  Local<Number> heap_used =
-      Number::New(env->isolate(), v8_heap_stats.used_heap_size());
-  Local<Number> external_mem =
-      Number::New(env->isolate(),
-                  env->isolate()->AdjustAmountOfExternalAllocatedMemory(0));
+  // Get the double array pointer from the Float64Array argument.
+  CHECK(args[0]->IsFloat64Array());
+  Local<Float64Array> array = args[0].As<Float64Array>();
+  CHECK_EQ(array->Length(), 4);
+  Local<ArrayBuffer> ab = array->Buffer();
+  double* fields = static_cast<double*>(ab->GetContents().Data());
 
-  Local<Object> info = Object::New(env->isolate());
-  info->Set(env->rss_string(), Number::New(env->isolate(), rss));
-  info->Set(env->heap_total_string(), heap_total);
-  info->Set(env->heap_used_string(), heap_used);
-  info->Set(env->external_string(), external_mem);
-
-  args.GetReturnValue().Set(info);
+  fields[0] = rss;
+  fields[1] = v8_heap_stats.total_heap_size();
+  fields[2] = v8_heap_stats.used_heap_size();
+  fields[3] = isolate->AdjustAmountOfExternalAllocatedMemory(0);
 }
 
 
@@ -2399,8 +2417,6 @@ struct node_module* get_linked_module(const char* name) {
   CHECK(mp == nullptr || (mp->nm_flags & NM_F_LINKED) != 0);
   return mp;
 }
-
-typedef void (UV_DYNAMIC* extInit)(Local<Object> exports);
 
 // DLOpen is process.dlopen(module, filename).
 // Used to load 'module.node' dynamically shared objects.
@@ -2657,6 +2673,8 @@ static void Binding(const FunctionCallbackInfo<Value>& args) {
     cache->Set(module, exports);
   } else if (!strcmp(*module_v, "constants")) {
     exports = Object::New(env->isolate());
+    CHECK(exports->SetPrototype(env->context(),
+                                Null(env->isolate())).FromJust());
     DefineConstants(env->isolate(), exports);
     cache->Set(module, exports);
   } else if (!strcmp(*module_v, "natives")) {
@@ -2792,24 +2810,26 @@ static void EnvSetter(Local<Name> property,
 static void EnvQuery(Local<Name> property,
                      const PropertyCallbackInfo<Integer>& info) {
   int32_t rc = -1;  // Not found unless proven otherwise.
+  if (property->IsString()) {
 #ifdef __POSIX__
-  node::Utf8Value key(info.GetIsolate(), property);
-  if (getenv(*key))
-    rc = 0;
+    node::Utf8Value key(info.GetIsolate(), property);
+    if (getenv(*key))
+      rc = 0;
 #else  // _WIN32
-  node::TwoByteValue key(info.GetIsolate(), property);
-  WCHAR* key_ptr = reinterpret_cast<WCHAR*>(*key);
-  if (GetEnvironmentVariableW(key_ptr, nullptr, 0) > 0 ||
-      GetLastError() == ERROR_SUCCESS) {
-    rc = 0;
-    if (key_ptr[0] == L'=') {
-      // Environment variables that start with '=' are hidden and read-only.
-      rc = static_cast<int32_t>(v8::ReadOnly) |
-           static_cast<int32_t>(v8::DontDelete) |
-           static_cast<int32_t>(v8::DontEnum);
+    node::TwoByteValue key(info.GetIsolate(), property);
+    WCHAR* key_ptr = reinterpret_cast<WCHAR*>(*key);
+    if (GetEnvironmentVariableW(key_ptr, nullptr, 0) > 0 ||
+        GetLastError() == ERROR_SUCCESS) {
+      rc = 0;
+      if (key_ptr[0] == L'=') {
+        // Environment variables that start with '=' are hidden and read-only.
+        rc = static_cast<int32_t>(v8::ReadOnly) |
+             static_cast<int32_t>(v8::DontDelete) |
+             static_cast<int32_t>(v8::DontEnum);
+      }
     }
-  }
 #endif
+  }
   if (rc != -1)
     info.GetReturnValue().Set(rc);
 }
@@ -2817,14 +2837,16 @@ static void EnvQuery(Local<Name> property,
 
 static void EnvDeleter(Local<Name> property,
                        const PropertyCallbackInfo<Boolean>& info) {
+  if (property->IsString()) {
 #ifdef __POSIX__
-  node::Utf8Value key(info.GetIsolate(), property);
-  unsetenv(*key);
+    node::Utf8Value key(info.GetIsolate(), property);
+    unsetenv(*key);
 #else
-  node::TwoByteValue key(info.GetIsolate(), property);
-  WCHAR* key_ptr = reinterpret_cast<WCHAR*>(*key);
-  SetEnvironmentVariableW(key_ptr, nullptr);
+    node::TwoByteValue key(info.GetIsolate(), property);
+    WCHAR* key_ptr = reinterpret_cast<WCHAR*>(*key);
+    SetEnvironmentVariableW(key_ptr, nullptr);
 #endif
+  }
 
   // process.env never has non-configurable properties, so always
   // return true like the tc39 delete operator.
@@ -2918,7 +2940,7 @@ static Local<Object> GetFeatures(Environment* env) {
   // TODO(bnoordhuis) ping libuv
   obj->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "ipv6"), True(env->isolate()));
 
-#ifdef OPENSSL_NPN_NEGOTIATED
+#ifndef OPENSSL_NO_NEXTPROTONEG
   Local<Boolean> tls_npn = True(env->isolate());
 #else
   Local<Boolean> tls_npn = False(env->isolate());
@@ -3474,7 +3496,7 @@ void LoadEnvironment(Environment* env) {
   // (FatalException(), break on uncaught exception in debugger)
   //
   // This is not strictly necessary since it's almost impossible
-  // to attach the debugger fast enought to break on exception
+  // to attach the debugger fast enough to break on exception
   // thrown during process startup.
   try_catch.SetVerbose(true);
 
@@ -4198,6 +4220,19 @@ inline void PlatformInit() {
     } while (min + 1 < max);
   }
 #endif  // __POSIX__
+#ifdef _WIN32
+  for (int fd = 0; fd <= 2; ++fd) {
+    auto handle = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+    if (handle == INVALID_HANDLE_VALUE ||
+        GetFileType(handle) == FILE_TYPE_UNKNOWN) {
+      // Ignore _close result. If it fails or not depends on used Windows
+      // version. We will just check _open result.
+      _close(fd);
+      if (fd != _open("nul", _O_RDWR))
+        ABORT();
+    }
+  }
+#endif  // _WIN32
 }
 
 
@@ -4243,8 +4278,10 @@ void Init(int* argc,
   if (config_warning_file.empty())
     SafeGetenv("NODE_REDIRECT_WARNINGS", &config_warning_file);
 
+#if HAVE_OPENSSL
   if (openssl_config.empty())
     SafeGetenv("OPENSSL_CONF", &openssl_config);
+#endif
 
   // Parse a few arguments which are specific to Node.
   int v8_argc;

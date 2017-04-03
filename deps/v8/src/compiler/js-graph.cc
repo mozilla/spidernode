@@ -31,11 +31,26 @@ Node* JSGraph::ToNumberBuiltinConstant() {
 
 Node* JSGraph::CEntryStubConstant(int result_size, SaveFPRegsMode save_doubles,
                                   ArgvMode argv_mode, bool builtin_exit_frame) {
-  if (save_doubles == kDontSaveFPRegs && argv_mode == kArgvOnStack &&
-      result_size == 1) {
+  if (save_doubles == kDontSaveFPRegs && argv_mode == kArgvOnStack) {
+    DCHECK(result_size >= 1 && result_size <= 3);
+    if (!builtin_exit_frame) {
+      CachedNode key;
+      if (result_size == 1) {
+        key = kCEntryStub1Constant;
+      } else if (result_size == 2) {
+        key = kCEntryStub2Constant;
+      } else {
+        DCHECK(result_size == 3);
+        key = kCEntryStub3Constant;
+      }
+      return CACHED(
+          key, HeapConstant(CEntryStub(isolate(), result_size, save_doubles,
+                                       argv_mode, builtin_exit_frame)
+                                .GetCode()));
+    }
     CachedNode key = builtin_exit_frame
-                         ? kCEntryStubWithBuiltinExitFrameConstant
-                         : kCEntryStubConstant;
+                         ? kCEntryStub1WithBuiltinExitFrameConstant
+                         : kCEntryStub1Constant;
     return CACHED(key,
                   HeapConstant(CEntryStub(isolate(), result_size, save_doubles,
                                           argv_mode, builtin_exit_frame)
@@ -242,6 +257,13 @@ Node* JSGraph::Float64Constant(double value) {
   return *loc;
 }
 
+Node* JSGraph::PointerConstant(intptr_t value) {
+  Node** loc = cache_.FindPointerConstant(value);
+  if (*loc == nullptr) {
+    *loc = graph()->NewNode(common()->PointerConstant(value));
+  }
+  return *loc;
+}
 
 Node* JSGraph::ExternalConstant(ExternalReference reference) {
   Node** loc = cache_.FindExternalConstant(reference);
@@ -257,7 +279,8 @@ Node* JSGraph::ExternalConstant(Runtime::FunctionId function_id) {
 }
 
 Node* JSGraph::EmptyStateValues() {
-  return CACHED(kEmptyStateValues, graph()->NewNode(common()->StateValues(0)));
+  return CACHED(kEmptyStateValues, graph()->NewNode(common()->StateValues(
+                                       0, SparseInputMask::Dense())));
 }
 
 Node* JSGraph::Dead() {

@@ -15,7 +15,7 @@ namespace internal {
 void MarkCompactCollector::PushBlack(HeapObject* obj) {
   DCHECK(Marking::IsBlack(ObjectMarking::MarkBitFrom(obj)));
   if (marking_deque()->Push(obj)) {
-    MemoryChunk::IncrementLiveBytesFromGC(obj, obj->Size());
+    MemoryChunk::IncrementLiveBytes(obj, obj->Size());
   } else {
     MarkBit mark_bit = ObjectMarking::MarkBitFrom(obj);
     Marking::BlackToGrey(mark_bit);
@@ -26,7 +26,7 @@ void MarkCompactCollector::PushBlack(HeapObject* obj) {
 void MarkCompactCollector::UnshiftBlack(HeapObject* obj) {
   DCHECK(Marking::IsBlack(ObjectMarking::MarkBitFrom(obj)));
   if (!marking_deque()->Unshift(obj)) {
-    MemoryChunk::IncrementLiveBytesFromGC(obj, -obj->Size());
+    MemoryChunk::IncrementLiveBytes(obj, -obj->Size());
     MarkBit mark_bit = ObjectMarking::MarkBitFrom(obj);
     Marking::BlackToGrey(mark_bit);
   }
@@ -47,7 +47,7 @@ void MarkCompactCollector::SetMark(HeapObject* obj, MarkBit mark_bit) {
   DCHECK(Marking::IsWhite(mark_bit));
   DCHECK(ObjectMarking::MarkBitFrom(obj) == mark_bit);
   Marking::WhiteToBlack(mark_bit);
-  MemoryChunk::IncrementLiveBytesFromGC(obj, obj->Size());
+  MemoryChunk::IncrementLiveBytes(obj, obj->Size());
 }
 
 
@@ -163,12 +163,14 @@ HeapObject* LiveObjectIterator<T>::Next() {
         current_cell_ = *it_.CurrentCell();
       }
 
+      Map* map = nullptr;
       if (current_cell_ & second_bit_index) {
         // We found a black object. If the black object is within a black area,
         // make sure that we skip all set bits in the black area until the
         // object ends.
         HeapObject* black_object = HeapObject::FromAddress(addr);
-        Address end = addr + black_object->Size() - kPointerSize;
+        map = base::NoBarrierAtomicValue<Map*>::FromAddress(addr)->Value();
+        Address end = addr + black_object->SizeFromMap(map) - kPointerSize;
         // One word filler objects do not borrow the second mark bit. We have
         // to jump over the advancing and clearing part.
         // Note that we know that we are at a one word filler when
@@ -193,14 +195,15 @@ HeapObject* LiveObjectIterator<T>::Next() {
           object = black_object;
         }
       } else if ((T == kGreyObjects || T == kAllLiveObjects)) {
+        map = base::NoBarrierAtomicValue<Map*>::FromAddress(addr)->Value();
         object = HeapObject::FromAddress(addr);
       }
 
       // We found a live object.
       if (object != nullptr) {
-        if (object->IsFiller()) {
-          // Black areas together with slack tracking may result in black filler
-          // objects. We filter these objects out in the iterator.
+        if (map == heap()->one_pointer_filler_map()) {
+          // Black areas together with slack tracking may result in black one
+          // word filler objects. We filter these objects out in the iterator.
           object = nullptr;
         } else {
           break;

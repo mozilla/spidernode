@@ -4,7 +4,7 @@
 
 #include "src/builtins/builtins.h"
 #include "src/code-events.h"
-#include "src/code-stub-assembler.h"
+#include "src/compiler/code-assembler.h"
 #include "src/ic/ic-state.h"
 #include "src/interface-descriptors.h"
 #include "src/isolate.h"
@@ -42,7 +42,7 @@ void PostBuildProfileAndTracing(Isolate* isolate, Code* code,
 }
 
 typedef void (*MacroAssemblerGenerator)(MacroAssembler*);
-typedef void (*CodeAssemblerGenerator)(CodeStubAssembler*);
+typedef void (*CodeAssemblerGenerator)(compiler::CodeAssemblerState*);
 
 Code* BuildWithMacroAssembler(Isolate* isolate,
                               MacroAssemblerGenerator generator,
@@ -83,10 +83,13 @@ Code* BuildWithCodeStubAssemblerJS(Isolate* isolate,
                                    CodeAssemblerGenerator generator, int argc,
                                    Code::Flags flags, const char* name) {
   HandleScope scope(isolate);
-  Zone zone(isolate->allocator());
-  CodeStubAssembler assembler(isolate, &zone, argc, flags, name);
-  generator(&assembler);
-  Handle<Code> code = assembler.GenerateCode();
+  Zone zone(isolate->allocator(), ZONE_NAME);
+  const int argc_with_recv =
+      (argc == SharedFunctionInfo::kDontAdaptArgumentsSentinel) ? 0 : argc + 1;
+  compiler::CodeAssemblerState state(isolate, &zone, argc_with_recv, flags,
+                                     name);
+  generator(&state);
+  Handle<Code> code = compiler::CodeAssembler::GenerateCode(&state);
   PostBuildProfileAndTracing(isolate, *code, name);
   return *code;
 }
@@ -97,15 +100,15 @@ Code* BuildWithCodeStubAssemblerCS(Isolate* isolate,
                                    CallDescriptors::Key interface_descriptor,
                                    Code::Flags flags, const char* name) {
   HandleScope scope(isolate);
-  Zone zone(isolate->allocator());
+  Zone zone(isolate->allocator(), ZONE_NAME);
   // The interface descriptor with given key must be initialized at this point
   // and this construction just queries the details from the descriptors table.
   CallInterfaceDescriptor descriptor(isolate, interface_descriptor);
   // Ensure descriptor is already initialized.
   DCHECK_LE(0, descriptor.GetRegisterParameterCount());
-  CodeStubAssembler assembler(isolate, &zone, descriptor, flags, name);
-  generator(&assembler);
-  Handle<Code> code = assembler.GenerateCode();
+  compiler::CodeAssemblerState state(isolate, &zone, descriptor, flags, name);
+  generator(&state);
+  Handle<Code> code = compiler::CodeAssembler::GenerateCode(&state);
   PostBuildProfileAndTracing(isolate, *code, name);
   return *code;
 }

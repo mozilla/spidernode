@@ -8,6 +8,7 @@
 #include "include/v8.h"
 #include "src/globals.h"
 #include "src/handles.h"
+#include "src/objects/scope-info.h"
 
 namespace v8 {
 
@@ -26,12 +27,10 @@ class Utf16CharacterStream;
 class Zone;
 
 // A container for the inputs, configuration options, and outputs of parsing.
-class ParseInfo {
+class V8_EXPORT_PRIVATE ParseInfo {
  public:
   explicit ParseInfo(Zone* zone);
-  ParseInfo(Zone* zone, Handle<JSFunction> function);
   ParseInfo(Zone* zone, Handle<Script> script);
-  // TODO(all) Only used via Debug::FindSharedFunctionInfoInScript, remove?
   ParseInfo(Zone* zone, Handle<SharedFunctionInfo> shared);
 
   ~ParseInfo();
@@ -45,9 +44,7 @@ class ParseInfo {
   void setter(bool val) { SetFlag(flag, val); }
 
   FLAG_ACCESSOR(kToplevel, is_toplevel, set_toplevel)
-  FLAG_ACCESSOR(kLazy, is_lazy, set_lazy)
   FLAG_ACCESSOR(kEval, is_eval, set_eval)
-  FLAG_ACCESSOR(kGlobal, is_global, set_global)
   FLAG_ACCESSOR(kStrictMode, is_strict_mode, set_strict_mode)
   FLAG_ACCESSOR(kNative, is_native, set_native)
   FLAG_ACCESSOR(kModule, is_module, set_module)
@@ -57,6 +54,8 @@ class ParseInfo {
   FLAG_ACCESSOR(kIsNamedExpression, is_named_expression,
                 set_is_named_expression)
   FLAG_ACCESSOR(kCallsEval, calls_eval, set_calls_eval)
+  FLAG_ACCESSOR(kDebug, is_debug, set_is_debug)
+  FLAG_ACCESSOR(kSerializing, will_serialize, set_will_serialize)
 
 #undef FLAG_ACCESSOR
 
@@ -107,6 +106,11 @@ class ParseInfo {
     script_scope_ = script_scope;
   }
 
+  DeclarationScope* asm_function_scope() const { return asm_function_scope_; }
+  void set_asm_function_scope(DeclarationScope* scope) {
+    asm_function_scope_ = scope;
+  }
+
   AstValueFactory* ast_value_factory() const { return ast_value_factory_; }
   void set_ast_value_factory(AstValueFactory* ast_value_factory) {
     ast_value_factory_ = ast_value_factory;
@@ -146,10 +150,18 @@ class ParseInfo {
   int end_position() const { return end_position_; }
   void set_end_position(int end_position) { end_position_ = end_position; }
 
+  int function_literal_id() const { return function_literal_id_; }
+  void set_function_literal_id(int function_literal_id) {
+    function_literal_id_ = function_literal_id;
+  }
+
+  int max_function_literal_id() const { return max_function_literal_id_; }
+  void set_max_function_literal_id(int max_function_literal_id) {
+    max_function_literal_id_ = max_function_literal_id;
+  }
+
   // Getters for individual compiler hints.
   bool is_declaration() const;
-  bool requires_class_field_init() const;
-  bool is_class_field_initializer() const;
   FunctionKind function_kind() const;
 
   //--------------------------------------------------------------------------
@@ -198,16 +210,17 @@ class ParseInfo {
     kToplevel = 1 << 0,
     kLazy = 1 << 1,
     kEval = 1 << 2,
-    kGlobal = 1 << 3,
-    kStrictMode = 1 << 4,
-    kNative = 1 << 5,
-    kParseRestriction = 1 << 6,
-    kModule = 1 << 7,
-    kAllowLazyParsing = 1 << 8,
-    kIsNamedExpression = 1 << 9,
-    kCallsEval = 1 << 10,
+    kStrictMode = 1 << 3,
+    kNative = 1 << 4,
+    kParseRestriction = 1 << 5,
+    kModule = 1 << 6,
+    kAllowLazyParsing = 1 << 7,
+    kIsNamedExpression = 1 << 8,
+    kCallsEval = 1 << 9,
+    kDebug = 1 << 10,
+    kSerializing = 1 << 11,
     // ---------- Output flags --------------------------
-    kAstValueFactoryOwned = 1 << 11
+    kAstValueFactoryOwned = 1 << 12
   };
 
   //------------- Inputs to parsing and scope analysis -----------------------
@@ -219,12 +232,15 @@ class ParseInfo {
   v8::Extension* extension_;
   ScriptCompiler::CompileOptions compile_options_;
   DeclarationScope* script_scope_;
+  DeclarationScope* asm_function_scope_;
   UnicodeCache* unicode_cache_;
   uintptr_t stack_limit_;
   uint32_t hash_seed_;
   int compiler_hints_;
   int start_position_;
   int end_position_;
+  int function_literal_id_;
+  int max_function_literal_id_;
 
   // TODO(titzer): Move handles and isolate out of ParseInfo.
   Isolate* isolate_;

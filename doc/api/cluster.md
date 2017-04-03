@@ -148,8 +148,8 @@ In a worker you can also use `process.on('error')`.
 added: v0.11.2
 -->
 
-* `code` {Number} the exit code, if it exited normally.
-* `signal` {String} the name of the signal (e.g. `'SIGHUP'`) that caused
+* `code` {number} the exit code, if it exited normally.
+* `signal` {string} the name of the signal (e.g. `'SIGHUP'`) that caused
   the process to be killed.
 
 Similar to the `cluster.on('exit')` event, but specific to this worker.
@@ -260,6 +260,10 @@ It is not emitted in the worker.
 ### worker.disconnect()
 <!-- YAML
 added: v0.7.7
+changes:
+  - version: v7.3.0
+    pr-url: https://github.com/nodejs/node/pull/10019
+    description: This method now returns a reference to `worker`.
 -->
 
 * Returns: {Worker} A reference to `worker`.
@@ -328,7 +332,7 @@ if (cluster.isMaster) {
 added: v6.0.0
 -->
 
-* {Boolean}
+* {boolean}
 
 Set by calling `.kill()` or `.disconnect()`. Until then, it is `undefined`.
 
@@ -352,7 +356,7 @@ worker.kill();
 added: v0.8.0
 -->
 
-* {Number}
+* {number}
 
 Each new worker is given its own unique id, this id is stored in the
 `id`.
@@ -382,7 +386,7 @@ because of exiting or being signaled). Otherwise, it returns `false`.
 added: v0.9.12
 -->
 
-* `signal` {String} Name of the kill signal to send to the worker
+* `signal` {string} Name of the kill signal to send to the worker
   process.
 
 This function will kill the worker. In the master, it does this by disconnecting
@@ -416,6 +420,10 @@ accidental disconnection.
 ### worker.send(message[, sendHandle][, callback])
 <!-- YAML
 added: v0.7.0
+changes:
+  - version: v4.0.0
+    pr-url: https://github.com/nodejs/node/pull/2620
+    description: The `callback` parameter is supported now.
 -->
 
 * `message` {Object}
@@ -449,6 +457,10 @@ if (cluster.isMaster) {
 <!-- YAML
 added: v0.7.0
 deprecated: v6.0.0
+changes:
+  - version: v7.0.0
+    pr-url: https://github.com/nodejs/node/pull/3747
+    description: Accessing this property will now emit a deprecation warning.
 -->
 
 > Stability: 0 - Deprecated: Use [`worker.exitedAfterDisconnect`][] instead.
@@ -502,8 +514,8 @@ added: v0.7.9
 -->
 
 * `worker` {cluster.Worker}
-* `code` {Number} the exit code, if it exited normally.
-* `signal` {String} the name of the signal (e.g. `'SIGHUP'`) that caused
+* `code` {number} the exit code, if it exited normally.
+* `signal` {string} the name of the signal (e.g. `'SIGHUP'`) that caused
   the process to be killed.
 
 When any of the workers die the cluster module will emit the `'exit'` event.
@@ -579,6 +591,13 @@ The `addressType` is one of:
 * `"udp4"` or `"udp6"` (UDP v4 or v6)
 
 ## Event: 'message'
+<!-- YAML
+added: v2.5.0
+changes:
+  - version: v6.0.0
+    pr-url: https://github.com/nodejs/node/pull/5361
+    description: The `worker` parameter is passed now; see below for details.
+-->
 
 * `worker` {cluster.Worker}
 * `message` {Object}
@@ -672,7 +691,7 @@ This can only be called from the master process.
 added: v0.8.1
 -->
 
-* {Boolean}
+* {boolean}
 
 True if the process is a master. This is determined
 by the `process.env.NODE_UNIQUE_ID`. If `process.env.NODE_UNIQUE_ID` is
@@ -683,7 +702,7 @@ undefined, then `isMaster` is `true`.
 added: v0.6.0
 -->
 
-* {Boolean}
+* {boolean}
 
 True if the process is not a master (it is the negation of `cluster.isMaster`).
 
@@ -708,21 +727,25 @@ values are `"rr"` and `"none"`.
 ## cluster.settings
 <!-- YAML
 added: v0.7.1
+changes:
+  - version: v6.4.0
+    pr-url: https://github.com/nodejs/node/pull/7838
+    description: The `stdio` option is supported now.
 -->
 
 * {Object}
   * `execArgv` {Array} list of string arguments passed to the Node.js
     executable. (Default=`process.execArgv`)
-  * `exec` {String} file path to worker file.  (Default=`process.argv[1]`)
+  * `exec` {string} file path to worker file.  (Default=`process.argv[1]`)
   * `args` {Array} string arguments passed to worker.
     (Default=`process.argv.slice(2)`)
-  * `silent` {Boolean} whether or not to send output to parent's stdio.
+  * `silent` {boolean} whether or not to send output to parent's stdio.
     (Default=`false`)
   * `stdio` {Array} Configures the stdio of forked processes. Because the
     cluster module relies on IPC to function, this configuration must contain an
     `'ipc'` entry. When this option is provided, it overrides `silent`.
-  * `uid` {Number} Sets the user identity of the process. (See setuid(2).)
-  * `gid` {Number} Sets the group identity of the process. (See setgid(2).)
+  * `uid` {number} Sets the user identity of the process. (See setuid(2).)
+  * `gid` {number} Sets the group identity of the process. (See setgid(2).)
 
 After calling `.setupMaster()` (or `.fork()`) this settings object will contain
 the settings, including the default values.
@@ -732,13 +755,17 @@ This object is not supposed to be changed or set manually, by you.
 ## cluster.setupMaster([settings])
 <!-- YAML
 added: v0.7.1
+changes:
+  - version: v6.4.0
+    pr-url: https://github.com/nodejs/node/pull/7838
+    description: The `stdio` option is supported now.
 -->
 
 * `settings` {Object}
-  * `exec` {String} file path to worker file.  (Default=`process.argv[1]`)
+  * `exec` {string} file path to worker file.  (Default=`process.argv[1]`)
   * `args` {Array} string arguments passed to worker.
     (Default=`process.argv.slice(2)`)
-  * `silent` {Boolean} whether or not to send output to parent's stdio.
+  * `silent` {boolean} whether or not to send output to parent's stdio.
     (Default=`false`)
   * `stdio` {Array} Configures the stdio of forked processes. When this option
     is provided, it overrides `silent`.

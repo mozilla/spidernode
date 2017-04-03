@@ -51,7 +51,7 @@
       'target_name': 'parser_fuzzer_lib',
       'type': 'static_library',
       'dependencies': [
-        'fuzzer_support_nocomponent',
+        'fuzzer_support',
       ],
       'include_dirs': [
         '../..',
@@ -138,6 +138,35 @@
       ],
       'sources': [  ### gcmole(all) ###
         'wasm-asmjs.cc',
+        '../common/wasm/wasm-module-runner.cc',
+        '../common/wasm/wasm-module-runner.h',
+      ],
+    },
+    {
+      'target_name': 'v8_simple_wasm_call_fuzzer',
+      'type': 'executable',
+      'dependencies': [
+        'wasm_call_fuzzer_lib',
+      ],
+      'include_dirs': [
+        '../..',
+      ],
+      'sources': [
+        'fuzzer.cc',
+      ],
+    },
+    {
+      'target_name': 'wasm_call_fuzzer_lib',
+      'type': 'static_library',
+      'dependencies': [
+        'fuzzer_support',
+      ],
+      'include_dirs': [
+        '../..',
+      ],
+      'sources': [  ### gcmole(all) ###
+        'wasm-call.cc',
+        '../common/wasm/test-signatures.h',
         '../common/wasm/wasm-module-runner.cc',
         '../common/wasm/wasm-module-runner.h',
       ],
@@ -386,20 +415,7 @@
       'type': 'static_library',
       'dependencies': [
         '../../src/v8.gyp:v8',
-        '../../src/v8.gyp:v8_libplatform',
-      ],
-      'include_dirs': [
-        '../..',
-      ],
-      'sources': [  ### gcmole(all) ###
-        'fuzzer-support.cc',
-        'fuzzer-support.h',
-      ],
-    },
-    {
-      'target_name': 'fuzzer_support_nocomponent',
-      'type': 'static_library',
-      'dependencies': [
+        '../../src/v8.gyp:v8_libbase',
         '../../src/v8.gyp:v8_libplatform',
       ],
       'include_dirs': [
@@ -410,12 +426,11 @@
         'fuzzer-support.h',
       ],
       'conditions': [
-        ['component=="shared_library"', {
-          # fuzzers can't be built against a shared library, so we need to
-          # depend on the underlying static target in that case.
-          'dependencies': ['../../src/v8.gyp:v8_maybe_snapshot'],
-        }, {
-          'dependencies': ['../../src/v8.gyp:v8'],
+        ['v8_enable_i18n_support==1', {
+          'dependencies': [
+            '<(icu_gyp_path):icui18n',
+            '<(icu_gyp_path):icuuc',
+          ],
         }],
       ],
     },

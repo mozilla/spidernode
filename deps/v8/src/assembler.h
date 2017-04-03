@@ -38,6 +38,7 @@
 #include "src/allocation.h"
 #include "src/builtins/builtins.h"
 #include "src/deoptimize-reason.h"
+#include "src/globals.h"
 #include "src/isolate.h"
 #include "src/log.h"
 #include "src/register-configuration.h"
@@ -51,6 +52,7 @@ class ApiFunction;
 namespace internal {
 
 // Forward declarations.
+class SourcePosition;
 class StatsCounter;
 
 // -----------------------------------------------------------------------------
@@ -393,6 +395,7 @@ class RelocInfo {
     WASM_MEMORY_REFERENCE,
     WASM_GLOBAL_REFERENCE,
     WASM_MEMORY_SIZE_REFERENCE,
+    WASM_FUNCTION_TABLE_SIZE_REFERENCE,
     CELL,
 
     // Everything after runtime_entry (inclusive) is not GC'ed.
@@ -411,17 +414,15 @@ class RelocInfo {
     // Encoded internal reference, used only on MIPS, MIPS64 and PPC.
     INTERNAL_REFERENCE_ENCODED,
 
-    // Continuation points for a generator yield.
-    GENERATOR_CONTINUATION,
-
     // Marks constant and veneer pools. Only used on ARM and ARM64.
     // They use a custom noncompact encoding.
     CONST_POOL,
     VENEER_POOL,
 
-    DEOPT_POSITION,  // Deoptimization source position.
-    DEOPT_REASON,    // Deoptimization reason index.
-    DEOPT_ID,        // Deoptimization inlining id.
+    DEOPT_SCRIPT_OFFSET,
+    DEOPT_INLINING_ID,  // Deoptimization source position.
+    DEOPT_REASON,       // Deoptimization reason index.
+    DEOPT_ID,           // Deoptimization inlining id.
 
     // This is not an actual reloc mode, but used to encode a long pc jump that
     // cannot be encoded as part of another record.
@@ -437,7 +438,7 @@ class RelocInfo {
     FIRST_REAL_RELOC_MODE = CODE_TARGET,
     LAST_REAL_RELOC_MODE = VENEER_POOL,
     LAST_CODE_ENUM = DEBUGGER_STATEMENT,
-    LAST_GCED_ENUM = WASM_MEMORY_SIZE_REFERENCE,
+    LAST_GCED_ENUM = WASM_FUNCTION_TABLE_SIZE_REFERENCE,
     FIRST_SHAREABLE_RELOC_MODE = CELL,
   };
 
@@ -479,7 +480,7 @@ class RelocInfo {
     return mode == VENEER_POOL;
   }
   static inline bool IsDeoptPosition(Mode mode) {
-    return mode == DEOPT_POSITION;
+    return mode == DEOPT_SCRIPT_OFFSET || mode == DEOPT_INLINING_ID;
   }
   static inline bool IsDeoptReason(Mode mode) {
     return mode == DEOPT_REASON;
@@ -521,9 +522,6 @@ class RelocInfo {
   static inline bool IsCodeAgeSequence(Mode mode) {
     return mode == CODE_AGE_SEQUENCE;
   }
-  static inline bool IsGeneratorContinuation(Mode mode) {
-    return mode == GENERATOR_CONTINUATION;
-  }
   static inline bool IsWasmMemoryReference(Mode mode) {
     return mode == WASM_MEMORY_REFERENCE;
   }
@@ -533,6 +531,22 @@ class RelocInfo {
   static inline bool IsWasmGlobalReference(Mode mode) {
     return mode == WASM_GLOBAL_REFERENCE;
   }
+  static inline bool IsWasmFunctionTableSizeReference(Mode mode) {
+    return mode == WASM_FUNCTION_TABLE_SIZE_REFERENCE;
+  }
+  static inline bool IsWasmReference(Mode mode) {
+    return mode == WASM_MEMORY_REFERENCE || mode == WASM_GLOBAL_REFERENCE ||
+           mode == WASM_MEMORY_SIZE_REFERENCE ||
+           mode == WASM_FUNCTION_TABLE_SIZE_REFERENCE;
+  }
+  static inline bool IsWasmSizeReference(Mode mode) {
+    return mode == WASM_MEMORY_SIZE_REFERENCE ||
+           mode == WASM_FUNCTION_TABLE_SIZE_REFERENCE;
+  }
+  static inline bool IsWasmPtrReference(Mode mode) {
+    return mode == WASM_MEMORY_REFERENCE || mode == WASM_GLOBAL_REFERENCE;
+  }
+
   static inline int ModeMask(Mode mode) { return 1 << mode; }
 
   // Accessors
@@ -561,12 +575,16 @@ class RelocInfo {
 
   Address wasm_memory_reference();
   Address wasm_global_reference();
+  uint32_t wasm_function_table_size_reference();
   uint32_t wasm_memory_size_reference();
   void update_wasm_memory_reference(
       Address old_base, Address new_base, uint32_t old_size, uint32_t new_size,
       ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
   void update_wasm_global_reference(
       Address old_base, Address new_base,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
+  void update_wasm_function_table_size_reference(
+      uint32_t old_base, uint32_t new_base,
       ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
   void set_target_address(
       Address target,
@@ -676,8 +694,7 @@ class RelocInfo {
  private:
   void unchecked_update_wasm_memory_reference(Address address,
                                               ICacheFlushMode flush_mode);
-  void unchecked_update_wasm_memory_size(uint32_t size,
-                                         ICacheFlushMode flush_mode);
+  void unchecked_update_wasm_size(uint32_t size, ICacheFlushMode flush_mode);
 
   Isolate* isolate_;
   // On ARM, note that pc_ is the address of the constant pool entry
@@ -946,13 +963,13 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference f64_asin_wrapper_function(Isolate* isolate);
   static ExternalReference f64_mod_wrapper_function(Isolate* isolate);
 
+  // Trap callback function for cctest/wasm/wasm-run-utils.h
+  static ExternalReference wasm_call_trap_callback_for_testing(
+      Isolate* isolate);
+
   // Log support.
   static ExternalReference log_enter_external_function(Isolate* isolate);
   static ExternalReference log_leave_external_function(Isolate* isolate);
-
-  // Static data in the keyed lookup cache.
-  static ExternalReference keyed_lookup_cache_keys(Isolate* isolate);
-  static ExternalReference keyed_lookup_cache_field_offsets(Isolate* isolate);
 
   // Static variable Heap::roots_array_start()
   static ExternalReference roots_array_start(Isolate* isolate);
@@ -961,7 +978,8 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference allocation_sites_list_address(Isolate* isolate);
 
   // Static variable StackGuard::address_of_jslimit()
-  static ExternalReference address_of_stack_limit(Isolate* isolate);
+  V8_EXPORT_PRIVATE static ExternalReference address_of_stack_limit(
+      Isolate* isolate);
 
   // Static variable StackGuard::address_of_real_jslimit()
   static ExternalReference address_of_real_stack_limit(Isolate* isolate);
@@ -1031,6 +1049,8 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference ieee754_tan_function(Isolate* isolate);
   static ExternalReference ieee754_tanh_function(Isolate* isolate);
 
+  static ExternalReference libc_memchr_function(Isolate* isolate);
+
   static ExternalReference page_flags(Page* page);
 
   static ExternalReference ForDeoptEntry(Address entry);
@@ -1041,13 +1061,18 @@ class ExternalReference BASE_EMBEDDED {
       Isolate* isolate);
 
   static ExternalReference debug_is_active_address(Isolate* isolate);
+  static ExternalReference debug_hook_on_function_call_address(
+      Isolate* isolate);
   static ExternalReference debug_after_break_target_address(Isolate* isolate);
 
   static ExternalReference is_profiling_address(Isolate* isolate);
   static ExternalReference invoke_function_callback(Isolate* isolate);
   static ExternalReference invoke_accessor_getter_callback(Isolate* isolate);
 
-  static ExternalReference runtime_function_table_address(Isolate* isolate);
+  static ExternalReference promise_hook_address(Isolate* isolate);
+
+  V8_EXPORT_PRIVATE static ExternalReference runtime_function_table_address(
+      Isolate* isolate);
 
   Address address() const { return reinterpret_cast<Address>(address_); }
 
@@ -1107,15 +1132,16 @@ class ExternalReference BASE_EMBEDDED {
   void* address_;
 };
 
-bool operator==(ExternalReference, ExternalReference);
+V8_EXPORT_PRIVATE bool operator==(ExternalReference, ExternalReference);
 bool operator!=(ExternalReference, ExternalReference);
 
 size_t hash_value(ExternalReference);
 
-std::ostream& operator<<(std::ostream&, ExternalReference);
+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, ExternalReference);
 
 // -----------------------------------------------------------------------------
 // Utility functions
+void* libc_memchr(void* string, int character, size_t search_length);
 
 inline int NumberOfBitsSet(uint32_t x) {
   unsigned int num_bits_set;
@@ -1143,7 +1169,7 @@ class CallWrapper {
   // Called just after emitting a call, i.e., at the return site for the call.
   virtual void AfterCall() const = 0;
   // Return whether call needs to check for debug stepping.
-  virtual bool NeedsDebugStepCheck() const { return false; }
+  virtual bool NeedsDebugHookCheck() const { return false; }
 };
 
 
@@ -1162,7 +1188,7 @@ class CheckDebugStepCallWrapper : public CallWrapper {
   virtual ~CheckDebugStepCallWrapper() {}
   virtual void BeforeCall(int call_size) const {}
   virtual void AfterCall() const {}
-  virtual bool NeedsDebugStepCheck() const { return true; }
+  virtual bool NeedsDebugHookCheck() const { return true; }
 };
 
 

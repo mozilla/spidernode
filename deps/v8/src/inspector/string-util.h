@@ -5,6 +5,9 @@
 #ifndef V8_INSPECTOR_STRINGUTIL_H_
 #define V8_INSPECTOR_STRINGUTIL_H_
 
+#include <memory>
+
+#include "src/base/logging.h"
 #include "src/base/macros.h"
 #include "src/inspector/string-16.h"
 
@@ -33,17 +36,11 @@ class StringUtil {
   static void builderReserve(StringBuilder& builder, size_t capacity) {
     builder.reserveCapacity(capacity);
   }
+  static std::unique_ptr<protocol::Value> parseJSON(const String16& json);
+  static std::unique_ptr<protocol::Value> parseJSON(const StringView& json);
 };
 
-std::unique_ptr<protocol::Value> parseJSON(const StringView& json);
-std::unique_ptr<protocol::Value> parseJSON(const String16& json);
-
 }  // namespace protocol
-
-std::unique_ptr<protocol::Value> toProtocolValue(protocol::String* errorString,
-                                                 v8::Local<v8::Context>,
-                                                 v8::Local<v8::Value>,
-                                                 int maxDepth = 1000);
 
 v8::Local<v8::String> toV8String(v8::Isolate*, const String16&);
 v8::Local<v8::String> toV8StringInternalized(v8::Isolate*, const String16&);

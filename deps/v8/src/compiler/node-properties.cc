@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compiler/node-properties.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/linkage.h"
-#include "src/compiler/node-properties.h"
 #include "src/compiler/operator-properties.h"
 #include "src/compiler/verifier.h"
 #include "src/handles-inl.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -338,72 +339,15 @@ MaybeHandle<Context> NodeProperties::GetSpecializationContext(
 
 
 // static
-MaybeHandle<Context> NodeProperties::GetSpecializationNativeContext(
-    Node* node, MaybeHandle<Context> native_context) {
-  while (true) {
-    switch (node->opcode()) {
-      case IrOpcode::kJSLoadContext: {
-        ContextAccess const& access = ContextAccessOf(node->op());
-        if (access.index() != Context::NATIVE_CONTEXT_INDEX) {
-          return MaybeHandle<Context>();
-        }
-        // Skip over the intermediate contexts, we're only interested in the
-        // very last context in the context chain anyway.
-        node = NodeProperties::GetContextInput(node);
-        break;
-      }
-      case IrOpcode::kJSCreateBlockContext:
-      case IrOpcode::kJSCreateCatchContext:
-      case IrOpcode::kJSCreateFunctionContext:
-      case IrOpcode::kJSCreateScriptContext:
-      case IrOpcode::kJSCreateWithContext: {
-        // Skip over the intermediate contexts, we're only interested in the
-        // very last context in the context chain anyway.
-        node = NodeProperties::GetContextInput(node);
-        break;
-      }
-      case IrOpcode::kHeapConstant: {
-        // Extract the native context from the actual {context}.
-        Handle<Context> context =
-            Handle<Context>::cast(OpParameter<Handle<HeapObject>>(node));
-        return handle(context->native_context());
-      }
-      case IrOpcode::kOsrValue: {
-        int const index = OpParameter<int>(node);
-        if (index == Linkage::kOsrContextSpillSlotIndex) {
-          return native_context;
-        }
-        return MaybeHandle<Context>();
-      }
-      case IrOpcode::kParameter: {
-        Node* const start = NodeProperties::GetValueInput(node, 0);
-        DCHECK_EQ(IrOpcode::kStart, start->opcode());
-        int const index = ParameterIndexOf(node->op());
-        // The context is always the last parameter to a JavaScript function,
-        // and {Parameter} indices start at -1, so value outputs of {Start}
-        // look like this: closure, receiver, param0, ..., paramN, context.
-        if (index == start->op()->ValueOutputCount() - 2) {
-          return native_context;
-        }
-        return MaybeHandle<Context>();
-      }
-      default:
-        return MaybeHandle<Context>();
-    }
+Node* NodeProperties::GetOuterContext(Node* node, size_t* depth) {
+  Node* context = NodeProperties::GetContextInput(node);
+  while (*depth > 0 &&
+         IrOpcode::IsContextChainExtendingOpcode(context->opcode())) {
+    context = NodeProperties::GetContextInput(context);
+    (*depth)--;
   }
+  return context;
 }
-
-
-// static
-MaybeHandle<JSGlobalObject> NodeProperties::GetSpecializationGlobalObject(
-    Node* node, MaybeHandle<Context> native_context) {
-  Handle<Context> context;
-  if (GetSpecializationNativeContext(node, native_context).ToHandle(&context)) {
-    return handle(context->global_object());
-  }
-  return MaybeHandle<JSGlobalObject>();
-}
-
 
 // static
 Type* NodeProperties::GetTypeOrAny(Node* node) {

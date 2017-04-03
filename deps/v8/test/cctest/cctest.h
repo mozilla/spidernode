@@ -189,11 +189,17 @@ class ApiTestFuzzer: public v8::base::Thread {
   // The ApiTestFuzzer is also a Thread, so it has a Run method.
   virtual void Run();
 
-  enum PartOfTest { FIRST_PART,
-                    SECOND_PART,
-                    THIRD_PART,
-                    FOURTH_PART,
-                    LAST_PART = FOURTH_PART };
+  enum PartOfTest {
+    FIRST_PART,
+    SECOND_PART,
+    THIRD_PART,
+    FOURTH_PART,
+    FIFTH_PART,
+    SIXTH_PART,
+    SEVENTH_PART,
+    EIGHTH_PART,
+    LAST_PART = EIGHTH_PART
+  };
 
   static void SetUp(PartOfTest part);
   static void RunAllTests();
@@ -577,7 +583,6 @@ class InitializedHandleScope {
   std::unique_ptr<InitializedHandleScopeImpl> initialized_handle_scope_impl_;
 };
 
-
 class HandleAndZoneScope : public InitializedHandleScope {
  public:
   HandleAndZoneScope();
@@ -589,6 +594,20 @@ class HandleAndZoneScope : public InitializedHandleScope {
  private:
   v8::internal::AccountingAllocator allocator_;
   std::unique_ptr<i::Zone> main_zone_;
+};
+
+class StaticOneByteResource : public v8::String::ExternalOneByteStringResource {
+ public:
+  explicit StaticOneByteResource(const char* data) : data_(data) {}
+
+  ~StaticOneByteResource() {}
+
+  const char* data() const { return data_; }
+
+  size_t length() const { return strlen(data_); }
+
+ private:
+  const char* data_;
 };
 
 #endif  // ifndef CCTEST_H_

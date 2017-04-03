@@ -40,8 +40,9 @@ class Int64LoweringTest : public GraphTest {
   MachineOperatorBuilder* machine() { return &machine_; }
 
   void LowerGraph(Node* node, Signature<MachineRepresentation>* signature) {
-    Node* ret = graph()->NewNode(common()->Return(), node, graph()->start(),
-                                 graph()->start());
+    Node* zero = graph()->NewNode(common()->Int32Constant(0));
+    Node* ret = graph()->NewNode(common()->Return(), zero, node,
+                                 graph()->start(), graph()->start());
     NodeProperties::MergeControlToEnd(graph(), common(), ret);
 
     Int64Lowering lowering(graph(), machine(), common(), zone(), signature);
@@ -216,7 +217,8 @@ TEST_F(Int64LoweringTest, UnalignedInt64Load) {
                                  Int32Constant(base), Int32Constant(index),  \
                                  Int64Constant(value(0)), start(), start()); \
                                                                              \
-  Node* ret = graph()->NewNode(common()->Return(),                           \
+  Node* zero = graph()->NewNode(common()->Int32Constant(0));                 \
+  Node* ret = graph()->NewNode(common()->Return(), zero,                     \
                                Int32Constant(return_value), store, start()); \
                                                                              \
   NodeProperties::MergeControlToEnd(graph(), common(), ret);                 \
@@ -313,7 +315,7 @@ TEST_F(Int64LoweringTest, CallI64Return) {
 
   CompareCallDescriptors(
       OpParameter<const CallDescriptor*>(
-          graph()->end()->InputAt(1)->InputAt(0)->InputAt(0)),
+          graph()->end()->InputAt(1)->InputAt(1)->InputAt(0)),
       wasm::ModuleEnv::GetI32WasmCallDescriptor(zone(), desc));
 }
 
@@ -347,7 +349,7 @@ TEST_F(Int64LoweringTest, CallI64Parameter) {
 
   CompareCallDescriptors(
       OpParameter<const CallDescriptor*>(
-          graph()->end()->InputAt(1)->InputAt(0)),
+          graph()->end()->InputAt(1)->InputAt(1)),
       wasm::ModuleEnv::GetI32WasmCallDescriptor(zone(), desc));
 }
 
@@ -568,8 +570,7 @@ TEST_F(Int64LoweringTest, F64ReinterpretI64) {
              MachineRepresentation::kFloat64);
 
   Capture<Node*> stack_slot_capture;
-  Matcher<Node*> stack_slot_matcher =
-      IsStackSlot(MachineRepresentation::kWord64);
+  Matcher<Node*> stack_slot_matcher = IsStackSlot(sizeof(int64_t));
 
   Capture<Node*> store_capture;
   Matcher<Node*> store_matcher =
@@ -600,8 +601,7 @@ TEST_F(Int64LoweringTest, I64ReinterpretF64) {
              MachineRepresentation::kWord64);
 
   Capture<Node*> stack_slot;
-  Matcher<Node*> stack_slot_matcher =
-      IsStackSlot(MachineRepresentation::kWord64);
+  Matcher<Node*> stack_slot_matcher = IsStackSlot(sizeof(int64_t));
 
   Capture<Node*> store;
   Matcher<Node*> store_matcher = IsStore(
@@ -848,6 +848,49 @@ TEST_F(Int64LoweringTest, I64ReverseBytes) {
       IsReturn2(IsWord32ReverseBytes(IsInt32Constant(high_word_value(0))),
                 IsWord32ReverseBytes(IsInt32Constant(low_word_value(0))),
                 start(), start()));
+}
+
+TEST_F(Int64LoweringTest, EffectPhiLoop) {
+  // Construct a cycle consisting of an EffectPhi, a Store, and a Load.
+  Node* eff_phi = graph()->NewNode(common()->EffectPhi(1), graph()->start(),
+                                   graph()->start());
+
+  StoreRepresentation store_rep(MachineRepresentation::kWord64,
+                                WriteBarrierKind::kNoWriteBarrier);
+  LoadRepresentation load_rep(MachineType::Int64());
+
+  Node* load =
+      graph()->NewNode(machine()->Load(load_rep), Int64Constant(value(0)),
+                       Int64Constant(value(1)), eff_phi, graph()->start());
+
+  Node* store =
+      graph()->NewNode(machine()->Store(store_rep), Int64Constant(value(0)),
+                       Int64Constant(value(1)), load, load, graph()->start());
+
+  eff_phi->InsertInput(zone(), 1, store);
+  NodeProperties::ChangeOp(eff_phi,
+                           common()->ResizeMergeOrPhi(eff_phi->op(), 2));
+
+  LowerGraph(load, MachineRepresentation::kWord64);
+}
+
+TEST_F(Int64LoweringTest, LoopCycle) {
+  // New node with two placeholders.
+  Node* compare = graph()->NewNode(machine()->Word64Equal(), Int64Constant(0),
+                                   Int64Constant(value(0)));
+
+  Node* load = graph()->NewNode(
+      machine()->Load(MachineType::Int64()), Int64Constant(value(1)),
+      Int64Constant(value(2)), graph()->start(),
+      graph()->NewNode(
+          common()->Loop(2), graph()->start(),
+          graph()->NewNode(common()->IfFalse(),
+                           graph()->NewNode(common()->Branch(), compare,
+                                            graph()->start()))));
+
+  NodeProperties::ReplaceValueInput(compare, load, 0);
+
+  LowerGraph(load, MachineRepresentation::kWord64);
 }
 }  // namespace compiler
 }  // namespace internal

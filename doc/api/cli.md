@@ -43,6 +43,10 @@ The output of this option is less detailed than this document.
 ### `-e`, `--eval "script"`
 <!-- YAML
 added: v0.5.2
+changes:
+  - version: v5.11.0
+    pr-url: https://github.com/nodejs/node/pull/5348
+    description: Built-in libraries are now available as predefined variables.
 -->
 
 Evaluate the following argument as JavaScript. The modules which are
@@ -52,6 +56,10 @@ predefined in the REPL can also be used in `script`.
 ### `-p`, `--print "script"`
 <!-- YAML
 added: v0.6.4
+changes:
+  - version: v5.11.0
+    pr-url: https://github.com/nodejs/node/pull/5348
+    description: Built-in libraries are now available as predefined variables.
 -->
 
 Identical to `-e` but prints the result.
@@ -59,7 +67,9 @@ Identical to `-e` but prints the result.
 
 ### `-c`, `--check`
 <!-- YAML
-added: v5.0.0
+added:
+  - v5.0.0
+  - v4.2.0
 -->
 
 Syntax check the script without executing.
@@ -82,6 +92,26 @@ Preload the specified module at startup.
 
 Follows `require()`'s module resolution
 rules. `module` may be either a path to a file, or a node module name.
+
+
+### `--inspect[=host:port]`
+<!-- YAML
+added: v6.3.0
+-->
+
+Activate inspector on host:port. Default is 127.0.0.1:9229.
+
+V8 inspector integration allows tools such as Chrome DevTools and IDEs to debug
+and profile Node.js instances. The tools attach to Node.js instances via a
+tcp port and communicate using the [Chrome Debugging Protocol][].
+
+
+### `--inspect-brk[=host:port]`
+<!-- YAML
+added: v7.6.0
+-->
+
+Activate inspector on host:port and break at start of user script.
 
 
 ### `--no-deprecation`
@@ -141,14 +171,14 @@ of the event loop.
 
 ### `--trace-events-enabled`
 <!-- YAML
-added: REPLACEME
+added: v7.7.0
 -->
 
 Enables the collection of trace event tracing information.
 
 ### `--trace-event-categories`
 <!-- YAML
-added: REPLACEME
+added: v7.7.0
 -->
 
 A comma separated list of categories that should be traced when trace event
@@ -382,14 +412,14 @@ When set, the well known "root" CAs (like VeriSign) will be extended with the
 extra certificates in `file`. The file should consist of one or more trusted
 certificates in PEM format. A message will be emitted (once) with
 [`process.emitWarning()`][emit_warning] if the file is missing or
-misformatted, but any errors are otherwise ignored.
+malformed, but any errors are otherwise ignored.
 
 Note that neither the well known nor extra certificates are used when the `ca`
 options property is explicitly specified for a TLS or HTTPS client or server.
 
 ### `OPENSSL_CONF=file`
 <!-- YAML
-added: REPLACEME
+added: v7.7.0
 -->
 
 Load an OpenSSL configuration file on startup. Among other uses, this can be
@@ -400,6 +430,9 @@ If the [`--openssl-config`][] command line option is used, the environment
 variable is ignored.
 
 ### `SSL_CERT_DIR=dir`
+<!-- YAML
+added: v7.7.0
+-->
 
 If `--use-openssl-ca` is enabled, this overrides and sets OpenSSL's directory
 containing trusted certificates.
@@ -409,6 +442,9 @@ evironment variable will be inherited by any child processes, and if they use
 OpenSSL, it may cause them to trust the same CAs as node.
 
 ### `SSL_CERT_FILE=file`
+<!-- YAML
+added: v7.7.0
+-->
 
 If `--use-openssl-ca` is enabled, this overrides and sets OpenSSL's file
 containing trusted certificates.
@@ -430,6 +466,7 @@ equivalent to using the `--redirect-warnings=file` command-line flag.
 
 [emit_warning]: process.html#process_process_emitwarning_warning_name_ctor
 [Buffer]: buffer.html#buffer_buffer
+[Chrome Debugging Protocol]: https://chromedevtools.github.io/debugger-protocol-viewer
 [debugger]: debugger.html
 [REPL]: repl.html
 [SlowBuffer]: buffer.html#buffer_class_slowbuffer
