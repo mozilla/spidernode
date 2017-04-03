@@ -17,10 +17,10 @@
         }]
       ],
     }],
-    [ 'node_enable_d8=="true"', {
+    [ 'node_engine=="v8" and node_enable_d8=="true"', {
       'dependencies': [ 'deps/v8/src/d8.gyp:d8' ],
     }],
-    [ 'node_use_bundled_v8=="true"', {
+    [ 'node_engine=="v8" and node_use_bundled_v8=="true"', {
       'dependencies': [
         'deps/v8/src/v8.gyp:v8',
         'deps/v8/src/v8.gyp:v8_libplatform'
@@ -52,7 +52,7 @@
         'NODE_RELEASE_URLBASE="<(node_release_urlbase)"',
       ]
     }],
-    [ 'v8_enable_i18n_support==1', {
+    [ 'node_engine=="v8" and v8_enable_i18n_support==1', {
       'defines': [ 'NODE_HAVE_I18N_SUPPORT=1' ],
       'dependencies': [
         '<(icu_gyp_path):icui18n',
@@ -63,7 +63,7 @@
           'defines': [ 'NODE_HAVE_SMALL_ICU=1' ],
       }]],
     }],
-    [ 'node_use_bundled_v8=="true" and \
+    [ 'node_engine=="v8" and node_use_bundled_v8=="true" and \
        node_enable_v8_vtunejit=="true" and (target_arch=="x64" or \
        target_arch=="ia32" or target_arch=="x32")', {
       'defines': [ 'NODE_ENABLE_VTUNE_PROFILING' ],
@@ -71,7 +71,7 @@
         'deps/v8/src/third_party/vtune/v8vtune.gyp:v8_vtune'
       ],
     }],
-    [ 'v8_enable_inspector==1', {
+    [ 'node_engine=="v8" and v8_enable_inspector==1', {
       'defines': [
         'HAVE_INSPECTOR=1',
       ],
