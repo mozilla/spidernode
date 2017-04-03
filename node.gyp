@@ -491,11 +491,11 @@
         [ 'node_no_browser_globals=="true"', {
           'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
         } ],
-        [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true" and node_engine=="v8"', {
+        [ 'node_engine=="v8" and node_use_bundled_v8=="true" and v8_postmortem_support=="true"', {
           'dependencies': [ 'deps/v8/src/v8.gyp:postmortem-metadata' ],
           'conditions': [
             # -force_load is not applicable for the static library
-            [ 'node_engine=="v8" and node_target_type!="static_library"', {
+            [ 'node_target_type!="static_library"', {
               'xcode_settings': {
                 'OTHER_LDFLAGS': [
                   '-Wl,-force_load,<(V8_BASE)',

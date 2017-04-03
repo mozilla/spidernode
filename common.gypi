@@ -37,26 +37,30 @@
     'icu_use_data_file_flag%': 0,
 
     'conditions': [
-      ['OS == "win"', {
-        'os_posix': 0,
-        'v8_postmortem_support%': 'false',
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj',
-        'V8_BASE': '<(PRODUCT_DIR)/lib/v8_libbase.lib',
-      }, {
-        'os_posix': 1,
-        'v8_postmortem_support%': 'true',
-      }],
-      ['OS== "mac"', {
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
-        'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
-      }, {
+      ['node_engine=="v8"', {
         'conditions': [
-          ['GENERATOR=="ninja"', {
+          ['OS == "win"', {
+            'os_posix': 0,
+            'v8_postmortem_support%': 'false',
             'OBJ_DIR': '<(PRODUCT_DIR)/obj',
-            'V8_BASE': '<(PRODUCT_DIR)/obj/deps/v8/src/libv8_base.a',
+            'V8_BASE': '<(PRODUCT_DIR)/lib/v8_libbase.lib',
           }, {
-            'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
-            'V8_BASE%': '<(PRODUCT_DIR)/obj.target/deps/v8/src/libv8_base.a',
+            'os_posix': 1,
+            'v8_postmortem_support%': 'true',
+          }],
+          ['OS== "mac"', {
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
+            'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
+          }, {
+            'conditions': [
+              ['GENERATOR=="ninja"', {
+                'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+                'V8_BASE': '<(PRODUCT_DIR)/obj/deps/v8/src/libv8_base.a',
+              }, {
+                'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+                'V8_BASE%': '<(PRODUCT_DIR)/obj.target/deps/v8/src/libv8_base.a',
+              }],
+            ],
           }],
         ],
       }],
@@ -65,10 +69,24 @@
       }, {
         'OPENSSL_PRODUCT': 'libopenssl.a',
       }],
+      ['OS == "win"', {
+        'os_posix': 0,
+        'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+      }, {
+        'os_posix': 1,
+      }],
       ['OS=="mac"', {
         'clang%': 1,
+        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
       }, {
         'clang%': 0,
+        'conditions': [
+          ['GENERATOR=="ninja"', {
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+          }, {
+            'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+          }],
+        ],
       }],
     ],
   },
