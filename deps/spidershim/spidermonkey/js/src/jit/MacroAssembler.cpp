@@ -1383,19 +1383,40 @@ MacroAssembler::loadStringChars(Register str, Register dest)
 }
 
 void
-MacroAssembler::loadStringChar(Register str, Register index, Register output)
+MacroAssembler::loadStringChar(Register str, Register index, Register output, Label* fail)
 {
     MOZ_ASSERT(str != output);
     MOZ_ASSERT(index != output);
 
-    loadStringChars(str, output);
+    movePtr(str, output);
+
+    // This follows JSString::getChar.
+    Label notRope;
+    branchIfNotRope(str, &notRope);
+
+    // Load leftChild.
+    loadPtr(Address(str, JSRope::offsetOfLeft()), output);
+
+    // Check if the index is contained in the leftChild.
+    // Todo: Handle index in the rightChild.
+    branch32(Assembler::BelowOrEqual, Address(output, JSString::offsetOfLength()), index, fail);
+
+    // If the left side is another rope, give up.
+    branchIfRope(output, fail);
+
+    bind(&notRope);
 
     Label isLatin1, done;
-    branchLatin1String(str, &isLatin1);
+    // We have to check the left/right side for ropes,
+    // because a TwoByte rope might have a Latin1 child.
+    branchLatin1String(output, &isLatin1);
+
+    loadStringChars(output, output);
     load16ZeroExtend(BaseIndex(output, index, TimesTwo), output);
     jump(&done);
 
     bind(&isLatin1);
+    loadStringChars(output, output);
     load8ZeroExtend(BaseIndex(output, index, TimesOne), output);
 
     bind(&done);
@@ -1428,6 +1449,7 @@ BailoutReportOverRecursed(JSContext* cx)
 void
 MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
 {
+    loadJSContext(scratch);
     enterExitFrame(scratch);
 
     Label baseline;
@@ -1489,6 +1511,7 @@ MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
         push(temp);
         push(Address(bailoutInfo, offsetof(BaselineBailoutInfo, resumeAddr)));
         // No GC things to mark on the stack, push a bare token.
+        loadJSContext(scratch);
         enterFakeExitFrame(scratch, ExitFrameLayoutBareToken);
 
         // If monitorStub is non-null, handle resumeAddr appropriately.
@@ -2708,10 +2731,9 @@ MacroAssembler::callWithABINoProfiler(wasm::SymbolicAddress imm, MoveOp::Type re
 // Exit frame footer.
 
 void
-MacroAssembler::linkExitFrame(Register temp)
+MacroAssembler::linkExitFrame(Register cxreg)
 {
-    loadJSContext(temp);
-    storeStackPtr(Address(temp, offsetof(JSContext, jitTop)));
+    storeStackPtr(Address(cxreg, offsetof(JSContext, jitTop)));
 }
 
 void

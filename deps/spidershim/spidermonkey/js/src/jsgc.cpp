@@ -193,6 +193,7 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Move.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/TimeStamp.h"
 
 #include <ctype.h>
@@ -367,7 +368,12 @@ static const FinalizePhase BackgroundFinalizePhases[] = {
     },
     {
         gcstats::PHASE_SWEEP_SCOPE, {
-            AllocKind::SCOPE
+            AllocKind::SCOPE,
+        }
+    },
+    {
+        gcstats::PHASE_SWEEP_REGEXP_SHARED, {
+            AllocKind::REGEXP_SHARED,
         }
     },
     {
@@ -388,6 +394,42 @@ static const FinalizePhase BackgroundFinalizePhases[] = {
         }
     }
 };
+
+// Incremental sweeping is controlled by a list of actions that describe what
+// happens and in what order. Due to the incremental nature of sweeping an
+// action does not necessarily run to completion so the current state is tracked
+// in the GCRuntime by the performSweepActions() method.
+//
+// Actions are performed in phases run per sweep group, and each action is run
+// for every zone in the group, i.e. as if by the following pseudocode:
+//
+//   for each sweep group:
+//     for each phase:
+//       for each zone in sweep group:
+//         for each action in phase:
+//           perform_action
+
+struct SweepAction
+{
+    using Func = IncrementalProgress (*)(GCRuntime* gc, FreeOp* fop, Zone* zone,
+                                         SliceBudget& budget, AllocKind kind);
+
+    Func func;
+    AllocKind kind;
+
+    SweepAction(Func func, AllocKind kind) : func(func), kind(kind) {}
+};
+
+using SweepActionVector = Vector<SweepAction, 0, SystemAllocPolicy>;
+using SweepPhaseVector = Vector<SweepActionVector, 0, SystemAllocPolicy>;
+
+static SweepPhaseVector SweepPhases;
+
+bool
+js::gc::InitializeStaticData()
+{
+    return GCRuntime::initializeSweepActions();
+}
 
 template<>
 JSObject*
@@ -841,8 +883,9 @@ GCRuntime::GCRuntime(JSRuntime* rt) :
     sweepGroupIndex(0),
     sweepGroups(nullptr),
     currentSweepGroup(nullptr),
+    sweepPhaseIndex(0),
     sweepZone(nullptr),
-    sweepKind(AllocKind::FIRST),
+    sweepActionIndex(0),
     abortSweepAfterCurrentGroup(false),
     arenasAllocatedDuringSweep(nullptr),
     startedCompacting(false),
@@ -1019,7 +1062,41 @@ GCRuntime::parseAndSetZeal(const char* str)
     return true;
 }
 
-#endif
+static const char*
+AllocKindName(AllocKind kind)
+{
+    static const char* names[] = {
+#define EXPAND_THING_NAME(allocKind, _1, _2, _3) \
+        #allocKind,
+FOR_EACH_ALLOCKIND(EXPAND_THING_NAME)
+#undef EXPAND_THING_NAME
+    };
+    static_assert(ArrayLength(names) == size_t(AllocKind::LIMIT),
+                  "names array should have an entry for every AllocKind");
+
+    size_t i = size_t(kind);
+    MOZ_ASSERT(i < ArrayLength(names));
+    return names[i];
+}
+
+void
+js::gc::DumpArenaInfo()
+{
+    fprintf(stderr, "Arena header size: %" PRIuSIZE "\n\n", ArenaHeaderSize);
+
+    fprintf(stderr, "GC thing kinds:\n");
+    fprintf(stderr, "%25s %8s %8s %8s\n", "AllocKind:", "Size:", "Count:", "Padding:");
+    for (auto kind : AllAllocKinds()) {
+        fprintf(stderr,
+                "%25s %8" PRIuSIZE " %8" PRIuSIZE " %8" PRIuSIZE "\n",
+                AllocKindName(kind),
+                Arena::thingSize(kind),
+                Arena::thingsPerArena(kind),
+                Arena::firstThingOffset(kind) - ArenaHeaderSize);
+    }
+}
+
+#endif // JS_GC_ZEAL
 
 /*
  * Lifetime in number of major GCs for type sets attached to scripts containing
@@ -1030,7 +1107,7 @@ static const uint64_t JIT_SCRIPT_RELEASE_TYPES_PERIOD = 20;
 bool
 GCRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
 {
-    InitMemorySubsystem();
+    MOZ_ASSERT(SystemPageSize());
 
     if (!rootsHash.ref().init(256))
         return false;
@@ -1722,7 +1799,6 @@ static const AllocKind AllocKindsToRelocate[] = {
     AllocKind::OBJECT16_BACKGROUND,
     AllocKind::SCRIPT,
     AllocKind::LAZY_SCRIPT,
-    AllocKind::SCOPE,
     AllocKind::SHAPE,
     AllocKind::ACCESSOR_SHAPE,
     AllocKind::BASE_SHAPE,
@@ -1730,7 +1806,9 @@ static const AllocKind AllocKindsToRelocate[] = {
     AllocKind::STRING,
     AllocKind::EXTERNAL_STRING,
     AllocKind::FAT_INLINE_ATOM,
-    AllocKind::ATOM
+    AllocKind::ATOM,
+    AllocKind::SCOPE,
+    AllocKind::REGEXP_SHARED
 };
 
 Arena*
@@ -2054,61 +2132,23 @@ GCRuntime::relocateArenas(Zone* zone, JS::gcreason::Reason reason, Arena*& reloc
     return true;
 }
 
-void
-MovingTracer::onObjectEdge(JSObject** objp)
+template <typename T>
+inline void
+MovingTracer::updateEdge(T** thingp)
 {
-    JSObject* obj = *objp;
-    if (obj->runtimeFromAnyThread() == runtime() && IsForwarded(obj))
-        *objp = Forwarded(obj);
+    auto thing = *thingp;
+    if (thing->runtimeFromAnyThread() == runtime() && IsForwarded(thing))
+        *thingp = Forwarded(thing);
 }
 
-void
-MovingTracer::onShapeEdge(Shape** shapep)
-{
-    Shape* shape = *shapep;
-    if (shape->runtimeFromAnyThread() == runtime() && IsForwarded(shape))
-        *shapep = Forwarded(shape);
-}
-
-void
-MovingTracer::onStringEdge(JSString** stringp)
-{
-    JSString* string = *stringp;
-    if (string->runtimeFromAnyThread() == runtime() && IsForwarded(string))
-        *stringp = Forwarded(string);
-}
-
-void
-MovingTracer::onScriptEdge(JSScript** scriptp)
-{
-    JSScript* script = *scriptp;
-    if (script->runtimeFromAnyThread() == runtime() && IsForwarded(script))
-        *scriptp = Forwarded(script);
-}
-
-void
-MovingTracer::onLazyScriptEdge(LazyScript** lazyp)
-{
-    LazyScript* lazy = *lazyp;
-    if (lazy->runtimeFromAnyThread() == runtime() && IsForwarded(lazy))
-        *lazyp = Forwarded(lazy);
-}
-
-void
-MovingTracer::onBaseShapeEdge(BaseShape** basep)
-{
-    BaseShape* base = *basep;
-    if (base->runtimeFromAnyThread() == runtime() && IsForwarded(base))
-        *basep = Forwarded(base);
-}
-
-void
-MovingTracer::onScopeEdge(Scope** scopep)
-{
-    Scope* scope = *scopep;
-    if (scope->runtimeFromAnyThread() == runtime() && IsForwarded(scope))
-        *scopep = Forwarded(scope);
-}
+void MovingTracer::onObjectEdge(JSObject** objp) { updateEdge(objp); }
+void MovingTracer::onShapeEdge(Shape** shapep) { updateEdge(shapep); }
+void MovingTracer::onStringEdge(JSString** stringp) { updateEdge(stringp); }
+void MovingTracer::onScriptEdge(JSScript** scriptp) { updateEdge(scriptp); }
+void MovingTracer::onLazyScriptEdge(LazyScript** lazyp) { updateEdge(lazyp); }
+void MovingTracer::onBaseShapeEdge(BaseShape** basep) { updateEdge(basep); }
+void MovingTracer::onScopeEdge(Scope** scopep) { updateEdge(scopep); }
+void MovingTracer::onRegExpSharedEdge(RegExpShared** sharedp) { updateEdge(sharedp); }
 
 void
 Zone::prepareForCompacting()
@@ -3595,6 +3635,9 @@ GCRuntime::purgeRuntime(AutoLockForExclusiveAccess& lock)
     for (GCCompartmentsIter comp(rt); !comp.done(); comp.next())
         comp->purge();
 
+    for (GCZonesIter zone(rt); !zone.done(); zone.next())
+        zone->atomCache().clearAndShrink();
+
     for (const CooperatingContext& target : rt->cooperatingContexts()) {
         freeUnusedLifoBlocksAfterSweeping(&target.context()->tempLifoAlloc());
         target.context()->interpreterStack().purge(rt);
@@ -4334,14 +4377,16 @@ js::gc::MarkingValidator::validate()
                  * If a non-incremental GC wouldn't have collected a cell, then
                  * an incremental GC won't collect it.
                  */
-                MOZ_ASSERT_IF(bitmap->isMarked(cell, BLACK), incBitmap->isMarked(cell, BLACK));
+                if (bitmap->isMarked(cell, BLACK))
+                    MOZ_RELEASE_ASSERT(incBitmap->isMarked(cell, BLACK));
 
                 /*
                  * If the cycle collector isn't allowed to collect an object
                  * after a non-incremental GC has run, then it isn't allowed to
                  * collected it after an incremental GC.
                  */
-                MOZ_ASSERT_IF(!bitmap->isMarked(cell, GRAY), !incBitmap->isMarked(cell, GRAY));
+                if (!bitmap->isMarked(cell, GRAY))
+                    MOZ_RELEASE_ASSERT(!incBitmap->isMarked(cell, GRAY));
 
                 thing += Arena::thingSize(kind);
             }
@@ -4466,7 +4511,10 @@ JSCompartment::findDeadProxyZoneEdges(bool* foundAny)
             if (IsDeadProxyObject(&value.toObject())) {
                 *foundAny = true;
                 CrossCompartmentKey& key = e.front().mutableKey();
-                if (!key.as<JSObject*>()->zone()->gcSweepGroupEdges().put(zone()))
+                Zone* wrapperZone = key.as<JSObject*>()->zone();
+                if (!wrapperZone->isGCMarking())
+                    continue;
+                if (!wrapperZone->gcSweepGroupEdges().put(zone()))
                     return false;
             }
         }
@@ -5230,11 +5278,9 @@ GCRuntime::beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock)
         zone->arenas.queueForegroundThingsForSweep(&fop);
     }
 
-    sweepingTypes = true;
-
-    finalizePhase = 0;
+    sweepPhaseIndex = 0;
     sweepZone = currentSweepGroup;
-    sweepKind = AllocKind::FIRST;
+    sweepActionIndex = 0;
 
     {
         gcstats::AutoPhase ap(stats(), gcstats::PHASE_FINALIZE_END);
@@ -5330,7 +5376,7 @@ ArenaLists::foregroundFinalize(FreeOp* fop, AllocKind thingKind, SliceBudget& sl
     return true;
 }
 
-GCRuntime::IncrementalProgress
+IncrementalProgress
 GCRuntime::drainMarkStack(SliceBudget& sliceBudget, gcstats::Phase phase)
 {
     /* Run a marking slice and return whether the stack is now empty. */
@@ -5375,104 +5421,154 @@ SweepArenaList(Arena** arenasToSweep, SliceBudget& sliceBudget, Args... args)
     return true;
 }
 
-GCRuntime::IncrementalProgress
-GCRuntime::sweepPhase(SliceBudget& sliceBudget, AutoLockForExclusiveAccess& lock)
+/* static */ IncrementalProgress
+GCRuntime::sweepTypeInformation(GCRuntime* gc, FreeOp* fop, Zone* zone, SliceBudget& budget,
+                                AllocKind kind)
+{
+    // Sweep dead type information stored in scripts and object groups, but
+    // don't finalize them yet. We have to sweep dead information from both live
+    // and dead scripts and object groups, so that no dead references remain in
+    // them. Type inference can end up crawling these zones again, such as for
+    // TypeCompartment::markSetsUnknown, and if this happens after sweeping for
+    // the sweep group finishes we won't be able to determine which things in
+    // the zone are live.
+
+    MOZ_ASSERT(kind == AllocKind::LIMIT);
+
+    gcstats::AutoPhase ap1(gc->stats(), gcstats::PHASE_SWEEP_COMPARTMENTS);
+    gcstats::AutoPhase ap2(gc->stats(), gcstats::PHASE_SWEEP_TYPES);
+
+    ArenaLists& al = zone->arenas;
+
+    AutoClearTypeInferenceStateOnOOM oom(zone);
+
+    if (!SweepArenaList<JSScript>(&al.gcScriptArenasToUpdate.ref(), budget, &oom))
+        return NotFinished;
+
+    if (!SweepArenaList<ObjectGroup>(&al.gcObjectGroupArenasToUpdate.ref(), budget, &oom))
+        return NotFinished;
+
+    // Finish sweeping type information in the zone.
+    {
+        gcstats::AutoPhase ap(gc->stats(), gcstats::PHASE_SWEEP_TYPES_END);
+        zone->types.endSweep(gc->rt);
+    }
+
+    return Finished;
+}
+
+/* static */ IncrementalProgress
+GCRuntime::mergeSweptObjectArenas(GCRuntime* gc, FreeOp* fop, Zone* zone, SliceBudget& budget,
+                                  AllocKind kind)
+{
+    // Foreground finalized objects have already been finalized, and now their
+    // arenas can be reclaimed by freeing empty ones and making non-empty ones
+    // available for allocation.
+
+    MOZ_ASSERT(kind == AllocKind::LIMIT);
+    zone->arenas.mergeForegroundSweptObjectArenas();
+    return Finished;
+}
+
+/* static */ IncrementalProgress
+GCRuntime::finalizeAllocKind(GCRuntime* gc, FreeOp* fop, Zone* zone, SliceBudget& budget,
+                             AllocKind kind)
+{
+    // Set the number of things per arena for this AllocKind.
+    size_t thingsPerArena = Arena::thingsPerArena(kind);
+    auto& sweepList = gc->incrementalSweepList.ref();
+    sweepList.setThingsPerArena(thingsPerArena);
+
+    if (!zone->arenas.foregroundFinalize(fop, kind, budget, sweepList))
+        return NotFinished;
+
+    // Reset the slots of the sweep list that we used.
+    sweepList.reset(thingsPerArena);
+
+    return Finished;
+}
+
+/* static */ IncrementalProgress
+GCRuntime::sweepShapeTree(GCRuntime* gc, FreeOp* fop, Zone* zone, SliceBudget& budget,
+                          AllocKind kind)
+{
+    // Remove dead shapes from the shape tree, but don't finalize them yet.
+
+    MOZ_ASSERT(kind == AllocKind::LIMIT);
+
+    gcstats::AutoPhase ap(gc->stats(), gcstats::PHASE_SWEEP_SHAPE);
+
+    ArenaLists& al = zone->arenas;
+
+    if (!SweepArenaList<Shape>(&al.gcShapeArenasToUpdate.ref(), budget))
+        return NotFinished;
+
+    if (!SweepArenaList<AccessorShape>(&al.gcAccessorShapeArenasToUpdate.ref(), budget))
+        return NotFinished;
+
+    return Finished;
+}
+
+static void
+AddSweepPhase(bool* ok)
+{
+    if (*ok)
+        *ok = SweepPhases.emplaceBack();
+}
+
+static void
+AddSweepAction(bool* ok, SweepAction::Func func, AllocKind kind = AllocKind::LIMIT)
+{
+    if (*ok)
+        *ok = SweepPhases.back().emplaceBack(func, kind);
+}
+
+/* static */ bool
+GCRuntime::initializeSweepActions()
+{
+    bool ok = true;
+
+    AddSweepPhase(&ok);
+    AddSweepAction(&ok, GCRuntime::sweepTypeInformation);
+    AddSweepAction(&ok, GCRuntime::mergeSweptObjectArenas);
+
+    for (const auto& finalizePhase : IncrementalFinalizePhases) {
+        AddSweepPhase(&ok);
+        for (auto kind : finalizePhase.kinds)
+            AddSweepAction(&ok, GCRuntime::finalizeAllocKind, kind);
+    }
+
+    AddSweepPhase(&ok);
+    AddSweepAction(&ok, GCRuntime::sweepShapeTree);
+
+    return ok;
+}
+
+IncrementalProgress
+GCRuntime::performSweepActions(SliceBudget& budget, AutoLockForExclusiveAccess& lock)
 {
     AutoSetThreadIsSweeping threadIsSweeping;
 
     gcstats::AutoPhase ap(stats(), gcstats::PHASE_SWEEP);
     FreeOp fop(rt);
 
-    if (drainMarkStack(sliceBudget, gcstats::PHASE_SWEEP_MARK) == NotFinished)
+    if (drainMarkStack(budget, gcstats::PHASE_SWEEP_MARK) == NotFinished)
         return NotFinished;
 
-
     for (;;) {
-        // Sweep dead type information stored in scripts and object groups, but
-        // don't finalize them yet. We have to sweep dead information from both
-        // live and dead scripts and object groups, so that no dead references
-        // remain in them. Type inference can end up crawling these zones again,
-        // such as for TypeCompartment::markSetsUnknown, and if this happens
-        // after sweeping for the sweep group finishes we won't be able to
-        // determine which things in the zone are live.
-        if (sweepingTypes) {
-            gcstats::AutoPhase ap1(stats(), gcstats::PHASE_SWEEP_COMPARTMENTS);
-            gcstats::AutoPhase ap2(stats(), gcstats::PHASE_SWEEP_TYPES);
-
+        for (; sweepPhaseIndex < SweepPhases.length(); sweepPhaseIndex++) {
+            const auto& actions = SweepPhases[sweepPhaseIndex];
             for (; sweepZone; sweepZone = sweepZone->nextNodeInGroup()) {
-                ArenaLists& al = sweepZone->arenas;
-
-                AutoClearTypeInferenceStateOnOOM oom(sweepZone);
-
-                if (!SweepArenaList<JSScript>(&al.gcScriptArenasToUpdate.ref(), sliceBudget, &oom))
-                    return NotFinished;
-
-                if (!SweepArenaList<ObjectGroup>(
-                        &al.gcObjectGroupArenasToUpdate.ref(), sliceBudget, &oom))
-                {
-                    return NotFinished;
-                }
-
-                // Finish sweeping type information in the zone.
-                {
-                    gcstats::AutoPhase ap(stats(), gcstats::PHASE_SWEEP_TYPES_END);
-                    sweepZone->types.endSweep(rt);
-                }
-
-                // Foreground finalized objects have already been finalized,
-                // and now their arenas can be reclaimed by freeing empty ones
-                // and making non-empty ones available for allocation.
-                al.mergeForegroundSweptObjectArenas();
-            }
-
-            sweepZone = currentSweepGroup;
-            sweepingTypes = false;
-        }
-
-        /* Finalize foreground finalized things. */
-        for (; finalizePhase < ArrayLength(IncrementalFinalizePhases) ; ++finalizePhase) {
-            gcstats::AutoPhase ap(stats(), IncrementalFinalizePhases[finalizePhase].statsPhase);
-
-            for (; sweepZone; sweepZone = sweepZone->nextNodeInGroup()) {
-                Zone* zone = sweepZone;
-
-                for (auto kind : SomeAllocKinds(sweepKind, AllocKind::LIMIT)) {
-                    if (!IncrementalFinalizePhases[finalizePhase].kinds.contains(kind))
-                        continue;
-
-                    /* Set the number of things per arena for this AllocKind. */
-                    size_t thingsPerArena = Arena::thingsPerArena(kind);
-                    incrementalSweepList.ref().setThingsPerArena(thingsPerArena);
-
-                    if (!zone->arenas.foregroundFinalize(&fop, kind, sliceBudget,
-                                                         incrementalSweepList.ref()))
-                    {
-                        sweepKind = kind;
+                for (; sweepActionIndex < actions.length(); sweepActionIndex++) {
+                    const auto& action = actions[sweepActionIndex];
+                    if (action.func(this, &fop, sweepZone, budget, action.kind) == NotFinished)
                         return NotFinished;
-                    }
-
-                    /* Reset the slots of the sweep list that we used. */
-                    incrementalSweepList.ref().reset(thingsPerArena);
                 }
-                sweepKind = AllocKind::FIRST;
+                sweepActionIndex = 0;
             }
             sweepZone = currentSweepGroup;
         }
-
-        /* Remove dead shapes from the shape tree, but don't finalize them yet. */
-        {
-            gcstats::AutoPhase ap(stats(), gcstats::PHASE_SWEEP_SHAPE);
-
-            for (; sweepZone; sweepZone = sweepZone->nextNodeInGroup()) {
-                ArenaLists& al = sweepZone->arenas;
-
-                if (!SweepArenaList<Shape>(&al.gcShapeArenasToUpdate.ref(), sliceBudget))
-                    return NotFinished;
-
-                if (!SweepArenaList<AccessorShape>(&al.gcAccessorShapeArenasToUpdate.ref(), sliceBudget))
-                    return NotFinished;
-            }
-        }
+        sweepPhaseIndex = 0;
 
         endSweepingSweepGroup();
         getNextSweepGroup();
@@ -5595,7 +5691,7 @@ GCRuntime::beginCompactPhase()
     startedCompacting = true;
 }
 
-GCRuntime::IncrementalProgress
+IncrementalProgress
 GCRuntime::compactPhase(JS::gcreason::Reason reason, SliceBudget& sliceBudget,
                         AutoLockForExclusiveAccess& lock)
 {
@@ -6069,7 +6165,7 @@ GCRuntime::incrementalCollectSlice(SliceBudget& budget, JS::gcreason::Reason rea
         MOZ_FALLTHROUGH;
 
       case State::Sweep:
-        if (sweepPhase(budget, lock) == NotFinished)
+        if (performSweepActions(budget, lock) == NotFinished)
             break;
 
         endSweepPhase(destroyingRuntime, lock);

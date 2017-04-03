@@ -25,7 +25,6 @@
 #endif // ANDROID
 #ifdef XP_WIN
 #include <processthreadsapi.h>
-#include <windows.h>
 #endif // XP_WIN
 
 #include "jsatom.h"
@@ -44,6 +43,7 @@
 #include "jsstr.h"
 #include "jstypes.h"
 #include "jswatchpoint.h"
+#include "jswin.h"
 
 #include "gc/Marking.h"
 #include "jit/Ion.h"
@@ -158,12 +158,14 @@ js::NewContext(uint32_t maxBytes, uint32_t maxNurseryBytes, JSRuntime* parentRun
     }
 
     if (!runtime->init(cx, maxBytes, maxNurseryBytes)) {
+        runtime->destroyRuntime();
         js_delete(cx);
         js_delete(runtime);
         return nullptr;
     }
 
     if (!cx->init(ContextKind::Cooperative)) {
+        runtime->destroyRuntime();
         js_delete(cx);
         js_delete(runtime);
         return nullptr;

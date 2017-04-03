@@ -687,6 +687,10 @@ GetPropIRGenerator::tryAttachCrossCompartmentWrapper(HandleObject obj, ObjOperan
     if (unwrapped->compartment()->zone() != cx_->compartment()->zone())
         return false;
 
+    RootedObject wrappedGlobal(cx_, &obj->global());
+    if (!cx_->compartment()->wrap(cx_, &wrappedGlobal))
+        return false;
+
     AutoCompartment ac(cx_, unwrapped);
 
     // The first CCW for iframes is almost always wrapping another WindowProxy
@@ -725,7 +729,7 @@ GetPropIRGenerator::tryAttachCrossCompartmentWrapper(HandleObject obj, ObjOperan
     ObjOperandId wrapperTargetId = writer.loadWrapperTarget(objId);
 
     // If the compartment of the wrapped object is different we should fail.
-    writer.guardCompartment(wrapperTargetId, unwrapped->compartment());
+    writer.guardCompartment(wrapperTargetId, wrappedGlobal, unwrapped->compartment());
 
     ObjOperandId unwrappedId = wrapperTargetId;
     if (isWindowProxy) {
@@ -1285,10 +1289,26 @@ GetPropIRGenerator::tryAttachStringChar(ValOperandId valId, ValOperandId indexId
     if (!val_.isString())
         return false;
 
-    JSString* str = val_.toString();
     int32_t index = idVal_.toInt32();
-    if (size_t(index) >= str->length() ||
-        !str->isLinear() ||
+    if (index < 0)
+        return false;
+
+    JSString* str = val_.toString();
+    if (size_t(index) >= str->length())
+        return false;
+
+    // This follows JSString::getChar, otherwise we fail to attach getChar in a lot of cases.
+    if (str->isRope()) {
+        JSRope* rope = &str->asRope();
+
+        // Make sure the left side contains the index.
+        if (size_t(index) >= rope->leftChild()->length())
+            return false;
+
+        str = rope->leftChild();
+    }
+
+    if (!str->isLinear() ||
         str->asLinear().latin1OrTwoByteChar(index) >= StaticStrings::UNIT_STATIC_LIMIT)
     {
         return false;
@@ -1875,15 +1895,12 @@ InIRGenerator::tryAttachNativeIn(HandleId key, ValOperandId keyId,
     if (!LookupPropertyPure(cx_, obj, key, &holder, &prop))
         return false;
 
-    if (prop.isNonNativeProperty())
-        return false;
-
-    if (!IsCacheableGetPropReadSlotForIonOrCacheIR(obj, holder, prop))
+    if (!prop.isNativeProperty())
         return false;
 
     Maybe<ObjOperandId> holderId;
     emitIdGuard(keyId, key);
-    EmitReadSlotGuard(writer, obj, holder, prop.maybeShape(), objId, &holderId);
+    EmitReadSlotGuard(writer, obj, holder, prop.shape(), objId, &holderId);
     writer.loadBooleanResult(true);
     writer.returnFromIC();
 
@@ -2081,6 +2098,8 @@ SetPropIRGenerator::tryAttachStub()
                 return true;
             if (IsPropertySetOp(JSOp(*pc_))) {
                 if (tryAttachSetter(obj, objId, id, rhsValId))
+                    return true;
+                if (tryAttachWindowProxy(obj, objId, id, rhsValId))
                     return true;
                 if (tryAttachProxy(obj, objId, id, rhsValId))
                     return true;
@@ -2933,6 +2952,49 @@ SetPropIRGenerator::tryAttachProxyElement(HandleObject obj, ObjOperandId objId, 
     writer.returnFromIC();
 
     trackAttached("ProxyElement");
+    return true;
+}
+
+bool
+SetPropIRGenerator::tryAttachWindowProxy(HandleObject obj, ObjOperandId objId, HandleId id,
+                                         ValOperandId rhsId)
+{
+    // Attach a stub when the receiver is a WindowProxy and we can do the set
+    // on the Window (the global object).
+
+    if (!IsWindowProxy(obj))
+        return false;
+
+    // If we're megamorphic prefer a generic proxy stub that handles a lot more
+    // cases.
+    if (mode_ == ICState::Mode::Megamorphic)
+        return false;
+
+    // This must be a WindowProxy for the current Window/global. Else it would
+    // be a cross-compartment wrapper and IsWindowProxy returns false for
+    // those.
+    MOZ_ASSERT(obj->getClass() == cx_->runtime()->maybeWindowProxyClass());
+    MOZ_ASSERT(ToWindowIfWindowProxy(obj) == cx_->global());
+
+    // Now try to do the set on the Window (the current global).
+    Handle<GlobalObject*> windowObj = cx_->global();
+
+    RootedShape propShape(cx_);
+    if (!CanAttachNativeSetSlot(cx_, windowObj, id, isTemporarilyUnoptimizable_, &propShape))
+        return false;
+
+    maybeEmitIdGuard(id);
+
+    writer.guardClass(objId, GuardClassKind::WindowProxy);
+    ObjOperandId windowObjId = writer.loadObject(windowObj);
+
+    writer.guardShape(windowObjId, windowObj->lastProperty());
+    writer.guardGroup(windowObjId, windowObj->group());
+    typeCheckInfo_.set(windowObj->group(), id);
+
+    EmitStoreSlotAndReturn(writer, windowObjId, windowObj, propShape, rhsId);
+
+    trackAttached("WindowProxySlot");
     return true;
 }
 

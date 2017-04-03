@@ -1211,6 +1211,22 @@ LIRGenerator::visitToAsync(MToAsync* ins)
 }
 
 void
+LIRGenerator::visitToAsyncGen(MToAsyncGen* ins)
+{
+    LToAsyncGen* lir = new(alloc()) LToAsyncGen(useRegisterAtStart(ins->input()));
+    defineReturn(lir, ins);
+    assignSafepoint(lir, ins);
+}
+
+void
+LIRGenerator::visitToAsyncIter(MToAsyncIter* ins)
+{
+    LToAsyncIter* lir = new(alloc()) LToAsyncIter(useRegisterAtStart(ins->input()));
+    defineReturn(lir, ins);
+    assignSafepoint(lir, ins);
+}
+
+void
 LIRGenerator::visitToId(MToId* ins)
 {
     LToIdV* lir = new(alloc()) LToIdV(useBox(ins->input()), tempDouble());
@@ -3982,10 +3998,10 @@ LIRGenerator::visitSetPropertyCache(MSetPropertyCache* ins)
     gen->setPerformsCall();
 
     // We need a double/float32 temp register for typed array stubs if this is
-    // a SETELEM.
+    // a SETELEM or INITELEM op.
     LDefinition tempD = LDefinition::BogusTemp();
     LDefinition tempF32 = LDefinition::BogusTemp();
-    if (IsSetElemPC(ins->resumePoint()->pc())) {
+    if (IsElemPC(ins->resumePoint()->pc())) {
         tempD = tempDouble();
         tempF32 = hasUnaliasedDouble() ? tempFloat32() : LDefinition::BogusTemp();
     }

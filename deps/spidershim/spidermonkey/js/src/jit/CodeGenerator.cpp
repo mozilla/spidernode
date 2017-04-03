@@ -41,6 +41,7 @@
 #include "jit/RangeAnalysis.h"
 #include "jit/SharedICHelpers.h"
 #include "vm/AsyncFunction.h"
+#include "vm/AsyncIteration.h"
 #include "vm/MatchPairs.h"
 #include "vm/RegExpObject.h"
 #include "vm/RegExpStatics.h"
@@ -3920,7 +3921,7 @@ CodeGenerator::visitCallNative(LCallNative* call)
 
     // Construct native exit frame.
     uint32_t safepointOffset = masm.buildFakeExitFrame(tempReg);
-    masm.enterFakeExitFrameForNative(tempReg, call->mir()->isConstructing());
+    masm.enterFakeExitFrameForNative(argContextReg, call->mir()->isConstructing());
 
     markSafepointAt(safepointOffset, call);
 
@@ -4048,15 +4049,14 @@ CodeGenerator::visitCallDOMNative(LCallDOMNative* call)
 
     // Construct native exit frame.
     uint32_t safepointOffset = masm.buildFakeExitFrame(argJSContext);
+    masm.loadJSContext(argJSContext);
     masm.enterFakeExitFrame(argJSContext, IonDOMMethodExitFrameLayoutToken);
 
     markSafepointAt(safepointOffset, call);
 
     // Construct and execute call.
     masm.setupUnalignedABICall(argJSContext);
-
     masm.loadJSContext(argJSContext);
-
     masm.passABIArg(argJSContext);
     masm.passABIArg(argObj);
     masm.passABIArg(argPrivate);
@@ -7883,6 +7883,7 @@ JitRuntime::generateLazyLinkStub(JSContext* cx)
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
     Register temp0 = regs.takeAny();
 
+    masm.loadJSContext(temp0);
     masm.enterFakeExitFrame(temp0, LazyLinkExitFrameLayoutToken);
     masm.PushStubCode();
 
@@ -7962,10 +7963,7 @@ CodeGenerator::visitCharCodeAt(LCharCodeAt* lir)
     Register output = ToRegister(lir->output());
 
     OutOfLineCode* ool = oolCallVM(CharCodeAtInfo, lir, ArgList(str, index), StoreRegisterTo(output));
-
-    masm.branchIfRope(str, ool->entry());
-    masm.loadStringChar(str, index, output);
-
+    masm.loadStringChar(str, index, output, ool->entry());
     masm.bind(ool->rejoin());
 }
 
@@ -10699,6 +10697,28 @@ CodeGenerator::visitToAsync(LToAsync* lir)
     callVM(ToAsyncInfo, lir);
 }
 
+typedef JSObject* (*ToAsyncGenFn)(JSContext*, HandleFunction);
+static const VMFunction ToAsyncGenInfo =
+    FunctionInfo<ToAsyncGenFn>(js::WrapAsyncGenerator, "ToAsyncGen");
+
+void
+CodeGenerator::visitToAsyncGen(LToAsyncGen* lir)
+{
+    pushArg(ToRegister(lir->unwrapped()));
+    callVM(ToAsyncGenInfo, lir);
+}
+
+typedef JSObject* (*ToAsyncIterFn)(JSContext*, HandleObject);
+static const VMFunction ToAsyncIterInfo =
+    FunctionInfo<ToAsyncIterFn>(js::CreateAsyncFromSyncIterator, "ToAsyncIter");
+
+void
+CodeGenerator::visitToAsyncIter(LToAsyncIter* lir)
+{
+    pushArg(ToRegister(lir->unwrapped()));
+    callVM(ToAsyncIterInfo, lir);
+}
+
 typedef bool (*ToIdFn)(JSContext*, HandleScript, jsbytecode*, HandleValue,
                        MutableHandleValue);
 static const VMFunction ToIdInfo = FunctionInfo<ToIdFn>(ToIdOperation, "ToIdOperation");
@@ -11415,14 +11435,13 @@ CodeGenerator::visitGetDOMProperty(LGetDOMProperty* ins)
     masm.moveStackPtrTo(ObjectReg);
 
     uint32_t safepointOffset = masm.buildFakeExitFrame(JSContextReg);
+    masm.loadJSContext(JSContextReg);
     masm.enterFakeExitFrame(JSContextReg, IonDOMExitFrameLayoutGetterToken);
 
     markSafepointAt(safepointOffset, ins);
 
     masm.setupUnalignedABICall(JSContextReg);
-
     masm.loadJSContext(JSContextReg);
-
     masm.passABIArg(JSContextReg);
     masm.passABIArg(ObjectReg);
     masm.passABIArg(PrivateReg);
@@ -11504,14 +11523,13 @@ CodeGenerator::visitSetDOMProperty(LSetDOMProperty* ins)
     masm.moveStackPtrTo(ObjectReg);
 
     uint32_t safepointOffset = masm.buildFakeExitFrame(JSContextReg);
+    masm.loadJSContext(JSContextReg);
     masm.enterFakeExitFrame(JSContextReg, IonDOMExitFrameLayoutSetterToken);
 
     markSafepointAt(safepointOffset, ins);
 
     masm.setupUnalignedABICall(JSContextReg);
-
     masm.loadJSContext(JSContextReg);
-
     masm.passABIArg(JSContextReg);
     masm.passABIArg(ObjectReg);
     masm.passABIArg(PrivateReg);
