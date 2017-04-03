@@ -35,6 +35,21 @@
         'NODE_USE_V8_PLATFORM=0',
       ],
     }],
+    ['node_engine=="chakracore"', {
+      'include_dirs': [
+        'deps/chakrashim' # include/v8-platform.h
+      ],
+      'dependencies': [ 'deps/chakrashim/chakrashim.gyp:chakrashim' ],
+    }],
+    ['node_engine=="spidermonkey"', {
+      'include_dirs': [
+        'deps/spidermonkey' # include/v8-platform.h
+      ],
+      'dependencies': [
+        'deps/spidershim/spidershim.gyp:spidershim',
+        'deps/spidershim/tests.gyp:*',
+      ],
+    }],
     [ 'node_tag!=""', {
       'defines': [ 'NODE_TAG="<(node_tag)"' ],
     }],
@@ -311,12 +326,10 @@
     }],
     [ '(OS=="freebsd" or OS=="linux") and node_shared=="false" and coverage=="false"', {
       'ldflags': [ '-Wl,-z,noexecstack',
-                   '-Wl,--whole-archive <(V8_BASE)',
                    '-Wl,--no-whole-archive' ]
     }],
     [ '(OS=="freebsd" or OS=="linux") and node_shared=="false" and coverage=="true"', {
       'ldflags': [ '-Wl,-z,noexecstack',
-                   '-Wl,--whole-archive <(V8_BASE)',
                    '-Wl,--no-whole-archive',
                    '--coverage',
                    '-g',
@@ -324,6 +337,9 @@
        'cflags': [ '--coverage',
                    '-g',
                    '-O0' ]
+    }],
+    [ '(OS=="freebsd" or OS=="linux") and node_shared=="false" and node_engine == "v8"', {
+      'ldflags': [ '-Wl,--whole-archive <(V8_BASE)' ],
     }],
     [ 'OS=="sunos"', {
       'ldflags': [ '-Wl,-M,/usr/lib/ld/map.noexstk' ],
