@@ -1507,6 +1507,43 @@ class V8_EXPORT String : public Name {
   static MaybeLocal<String> New(const wchar_t* data, int length = -1);
 };
 
+/**
+ * A JavaScript symbol (ECMA-262 edition 6)
+ */
+class V8_EXPORT Symbol : public Name {
+ public:
+  // Returns the print name string of the symbol, or undefined if none.
+  Local<Value> Name() const;
+
+  // Create a symbol. If name is not empty, it will be used as the description.
+  static Local<Symbol> New(Isolate* isolate,
+                           Local<String> name = Local<String>());
+
+  // Access global symbol registry.
+  // Note that symbols created this way are never collected, so
+  // they should only be used for statically fixed properties.
+  // Also, there is only one global name space for the names used as keys.
+  // To minimize the potential for clashes, use qualified names as keys.
+  static Local<Symbol> For(Isolate *isolate, Local<String> name);
+
+  // Retrieve a global symbol. Similar to |For|, but using a separate
+  // registry that is not accessible by (and cannot clash with) JavaScript code.
+  static Local<Symbol> ForApi(Isolate *isolate, Local<String> name);
+
+  // Well-known symbols
+  static Local<Symbol> GetIterator(Isolate* isolate);
+  static Local<Symbol> GetUnscopables(Isolate* isolate);
+  static Local<Symbol> GetToPrimitive(Isolate* isolate);
+  static Local<Symbol> GetToStringTag(Isolate* isolate);
+  static Local<Symbol> GetIsConcatSpreadable(Isolate* isolate);
+
+  V8_INLINE static Symbol* Cast(Value* obj);
+
+ private:
+  Symbol();
+  static void CheckCast(Value* obj);
+};
+
 class V8_EXPORT Number : public Primitive {
  public:
   double Value() const;

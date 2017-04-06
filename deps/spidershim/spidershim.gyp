@@ -97,6 +97,7 @@
         'src/v8stacktrace.cc',
         'src/v8string.cc',
         'src/v8stringobject.cc',
+        'src/v8symbol.cc',
         'src/v8template.cc',
         'src/v8tracing.cc',
         'src/v8trycatch.cc',
