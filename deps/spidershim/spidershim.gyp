@@ -93,6 +93,7 @@
         'src/v8script.cc',
         'src/v8scriptcompiler.cc',
         'src/v8serialization.cc',
+        'src/v8sharedarraybuffer.cc',
         'src/v8signature.cc',
         'src/v8stackframe.cc',
         'src/v8stacktrace.cc',
