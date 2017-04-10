@@ -70,6 +70,7 @@ namespace v8 {
 
 class AccessorSignature;
 class Array;
+class ArrayBuffer;
 class Value;
 class External;
 class Primitive;
