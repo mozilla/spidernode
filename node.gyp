@@ -45,7 +45,6 @@
       'lib/_http_outgoing.js',
       'lib/_http_server.js',
       'lib/https.js',
-      'lib/_linklist.js',
       'lib/module.js',
       'lib/net.js',
       'lib/os.js',
@@ -100,6 +99,7 @@
       'lib/internal/readline.js',
       'lib/internal/repl.js',
       'lib/internal/socket_list.js',
+      'lib/internal/test/unicode.js',
       'lib/internal/url.js',
       'lib/internal/util.js',
       'lib/internal/v8_prof_polyfill.js',
@@ -645,6 +645,7 @@
       'conditions': [
         [ 'node_engine=="v8"', {
           'sources': [
+            'test/cctest/test_base64.cc',
             'test/cctest/test_util.cc',
             'test/cctest/test_url.cc'
           ],
