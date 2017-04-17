@@ -1947,8 +1947,12 @@ Debugger::slowPathOnNewScript(JSContext* cx, HandleScript script)
             return JSTRAP_CONTINUE;
         });
 
-    if (status == JSTRAP_ERROR)
+    // dispatchHook may fail due to OOM. This OOM is not handlable at the
+    // callsites of onNewScript in the engine.
+    if (status == JSTRAP_ERROR) {
+        cx->clearPendingException();
         return;
+    }
 
     MOZ_ASSERT(status == JSTRAP_CONTINUE);
 }
@@ -1967,8 +1971,12 @@ Debugger::slowPathOnNewWasmInstance(JSContext* cx, Handle<WasmInstanceObject*> w
             return JSTRAP_CONTINUE;
         });
 
-    if (status == JSTRAP_ERROR)
+    // dispatchHook may fail due to OOM. This OOM is not handlable at the
+    // callsites of onNewWasmInstance in the engine.
+    if (status == JSTRAP_ERROR) {
+        cx->clearPendingException();
         return;
+    }
 
     MOZ_ASSERT(status == JSTRAP_CONTINUE);
 }
@@ -3264,24 +3272,23 @@ Debugger::findZoneEdges(Zone* zone, js::gc::ZoneComponentFinder& finder)
      * For debugger cross compartment wrappers, add edges in the opposite
      * direction to those already added by JSCompartment::findOutgoingEdges.
      * This ensure that debuggers and their debuggees are finalized in the same
-     * group. We only need to look at the zone's ZoneGroup, as debuggers and
-     * debuggees are always in the same ZoneGroup.
+     * group.
      */
-    if (zone->isAtomsZone())
-        return;
-    for (Debugger* dbg : zone->group()->debuggerList()) {
-        Zone* w = dbg->object->zone();
-        if (w == zone || !w->isGCMarking())
-            continue;
-        if (dbg->debuggeeZones.has(zone) ||
-            dbg->scripts.hasKeyInZone(zone) ||
-            dbg->sources.hasKeyInZone(zone) ||
-            dbg->objects.hasKeyInZone(zone) ||
-            dbg->environments.hasKeyInZone(zone) ||
-            dbg->wasmInstanceScripts.hasKeyInZone(zone) ||
-            dbg->wasmInstanceSources.hasKeyInZone(zone))
-        {
-            finder.addEdgeTo(w);
+    for (ZoneGroupsIter group(zone->runtimeFromActiveCooperatingThread()); !group.done(); group.next()) {
+        for (Debugger* dbg : group->debuggerList()) {
+            Zone* w = dbg->object->zone();
+            if (w == zone || !w->isGCMarking())
+                continue;
+            if (dbg->debuggeeZones.has(zone) ||
+                dbg->scripts.hasKeyInZone(zone) ||
+                dbg->sources.hasKeyInZone(zone) ||
+                dbg->objects.hasKeyInZone(zone) ||
+                dbg->environments.hasKeyInZone(zone) ||
+                dbg->wasmInstanceScripts.hasKeyInZone(zone) ||
+                dbg->wasmInstanceSources.hasKeyInZone(zone))
+            {
+                finder.addEdgeTo(w);
+            }
         }
     }
 }

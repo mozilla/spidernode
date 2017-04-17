@@ -78,6 +78,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitNewArray(MNewArray* ins);
     void visitNewArrayCopyOnWrite(MNewArrayCopyOnWrite* ins);
     void visitNewArrayDynamicLength(MNewArrayDynamicLength* ins);
+    void visitNewArrayIterator(MNewArrayIterator* ins);
     void visitNewTypedArray(MNewTypedArray* ins);
     void visitNewTypedArrayDynamicLength(MNewTypedArrayDynamicLength* ins);
     void visitNewObject(MNewObject* ins);
@@ -287,6 +288,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitThrow(MThrow* ins);
     void visitIn(MIn* ins);
     void visitInArray(MInArray* ins);
+    void visitHasOwnCache(MHasOwnCache* ins);
     void visitInstanceOf(MInstanceOf* ins);
     void visitCallInstanceOf(MCallInstanceOf* ins);
     void visitIsCallable(MIsCallable* ins);

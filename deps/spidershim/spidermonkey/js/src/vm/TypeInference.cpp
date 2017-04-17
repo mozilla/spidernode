@@ -1754,6 +1754,15 @@ TemporaryTypeSet::maybeSingleton()
     return getSingleton(0);
 }
 
+TemporaryTypeSet::ObjectKey*
+TemporaryTypeSet::maybeSingleObject()
+{
+    if (baseFlags() != 0 || baseObjectCount() != 1)
+        return nullptr;
+
+    return getObject(0);
+}
+
 JSObject*
 HeapTypeSetKey::singleton(CompilerConstraintList* constraints)
 {
@@ -3961,7 +3970,7 @@ TypeNewScript::maybeAnalyze(JSContext* cx, ObjectGroup* group, bool* regenerate,
 
     // Transfer this TypeNewScript from the fully initialized group to the
     // partially initialized group.
-    group->setNewScript(nullptr);
+    group->detachNewScript();
     initialGroup->setNewScript(this);
 
     initializedShape_ = prefixShape;

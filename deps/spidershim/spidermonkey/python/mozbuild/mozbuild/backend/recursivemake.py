@@ -418,6 +418,7 @@ class RecursiveMakeBackend(CommonBackend):
             'misc': set(),
             'tools': set(),
             'check': set(),
+            'syms': set(),
         }
 
     def summary(self):
@@ -524,6 +525,7 @@ class RecursiveMakeBackend(CommonBackend):
                 '.h',
                 '.inc',
                 '.py',
+                '.rs',
             )
             tier = 'export' if any(f.endswith(export_suffixes) for f in obj.outputs) else 'misc'
             self._no_skip[tier].add(backend_file.relobjdir)
@@ -567,6 +569,7 @@ class RecursiveMakeBackend(CommonBackend):
         elif isinstance(obj, Program):
             self._process_program(obj.program, backend_file)
             self._process_linked_libraries(obj, backend_file)
+            self._no_skip['syms'].add(backend_file.relobjdir)
 
         elif isinstance(obj, HostProgram):
             self._process_host_program(obj.program, backend_file)
@@ -575,6 +578,7 @@ class RecursiveMakeBackend(CommonBackend):
         elif isinstance(obj, SimpleProgram):
             self._process_simple_program(obj, backend_file)
             self._process_linked_libraries(obj, backend_file)
+            self._no_skip['syms'].add(backend_file.relobjdir)
 
         elif isinstance(obj, HostSimpleProgram):
             self._process_host_simple_program(obj.program, backend_file)
@@ -611,6 +615,7 @@ class RecursiveMakeBackend(CommonBackend):
         elif isinstance(obj, SharedLibrary):
             self._process_shared_library(obj, backend_file)
             self._process_linked_libraries(obj, backend_file)
+            self._no_skip['syms'].add(backend_file.relobjdir)
 
         elif isinstance(obj, StaticLibrary):
             self._process_static_library(obj, backend_file)
@@ -750,6 +755,8 @@ class RecursiveMakeBackend(CommonBackend):
         # https://savannah.gnu.org/bugs/index.php?42833
         root_mk.add_statement('compile_targets := %s' % ' '.join(sorted(
             set(self._compile_graph.keys()) | all_compile_deps)))
+        root_mk.add_statement('syms_targets := %s' % ' '.join(sorted(
+            set('%s/syms' % d for d in self._no_skip['syms']))))
 
         root_mk.add_statement('include root-deps.mk')
 
@@ -1244,11 +1251,6 @@ class RecursiveMakeBackend(CommonBackend):
             backend_file.write('NO_EXPAND_LIBS := 1\n')
 
     def _process_rust_library(self, libdef, backend_file):
-        lib_var = 'RUST_LIBRARY_FILE'
-        feature_var = 'RUST_LIBRARY_FEATURES'
-        if isinstance(libdef, HostRustLibrary):
-            lib_var = 'HOST_RUST_LIBRARY_FILE'
-            feature_var = 'HOST_RUST_LIBRARY_FEATURES'
         backend_file.write_once('%s := %s\n' % (libdef.LIB_FILE_VAR, libdef.import_name))
         backend_file.write('CARGO_FILE := $(srcdir)/Cargo.toml\n')
         # Need to normalize the path so Cargo sees the same paths from all

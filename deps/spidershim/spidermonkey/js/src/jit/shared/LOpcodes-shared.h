@@ -67,6 +67,7 @@
     _(NewArray)                     \
     _(NewArrayCopyOnWrite)          \
     _(NewArrayDynamicLength)        \
+    _(NewArrayIterator)             \
     _(NewTypedArray)                \
     _(NewTypedArrayDynamicLength)   \
     _(NewObject)                    \
@@ -376,6 +377,7 @@
     _(NearbyIntF)                   \
     _(In)                           \
     _(InArray)                      \
+    _(HasOwnCache)                  \
     _(InstanceOfO)                  \
     _(InstanceOfV)                  \
     _(CallInstanceOf)               \

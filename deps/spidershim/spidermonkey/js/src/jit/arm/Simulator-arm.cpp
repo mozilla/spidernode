@@ -1124,7 +1124,7 @@ Simulator::Simulator(JSContext* cx)
     stackLimit_ = 0;
     pc_modified_ = false;
     icount_ = 0L;
-    resume_pc_ = 0;
+    wasm_interrupt_ = false;
     break_pc_ = nullptr;
     break_instr_ = 0;
     single_stepping_ = false;
@@ -1547,6 +1547,30 @@ Simulator::exclusiveMonitorClear()
     exclusiveMonitorHeld_ = false;
 }
 
+// The signal handler only redirects the PC to the interrupt stub when the PC is
+// in function code. However, this guard is racy for the ARM simulator since the
+// signal handler samples PC in the middle of simulating an instruction and thus
+// the current PC may have advanced once since the signal handler's guard. So we
+// re-check here.
+void
+Simulator::handleWasmInterrupt()
+{
+    void* pc = (void*)get_pc();
+    uint8_t* fp = (uint8_t*)get_register(r11);
+
+    WasmActivation* activation = JSContext::innermostWasmActivation();
+    const wasm::Code* code = activation->compartment()->wasm.lookupCode(pc);
+    if (!code || !code->segment().containsFunctionPC(pc))
+        return;
+
+    // fp can be null during the prologue/epilogue of the entry function.
+    if (!fp)
+        return;
+
+    activation->startInterrupt(pc, fp);
+    set_pc(int32_t(code->segment().interruptCode()));
+}
+
 // WebAssembly memories contain an extra region of guard pages (see
 // WasmArrayRawBuffer comment). The guard pages catch out-of-bounds accesses
 // using a signal handler that redirects PC to a stub that safely reports an
@@ -1561,13 +1585,14 @@ Simulator::handleWasmFault(int32_t addr, unsigned numBytes)
         return false;
 
     void* pc = reinterpret_cast<void*>(get_pc());
-    void* fp = reinterpret_cast<void*>(get_register(r11));
+    uint8_t* fp = reinterpret_cast<uint8_t*>(get_register(r11));
     wasm::Instance* instance = wasm::LookupFaultingInstance(act, pc, fp);
     if (!instance || !instance->memoryAccessInGuardRegion((uint8_t*)addr, numBytes))
         return false;
 
     const wasm::MemoryAccess* memoryAccess = instance->code().lookupMemoryAccess(pc);
     if (!memoryAccess) {
+        act->startInterrupt(pc, fp);
         set_pc(int32_t(instance->codeSegment().outOfBoundsCode()));
         return true;
     }
@@ -2446,6 +2471,7 @@ typedef int32_t (*Prototype_Int_DoubleIntInt)(double arg0, int32_t arg1, int32_t
 typedef int32_t (*Prototype_Int_IntDoubleIntInt)(int32_t arg0, double arg1, int32_t arg2,
                                                  int32_t arg3);
 typedef float (*Prototype_Float32_Float32)(float arg0);
+typedef float (*Prototype_Float32_Float32Float32)(float arg0, float arg1);
 typedef float (*Prototype_Float32_IntInt)(int arg0, int arg1);
 
 typedef double (*Prototype_DoubleInt)(double arg0, int32_t arg1);
@@ -2630,6 +2656,21 @@ Simulator::softwareInterrupt(SimInstruction* instr)
                 fval0 = mozilla::BitwiseCast<float>(arg0);
             Prototype_Float32_Float32 target = reinterpret_cast<Prototype_Float32_Float32>(external);
             float fresult = target(fval0);
+            scratchVolatileRegisters(/* scratchFloat = true */);
+            setCallResultFloat(fresult);
+            break;
+          }
+          case Args_Float32_Float32Float32: {
+            float fval0, fval1;
+            if (UseHardFpABI()) {
+                get_float_from_s_register(0, &fval0);
+                get_float_from_s_register(1, &fval1);
+            } else {
+                fval0 = mozilla::BitwiseCast<float>(arg0);
+                fval1 = mozilla::BitwiseCast<float>(arg1);
+            }
+            Prototype_Float32_Float32Float32 target = reinterpret_cast<Prototype_Float32_Float32Float32>(external);
+            float fresult = target(fval0, fval1);
             scratchVolatileRegisters(/* scratchFloat = true */);
             setCallResultFloat(fresult);
             break;
@@ -4760,12 +4801,9 @@ Simulator::execute()
             instructionDecode(instr);
             icount_++;
 
-            int32_t rpc = resume_pc_;
-            if (MOZ_UNLIKELY(rpc != 0)) {
-                // wasm signal handler ran and we have to adjust the pc.
-                JSContext::innermostWasmActivation()->setResumePC((void*)get_pc());
-                set_pc(rpc);
-                resume_pc_ = 0;
+            if (MOZ_UNLIKELY(wasm_interrupt_)) {
+                handleWasmInterrupt();
+                wasm_interrupt_ = false;
             }
         }
         program_counter = get_pc();
