@@ -30,7 +30,7 @@
                                          # configure flags.
         'spidermonkey_args': ['<(PRODUCT_DIR)/spidermonkey'],
         'spidermonkey_binaries': [
-          '<(PRODUCT_DIR)/spidermonkey/js/src/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
+          '<(PRODUCT_DIR)/spidermonkey/js/src/build/<(STATIC_LIB_PREFIX)js_static<(STATIC_LIB_SUFFIX)',
         ],
         'conditions': [
           ['OS == "linux"', {
