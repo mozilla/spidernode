@@ -223,8 +223,6 @@
         'src/node_buffer.h',
         'src/node_constants.h',
         'src/node_debug_options.h',
-        'src/node_file.h',
-        'src/node_http_parser.h',
         'src/node_internals.h',
         'src/node_javascript.h',
         'src/node_mutex.h',
@@ -646,6 +644,7 @@
         [ 'node_engine=="v8"', {
           'sources': [
             'test/cctest/test_base64.cc',
+            'test/cctest/test_environment.cc',
             'test/cctest/test_util.cc',
             'test/cctest/test_url.cc'
           ],

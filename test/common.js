@@ -405,7 +405,7 @@ process.on('exit', function() {
   if (!exports.globalCheck) return;
   const leaked = leakedGlobals();
   if (leaked.length > 0) {
-    fail(`Unexpected global(s) found: ${leaked.join(', ')}`);
+    assert.fail(`Unexpected global(s) found: ${leaked.join(', ')}`);
   }
 });
 
@@ -508,14 +508,9 @@ exports.canCreateSymLink = function() {
   return true;
 };
 
-function fail(msg) {
-  assert.fail(null, null, msg);
-}
-exports.fail = fail;
-
 exports.mustNotCall = function(msg) {
   return function mustNotCall() {
-    fail(msg || 'function should not have been called');
+    assert.fail(msg || 'function should not have been called');
   };
 };
 
@@ -637,7 +632,7 @@ exports.WPT = {
   },
   assert_array_equals: assert.deepStrictEqual,
   assert_unreached(desc) {
-    assert.fail(undefined, undefined, `Reached unreachable code: ${desc}`);
+    assert.fail(`Reached unreachable code: ${desc}`);
   }
 };
 
@@ -663,4 +658,30 @@ exports.skipIfInspectorDisabled = function skipIfInspectorDisabled() {
     exports.skip('missing ssl support so inspector is disabled');
     process.exit(0);
   }
+};
+
+const arrayBufferViews = [
+  Int8Array,
+  Uint8Array,
+  Uint8ClampedArray,
+  Int16Array,
+  Uint16Array,
+  Int32Array,
+  Uint32Array,
+  Float32Array,
+  Float64Array,
+  DataView
+];
+
+exports.getArrayBufferViews = function getArrayBufferViews(buf) {
+  const { buffer, byteOffset, byteLength } = buf;
+
+  const out = [];
+  for (const type of arrayBufferViews) {
+    const { BYTES_PER_ELEMENT = 1 } = type;
+    if (byteLength % BYTES_PER_ELEMENT === 0) {
+      out.push(new type(buffer, byteOffset, byteLength / BYTES_PER_ELEMENT));
+    }
+  }
+  return out;
 };

@@ -1,7 +1,7 @@
 'use strict';
 
 /* WPT Refs:
-   https://github.com/w3c/web-platform-tests/blob/e48dd15/url/setters_tests.json
+   https://github.com/w3c/web-platform-tests/blob/3eff1bd/url/setters_tests.json
    License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
 */
 module.exports =
@@ -880,42 +880,42 @@ module.exports =
                 "hostname": "example.net"
             }
         },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.3.4x]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.3.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.3.4x]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.3.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
         // {
         //     "href": "file://y/",
         //     "new_value": "x:123",
@@ -1214,42 +1214,42 @@ module.exports =
                 "hostname": "example.net"
             }
         },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.3.4x]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.3.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.2.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
-        // {
-        //     "href": "http://example.net/",
-        //     "new_value": "[::1.]",
-        //     "expected": {
-        //         "href": "http://example.net/",
-        //         "host": "example.net",
-        //         "hostname": "example.net"
-        //     }
-        // },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.3.4x]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.3.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.2.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
+        {
+            "href": "http://example.net/",
+            "new_value": "[::1.]",
+            "expected": {
+                "href": "http://example.net/",
+                "host": "example.net",
+                "hostname": "example.net"
+            }
+        },
         // {
         //     "href": "file://y/",
         //     "new_value": "x:123",
@@ -1620,6 +1620,33 @@ module.exports =
                 "href": "sc://example.net/%23",
                 "pathname": "/%23"
             }
+        },
+        {
+            "comment": "File URLs and (back)slashes",
+            "href": "file://monkey/",
+            "new_value": "\\\\",
+            "expected": {
+                "href": "file://monkey/",
+                "pathname": "/"
+            }
+        },
+        {
+            "comment": "File URLs and (back)slashes",
+            "href": "file:///unicorn",
+            "new_value": "//\\/",
+            "expected": {
+                "href": "file:///",
+                "pathname": "/"
+            }
+        },
+        {
+            "comment": "File URLs and (back)slashes",
+            "href": "file:///unicorn",
+            "new_value": "//monkey/..//",
+            "expected": {
+                "href": "file:///",
+                "pathname": "/"
+            }
         }
     ],
     "search": [
@@ -1773,13 +1800,13 @@ module.exports =
                 "hash": "#%c3%89t%C3%A9"
             }
         },
-        // {
-        //     "href": "javascript:alert(1)",
-        //     "new_value": "castle",
-        //     "expected": {
-        //         "href": "javascript:alert(1)#castle",
-        //         "hash": "#castle"
-        //     }
-        // }
+        {
+            "href": "javascript:alert(1)",
+            "new_value": "castle",
+            "expected": {
+                "href": "javascript:alert(1)#castle",
+                "hash": "#castle"
+            }
+        }
     ]
 }

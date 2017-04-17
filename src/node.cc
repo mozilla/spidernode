@@ -22,8 +22,6 @@
 #include "node.h"
 #include "node_buffer.h"
 #include "node_constants.h"
-#include "node_file.h"
-#include "node_http_parser.h"
 #include "node_javascript.h"
 #include "node_version.h"
 #include "node_internals.h"
@@ -84,7 +82,6 @@
 
 #include <string>
 #include <vector>
-#include <list>
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
 #include <unicode/uvernum.h>
@@ -214,6 +211,12 @@ bool config_preserve_symlinks = false;
 
 // Set in node.cc by ParseArgs when --redirect-warnings= is used.
 std::string config_warning_file;  // NOLINT(runtime/string)
+
+// Set in node.cc by ParseArgs when --expose-internals or --expose_internals is
+// used.
+// Used in node_config.cc to set a constant on process.binding('config')
+// that is used by lib/internal/bootstrap_node.js
+bool config_expose_internals = false;
 
 bool v8_initialized = false;
 
@@ -1044,8 +1047,10 @@ void* ArrayBufferAllocator::Allocate(size_t size) {
     return node::UncheckedMalloc(size);
 }
 
-static bool DomainHasErrorHandler(const Environment* env,
-                                  const Local<Object>& domain) {
+namespace {
+
+bool DomainHasErrorHandler(const Environment* env,
+                           const Local<Object>& domain) {
   HandleScope scope(env->isolate());
 
   Local<Value> domain_event_listeners_v = domain->Get(env->events_string());
@@ -1066,7 +1071,7 @@ static bool DomainHasErrorHandler(const Environment* env,
   return false;
 }
 
-static bool DomainsStackHasErrorHandler(const Environment* env) {
+bool DomainsStackHasErrorHandler(const Environment* env) {
   HandleScope scope(env->isolate());
 
   if (!env->using_domains())
@@ -1091,7 +1096,7 @@ static bool DomainsStackHasErrorHandler(const Environment* env) {
 }
 
 
-static bool ShouldAbortOnUncaughtException(Isolate* isolate) {
+bool ShouldAbortOnUncaughtException(Isolate* isolate) {
   HandleScope scope(isolate);
 
   Environment* env = Environment::GetCurrent(isolate);
@@ -1220,6 +1225,8 @@ void SetupPromises(const FunctionCallbackInfo<Value>& args) {
       env->context(),
       FIXED_ONE_BYTE_STRING(args.GetIsolate(), "_setupPromises")).FromJust();
 }
+
+}  // anonymous namespace
 
 
 Local<Value> MakeCallback(Environment* env,
@@ -2269,7 +2276,7 @@ static void WaitForInspectorDisconnect(Environment* env) {
 }
 
 
-void Exit(const FunctionCallbackInfo<Value>& args) {
+static void Exit(const FunctionCallbackInfo<Value>& args) {
   WaitForInspectorDisconnect(Environment::GetCurrent(args));
   exit(args[0]->Int32Value());
 }
@@ -2286,7 +2293,7 @@ static void Uptime(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-void MemoryUsage(const FunctionCallbackInfo<Value>& args) {
+static void MemoryUsage(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
   size_t rss;
@@ -2314,7 +2321,7 @@ void MemoryUsage(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-void Kill(const FunctionCallbackInfo<Value>& args) {
+static void Kill(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
   if (args.Length() != 2) {
@@ -2338,7 +2345,7 @@ void Kill(const FunctionCallbackInfo<Value>& args) {
 // broken into the upper/lower 32 bits to be converted back in JS,
 // because there is no Uint64Array in JS.
 // The third entry contains the remaining nanosecond part of the value.
-void Hrtime(const FunctionCallbackInfo<Value>& args) {
+static void Hrtime(const FunctionCallbackInfo<Value>& args) {
   uint64_t t = uv_hrtime();
 
   Local<ArrayBuffer> ab = args[0].As<Uint32Array>()->Buffer();
@@ -2357,7 +2364,7 @@ void Hrtime(const FunctionCallbackInfo<Value>& args) {
 // which are uv_timeval_t structs (long tv_sec, long tv_usec).
 // Returns those values as Float64 microseconds in the elements of the array
 // passed to the function.
-void CPUUsage(const FunctionCallbackInfo<Value>& args) {
+static void CPUUsage(const FunctionCallbackInfo<Value>& args) {
   uv_rusage_t rusage;
 
   // Call libuv to get the values we'll return.
@@ -2428,7 +2435,7 @@ struct node_module* get_linked_module(const char* name) {
 // FIXME(bnoordhuis) Not multi-context ready. TBD how to resolve the conflict
 // when two contexts try to load the same shared object. Maybe have a shadow
 // cache that's a plain C list or hash table that's shared across contexts?
-void DLOpen(const FunctionCallbackInfo<Value>& args) {
+static void DLOpen(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   uv_lib_t lib;
 
@@ -2597,7 +2604,7 @@ void FatalException(Isolate* isolate, const TryCatch& try_catch) {
 }
 
 
-void OnMessage(Local<Message> message, Local<Value> error) {
+static void OnMessage(Local<Message> message, Local<Value> error) {
   // The current version of V8 sends messages for errors only
   // (thus `error` is always set).
   FatalException(Isolate::GetCurrent(), error, message);
@@ -3005,6 +3012,7 @@ static void DebugProcess(const FunctionCallbackInfo<Value>& args);
 static void DebugPause(const FunctionCallbackInfo<Value>& args);
 static void DebugEnd(const FunctionCallbackInfo<Value>& args);
 
+namespace {
 
 void NeedImmediateCallbackGetter(Local<Name> property,
                                  const PropertyCallbackInfo<Value>& info) {
@@ -3016,7 +3024,7 @@ void NeedImmediateCallbackGetter(Local<Name> property,
 }
 
 
-static void NeedImmediateCallbackSetter(
+void NeedImmediateCallbackSetter(
     Local<Name> property,
     Local<Value> value,
     const PropertyCallbackInfo<void>& info) {
@@ -3072,6 +3080,7 @@ void StopProfilerIdleNotifier(const FunctionCallbackInfo<Value>& args) {
         .FromJust();                                                          \
   } while (0)
 
+}  // anonymous namespace
 
 void SetupProcessObject(Environment* env,
                         int argc,
@@ -3283,6 +3292,7 @@ void SetupProcessObject(Environment* env,
     READONLY_PROPERTY(process, "_forceRepl", True(env->isolate()));
   }
 
+  // -r, --require
   if (!preload_modules.empty()) {
     Local<Array> array = Array::New(env->isolate());
     for (unsigned int i = 0; i < preload_modules.size(); ++i) {
@@ -3302,10 +3312,12 @@ void SetupProcessObject(Environment* env,
     READONLY_PROPERTY(process, "noDeprecation", True(env->isolate()));
   }
 
+  // --no-warnings
   if (no_process_warnings) {
     READONLY_PROPERTY(process, "noProcessWarnings", True(env->isolate()));
   }
 
+  // --trace-warnings
   if (trace_warnings) {
     READONLY_PROPERTY(process, "traceProcessWarnings", True(env->isolate()));
   }
@@ -3530,7 +3542,7 @@ static void PrintHelp() {
   // XXX: If you add an option here, please also add it to doc/node.1 and
   // doc/api/cli.md
   printf("Usage: node [options] [ -e script | script.js ] [arguments]\n"
-         "       node debug script.js [arguments]\n"
+         "       node inspect script.js [arguments]\n"
          "\n"
          "Options:\n"
          "  -v, --version              print Node.js version\n"
@@ -3652,8 +3664,10 @@ static void ParseArgs(int* argc,
   const char** new_exec_argv = new const char*[nargs];
   const char** new_v8_argv = new const char*[nargs];
   const char** new_argv = new const char*[nargs];
+#if HAVE_OPENSSL
   bool use_bundled_ca = false;
   bool use_openssl_ca = false;
+#endif  // HAVE_INSPECTOR
 
   for (unsigned int i = 0; i < nargs; ++i) {
     new_exec_argv[i] = nullptr;
@@ -3788,7 +3802,7 @@ static void ParseArgs(int* argc,
 #endif
     } else if (strcmp(arg, "--expose-internals") == 0 ||
                strcmp(arg, "--expose_internals") == 0) {
-      // consumed in js
+      config_expose_internals = true;
     } else if (strcmp(arg, "--") == 0) {
       index += 1;
       break;
@@ -4258,25 +4272,23 @@ void Init(int* argc,
 }
 
 
-struct AtExitCallback {
-  void (*cb_)(void* arg);
-  void* arg_;
-};
-
-static std::list<AtExitCallback> at_exit_functions;
-
-
-// TODO(bnoordhuis) Turn into per-context event.
 void RunAtExit(Environment* env) {
-  for (AtExitCallback at_exit : at_exit_functions) {
-    at_exit.cb_(at_exit.arg_);
-  }
-  at_exit_functions.clear();
+  env->RunAtExitCallbacks();
 }
 
 
+static uv_key_t thread_local_env;
+
+
 void AtExit(void (*cb)(void* arg), void* arg) {
-  at_exit_functions.push_back(AtExitCallback{cb, arg});
+  auto env = static_cast<Environment*>(uv_key_get(&thread_local_env));
+  AtExit(env, cb, arg);
+}
+
+
+void AtExit(Environment* env, void (*cb)(void* arg), void* arg) {
+  CHECK_NE(env, nullptr);
+  env->AtExit(cb, arg);
 }
 
 
@@ -4352,6 +4364,8 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
   Local<Context> context = Context::New(isolate);
   Context::Scope context_scope(context);
   Environment env(isolate_data, context);
+  CHECK_EQ(0, uv_key_create(&thread_local_env));
+  uv_key_set(&thread_local_env, &env);
   env.Start(argc, argv, exec_argc, exec_argv, v8_is_profiling);
 
   const char* path = argc > 1 ? argv[1] : nullptr;
@@ -4402,6 +4416,7 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
 
   const int exit_code = EmitExit(&env);
   RunAtExit(&env);
+  uv_key_delete(&thread_local_env);
 
   WaitForInspectorDisconnect(&env);
 #if defined(LEAK_SANITIZER)

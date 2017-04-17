@@ -338,7 +338,8 @@
                    '-O0' ],
        'cflags': [ '--coverage',
                    '-g',
-                   '-O0' ]
+                   '-O0' ],
+       'cflags!': [ '-O3' ]
     }],
     [ '(OS=="freebsd" or OS=="linux") and node_shared=="false" and node_engine == "v8"', {
       'ldflags': [ '-Wl,--whole-archive <(V8_BASE)' ],

@@ -196,7 +196,7 @@ test: all
 	$(MAKE) build-addons-napi
 	$(MAKE) cctest
 	$(PYTHON) tools/test.py --mode=release -J \
-		addons addons-napi doctool inspector known_issues message pseudo-tty parallel sequential
+		doctool inspector known_issues message pseudo-tty parallel sequential $(CI_NATIVE_SUITES)
 	$(MAKE) lint
 
 test-parallel: all
@@ -309,6 +309,9 @@ clear-stalled:
 test-gc: all test/gc/build/Release/binding.node
 	$(PYTHON) tools/test.py --mode=release gc
 
+test-gc-clean:
+	$(RM) -r test/gc/build
+
 test-build: | all build-addons build-addons-napi
 
 test-build-addons-napi: all build-addons-napi
@@ -346,7 +349,7 @@ test-ci: | clear-stalled build-addons build-addons-napi
 	out/Release/cctest --gtest_output=tap:cctest.tap
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) -p tap --logfile test.tap \
 		--mode=release --flaky-tests=$(FLAKY_TESTS) \
-		$(TEST_CI_ARGS) $(CI_NATIVE_SUITES) $(CI_JS_SUITES)
+		$(TEST_CI_ARGS) $(CI_JS_SUITES) $(CI_NATIVE_SUITES)
 	# Clean up any leftover processes, error if found.
 	ps awwx | grep Release/node | grep -v grep | cat
 	@PS_OUT=`ps awwx | grep Release/node | grep -v grep | awk '{print $$1}'`; \
@@ -885,7 +888,11 @@ cpplint:
 	@$(PYTHON) tools/check-imports.py
 
 ifneq ("","$(wildcard tools/eslint/lib/eslint.js)")
-lint: jslint cpplint
+lint:
+	EXIT_STATUS=0 ; \
+	$(MAKE) jslint || EXIT_STATUS=$$? ; \
+	$(MAKE) cpplint || EXIT_STATUS=$$? ; \
+	exit $$EXIT_STATUS
 CONFLICT_RE=^>>>>>>> [0-9A-Fa-f]+|^<<<<<<< [A-Za-z]+
 lint-ci: jslint-ci cpplint
 	@if ! ( grep -IEqrs "$(CONFLICT_RE)" benchmark deps doc lib src test tools ) \
@@ -905,13 +912,70 @@ lint:
 lint-ci: lint
 endif
 
-.PHONY: lint cpplint jslint bench clean docopen docclean doc dist distclean \
-	check uninstall install install-includes install-bin all staticlib \
-	dynamiclib test test-all test-addons test-addons-clean build-addons \
-	website-upload pkg blog blogclean tar binary release-only \
-	bench-http-simple bench-idle bench-all bench bench-misc bench-array \
-	bench-buffer bench-net bench-http bench-fs bench-tls cctest run-ci test-v8 \
-	test-v8-intl test-v8-benchmarks test-v8-all v8 lint-ci bench-ci jslint-ci \
-	doc-only $(TARBALL)-headers test-ci test-ci-native test-ci-js build-ci \
-	clear-stalled coverage-clean coverage-build coverage-test coverage \
-	list-gtests test-addons-napi build-addons-napi
+.PHONY: $(TARBALL)-headers \
+  all \
+  bench \
+  bench \
+  bench-all \
+  bench-array \
+  bench-buffer \
+  bench-ci \
+  bench-fs \
+  bench-http \
+  bench-http-simple \
+  bench-idle \
+  bench-misc \
+  bench-net \
+  bench-tls \
+  binary \
+  blog \
+  blogclean \
+  build-addons \
+  build-addons-napi \
+  build-ci \
+  cctest \
+  check \
+  clean \
+  clear-stalled \
+  coverage \
+  coverage-build \
+  coverage-clean \
+  coverage-test \
+  cpplint \
+  dist \
+  distclean \
+  doc \
+  doc-only \
+  docclean \
+  docopen \
+  dynamiclib \
+  install \
+  install-bin \
+  install-includes \
+  jslint \
+  jslint-ci \
+  lint \
+  lint-ci \
+  list-gtests \
+  pkg \
+  release-only \
+  run-ci \
+  staticlib \
+  tar \
+  test \
+  test-addons \
+  test-addons-clean \
+  test-addons-napi \
+  test-all \
+  test-ci \
+  test-ci-js \
+  test-ci-native \
+  test-gc \
+  test-gc-clean \
+  test-v8 \
+  test-v8-all \
+  test-v8-benchmarks \
+  test-v8-intl \
+  uninstall \
+  v8 \
+  website-upload
