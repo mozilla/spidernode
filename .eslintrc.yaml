@@ -1,3 +1,5 @@
+root: true
+
 env:
   node: true
   es6: true
@@ -34,6 +36,7 @@ rules:
   # Best Practices
   # http://eslint.org/docs/rules/#best-practices
   dot-location: [2, property]
+  eqeqeq: [2, smart]
   no-fallthrough: 2
   no-global-assign: 2
   no-multi-spaces: 2

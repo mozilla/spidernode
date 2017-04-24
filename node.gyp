@@ -23,8 +23,6 @@
     'node_core_target_name%': 'node',
     'library_files': [
       'lib/internal/bootstrap_node.js',
-      'lib/_debug_agent.js',
-      'lib/_debugger.js',
       'lib/assert.js',
       'lib/buffer.js',
       'lib/child_process.js',
