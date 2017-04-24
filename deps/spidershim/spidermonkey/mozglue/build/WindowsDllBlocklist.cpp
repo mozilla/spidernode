@@ -27,6 +27,7 @@
 
 #include "nsWindowsDllInterceptor.h"
 #include "mozilla/Sprintf.h"
+#include "mozilla/StackWalk_windows.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WindowsVersion.h"
 #include "nsWindowsHelpers.h"
@@ -232,6 +233,9 @@ static const DllBlockInfo sWindowsDllBlocklist[] = {
   // Crashes with Internet Download Manager, bug 1333486
   { "idmcchandler7.dll", ALL_VERSIONS },
   { "idmcchandler7_64.dll", ALL_VERSIONS },
+
+  // Nahimic 2 breaks applicaton update (bug 1356637)
+  { "nahimic2devprops.dll", ALL_VERSIONS },
 
   { nullptr, 0 }
 };
@@ -703,7 +707,13 @@ continue_loading:
   printf_stderr("LdrLoadDll: continuing load... ('%S')\n", moduleFileName->Buffer);
 #endif
 
-  return stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
+  // Prevent the stack walker from suspending this thread when LdrLoadDll
+  // holds the RtlLookupFunctionEntry lock.
+  AcquireStackWalkWorkaroundLock();
+  NTSTATUS ret = stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
+  ReleaseStackWalkWorkaroundLock();
+
+  return ret;
 }
 
 WindowsDllInterceptor NtDllIntercept;

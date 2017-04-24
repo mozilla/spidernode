@@ -18,17 +18,16 @@
 namespace js {
 namespace frontend {
 
-template <typename ParseHandler>
+template <template <typename CharT> class ParseHandler, typename CharT>
 class Parser;
 
-class SyntaxParseHandler;
+template <typename CharT> class SyntaxParseHandler;
 
 // Parse handler used when generating a full parse tree for all code which the
 // parser encounters.
-class FullParseHandler
+class FullParseHandlerBase
 {
     ParseNodeAllocator allocator;
-    TokenStream& tokenStream;
 
     ParseNode* allocParseNode(size_t size) {
         MOZ_ASSERT(size == sizeof(ParseNode));
@@ -53,15 +52,6 @@ class FullParseHandler
     size_t lazyClosedOverBindingIndex;
 
   public:
-
-    /*
-     * If non-nullptr, points to a syntax parser which can be used for inner
-     * functions. Cleared if language features not handled by the syntax parser
-     * are encountered, in which case all future activity will use the full
-     * parser.
-     */
-    Parser<SyntaxParseHandler>* syntaxParser;
-
     /* new_ methods for creating parse nodes. These report OOM on context. */
     JS_DECLARE_NEW_METHODS(new_, allocParseNode, inline)
 
@@ -93,22 +83,17 @@ class FullParseHandler
                isParenthesizedDestructuringPattern(node);
     }
 
-    FullParseHandler(JSContext* cx, LifoAlloc& alloc,
-                     TokenStream& tokenStream, Parser<SyntaxParseHandler>* syntaxParser,
-                     LazyScript* lazyOuterFunction)
+    FullParseHandlerBase(JSContext* cx, LifoAlloc& alloc, LazyScript* lazyOuterFunction)
       : allocator(cx, alloc),
-        tokenStream(tokenStream),
         lazyOuterFunction_(cx, lazyOuterFunction),
         lazyInnerFunctionIndex(0),
-        lazyClosedOverBindingIndex(0),
-        syntaxParser(syntaxParser)
+        lazyClosedOverBindingIndex(0)
     {}
 
     static ParseNode* null() { return nullptr; }
 
     ParseNode* freeTree(ParseNode* pn) { return allocator.freeTree(pn); }
     void prepareNodeForMutation(ParseNode* pn) { return allocator.prepareNodeForMutation(pn); }
-    const Token& currentToken() { return tokenStream.currentToken(); }
 
     ParseNode* newName(PropertyName* name, const TokenPos& pos, JSContext* cx)
     {
@@ -149,7 +134,7 @@ class FullParseHandler
         if (!callSite)
             return null();
 
-        Node propExpr = newArrayLiteral(getPosition(callSite).begin);
+        Node propExpr = newArrayLiteral(callSite->pn_pos.begin);
         if (!propExpr)
             return null();
 
@@ -323,8 +308,10 @@ class FullParseHandler
         return literal;
     }
 
-    ParseNode* newClass(ParseNode* name, ParseNode* heritage, ParseNode* methodBlock) {
-        return new_<ClassNode>(name, heritage, methodBlock);
+    ParseNode* newClass(ParseNode* name, ParseNode* heritage, ParseNode* methodBlock,
+                        const TokenPos& pos)
+    {
+        return new_<ClassNode>(name, heritage, methodBlock, pos);
     }
     ParseNode* newClassMethodList(uint32_t begin) {
         return new_<ListNode>(PNK_CLASSMETHODLIST, TokenPos(begin, begin + 1));
@@ -794,11 +781,8 @@ class FullParseHandler
         MOZ_ASSERT(pn->pn_pos.begin <= pn->pn_pos.end);
     }
 
-    void setPosition(ParseNode* pn, const TokenPos& pos) {
-        pn->pn_pos = pos;
-    }
-    TokenPos getPosition(ParseNode* pn) {
-        return pn->pn_pos;
+    uint32_t getFunctionNameOffset(ParseNode* func, TokenStreamBase& ts) {
+        return func->pn_pos.begin;
     }
 
     bool isDeclarationKind(ParseNodeKind kind) {
@@ -920,10 +904,6 @@ class FullParseHandler
         node->setOp(node->isOp(JSOP_GETLOCAL) ? JSOP_SETLOCAL : JSOP_SETNAME);
     }
 
-    void disableSyntaxParser() {
-        syntaxParser = nullptr;
-    }
-
     bool canSkipLazyInnerFunctions() {
         return !!lazyOuterFunction_;
     }
@@ -944,8 +924,9 @@ class FullParseHandler
 };
 
 inline bool
-FullParseHandler::addCatchBlock(ParseNode* catchList, ParseNode* lexicalScope,
-                                ParseNode* catchName, ParseNode* catchGuard, ParseNode* catchBody)
+FullParseHandlerBase::addCatchBlock(ParseNode* catchList, ParseNode* lexicalScope,
+                                    ParseNode* catchName, ParseNode* catchGuard,
+                                    ParseNode* catchBody)
 {
     ParseNode* catchpn = newTernary(PNK_CATCH, catchName, catchGuard, catchBody);
     if (!catchpn)
@@ -956,7 +937,8 @@ FullParseHandler::addCatchBlock(ParseNode* catchList, ParseNode* lexicalScope,
 }
 
 inline bool
-FullParseHandler::setLastFunctionFormalParameterDefault(ParseNode* funcpn, ParseNode* defaultValue)
+FullParseHandlerBase::setLastFunctionFormalParameterDefault(ParseNode* funcpn,
+                                                            ParseNode* defaultValue)
 {
     ParseNode* arg = funcpn->pn_body->last();
     ParseNode* pn = newBinary(PNK_ASSIGN, arg, defaultValue, JSOP_NOP);
@@ -984,7 +966,7 @@ FullParseHandler::setLastFunctionFormalParameterDefault(ParseNode* funcpn, Parse
 }
 
 inline bool
-FullParseHandler::finishInitializerAssignment(ParseNode* pn, ParseNode* init)
+FullParseHandlerBase::finishInitializerAssignment(ParseNode* pn, ParseNode* init)
 {
     pn->pn_expr = init;
     pn->setOp(JSOP_SETNAME);
@@ -993,6 +975,35 @@ FullParseHandler::finishInitializerAssignment(ParseNode* pn, ParseNode* init)
     pn->pn_pos.end = init->pn_pos.end;
     return true;
 }
+
+template<typename CharT>
+class FullParseHandler : public FullParseHandlerBase
+{
+    using SyntaxParser = Parser<SyntaxParseHandler, CharT>;
+
+    /*
+     * If non-nullptr, points to a syntax parser which can be used for inner
+     * functions. Cleared if language features not handled by the syntax parser
+     * are encountered, in which case all future activity will use the full
+     * parser.
+     */
+    SyntaxParser* syntaxParser;
+
+  public:
+    FullParseHandler(JSContext* cx, LifoAlloc& alloc, SyntaxParser* syntaxParser,
+                     LazyScript* lazyOuterFunction)
+      : FullParseHandlerBase(cx, alloc, lazyOuterFunction),
+        syntaxParser(syntaxParser)
+    {}
+
+    SyntaxParser* getSyntaxParser() const {
+        return syntaxParser;
+    }
+
+    void disableSyntaxParser() {
+        syntaxParser = nullptr;
+    }
+};
 
 } // namespace frontend
 } // namespace js

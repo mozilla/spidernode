@@ -44,6 +44,8 @@
 #include "js/MemoryMetrics.h"
 #include "js/SliceBudget.h"
 #include "vm/Debugger.h"
+#include "vm/TraceLogging.h"
+#include "vm/TraceLoggingGraph.h"
 #include "wasm/WasmSignalHandlers.h"
 
 #include "jscntxtinlines.h"
@@ -63,6 +65,7 @@ using JS::DoubleNaNValue;
 
 /* static */ MOZ_THREAD_LOCAL(JSContext*) js::TlsContext;
 /* static */ Atomic<size_t> JSRuntime::liveRuntimesCount;
+Atomic<JS::LargeAllocationFailureCallback> js::OnLargeAllocationFailure;
 
 namespace js {
     bool gCanUseExtraThreads = true;
@@ -169,7 +172,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     offthreadIonCompilationEnabled_(true),
     parallelParsingEnabled_(true),
     autoWritableJitCodeActive_(false),
-    largeAllocationFailureCallback(nullptr),
     oomCallback(nullptr),
     debuggerMallocSizeOf(ReturnZeroSize),
     lastAnimationTime(0),
@@ -470,6 +472,10 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
         rtSizes->contexts += cx->sizeOfExcludingThis(mallocSizeOf);
         rtSizes->temporary += cx->tempLifoAlloc().sizeOfExcludingThis(mallocSizeOf);
         rtSizes->interpreterStack += cx->interpreterStack().sizeOfExcludingThis(mallocSizeOf);
+#ifdef JS_TRACE_LOGGING
+        if (cx->traceLogger)
+            rtSizes->tracelogger += cx->traceLogger->sizeOfIncludingThis(mallocSizeOf);
+#endif
     }
 
     if (MathCache* cache = caches().maybeGetMathCache())
@@ -829,8 +835,8 @@ JSRuntime::onOutOfMemory(AllocFunction allocFunc, size_t nbytes, void* reallocPt
 void*
 JSRuntime::onOutOfMemoryCanGC(AllocFunction allocFunc, size_t bytes, void* reallocPtr)
 {
-    if (largeAllocationFailureCallback && bytes >= LARGE_ALLOCATION)
-        largeAllocationFailureCallback(largeAllocationFailureCallbackData);
+    if (OnLargeAllocationFailure && bytes >= LARGE_ALLOCATION)
+        OnLargeAllocationFailure();
     return onOutOfMemory(allocFunc, bytes, reallocPtr);
 }
 

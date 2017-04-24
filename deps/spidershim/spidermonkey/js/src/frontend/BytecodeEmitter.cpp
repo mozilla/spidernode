@@ -28,6 +28,7 @@
 #include "jstypes.h"
 #include "jsutil.h"
 
+#include "ds/Nestable.h"
 #include "frontend/Parser.h"
 #include "frontend/TokenStream.h"
 #include "vm/Debugger.h"
@@ -2127,7 +2128,7 @@ class ForOfLoopControl : public LoopControl
 };
 
 BytecodeEmitter::BytecodeEmitter(BytecodeEmitter* parent,
-                                 Parser<FullParseHandler>* parser, SharedContext* sc,
+                                 Parser<FullParseHandler, char16_t>* parser, SharedContext* sc,
                                  HandleScript script, Handle<LazyScript*> lazyScript,
                                  uint32_t lineNum, EmitterMode emitterMode)
   : sc(sc),
@@ -2167,7 +2168,7 @@ BytecodeEmitter::BytecodeEmitter(BytecodeEmitter* parent,
 }
 
 BytecodeEmitter::BytecodeEmitter(BytecodeEmitter* parent,
-                                 Parser<FullParseHandler>* parser, SharedContext* sc,
+                                 Parser<FullParseHandler, char16_t>* parser, SharedContext* sc,
                                  HandleScript script, Handle<LazyScript*> lazyScript,
                                  TokenPos bodyPosition, EmitterMode emitterMode)
     : BytecodeEmitter(parent, parser, sc, script, lazyScript,
@@ -7949,7 +7950,8 @@ BytecodeEmitter::emitFunction(ParseNode* pn, bool needsProto)
             Rooted<JSObject*> sourceObject(cx, script->sourceObject());
             Rooted<JSScript*> script(cx, JSScript::Create(cx, options, sourceObject,
                                                           funbox->bufStart, funbox->bufEnd,
-                                                          funbox->preludeStart));
+                                                          funbox->toStringStart,
+                                                          funbox->toStringEnd));
             if (!script)
                 return false;
 
@@ -9230,41 +9232,6 @@ BytecodeEmitter::isRestParameter(ParseNode* pn)
 }
 
 bool
-BytecodeEmitter::emitOptimizeSpread(ParseNode* arg0, JumpList* jmp, bool* emitted)
-{
-    // Emit a pereparation code to optimize the spread call with a rest
-    // parameter:
-    //
-    //   function f(...args) {
-    //     g(...args);
-    //   }
-    //
-    // If the spread operand is a rest parameter and it's optimizable array,
-    // skip spread operation and pass it directly to spread call operation.
-    // See the comment in OptimizeSpreadCall in Interpreter.cpp for the
-    // optimizable conditons.
-    if (!isRestParameter(arg0)) {
-        *emitted = false;
-        return true;
-    }
-
-    if (!emitTree(arg0))
-        return false;
-
-    if (!emit1(JSOP_OPTIMIZE_SPREADCALL))
-        return false;
-
-    if (!emitJump(JSOP_IFNE, jmp))
-        return false;
-
-    if (!emit1(JSOP_POP))
-        return false;
-
-    *emitted = true;
-    return true;
-}
-
-bool
 BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUsage::WantValue */)
 {
     bool callop = pn->isKind(PNK_CALL) || pn->isKind(PNK_TAGGED_TEMPLATE);
@@ -9421,18 +9388,43 @@ BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUs
         }
     } else {
         ParseNode* args = pn2->pn_next;
-        JumpList jmp;
-        bool optCodeEmitted = false;
-        if (argc == 1) {
-            if (!emitOptimizeSpread(args->pn_kid, &jmp, &optCodeEmitted))
+        bool emitOptCode = (argc == 1) && isRestParameter(args->pn_kid);
+        IfThenElseEmitter ifNotOptimizable(this);
+
+        if (emitOptCode) {
+            // Emit a preparation code to optimize the spread call with a rest
+            // parameter:
+            //
+            //   function f(...args) {
+            //     g(...args);
+            //   }
+            //
+            // If the spread operand is a rest parameter and it's optimizable
+            // array, skip spread operation and pass it directly to spread call
+            // operation.  See the comment in OptimizeSpreadCall in
+            // Interpreter.cpp for the optimizable conditons.
+
+            if (!emitTree(args->pn_kid))
+                return false;
+
+            if (!emit1(JSOP_OPTIMIZE_SPREADCALL))
+                return false;
+
+            if (!emit1(JSOP_NOT))
+                return false;
+
+            if (!ifNotOptimizable.emitIf())
+                return false;
+
+            if (!emit1(JSOP_POP))
                 return false;
         }
 
         if (!emitArray(args, argc, JSOP_SPREADCALLARRAY))
             return false;
 
-        if (optCodeEmitted) {
-            if (!emitJumpTargetAndPatch(jmp))
+        if (emitOptCode) {
+            if (!ifNotOptimizable.emitEnd())
                 return false;
         }
 
@@ -10469,6 +10461,13 @@ BytecodeEmitter::emitClass(ParseNode* pn)
                 return false;
         }
     } else {
+        // In the case of default class constructors, emit the start and end
+        // offsets in the source buffer as source notes so that when we
+        // actually make the constructor during execution, we can give it the
+        // correct toString output.
+        if (!newSrcNote3(SRC_CLASS_SPAN, ptrdiff_t(pn->pn_pos.begin), ptrdiff_t(pn->pn_pos.end)))
+            return false;
+
         JSAtom *name = names ? names->innerBinding()->pn_atom : cx->names().empty;
         if (heritageExpression) {
             if (!emitAtomOp(name, JSOP_DERIVEDCONSTRUCTOR))
