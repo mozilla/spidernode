@@ -58,6 +58,9 @@ class IonICStub
 
 class IonGetPropertyIC;
 class IonSetPropertyIC;
+class IonGetNameIC;
+class IonBindNameIC;
+class IonHasOwnIC;
 
 class IonIC
 {
@@ -138,6 +141,18 @@ class IonIC
     IonSetPropertyIC* asSetPropertyIC() {
         MOZ_ASSERT(kind_ == CacheKind::SetProp || kind_ == CacheKind::SetElem);
         return (IonSetPropertyIC*)this;
+    }
+    IonGetNameIC* asGetNameIC() {
+        MOZ_ASSERT(kind_ == CacheKind::GetName);
+        return (IonGetNameIC*)this;
+    }
+    IonBindNameIC* asBindNameIC() {
+        MOZ_ASSERT(kind_ == CacheKind::BindName);
+        return (IonBindNameIC*)this;
+    }
+    IonHasOwnIC* asHasOwnIC() {
+        MOZ_ASSERT(kind_ == CacheKind::HasOwn);
+        return (IonHasOwnIC*)this;
     }
 
     void updateBaseAddress(JitCode* code, MacroAssembler& masm);
@@ -241,6 +256,86 @@ class IonSetPropertyIC : public IonIC
 
     static MOZ_MUST_USE bool update(JSContext* cx, HandleScript outerScript, IonSetPropertyIC* ic,
                                     HandleObject obj, HandleValue idVal, HandleValue rhs);
+};
+
+class IonGetNameIC : public IonIC
+{
+    LiveRegisterSet liveRegs_;
+
+    Register environment_;
+    ValueOperand output_;
+    Register temp_;
+
+  public:
+    IonGetNameIC(LiveRegisterSet liveRegs, Register environment, ValueOperand output,
+                 Register temp)
+      : IonIC(CacheKind::GetName),
+        liveRegs_(liveRegs),
+        environment_(environment),
+        output_(output),
+        temp_(temp)
+    { }
+
+    Register environment() const { return environment_; }
+    ValueOperand output() const { return output_; }
+    Register temp() const { return temp_; }
+    LiveRegisterSet liveRegs() const { return liveRegs_; }
+
+    static MOZ_MUST_USE bool update(JSContext* cx, HandleScript outerScript, IonGetNameIC* ic,
+                                    HandleObject envChain, MutableHandleValue res);
+};
+
+class IonBindNameIC : public IonIC
+{
+    LiveRegisterSet liveRegs_;
+
+    Register environment_;
+    Register output_;
+    Register temp_;
+
+  public:
+    IonBindNameIC(LiveRegisterSet liveRegs, Register environment, Register output, Register temp)
+      : IonIC(CacheKind::BindName),
+        liveRegs_(liveRegs),
+        environment_(environment),
+        output_(output),
+        temp_(temp)
+    { }
+
+    Register environment() const { return environment_; }
+    Register output() const { return output_; }
+    Register temp() const { return temp_; }
+    LiveRegisterSet liveRegs() const { return liveRegs_; }
+
+    static JSObject* update(JSContext* cx, HandleScript outerScript, IonBindNameIC* ic,
+                            HandleObject envChain);
+};
+
+class IonHasOwnIC : public IonIC
+{
+    LiveRegisterSet liveRegs_;
+
+    TypedOrValueRegister value_;
+    TypedOrValueRegister id_;
+    Register output_;
+
+  public:
+    IonHasOwnIC(LiveRegisterSet liveRegs, TypedOrValueRegister value,
+                TypedOrValueRegister id, Register output)
+      : IonIC(CacheKind::HasOwn),
+        liveRegs_(liveRegs),
+        value_(value),
+        id_(id),
+        output_(output)
+    { }
+
+    TypedOrValueRegister value() const { return value_; }
+    TypedOrValueRegister id() const { return id_; }
+    Register output() const { return output_; }
+    LiveRegisterSet liveRegs() const { return liveRegs_; }
+
+    static MOZ_MUST_USE bool update(JSContext* cx, HandleScript outerScript, IonHasOwnIC* ic,
+                                    HandleValue val, HandleValue idVal, int32_t* res);
 };
 
 } // namespace jit

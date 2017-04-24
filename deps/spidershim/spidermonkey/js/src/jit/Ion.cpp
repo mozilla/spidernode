@@ -416,14 +416,11 @@ JitZoneGroup::JitZoneGroup(ZoneGroup* group)
 JitCompartment::JitCompartment()
   : stubCodes_(nullptr),
     cacheIRStubCodes_(nullptr),
-    baselineGetPropReturnAddr_(nullptr),
-    baselineSetPropReturnAddr_(nullptr),
     stringConcatStub_(nullptr),
     regExpMatcherStub_(nullptr),
     regExpSearcherStub_(nullptr),
     regExpTesterStub_(nullptr)
 {
-    baselineCallReturnAddrs_[0] = baselineCallReturnAddrs_[1] = nullptr;
 }
 
 JitCompartment::~JitCompartment()
@@ -480,10 +477,8 @@ jit::FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder,
     }
 
     // If the builder is still in one of the helper thread list, then remove it.
-    if (builder->isInList()) {
-        MOZ_ASSERT(runtime);
-        runtime->ionLazyLinkListRemove(builder);
-    }
+    if (builder->isInList())
+        builder->script()->zone()->group()->ionLazyLinkListRemove(builder);
 
     // Clear the recompiling flag of the old ionScript, since we continue to
     // use the old ionScript if recompiling fails.
@@ -553,7 +548,7 @@ jit::LinkIonScript(JSContext* cx, HandleScript calleeScript)
         calleeScript->baselineScript()->removePendingIonBuilder(calleeScript);
 
         // Remove from pending.
-        cx->runtime()->ionLazyLinkListRemove(builder);
+        cx->zone()->group()->ionLazyLinkListRemove(builder);
     }
 
     {
@@ -647,17 +642,11 @@ JitCompartment::sweep(FreeOp* fop, JSCompartment* compartment)
     stubCodes_->sweep();
     cacheIRStubCodes_->sweep();
 
-    // If the sweep removed the ICCall_Fallback stub, nullptr the baselineCallReturnAddr_ field.
-    if (!stubCodes_->lookup(ICCall_Fallback::Compiler::BASELINE_CALL_KEY))
-        baselineCallReturnAddrs_[0] = nullptr;
-    if (!stubCodes_->lookup(ICCall_Fallback::Compiler::BASELINE_CONSTRUCT_KEY))
-        baselineCallReturnAddrs_[1] = nullptr;
-
-    // Similarly for the ICGetProp_Fallback stub.
-    if (!stubCodes_->lookup(ICGetProp_Fallback::Compiler::BASELINE_KEY))
-        baselineGetPropReturnAddr_ = nullptr;
-    if (!stubCodes_->lookup(ICSetProp_Fallback::Compiler::BASELINE_KEY))
-        baselineSetPropReturnAddr_ = nullptr;
+    // If the sweep removed a bailout Fallback stub, nullptr the corresponding return addr.
+    for (auto& it : bailoutReturnStubInfo_) {
+        if (!stubCodes_->lookup(it.key))
+           it = BailoutReturnStubInfo();
+    }
 
     JSRuntime* rt = fop->runtime();
     if (stringConcatStub_ && !IsMarkedUnbarriered(rt, &stringConcatStub_))
@@ -870,8 +859,6 @@ IonScript::IonScript()
     recompiling_(false),
     runtimeData_(0),
     runtimeSize_(0),
-    cacheIndex_(0),
-    cacheEntries_(0),
     icIndex_(0),
     icEntries_(0),
     safepointIndexOffset_(0),
@@ -904,7 +891,7 @@ IonScript::New(JSContext* cx, RecompileInfo recompileInfo,
                size_t snapshotsListSize, size_t snapshotsRVATableSize,
                size_t recoversSize, size_t bailoutEntries,
                size_t constants, size_t safepointIndices,
-               size_t osiIndices, size_t cacheEntries, size_t icEntries,
+               size_t osiIndices, size_t icEntries,
                size_t runtimeSize,  size_t safepointsSize,
                size_t backedgeEntries, size_t sharedStubEntries,
                OptimizationLevel optimizationLevel)
@@ -927,7 +914,6 @@ IonScript::New(JSContext* cx, RecompileInfo recompileInfo,
     size_t paddedConstantsSize = AlignBytes(constants * sizeof(Value), DataAlignment);
     size_t paddedSafepointIndicesSize = AlignBytes(safepointIndices * sizeof(SafepointIndex), DataAlignment);
     size_t paddedOsiIndicesSize = AlignBytes(osiIndices * sizeof(OsiIndex), DataAlignment);
-    size_t paddedCacheEntriesSize = AlignBytes(cacheEntries * sizeof(uint32_t), DataAlignment);
     size_t paddedICEntriesSize = AlignBytes(icEntries * sizeof(uint32_t), DataAlignment);
     size_t paddedRuntimeSize = AlignBytes(runtimeSize, DataAlignment);
     size_t paddedSafepointSize = AlignBytes(safepointsSize, DataAlignment);
@@ -940,7 +926,6 @@ IonScript::New(JSContext* cx, RecompileInfo recompileInfo,
                    paddedConstantsSize +
                    paddedSafepointIndicesSize +
                    paddedOsiIndicesSize +
-                   paddedCacheEntriesSize +
                    paddedICEntriesSize +
                    paddedRuntimeSize +
                    paddedSafepointSize +
@@ -956,10 +941,6 @@ IonScript::New(JSContext* cx, RecompileInfo recompileInfo,
     script->runtimeData_ = offsetCursor;
     script->runtimeSize_ = runtimeSize;
     offsetCursor += paddedRuntimeSize;
-
-    script->cacheIndex_ = offsetCursor;
-    script->cacheEntries_ = cacheEntries;
-    offsetCursor += paddedCacheEntriesSize;
 
     script->icIndex_ = offsetCursor;
     script->icEntries_ = icEntries;
@@ -1039,9 +1020,6 @@ IonScript::trace(JSTracer* trc)
     }
 
     // Trace caches so that the JSScript pointer can be updated if moved.
-    for (size_t i = 0; i < numCaches(); i++)
-        getCacheFromIndex(i).trace(trc);
-
     for (size_t i = 0; i < numICs(); i++)
         getICFromIndex(i).trace(trc);
 }
@@ -1142,18 +1120,6 @@ void
 IonScript::copyRuntimeData(const uint8_t* data)
 {
     memcpy(runtimeData(), data, runtimeSize());
-}
-
-void
-IonScript::copyCacheEntries(const uint32_t* caches, MacroAssembler& masm)
-{
-    memcpy(cacheIndex(), caches, numCaches() * sizeof(uint32_t));
-
-    // Jumps in the caches reflect the offset of those jumps in the compiled
-    // code, not the absolute positions of the jumps. Update according to the
-    // final code address now.
-    for (size_t i = 0; i < numCaches(); i++)
-        getCacheFromIndex(i).updateBaseAddress(method_, masm);
 }
 
 void
@@ -1340,25 +1306,6 @@ IonScript::purgeOptimizedStubs(Zone* zone)
         }
     }
 #endif
-}
-
-void
-IonScript::purgeCaches()
-{
-    // Don't reset any ICs if we're invalidated, otherwise, repointing the
-    // inline jump could overwrite an invalidation marker. These ICs can
-    // no longer run, however, the IC slow paths may be active on the stack.
-    // ICs therefore are required to check for invalidation before patching,
-    // to ensure the same invariant.
-    if (invalidated())
-        return;
-
-    if (numCaches() == 0)
-        return;
-
-    AutoWritableJitCode awjc(method());
-    for (size_t i = 0; i < numCaches(); i++)
-        getCacheFromIndex(i).reset(DontReprotect);
 }
 
 void
@@ -2106,12 +2053,12 @@ AttachFinishedCompilations(JSContext* cx)
             JSScript* script = builder->script();
             MOZ_ASSERT(script->hasBaselineScript());
             script->baselineScript()->setPendingIonBuilder(cx->runtime(), script, builder);
-            cx->runtime()->ionLazyLinkListAdd(builder);
+            cx->zone()->group()->ionLazyLinkListAdd(builder);
 
-            // Don't keep more than 100 lazy link builders.
+            // Don't keep more than 100 lazy link builders in a zone group.
             // Link the oldest ones immediately.
-            while (cx->runtime()->ionLazyLinkListSize() > 100) {
-                jit::IonBuilder* builder = cx->runtime()->ionLazyLinkList().getLast();
+            while (cx->zone()->group()->ionLazyLinkListSize() > 100) {
+                jit::IonBuilder* builder = cx->zone()->group()->ionLazyLinkList().getLast();
                 RootedScript script(cx, builder->script());
 
                 AutoUnlockHelperThreadState unlock(lock);
@@ -3133,7 +3080,6 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
         // Purge ICs before we mark this script as invalidated. This will
         // prevent lastJump_ from appearing to be a bogus pointer, just
         // in case anyone tries to read it.
-        ionScript->purgeCaches();
         ionScript->purgeICs(script->zone());
         ionScript->purgeOptimizedStubs(script->zone());
 
@@ -3540,13 +3486,6 @@ AutoFlushICache::~AutoFlushICache()
     JitSpewFin(JitSpew_CacheFlush);
     cx->setAutoFlushICache(prev_);
 #endif
-}
-
-void
-jit::PurgeCaches(JSScript* script)
-{
-    if (script->hasIonScript())
-        script->ionScript()->purgeCaches();
 }
 
 size_t

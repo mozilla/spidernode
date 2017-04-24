@@ -473,6 +473,31 @@ class ICIn_Fallback : public ICFallbackStub
     };
 };
 
+// HasOwn
+//      JSOP_HASOWN
+class ICHasOwn_Fallback : public ICFallbackStub
+{
+    friend class ICStubSpace;
+
+    explicit ICHasOwn_Fallback(JitCode* stubCode)
+      : ICFallbackStub(ICStub::HasOwn_Fallback, stubCode)
+    { }
+
+  public:
+    class Compiler : public ICStubCompiler {
+      protected:
+        MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
+
+      public:
+        explicit Compiler(JSContext* cx)
+          : ICStubCompiler(cx, ICStub::HasOwn_Fallback, Engine::Baseline)
+        { }
+
+        ICStub* getStub(ICStubSpace* space) {
+            return newStub<ICHasOwn_Fallback>(space, getStubCode());
+        }
+    };
+};
 
 // GetName
 //      JSOP_GETNAME
@@ -628,13 +653,8 @@ class ICSetProp_Fallback : public ICFallbackStub
     }
 
     class Compiler : public ICStubCompiler {
-      public:
-        static const int32_t BASELINE_KEY =
-            (static_cast<int32_t>(Engine::Baseline)) |
-            (static_cast<int32_t>(ICStub::SetProp_Fallback) << 1);
-
       protected:
-        uint32_t returnOffset_;
+        CodeOffset bailoutReturnOffset_;
         MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
         void postGenerateStubCode(MacroAssembler& masm, Handle<JitCode*> code);
 
@@ -725,22 +745,10 @@ class ICCall_Fallback : public ICMonitoredFallbackStub
 
     // Compiler for this stub kind.
     class Compiler : public ICCallStubCompiler {
-      public:
-        static const int32_t BASELINE_CALL_KEY =
-            (static_cast<int32_t>(Engine::Baseline)) |
-            (static_cast<int32_t>(ICStub::Call_Fallback) << 1) |
-            (0 << 17) | // spread
-            (0 << 18);  // constructing
-        static const int32_t BASELINE_CONSTRUCT_KEY =
-            (static_cast<int32_t>(Engine::Baseline)) |
-            (static_cast<int32_t>(ICStub::Call_Fallback) << 1) |
-            (0 << 17) | // spread
-            (1 << 18);  // constructing
-
       protected:
         bool isConstructing_;
         bool isSpread_;
-        uint32_t returnOffset_;
+        CodeOffset bailoutReturnOffset_;
         MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
         void postGenerateStubCode(MacroAssembler& masm, Handle<JitCode*> code);
 

@@ -490,16 +490,19 @@ EnqueuePromiseReactionJob(JSContext* cx, HandleObject reactionObj,
     Rooted<PromiseReactionRecord*> reaction(cx);
     RootedValue handlerArg(cx, handlerArg_);
     mozilla::Maybe<AutoCompartment> ac;
-    if (IsWrapper(reactionObj)) {
-        RootedObject unwrappedReactionObj(cx, UncheckedUnwrap(reactionObj));
-        if (!unwrappedReactionObj)
-            return false;
-        ac.emplace(cx, unwrappedReactionObj);
-        reaction = &unwrappedReactionObj->as<PromiseReactionRecord>();
-        if (!cx->compartment()->wrap(cx, &handlerArg))
-            return false;
-    } else {
+    if (!IsProxy(reactionObj)) {
+        MOZ_RELEASE_ASSERT(reactionObj->is<PromiseReactionRecord>());
         reaction = &reactionObj->as<PromiseReactionRecord>();
+    } else {
+        if (JS_IsDeadWrapper(UncheckedUnwrap(reactionObj))) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+            return false;
+        }
+        reaction = &UncheckedUnwrap(reactionObj)->as<PromiseReactionRecord>();
+        MOZ_RELEASE_ASSERT(reaction->is<PromiseReactionRecord>());
+        ac.emplace(cx, reaction);
+        if (!reaction->compartment()->wrap(cx, &handlerArg))
+            return false;
     }
 
     // Must not enqueue a reaction job more than once.
@@ -640,7 +643,7 @@ FulfillMaybeWrappedPromise(JSContext *cx, HandleObject promiseObj, HandleValue v
     if (!IsProxy(promiseObj)) {
         promise = &promiseObj->as<PromiseObject>();
     } else {
-        if (JS_IsDeadWrapper(promiseObj)) {
+        if (JS_IsDeadWrapper(UncheckedUnwrap(promiseObj))) {
             JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
             return false;
         }
@@ -790,7 +793,7 @@ RejectMaybeWrappedPromise(JSContext *cx, HandleObject promiseObj, HandleValue re
     if (!IsProxy(promiseObj)) {
         promise = &promiseObj->as<PromiseObject>();
     } else {
-        if (JS_IsDeadWrapper(promiseObj)) {
+        if (JS_IsDeadWrapper(UncheckedUnwrap(promiseObj))) {
             JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
             return false;
         }
@@ -931,8 +934,15 @@ PromiseReactionJob(JSContext* cx, unsigned argc, Value* vp)
     // back, we check if the reaction is a wrapper and if so, unwrap it and
     // enter its compartment.
     mozilla::Maybe<AutoCompartment> ac;
-    if (IsWrapper(reactionObj)) {
+    if (!IsProxy(reactionObj)) {
+        MOZ_RELEASE_ASSERT(reactionObj->is<PromiseReactionRecord>());
+    } else {
         reactionObj = UncheckedUnwrap(reactionObj);
+        if (JS_IsDeadWrapper(reactionObj)) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+            return false;
+        }
+        MOZ_RELEASE_ASSERT(reactionObj->is<PromiseReactionRecord>());
         ac.emplace(cx, reactionObj);
     }
 
@@ -2414,15 +2424,15 @@ js::AsyncFromSyncIteratorMethod(JSContext* cx, CallArgs& args, CompletionKind co
     // For 6.1.3.2.2 and 6.1.3.2.3, steps 7-16 corresponds to steps 11-20.
 
     // Steps 7-8.
-    RootedValue value(cx);
-    if (!GetProperty(cx, resultObj, resultObj, cx->names().value, &value))
-        return AbruptRejectPromise(cx, args, resultPromise, nullptr);
-
-    // Steps 9-10.
     RootedValue doneVal(cx);
     if (!GetProperty(cx, resultObj, resultObj, cx->names().done, &doneVal))
         return AbruptRejectPromise(cx, args, resultPromise, nullptr);
     bool done = ToBoolean(doneVal);
+
+    // Steps 9-10.
+    RootedValue value(cx);
+    if (!GetProperty(cx, resultObj, resultObj, cx->names().value, &value))
+        return AbruptRejectPromise(cx, args, resultPromise, nullptr);
 
     // Step 11.
     Rooted<PromiseObject*> promise(cx, CreatePromiseObjectWithoutResolutionFunctions(cx));
@@ -2810,10 +2820,14 @@ BlockOnPromise(JSContext* cx, HandleValue promiseVal, HandleObject blockedPromis
     RootedObject blockedPromise(cx, blockedPromise_);
 
     mozilla::Maybe<AutoCompartment> ac;
-    if (IsWrapper(promiseObj)) {
+    if (IsProxy(promiseObj)) {
         unwrappedPromiseObj = CheckedUnwrap(promiseObj);
         if (!unwrappedPromiseObj)
             return false;
+        if (JS_IsDeadWrapper(unwrappedPromiseObj)) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+            return false;
+        }
         ac.emplace(cx, unwrappedPromiseObj);
         if (!cx->compartment()->wrap(cx, &blockedPromise))
             return false;
@@ -2864,8 +2878,12 @@ AddPromiseReaction(JSContext* cx, Handle<PromiseObject*> promise,
     // If only a single reaction exists, it's stored directly instead of in a
     // list. In that case, `reactionsObj` might be a wrapper, which we can
     // always safely unwrap.
-    if (IsWrapper(reactionsObj)) {
+    if (IsProxy(reactionsObj)) {
         reactionsObj = UncheckedUnwrap(reactionsObj);
+        if (JS_IsDeadWrapper(reactionsObj)) {
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+            return false;
+        }
         MOZ_ASSERT(reactionsObj->is<PromiseReactionRecord>());
     }
 

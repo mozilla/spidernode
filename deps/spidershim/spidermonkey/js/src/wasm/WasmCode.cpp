@@ -95,8 +95,8 @@ AllocateCodeSegment(JSContext* cx, uint32_t codeLength)
     return (uint8_t*)p;
 }
 
-static void
-StaticallyLink(CodeSegment& cs, const LinkData& linkData, JSContext* cx)
+static bool
+StaticallyLink(JSContext* cx, CodeSegment& cs, const LinkData& linkData)
 {
     for (LinkData::InternalLink link : linkData.internalLinks) {
         uint8_t* patchAt = cs.base() + link.patchAtOffset;
@@ -109,14 +109,22 @@ StaticallyLink(CodeSegment& cs, const LinkData& linkData, JSContext* cx)
 
     for (auto imm : MakeEnumeratedRange(SymbolicAddress::Limit)) {
         const Uint32Vector& offsets = linkData.symbolicLinks[imm];
-        for (size_t i = 0; i < offsets.length(); i++) {
-            uint8_t* patchAt = cs.base() + offsets[i];
-            void* target = AddressOf(imm);
+        if (offsets.empty())
+            continue;
+
+        void* target = nullptr;
+        if (!cx->runtime()->wasm().getBuiltinThunk(cx, imm, &target))
+            return false;
+
+        for (uint32_t offset : offsets) {
+            uint8_t* patchAt = cs.base() + offset;
             Assembler::PatchDataWithValueCheck(CodeLocationLabel(patchAt),
                                                PatchedImmPtr(target),
                                                PatchedImmPtr((void*)-1));
         }
     }
+
+    return true;
 }
 
 static void
@@ -159,10 +167,8 @@ SendCodeRangesToProfiler(CodeSegment& cs, const Bytes& bytecode, const Metadata&
         }
 #endif
 #ifdef MOZ_VTUNE
-        if (vtune::IsProfilingActive()) {
-            cs.vtune_method_id_ = vtune::GenerateUniqueMethodID();
-            vtune::MarkWasm(cs, name.begin(), (void*)start, size);
-        }
+        if (vtune::IsProfilingActive())
+            vtune::MarkWasm(vtune::GenerateUniqueMethodID(), name.begin(), (void*)start, size);
 #endif
     }
 
@@ -206,7 +212,8 @@ CodeSegment::create(JSContext* cx,
         AutoFlushICache::setRange(uintptr_t(codeBase), cs->length());
 
         memcpy(codeBase, bytecode.begin(), bytecode.length());
-        StaticallyLink(*cs, linkData, cx);
+        if (!StaticallyLink(cx, *cs, linkData))
+            return nullptr;
     }
 
     // Reprotect the whole region to avoid having separate RW and RX mappings.
@@ -295,62 +302,6 @@ size_t
 FuncImport::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
 {
     return sig_.sizeOfExcludingThis(mallocSizeOf);
-}
-
-CodeRange::CodeRange(Kind kind, Offsets offsets)
-  : begin_(offsets.begin),
-    ret_(0),
-    end_(offsets.end),
-    funcIndex_(0),
-    funcLineOrBytecode_(0),
-    funcBeginToNormalEntry_(0),
-    kind_(kind)
-{
-    MOZ_ASSERT(begin_ <= end_);
-#ifdef DEBUG
-    switch (kind_) {
-      case Entry:
-      case DebugTrap:
-      case FarJumpIsland:
-      case Inline:
-      case Throw:
-      case Interrupt:
-        break;
-      case Function:
-      case TrapExit:
-      case ImportJitExit:
-      case ImportInterpExit:
-        MOZ_CRASH("should use more specific constructor");
-    }
-#endif
-}
-
-CodeRange::CodeRange(Kind kind, CallableOffsets offsets)
-  : begin_(offsets.begin),
-    ret_(offsets.ret),
-    end_(offsets.end),
-    funcIndex_(0),
-    funcLineOrBytecode_(0),
-    funcBeginToNormalEntry_(0),
-    kind_(kind)
-{
-    MOZ_ASSERT(begin_ < ret_);
-    MOZ_ASSERT(ret_ < end_);
-    MOZ_ASSERT(kind_ == ImportJitExit || kind_ == ImportInterpExit || kind_ == TrapExit);
-}
-
-CodeRange::CodeRange(uint32_t funcIndex, uint32_t funcLineOrBytecode, FuncOffsets offsets)
-  : begin_(offsets.begin),
-    ret_(offsets.ret),
-    end_(offsets.end),
-    funcIndex_(funcIndex),
-    funcLineOrBytecode_(funcLineOrBytecode),
-    funcBeginToNormalEntry_(offsets.normalEntry - begin_),
-    kind_(Function)
-{
-    MOZ_ASSERT(begin_ < ret_);
-    MOZ_ASSERT(ret_ < end_);
-    MOZ_ASSERT(offsets.normalEntry - begin_ <= UINT8_MAX);
 }
 
 static size_t

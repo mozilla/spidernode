@@ -834,6 +834,7 @@ class TemporaryTypeSet : public TypeSet
 
     /* Get the single value which can appear in this type set, otherwise nullptr. */
     JSObject* maybeSingleton();
+    ObjectKey* maybeSingleObject();
 
     /* Whether any objects in the type set needs a barrier on id. */
     bool propertyNeedsBarrier(CompilerConstraintList* constraints, jsid id);
@@ -1072,6 +1073,10 @@ class TypeNewScript
                                             PlainObject* templateObject);
 
     size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
+
+    static size_t offsetOfPreliminaryObjects() {
+        return offsetof(TypeNewScript, preliminaryObjects);
+    }
 };
 
 /* Is this a reasonable PC to be doing inlining on? */

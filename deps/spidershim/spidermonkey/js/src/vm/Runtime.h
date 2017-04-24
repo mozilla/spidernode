@@ -54,6 +54,7 @@
 #include "vm/Stack.h"
 #include "vm/Stopwatch.h"
 #include "vm/Symbol.h"
+#include "wasm/WasmRuntime.h"
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -497,12 +498,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     /* Compartment memory reporting callback. */
     js::ActiveThreadData<JSSizeOfIncludingThisCompartmentCallback> sizeOfIncludingThisCompartmentCallback;
 
-    /* Zone destroy callback. */
-    js::ActiveThreadData<JSZoneCallback> destroyZoneCallback;
-
-    /* Zone sweep callback. */
-    js::ActiveThreadData<JSZoneCallback> sweepZoneCallback;
-
     /* Call this to get the name of a compartment. */
     js::ActiveThreadData<JSCompartmentNameCallback> compartmentNameCallback;
 
@@ -539,6 +534,13 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
     /* AsmJSCache callbacks are runtime-wide. */
     js::UnprotectedData<JS::AsmJSCacheOps> asmJSCacheOps;
+
+  private:
+    // All runtime data needed for wasm and defined in wasm/WasmRuntime.h.
+    js::ActiveThreadData<js::wasm::Runtime> wasmRuntime_;
+
+  public:
+    js::wasm::Runtime& wasm() { return wasmRuntime_.ref(); }
 
   private:
     js::UnprotectedData<const JSPrincipals*> trustedPrincipals_;
@@ -1027,23 +1029,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     js::ActiveThreadData<js::PerformanceMonitoring> performanceMonitoring_;
   public:
     js::PerformanceMonitoring& performanceMonitoring() { return performanceMonitoring_.ref(); }
-
-  private:
-    /* List of Ion compilation waiting to get linked. */
-    typedef mozilla::LinkedList<js::jit::IonBuilder> IonBuilderList;
-
-    js::HelperThreadLockData<IonBuilderList> ionLazyLinkList_;
-    js::HelperThreadLockData<size_t> ionLazyLinkListSize_;
-
-  public:
-    IonBuilderList& ionLazyLinkList();
-
-    size_t ionLazyLinkListSize() {
-        return ionLazyLinkListSize_;
-    }
-
-    void ionLazyLinkListRemove(js::jit::IonBuilder* builder);
-    void ionLazyLinkListAdd(js::jit::IonBuilder* builder);
 
   private:
     /* The stack format for the current runtime.  Only valid on non-child

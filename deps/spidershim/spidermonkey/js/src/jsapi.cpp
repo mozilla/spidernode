@@ -677,18 +677,6 @@ JS_SetSizeOfIncludingThisCompartmentCallback(JSContext* cx,
 }
 
 JS_PUBLIC_API(void)
-JS_SetDestroyZoneCallback(JSContext* cx, JSZoneCallback callback)
-{
-    cx->runtime()->destroyZoneCallback = callback;
-}
-
-JS_PUBLIC_API(void)
-JS_SetSweepZoneCallback(JSContext* cx, JSZoneCallback callback)
-{
-    cx->runtime()->sweepZoneCallback = callback;
-}
-
-JS_PUBLIC_API(void)
 JS_SetCompartmentNameCallback(JSContext* cx, JSCompartmentNameCallback callback)
 {
     cx->runtime()->compartmentNameCallback = callback;
@@ -1499,6 +1487,15 @@ JS_NewExternalString(JSContext* cx, const char16_t* chars, size_t length,
     return s;
 }
 
+JS_PUBLIC_API(JSString*)
+JS_NewMaybeExternalString(JSContext* cx, const char16_t* chars, size_t length,
+                          const JSStringFinalizer* fin, bool* allocatedExternal)
+{
+    AssertHeapIsIdle();
+    CHECK_REQUEST(cx);
+    return NewMaybeExternalString(cx, chars, length, fin, allocatedExternal);
+}
+
 extern JS_PUBLIC_API(bool)
 JS_IsExternalString(JSString* str)
 {
@@ -1886,8 +1883,8 @@ JS_GlobalObjectTraceHook(JSTracer* trc, JSObject* global)
         return;
 
     // Trace the compartment for any GC things that should only stick around if
-    // we know the compartment is live.
-    global->compartment()->trace(trc);
+    // we know the global is live.
+    global->compartment()->traceGlobal(trc);
 
     if (JSTraceOp trace = global->compartment()->creationOptions().getTrace())
         trace(trc, global);
@@ -4592,9 +4589,8 @@ Evaluate(JSContext* cx, ScopeKind scopeKind, HandleObject env,
     MOZ_ASSERT_IF(!IsGlobalLexicalEnvironment(env), scopeKind == ScopeKind::NonSyntactic);
 
     options.setIsRunOnce(true);
-    SourceCompressionTask sct(cx);
     RootedScript script(cx, frontend::CompileGlobalScript(cx, cx->tempLifoAlloc(),
-                                                          scopeKind, options, srcBuf, &sct));
+                                                          scopeKind, options, srcBuf));
     if (!script)
         return false;
 
@@ -4602,8 +4598,6 @@ Evaluate(JSContext* cx, ScopeKind scopeKind, HandleObject env,
 
     bool result = Execute(cx, script, *env,
                           options.noScriptRval ? nullptr : rval.address());
-    if (!sct.complete())
-        result = false;
 
     // After evaluation, the compiled script will not be run again.
     // script->ensureRanAnalysis allocated 1 analyze::Bytecode for every opcode

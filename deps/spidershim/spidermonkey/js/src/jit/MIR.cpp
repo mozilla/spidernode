@@ -1375,12 +1375,12 @@ MSimdGeneralShuffle::foldsTo(TempAllocator& alloc)
 
 MInstruction*
 MSimdConvert::AddLegalized(TempAllocator& alloc, MBasicBlock* addTo, MDefinition* obj,
-                           MIRType toType, SimdSign sign, wasm::TrapOffset trapOffset)
+                           MIRType toType, SimdSign sign, wasm::BytecodeOffset bytecodeOffset)
 {
     MIRType fromType = obj->type();
 
     if (SupportsUint32x4FloatConversions || sign != SimdSign::Unsigned) {
-        MInstruction* ins = New(alloc, obj, toType, sign, trapOffset);
+        MInstruction* ins = New(alloc, obj, toType, sign, bytecodeOffset);
         addTo->add(ins);
         return ins;
     }
@@ -1456,7 +1456,7 @@ MSimdConvert::AddLegalized(TempAllocator& alloc, MBasicBlock* addTo, MDefinition
     if (fromType == MIRType::Float32x4 && toType == MIRType::Int32x4) {
         // The Float32x4 -> Uint32x4 conversion can throw if the input is out of
         // range. This is handled by the LFloat32x4ToUint32x4 expansion.
-        MInstruction* ins = New(alloc, obj, toType, sign, trapOffset);
+        MInstruction* ins = New(alloc, obj, toType, sign, bytecodeOffset);
         addTo->add(ins);
         return ins;
     }
@@ -2270,6 +2270,22 @@ MTypeBarrier::congruentTo(const MDefinition* def) const
     if (!resultTypeSet()->equals(other->resultTypeSet()))
         return false;
     return congruentIfOperandsEqual(other);
+}
+
+MDefinition*
+MTypeBarrier::foldsTo(TempAllocator& alloc)
+{
+    MIRType type = resultTypeSet()->getKnownMIRType();
+    if (type == MIRType::Value || type == MIRType::Object)
+        return this;
+
+    if (!input()->isConstant())
+        return this;
+
+    if (input()->type() != type)
+        return this;
+
+    return input();
 }
 
 #ifdef DEBUG
@@ -4932,10 +4948,12 @@ MObjectState::templateObjectOf(MDefinition* obj)
         return obj->toNewObject()->templateObject();
     else if (obj->isCreateThisWithTemplate())
         return obj->toCreateThisWithTemplate()->templateObject();
-    else
+    else if (obj->isNewCallObject())
         return obj->toNewCallObject()->templateObject();
+    else if (obj->isNewArrayIterator())
+        return obj->toNewArrayIterator()->templateObject();
 
-    return nullptr;
+    MOZ_CRASH("unreachable");
 }
 
 bool
@@ -5420,6 +5438,11 @@ InlinePropertyTable::trimTo(const ObjectVector& targets, const BoolVector& choic
     for (size_t i = 0; i < targets.length(); i++) {
         // If the target was inlined, don't erase the entry.
         if (choiceSet[i])
+            continue;
+
+        // If the target wasn't a function we would have veto'ed it
+        // and it will not be in the entries list.
+        if (!targets[i]->is<JSFunction>())
             continue;
 
         JSFunction* target = &targets[i]->as<JSFunction>();

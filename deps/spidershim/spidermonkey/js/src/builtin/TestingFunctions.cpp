@@ -1303,6 +1303,37 @@ NewExternalString(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+NewMaybeExternalString(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    if (args.length() != 1 || !args[0].isString()) {
+        JS_ReportErrorASCII(cx, "newMaybeExternalString takes exactly one string argument.");
+        return false;
+    }
+
+    RootedString str(cx, args[0].toString());
+    size_t len = str->length();
+
+    UniqueTwoByteChars buf(cx->pod_malloc<char16_t>(len));
+    if (!buf)
+        return false;
+
+    if (!JS_CopyStringChars(cx, mozilla::Range<char16_t>(buf.get(), len), str))
+        return false;
+
+    bool allocatedExternal;
+    JSString* res = JS_NewMaybeExternalString(cx, buf.get(), len, &ExternalStringFinalizer,
+                                              &allocatedExternal);
+    if (!res)
+        return false;
+
+    mozilla::Unused << buf.release();
+    args.rval().setString(res);
+    return true;
+}
+
+static bool
 EnsureFlatString(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4274,6 +4305,17 @@ GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+static bool
+IsConstructor(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() < 1)
+        args.rval().setBoolean(false);
+    else
+        args.rval().setBoolean(IsConstructor(args[0]));
+    return true;
+}
+
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
 "gc([obj] | 'zone' [, 'shrinking'])",
@@ -4353,6 +4395,10 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("newExternalString", NewExternalString, 1, 0,
 "newExternalString(str)",
 "  Copies str's chars and returns a new external string."),
+
+    JS_FN_HELP("newMaybeExternalString", NewMaybeExternalString, 1, 0,
+"newMaybeExternalString(str)",
+"  Like newExternalString but uses the JS_NewMaybeExternalString API."),
 
     JS_FN_HELP("ensureFlatString", EnsureFlatString, 1, 0,
 "ensureFlatString(str)",
@@ -4831,6 +4877,10 @@ gc::ZealModeHelpText),
 "TimeSinceCreation()",
 "  Returns the time in milliseconds since process creation.\n"
 "  This uses a clock compatible with the profiler.\n"),
+
+    JS_FN_HELP("isConstructor", IsConstructor, 1, 0,
+"isConstructor(value)",
+"  Returns whether the value is considered IsConstructor.\n"),
 
     JS_FS_HELP_END
 };

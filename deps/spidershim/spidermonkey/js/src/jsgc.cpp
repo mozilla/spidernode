@@ -2188,6 +2188,8 @@ GCRuntime::sweepZoneAfterCompacting(Zone* zone)
         c->objectGroups.sweep(fop);
         c->sweepRegExps();
         c->sweepSavedStacks();
+        c->sweepTemplateLiteralMap();
+        c->sweepVarNames();
         c->sweepGlobalObject(fop);
         c->sweepSelfHostingScriptSource();
         c->sweepDebugEnvironments();
@@ -2534,6 +2536,8 @@ GCRuntime::updateZonePointersToRelocatedCells(Zone* zone, AutoLockForExclusiveAc
     for (CompartmentsInZoneIter comp(zone); !comp.done(); comp.next())
         comp->fixupAfterMovingGC();
 
+    zone->externalStringCache().purge();
+
     // Iterate through all cells that can contain relocatable pointers to update
     // them. Since updating each cell is independent we try to parallelize this
     // as much as possible.
@@ -2545,7 +2549,6 @@ GCRuntime::updateZonePointersToRelocatedCells(Zone* zone, AutoLockForExclusiveAc
 
         WeakMapBase::traceZone(zone, &trc);
         for (CompartmentsInZoneIter c(zone); !c.done(); c.next()) {
-            c->trace(&trc);
             if (c->watchpointMap)
                 c->watchpointMap->trace(&trc);
         }
@@ -2557,8 +2560,6 @@ GCRuntime::updateZonePointersToRelocatedCells(Zone* zone, AutoLockForExclusiveAc
     // Call callbacks to get the rest of the system to fixup other untraced pointers.
     for (CompartmentsInZoneIter comp(zone); !comp.done(); comp.next())
         callWeakPointerCompartmentCallbacks(comp);
-    if (rt->sweepZoneCallback)
-        rt->sweepZoneCallback(zone);
 }
 
 /*
@@ -3514,8 +3515,6 @@ Zone::sweepCompartments(FreeOp* fop, bool keepAtleastOne, bool destroyingRuntime
 void
 GCRuntime::sweepZones(FreeOp* fop, ZoneGroup* group, bool destroyingRuntime)
 {
-    JSZoneCallback callback = rt->destroyZoneCallback;
-
     Zone** read = group->zones().begin();
     Zone** end = group->zones().end();
     Zone** write = read;
@@ -3540,9 +3539,6 @@ GCRuntime::sweepZones(FreeOp* fop, ZoneGroup* group, bool destroyingRuntime)
                 if (!zone->arenas.checkEmptyArenaLists())
                     arenasEmptyAtShutdown = false;
 #endif
-
-                if (callback)
-                    callback(zone);
 
                 zone->sweepCompartments(fop, false, destroyingRuntime);
                 MOZ_ASSERT(zone->compartments().empty());
@@ -3635,8 +3631,10 @@ GCRuntime::purgeRuntime(AutoLockForExclusiveAccess& lock)
     for (GCCompartmentsIter comp(rt); !comp.done(); comp.next())
         comp->purge();
 
-    for (GCZonesIter zone(rt); !zone.done(); zone.next())
+    for (GCZonesIter zone(rt); !zone.done(); zone.next()) {
         zone->atomCache().clearAndShrink();
+        zone->externalStringCache().purge();
+    }
 
     for (const CooperatingContext& target : rt->cooperatingContexts()) {
         freeUnusedLifoBlocksAfterSweeping(&target.context()->tempLifoAlloc());
@@ -3941,6 +3939,15 @@ GCRuntime::beginMarkPhase(JS::gcreason::Reason reason, AutoLockForExclusiveAcces
             for (auto baseShape = zone->cellIter<BaseShape>(); !baseShape.done(); baseShape.next())
                 baseShape->maybePurgeTable();
         }
+    }
+
+    /*
+     * Process any queued source compressions during the start of a major
+     * GC.
+     */
+    {
+        AutoLockHelperThreadState helperLock;
+        HelperThreadState().startHandlingCompressionTasks(helperLock);
     }
 
     startNumber = number;
@@ -4511,10 +4518,10 @@ JSCompartment::findDeadProxyZoneEdges(bool* foundAny)
             if (IsDeadProxyObject(&value.toObject())) {
                 *foundAny = true;
                 CrossCompartmentKey& key = e.front().mutableKey();
-                Zone* wrapperZone = key.as<JSObject*>()->zone();
-                if (!wrapperZone->isGCMarking())
+                Zone* wrappedZone = key.as<JSObject*>()->zone();
+                if (!wrappedZone->isGCMarking())
                     continue;
-                if (!wrapperZone->gcSweepGroupEdges().put(zone()))
+                if (!wrappedZone->gcSweepGroupEdges().put(zone()))
                     return false;
             }
         }
@@ -4983,6 +4990,7 @@ MAKE_GC_SWEEP_TASK(SweepInitialShapesTask);
 MAKE_GC_SWEEP_TASK(SweepObjectGroupsTask);
 MAKE_GC_SWEEP_TASK(SweepRegExpsTask);
 MAKE_GC_SWEEP_TASK(SweepMiscTask);
+MAKE_GC_SWEEP_TASK(SweepCompressionTasksTask);
 #undef MAKE_GC_SWEEP_TASK
 
 /* virtual */ void
@@ -5031,8 +5039,36 @@ SweepMiscTask::run()
 {
     for (GCCompartmentGroupIter c(runtime()); !c.done(); c.next()) {
         c->sweepSavedStacks();
+        c->sweepTemplateLiteralMap();
         c->sweepSelfHostingScriptSource();
         c->sweepNativeIterators();
+    }
+}
+
+/* virtual */ void
+SweepCompressionTasksTask::run()
+{
+    AutoLockHelperThreadState lock;
+
+    // Attach finished compression tasks.
+    auto& finished = HelperThreadState().compressionFinishedList(lock);
+    for (size_t i = 0; i < finished.length(); i++) {
+        SourceCompressionTask* task = finished[i];
+        if (task->runtimeMatches(runtime())) {
+            HelperThreadState().remove(finished, &i);
+            task->complete();
+            js_delete(task);
+        }
+    }
+
+    // Sweep pending tasks that are holding onto should-be-dead ScriptSources.
+    auto& pending = HelperThreadState().compressionPendingList(lock);
+    for (size_t i = 0; i < pending.length(); i++) {
+        SourceCompressionTask* task = pending[i];
+        if (task->shouldCancel()) {
+            HelperThreadState().remove(pending, &i);
+            js_delete(task);
+        }
     }
 }
 
@@ -5101,9 +5137,6 @@ GCRuntime::beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock)
         if (zone->isAtomsZone())
             sweepingAtoms = true;
 
-        if (rt->sweepZoneCallback)
-            rt->sweepZoneCallback(zone);
-
 #ifdef DEBUG
         zone->gcLastSweepGroupIndex = sweepGroupIndex;
 #endif
@@ -5117,6 +5150,7 @@ GCRuntime::beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock)
     SweepObjectGroupsTask sweepObjectGroupsTask(rt);
     SweepRegExpsTask sweepRegExpsTask(rt);
     SweepMiscTask sweepMiscTask(rt);
+    SweepCompressionTasksTask sweepCompressionTasksTask(rt);
     WeakCacheTaskVector sweepCacheTasks = PrepareWeakCacheTasks(rt);
 
     for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
@@ -5165,12 +5199,13 @@ GCRuntime::beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock)
             startTask(sweepObjectGroupsTask, gcstats::PHASE_SWEEP_TYPE_OBJECT, helperLock);
             startTask(sweepRegExpsTask, gcstats::PHASE_SWEEP_REGEXP, helperLock);
             startTask(sweepMiscTask, gcstats::PHASE_SWEEP_MISC, helperLock);
+            startTask(sweepCompressionTasksTask, gcstats::PHASE_SWEEP_MISC, helperLock);
             for (auto& task : sweepCacheTasks)
                 startTask(task, gcstats::PHASE_SWEEP_MISC, helperLock);
         }
 
-        // The remainder of the of the tasks run in parallel on the active
-        // thread until we join, below.
+        // The remainder of the tasks run in parallel on the active thread
+        // until we join, below.
         {
             gcstats::AutoPhase ap(stats(), gcstats::PHASE_SWEEP_MISC);
 
@@ -5246,6 +5281,7 @@ GCRuntime::beginSweepingSweepGroup(AutoLockForExclusiveAccess& lock)
         joinTask(sweepObjectGroupsTask, gcstats::PHASE_SWEEP_TYPE_OBJECT, helperLock);
         joinTask(sweepRegExpsTask, gcstats::PHASE_SWEEP_REGEXP, helperLock);
         joinTask(sweepMiscTask, gcstats::PHASE_SWEEP_MISC, helperLock);
+        joinTask(sweepCompressionTasksTask, gcstats::PHASE_SWEEP_MISC, helperLock);
         for (auto& task : sweepCacheTasks)
             joinTask(task, gcstats::PHASE_SWEEP_MISC, helperLock);
     }
@@ -7205,14 +7241,6 @@ js::ReleaseAllJITCode(FreeOp* fop)
         zone->setPreservingCode(false);
         zone->discardJitCode(fop);
     }
-}
-
-void
-js::PurgeJITCaches(Zone* zone)
-{
-    /* Discard Ion caches. */
-    for (auto script = zone->cellIter<JSScript>(); !script.done(); script.next())
-        jit::PurgeCaches(script);
 }
 
 void

@@ -379,7 +379,7 @@ function CanonicalizeLanguageTag(locale) {
     locale = callFunction(std_String_toLowerCase, locale);
 
     // Handle mappings for complete tags.
-    if (callFunction(std_Object_hasOwnProperty, langTagMappings, locale))
+    if (hasOwn(locale, langTagMappings))
         return langTagMappings[locale];
 
     var subtags = StringSplitString(ToString(locale), "-");
@@ -411,7 +411,7 @@ function CanonicalizeLanguageTag(locale) {
                 subtag = callFunction(std_String_toUpperCase, subtag);
             }
         }
-        if (callFunction(std_Object_hasOwnProperty, langSubtagMappings, subtag)) {
+        if (hasOwn(subtag, langSubtagMappings)) {
             // Replace deprecated subtags with their preferred values.
             // "BU" -> "MM"
             // This has to come after we capitalize region codes because
@@ -421,7 +421,7 @@ function CanonicalizeLanguageTag(locale) {
             // Note that the script generating langSubtagMappings makes sure
             // that no regular subtag mapping will replace an extlang code.
             subtag = langSubtagMappings[subtag];
-        } else if (callFunction(std_Object_hasOwnProperty, extlangMappings, subtag)) {
+        } else if (hasOwn(subtag, extlangMappings)) {
             // Replace deprecated extlang subtags with their preferred values,
             // and remove the preceding subtag if it's a redundant prefix.
             // "zh-nan" -> "nan"
@@ -469,6 +469,62 @@ function CanonicalizeLanguageTag(locale) {
     }
 
     return canonical;
+}
+
+
+/**
+ * Returns true if the input contains only ASCII alphabetical characters.
+ */
+function IsASCIIAlphaString(s) {
+    assert(typeof s === "string", "IsASCIIAlphaString");
+
+    for (var i = 0; i < s.length; i++) {
+        var c = callFunction(std_String_charCodeAt, s, i);
+        if (!((0x41 <= c && c <= 0x5A) || (0x61 <= c && c <= 0x7A)))
+            return false
+    }
+    return true;
+}
+
+
+/**
+ * Validates and canonicalizes the given language tag.
+ */
+function ValidateAndCanonicalizeLanguageTag(locale) {
+    assert(typeof locale === "string", "ValidateAndCanonicalizeLanguageTag");
+
+    // Handle the common case (a standalone language) first.
+    // Only the following BCP47 subset is accepted:
+    //   Language-Tag  = langtag
+    //   langtag       = language
+    //   language      = 2*3ALPHA ; shortest ISO 639 code
+    // For three character long strings we need to make sure it's not a
+    // private use only language tag, for example "x-x".
+    if (locale.length === 2 || (locale.length === 3 && locale[1] !== "-")) {
+        if (!IsASCIIAlphaString(locale))
+            ThrowRangeError(JSMSG_INVALID_LANGUAGE_TAG, locale);
+        assert(IsStructurallyValidLanguageTag(locale), "2*3ALPHA is a valid language tag");
+
+        // The language subtag is canonicalized to lower case.
+        locale = callFunction(std_String_toLowerCase, locale);
+
+        // langTagMappings doesn't contain any 2*3ALPHA keys, so we don't need
+        // to check for possible replacements in this map.
+        assert(!hasOwn(locale, langTagMappings), "langTagMappings contains no 2*3ALPHA mappings");
+
+        // Replace deprecated subtags with their preferred values.
+        locale = hasOwn(locale, langSubtagMappings)
+                 ? langSubtagMappings[locale]
+                 : locale;
+        assert(locale === CanonicalizeLanguageTag(locale), "expected same canonicalization");
+
+        return locale;
+    }
+
+    if (!IsStructurallyValidLanguageTag(locale))
+        ThrowRangeError(JSMSG_INVALID_LANGUAGE_TAG, locale);
+
+    return CanonicalizeLanguageTag(locale);
 }
 
 
@@ -550,7 +606,7 @@ function DefaultLocaleIgnoringAvailableLocales() {
         // remove any present in the candidate.
         candidate = removeUnicodeExtensions(candidate);
 
-        if (callFunction(std_Object_hasOwnProperty, oldStyleLanguageTagMappings, candidate))
+        if (hasOwn(candidate, oldStyleLanguageTagMappings))
             candidate = oldStyleLanguageTagMappings[candidate];
     }
 
@@ -1168,22 +1224,19 @@ function GetOption(options, property, type, values, fallback) {
 }
 
 /**
- * Extracts a property value from the provided options object, converts it to a
- * Number value, checks whether it is in the allowed range, and fills in a
- * fallback value if necessary.
+ * The abstract operation DefaultNumberOption converts value to a Number value,
+ * checks whether it is in the allowed range, and fills in a fallback value if
+ * necessary.
  *
- * Spec: ECMAScript Internationalization API Specification, 9.2.10.
+ * Spec: ECMAScript Internationalization API Specification, 9.2.11.
  */
-function GetNumberOption(options, property, minimum, maximum, fallback) {
-    assert(typeof minimum === "number" && (minimum | 0) === minimum, "GetNumberOption");
-    assert(typeof maximum === "number" && (maximum | 0) === maximum, "GetNumberOption");
-    assert(typeof fallback === "number" && (fallback | 0) === fallback, "GetNumberOption");
-    assert(minimum <= fallback && fallback <= maximum, "GetNumberOption");
+function DefaultNumberOption(value, minimum, maximum, fallback) {
+    assert(typeof minimum === "number" && (minimum | 0) === minimum, "DefaultNumberOption");
+    assert(typeof maximum === "number" && (maximum | 0) === maximum, "DefaultNumberOption");
+    assert(typeof fallback === "number" && (fallback | 0) === fallback, "DefaultNumberOption");
+    assert(minimum <= fallback && fallback <= maximum, "DefaultNumberOption");
 
     // Step 1.
-    var value = options[property];
-
-    // Step 2.
     if (value !== undefined) {
         value = ToNumber(value);
         if (Number_isNaN(value) || value < minimum || value > maximum)
@@ -1194,8 +1247,20 @@ function GetNumberOption(options, property, minimum, maximum, fallback) {
         return std_Math_floor(value) | 0;
     }
 
-    // Step 3.
+    // Step 2.
     return fallback;
+}
+
+/**
+ * Extracts a property value from the provided options object, converts it to a
+ * Number value, checks whether it is in the allowed range, and fills in a
+ * fallback value if necessary.
+ *
+ * Spec: ECMAScript Internationalization API Specification, 9.2.12.
+ */
+function GetNumberOption(options, property, minimum, maximum, fallback) {
+    // Steps 1-3.
+    return DefaultNumberOption(options[property], minimum, maximum, fallback);
 }
 
 
@@ -1304,16 +1369,14 @@ function getIntlObjectInternals(obj) {
     var internals = UnsafeGetReservedSlot(obj, INTL_INTERNALS_OBJECT_SLOT);
 
     assert(IsObject(internals), "internals not an object");
-    assert(callFunction(std_Object_hasOwnProperty, internals, "type"), "missing type");
+    assert(hasOwn("type", internals), "missing type");
     assert((internals.type === "Collator" && IsCollator(obj)) ||
            (internals.type === "DateTimeFormat" && IsDateTimeFormat(obj)) ||
            (internals.type === "NumberFormat" && IsNumberFormat(obj)) ||
            (internals.type === "PluralRules" && IsPluralRules(obj)),
            "type must match the object's class");
-    assert(callFunction(std_Object_hasOwnProperty, internals, "lazyData"),
-           "missing lazyData");
-    assert(callFunction(std_Object_hasOwnProperty, internals, "internalProps"),
-           "missing internalProps");
+    assert(hasOwn("lazyData", internals), "missing lazyData");
+    assert(hasOwn("internalProps", internals), "missing internalProps");
 
     return internals;
 }
@@ -1658,13 +1721,19 @@ function collatorSearchLocaleData(locale) {
  * Spec: ECMAScript Internationalization API Specification, 12.3.2.
  */
 function collatorCompareToBind(x, y) {
-    // Steps 1.a.i-ii implemented by ECMAScript declaration binding instantiation,
-    // ES5.1 10.5, step 4.d.ii.
+    // Step 1.
+    var collator = this;
 
-    // Step 1.a.iii-v.
+    // Step 2.
+    assert(IsObject(collator), "collatorCompareToBind called with non-object");
+    assert(IsCollator(collator), "collatorCompareToBind called with non-Collator");
+
+    // Steps 3-6
     var X = ToString(x);
     var Y = ToString(y);
-    return intl_CompareStrings(this, X, Y);
+
+    // Step 7.
+    return intl_CompareStrings(collator, X, Y);
 }
 
 
@@ -1678,23 +1747,26 @@ function collatorCompareToBind(x, y) {
  * Spec: ECMAScript Internationalization API Specification, 10.3.2.
  */
 function Intl_Collator_compare_get() {
-    // Check "this Collator object" per introduction of section 10.3.
-    if (!IsObject(this) || !IsCollator(this))
+    // Step 1.
+    var collator = this;
+
+    // Steps 2-3.
+    if (!IsObject(collator) || !IsCollator(collator))
         ThrowTypeError(JSMSG_INTL_OBJECT_NOT_INITED, "Collator", "compare", "Collator");
 
-    var internals = getCollatorInternals(this);
+    var internals = getCollatorInternals(collator);
 
-    // Step 1.
+    // Step 4.
     if (internals.boundCompare === undefined) {
-        // Step 1.a.
+        // Step 4.a.
         var F = collatorCompareToBind;
 
-        // Steps 1.b-d.
-        var bc = callFunction(FunctionBind, F, this);
+        // Steps 4.b-d.
+        var bc = callFunction(FunctionBind, F, collator);
         internals.boundCompare = bc;
     }
 
-    // Step 2.
+    // Step 5.
     return internals.boundCompare;
 }
 _SetCanonicalName(Intl_Collator_compare_get, "get compare");
@@ -1873,25 +1945,25 @@ function SetNumberFormatDigitOptions(lazyData, options, mnfdDefault, mxfdDefault
     assert(typeof mxfdDefault === "number", "SetNumberFormatDigitOptions");
     assert(mnfdDefault <= mxfdDefault, "SetNumberFormatDigitOptions");
 
-    // Steps 4-6.
+    // Steps 4-8.
     const mnid = GetNumberOption(options, "minimumIntegerDigits", 1, 21, 1);
     const mnfd = GetNumberOption(options, "minimumFractionDigits", 0, 20, mnfdDefault);
     const mxfdActualDefault = std_Math_max(mnfd, mxfdDefault);
     const mxfd = GetNumberOption(options, "maximumFractionDigits", mnfd, 20, mxfdActualDefault);
 
-    // Steps 7-8.
+    // Steps 9-10.
     let mnsd = options.minimumSignificantDigits;
     let mxsd = options.maximumSignificantDigits;
 
-    // Steps 9-11.
+    // Steps 11-13.
     lazyData.minimumIntegerDigits = mnid;
     lazyData.minimumFractionDigits = mnfd;
     lazyData.maximumFractionDigits = mxfd;
 
-    // Step 12.
+    // Step 14.
     if (mnsd !== undefined || mxsd !== undefined) {
-        mnsd = GetNumberOption(options, "minimumSignificantDigits", 1, 21, 1);
-        mxsd = GetNumberOption(options, "maximumSignificantDigits", mnsd, 21, 21);
+        mnsd = DefaultNumberOption(mnsd, 1, 21, 1);
+        mxsd = DefaultNumberOption(mxsd, mnsd, 21, 21);
         lazyData.minimumSignificantDigits = mnsd;
         lazyData.maximumSignificantDigits = mxsd;
     }
@@ -2044,7 +2116,7 @@ function CurrencyDigits(currency) {
     assert(typeof currency === "string", "CurrencyDigits");
     assert(regexp_test_no_statics(getCurrencyDigitsRE(), currency), "CurrencyDigits");
 
-    if (callFunction(std_Object_hasOwnProperty, currencyDigits, currency))
+    if (hasOwn(currency, currencyDigits))
         return currencyDigits[currency];
     return 2;
 }
@@ -2107,12 +2179,18 @@ function numberFormatLocaleData(locale) {
  * Spec: ECMAScript Internationalization API Specification, 11.3.2.
  */
 function numberFormatFormatToBind(value) {
-    // Steps 1.a.i implemented by ECMAScript declaration binding instantiation,
-    // ES5.1 10.5, step 4.d.ii.
+    // Step 1.
+    var nf = this;
 
-    // Step 1.a.ii-iii.
+    // Step 2.
+    assert(IsObject(nf), "InitializeNumberFormat called with non-object");
+    assert(IsNumberFormat(nf), "InitializeNumberFormat called with non-NumberFormat");
+
+    // Steps 3-4.
     var x = ToNumber(value);
-    return intl_FormatNumber(this, x, /* formatToParts = */ false);
+
+    // Step 5.
+    return intl_FormatNumber(nf, x, /* formatToParts = */ false);
 }
 
 
@@ -2188,7 +2266,7 @@ function Intl_NumberFormat_resolvedOptions() {
     ];
     for (var i = 0; i < optionalProperties.length; i++) {
         var p = optionalProperties[i];
-        if (callFunction(std_Object_hasOwnProperty, internals, p))
+        if (hasOwn(p, internals))
             _DefineDataProperty(result, p, internals[p]);
     }
     return result;
@@ -2795,13 +2873,19 @@ function dateTimeFormatLocaleData(locale) {
  *
  * Spec: ECMAScript Internationalization API Specification, 12.3.2.
  */
-function dateTimeFormatFormatToBind() {
-    // Steps 1.a.i-ii
-    var date = arguments.length > 0 ? arguments[0] : undefined;
+function dateTimeFormatFormatToBind(date) {
+    // Step 1.
+    var dtf = this;
+
+    // Step 2.
+    assert(IsObject(dtf), "dateTimeFormatFormatToBind called with non-Object");
+    assert(IsDateTimeFormat(dtf), "dateTimeFormatFormatToBind called with non-DateTimeFormat");
+
+    // Steps 3-4.
     var x = (date === undefined) ? std_Date_now() : ToNumber(date);
 
-    // Step 1.a.iii.
-    return intl_FormatDateTime(this, x, /* formatToParts = */ false);
+    // Step 5.
+    return intl_FormatDateTime(dtf, x, /* formatToParts = */ false);
 }
 
 /**
@@ -2833,7 +2917,10 @@ function Intl_DateTimeFormat_format_get() {
 _SetCanonicalName(Intl_DateTimeFormat_format_get, "get format");
 
 
-function Intl_DateTimeFormat_formatToParts() {
+/**
+ * Intl.DateTimeFormat.prototype.formatToParts ( date )
+ */
+function Intl_DateTimeFormat_formatToParts(date) {
     // Steps 1-3.
     var dtf = UnwrapDateTimeFormat(this, "formatToParts");
 
@@ -2841,7 +2928,6 @@ function Intl_DateTimeFormat_formatToParts() {
     getDateTimeFormatInternals(dtf);
 
     // Steps 4-5.
-    var date = arguments.length > 0 ? arguments[0] : undefined;
     var x = (date === undefined) ? std_Date_now() : ToNumber(date);
 
     // Step 6.
@@ -2971,7 +3057,7 @@ function resolveICUPattern(pattern, result) {
             default:
                 // skip other pattern characters and literal text
             }
-            if (callFunction(std_Object_hasOwnProperty, icuPatternCharToComponent, c))
+            if (hasOwn(c, icuPatternCharToComponent))
                 _DefineDataProperty(result, icuPatternCharToComponent[c], value);
             if (c === "h" || c === "K")
                 _DefineDataProperty(result, "hour12", true);
@@ -3206,7 +3292,7 @@ function Intl_PluralRules_resolvedOptions() {
 
     for (var i = 0; i < optionalProperties.length; i++) {
         var p = optionalProperties[i];
-        if (callFunction(std_Object_hasOwnProperty, internals, p))
+        if (hasOwn(p, internals))
             _DefineDataProperty(result, p, internals[p]);
     }
     return result;

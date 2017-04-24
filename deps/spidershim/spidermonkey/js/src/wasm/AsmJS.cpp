@@ -22,6 +22,7 @@
 #include "mozilla/Compression.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/Unused.h"
 
 #include "jsmath.h"
 #include "jsprf.h"
@@ -35,6 +36,7 @@
 #include "gc/Policy.h"
 #include "jit/AtomicOperations.h"
 #include "js/MemoryMetrics.h"
+#include "vm/ErrorReporting.h"
 #include "vm/SelfHosting.h"
 #include "vm/StringBuffer.h"
 #include "vm/Time.h"
@@ -69,6 +71,7 @@ using mozilla::PodCopy;
 using mozilla::PodEqual;
 using mozilla::PodZero;
 using mozilla::PositiveInfinity;
+using mozilla::Unused;
 using JS::AsmJSOption;
 using JS::GenericNaN;
 
@@ -1736,14 +1739,41 @@ class MOZ_STACK_CLASS ModuleValidator
     ~ModuleValidator() {
         if (errorString_) {
             MOZ_ASSERT(errorOffset_ != UINT32_MAX);
-            tokenStream().reportAsmJSError(errorOffset_,
-                                           JSMSG_USE_ASM_TYPE_FAIL,
-                                           errorString_.get());
+            typeFailure(errorOffset_, errorString_.get());
         }
         if (errorOverRecursed_)
             ReportOverRecursed(cx_);
     }
 
+  private:
+    void typeFailure(uint32_t offset, ...) {
+        va_list args;
+        va_start(args, offset);
+
+        TokenStream& ts = tokenStream();
+        ErrorMetadata metadata;
+        if (ts.computeErrorMetadata(&metadata, offset)) {
+            if (ts.options().throwOnAsmJSValidationFailureOption) {
+                ReportCompileError(cx_, Move(metadata), nullptr, JSREPORT_ERROR,
+                                   JSMSG_USE_ASM_TYPE_FAIL, args);
+            } else {
+                // asm.js type failure is indicated by calling one of the fail*
+                // functions below.  These functions always return false to
+                // halt asm.js parsing.  Whether normal parsing is attempted as
+                // fallback, depends whether an exception is also set.
+                //
+                // If warning succeeds, no exception is set.  If warning fails,
+                // an exception is set and execution will halt.  Thus it's safe
+                // and correct to ignore the return value here.
+                Unused << ts.compileWarning(Move(metadata), nullptr, JSREPORT_WARNING,
+                                            JSMSG_USE_ASM_TYPE_FAIL, args);
+            }
+        }
+
+        va_end(args);
+    }
+
+  public:
     bool init() {
         asmJSMetadata_ = cx_->new_<AsmJSMetadata>();
         if (!asmJSMetadata_)
@@ -7057,7 +7087,7 @@ ParseFunction(ModuleValidator& m, ParseNode** fnOut, unsigned* line)
     if (!name)
         return false;
 
-    ParseNode* fn = m.parser().handler.newFunctionStatement();
+    ParseNode* fn = m.parser().handler.newFunctionStatement(m.parser().pos());
     if (!fn)
         return false;
 
@@ -8537,7 +8567,13 @@ LookupAsmJSModuleInCache(JSContext* cx, AsmJSParser& parser, bool* loadedFromCac
     if (!moduleChars.match(parser))
         return true;
 
+    // Don't punish release users by crashing if there is a programmer error
+    // here, just gracefully return with a cache miss.
+#ifdef NIGHTLY_BUILD
     MOZ_RELEASE_ASSERT(cursor == entry.memory + entry.serializedSize);
+#endif
+    if (cursor != entry.memory + entry.serializedSize)
+        return true;
 
     // See AsmJSMetadata comment as well as ModuleValidator::init().
     asmJSMetadata->preludeStart = parser.pc->functionBox()->preludeStart;
