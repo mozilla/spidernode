@@ -1353,26 +1353,6 @@ Debugger::unwrapPropertyDescriptor(JSContext* cx, HandleObject obj,
     return true;
 }
 
-namespace {
-class MOZ_STACK_CLASS ReportExceptionClosure : public ScriptEnvironmentPreparer::Closure
-{
-public:
-    explicit ReportExceptionClosure(RootedValue& exn)
-        : exn_(exn)
-    {
-    }
-
-    bool operator()(JSContext* cx) override
-    {
-        cx->setPendingException(exn_);
-        return false;
-    }
-
-private:
-    RootedValue& exn_;
-};
-} // anonymous namespace
-
 JSTrapStatus
 Debugger::reportUncaughtException(Maybe<AutoCompartment>& ac)
 {
@@ -1395,13 +1375,11 @@ Debugger::reportUncaughtException(Maybe<AutoCompartment>& ac)
         RootedValue exn(cx);
         if (cx->getPendingException(&exn)) {
             /*
-             * Clear the exception, because
-             * PrepareScriptEnvironmentAndInvoke will assert that we don't
-             * have one.
+             * Clear the exception, because ReportErrorToGlobal will assert that
+             * we don't have one.
              */
             cx->clearPendingException();
-            ReportExceptionClosure reportExn(exn);
-            PrepareScriptEnvironmentAndInvoke(cx, cx->global(), reportExn);
+            ReportErrorToGlobal(cx, cx->global(), exn);
         }
         /*
          * And if not, or if PrepareScriptEnvironmentAndInvoke somehow left
@@ -5324,10 +5302,11 @@ Debugger::isCompilableUnit(JSContext* cx, unsigned argc, Value* vp)
     frontend::UsedNameTracker usedNames(cx);
     if (!usedNames.init())
         return false;
-    frontend::Parser<frontend::FullParseHandler> parser(cx, cx->tempLifoAlloc(),
-                                                        options, chars.twoByteChars(),
-                                                        length, /* foldConstants = */ true,
-                                                        usedNames, nullptr, nullptr);
+    frontend::Parser<frontend::FullParseHandler, char16_t> parser(cx, cx->tempLifoAlloc(),
+                                                                  options, chars.twoByteChars(),
+                                                                  length,
+                                                                  /* foldConstants = */ true,
+                                                                  usedNames, nullptr, nullptr);
     JS::WarningReporter older = JS::SetWarningReporter(cx, nullptr);
     if (!parser.checkOptions() || !parser.parse()) {
         // We ran into an error. If it was because we ran out of memory we report

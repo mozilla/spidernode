@@ -1521,18 +1521,16 @@ ParseCompileOptions(JSContext* cx, CompileOptions& options, HandleObject opts,
 }
 
 static void
-my_LargeAllocFailCallback(void* data)
+my_LargeAllocFailCallback()
 {
-    JSContext* cx = (JSContext*)data;
-    JSRuntime* rt = cx->runtime();
-
-    if (cx->helperThread())
+    JSContext* cx = TlsContext.get();
+    if (!cx || cx->helperThread())
         return;
 
     MOZ_ASSERT(!JS::CurrentThreadIsHeapBusy());
 
     JS::PrepareForFullGC(cx);
-    rt->gc.gc(GC_NORMAL, JS::gcreason::SHARED_MEMORY_LIMIT);
+    cx->runtime()->gc.gc(GC_NORMAL, JS::gcreason::SHARED_MEMORY_LIMIT);
 }
 
 static const uint32_t CacheEntry_SOURCE = 0;
@@ -2676,6 +2674,14 @@ SrcNotes(JSContext* cx, HandleScript script, Sprinter* sp)
                 return false;
             break;
 
+          case SRC_CLASS_SPAN: {
+            unsigned startOffset = GetSrcNoteOffset(sn, 0);
+            unsigned endOffset = GetSrcNoteOffset(sn, 1);
+            if (!sp->jsprintf(" %u %u", startOffset, endOffset))
+                return false;
+            break;
+          }
+
           default:
             MOZ_ASSERT_UNREACHABLE("unrecognized srcnote");
         }
@@ -2895,7 +2901,7 @@ struct DisassembleOptionParser {
                 sourceNotes = false;
             else
                 break;
-            argv++, argc--;
+            argv++; argc--;
         }
         return true;
     }
@@ -3600,8 +3606,6 @@ WorkerMain(void* arg)
         JS::SetAsyncTaskCallbacks(cx, ShellStartAsyncTaskCallback, ShellFinishAsyncTaskCallback);
 
         environmentPreparer.emplace(cx);
-
-        JS::SetLargeAllocationFailureCallback(cx, my_LargeAllocFailCallback, (void*)cx);
     } else {
         JS_AddInterruptCallback(cx, ShellInterruptCallback);
     }
@@ -3633,8 +3637,6 @@ WorkerMain(void* arg)
     } while (0);
 
     if (input->parentRuntime) {
-        JS::SetLargeAllocationFailureCallback(cx, nullptr, nullptr);
-
         JS::SetGetIncumbentGlobalCallback(cx, nullptr);
         JS::SetEnqueuePromiseJobCallback(cx, nullptr);
     }
@@ -4410,8 +4412,9 @@ Parse(JSContext* cx, unsigned argc, Value* vp)
     UsedNameTracker usedNames(cx);
     if (!usedNames.init())
         return false;
-    Parser<FullParseHandler> parser(cx, cx->tempLifoAlloc(), options, chars, length,
-                                    /* foldConstants = */ true, usedNames, nullptr, nullptr);
+    Parser<FullParseHandler, char16_t> parser(cx, cx->tempLifoAlloc(), options, chars, length,
+                                              /* foldConstants = */ true, usedNames, nullptr,
+                                              nullptr);
     if (!parser.checkOptions())
         return false;
 
@@ -4460,9 +4463,9 @@ SyntaxParse(JSContext* cx, unsigned argc, Value* vp)
     UsedNameTracker usedNames(cx);
     if (!usedNames.init())
         return false;
-    Parser<frontend::SyntaxParseHandler> parser(cx, cx->tempLifoAlloc(),
-                                                options, chars, length, false,
-                                                usedNames, nullptr, nullptr);
+    Parser<frontend::SyntaxParseHandler, char16_t> parser(cx, cx->tempLifoAlloc(),
+                                                          options, chars, length, false,
+                                                          usedNames, nullptr, nullptr);
     if (!parser.checkOptions())
         return false;
 
@@ -8524,14 +8527,12 @@ main(int argc, char** argv, char** envp)
         || !op.addBoolOption('\0', "no-incremental-gc", "Disable Incremental GC")
         || !op.addIntOption('\0', "available-memory", "SIZE",
                             "Select GC settings based on available memory (MB)", 0)
-#if defined(JS_CODEGEN_ARM)
         || !op.addStringOption('\0', "arm-hwcap", "[features]",
                                "Specify ARM code generation features, or 'help' to list all features.")
         || !op.addIntOption('\0', "arm-asm-nop-fill", "SIZE",
                             "Insert the given number of NOP instructions at all possible pool locations.", 0)
         || !op.addIntOption('\0', "asm-pool-max-offset", "OFFSET",
                             "The maximum pc relative OFFSET permitted in pool reference instructions.", 1024)
-#endif
 #if defined(JS_SIMULATOR_ARM)
         || !op.addBoolOption('\0', "arm-sim-icache-checks", "Enable icache flush checks in the ARM "
                              "simulator.")
@@ -8660,7 +8661,7 @@ main(int argc, char** argv, char** envp)
 
     JS_SetGCParameter(cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
 
-    JS::SetLargeAllocationFailureCallback(cx, my_LargeAllocFailCallback, (void*)cx);
+    JS::SetProcessLargeAllocationFailureCallback(my_LargeAllocFailCallback);
 
     // Set some parameters to allow incremental GC in low memory conditions,
     // as is done for the browser, except in more-deterministic builds or when
@@ -8686,8 +8687,6 @@ main(int argc, char** argv, char** envp)
     if (OOM_printAllocationCount)
         printf("OOM max count: %" PRIu64 "\n", js::oom::counter);
 #endif
-
-    JS::SetLargeAllocationFailureCallback(cx, nullptr, nullptr);
 
     JS::SetGetIncumbentGlobalCallback(cx, nullptr);
     JS::SetEnqueuePromiseJobCallback(cx, nullptr);

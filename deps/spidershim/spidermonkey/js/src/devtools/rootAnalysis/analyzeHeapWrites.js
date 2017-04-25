@@ -24,7 +24,8 @@ function checkExternalFunction(entry)
         "fmod",
         "floor",
         "ceil",
-
+        /memchr/,
+        "strlen",
         // Assume that atomic accesses are threadsafe.
         /^__atomic_fetch_/,
         /^__atomic_load_/,
@@ -37,7 +38,6 @@ function checkExternalFunction(entry)
         "memcpy",
         "memset",
         "memmove",
-        "strlen",
     ];
 
     if (entry.isSafeArgument(1) && simpleWrites.includes(entry.name))
@@ -207,6 +207,11 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_ClearWillChange", "aDisplay", null],
         ["Gecko_AppendWillChange", "aDisplay", null],
         ["Gecko_CopyWillChangeFrom", "aDest", null],
+        ["Gecko_InitializeImageCropRect", "aImage", null],
+        ["Gecko_CopyShapeSourceFrom", "aDst", null],
+        ["Gecko_DestroyShapeSource", "aShape", null],
+        ["Gecko_StyleShapeSource_SetURLValue", "aShape", null],
+        ["Gecko_nsFont_InitSystem", "aDest", null],
     ];
     for (var [entryMatch, varMatch, csuMatch] of whitelist) {
         assert(entryMatch || varMatch || csuMatch);
@@ -318,6 +323,12 @@ function ignoreCallEdge(entry, callee)
         return true;
     }
 
+    // We manually lock here
+    if ("Gecko_nsFont_InitSystem" == name)
+    {
+        return true;
+    }
+
     return false;
 }
 
@@ -396,6 +407,7 @@ function ignoreContents(entry)
             /nsAC?String::Assign/,
             /nsAC?String::Append/,
             /nsAC?String::Replace/,
+            /nsAC?String::Trim/,
             /nsAC?String::Truncate/,
             /nsString::StripChars/,
             /nsAC?String::operator=/,

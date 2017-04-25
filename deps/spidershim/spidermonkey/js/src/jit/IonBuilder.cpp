@@ -502,12 +502,6 @@ IonBuilder::canInlineTarget(JSFunction* target, CallInfo& callInfo)
         return DontInline(inlineScript, "Script is debuggee");
     }
 
-    TypeSet::ObjectKey* targetKey = TypeSet::ObjectKey::get(target);
-    if (targetKey->unknownProperties()) {
-        trackOptimizationOutcome(TrackedOutcome::CantInlineUnknownProps);
-        return DontInline(inlineScript, "Target type has unknown properties");
-    }
-
     return InliningDecision_Inline;
 }
 
@@ -2322,6 +2316,16 @@ IonBuilder::inspectOpcode(JSOp op)
         pushConstant(MagicValue(JS_IS_CONSTRUCTING));
         return Ok();
 
+      case JSOP_OPTIMIZE_SPREADCALL:
+      {
+        // Assuming optimization isn't available doesn't affect correctness.
+        // TODO: Investigate dynamic checks.
+        MDefinition* arr = current->peek(-1);
+        arr->setImplicitlyUsedUnchecked();
+        pushConstant(BooleanValue(false));
+        return Ok();
+      }
+
       default:
         break;
     }
@@ -3999,10 +4003,6 @@ IonBuilder::makeInliningDecision(JSObject* targetArg, CallInfo& callInfo)
         outerBaseline->setMaxInliningDepth(scriptInlineDepth);
 
     // End of heuristics, we will inline this function.
-
-    // TI calls ObjectStateChange to trigger invalidation of the caller.
-    TypeSet::ObjectKey* targetKey = TypeSet::ObjectKey::get(target);
-    targetKey->watchStateChangeForInlinedCall(constraints());
 
     outerBuilder->inlinedBytecodeLength_ += targetScript->length();
 
@@ -7542,16 +7542,12 @@ AbortReasonOr<Ok>
 IonBuilder::jsop_bindname(PropertyName* name)
 {
     MDefinition* envChain;
-    if (analysis().usesEnvironmentChain()) {
-        envChain = current->environmentChain();
-    } else {
-        // We take the slow path when trying to BINDGNAME a name that resolves
-        // to a 'const' or an uninitialized binding.
-        MOZ_ASSERT(JSOp(*pc) == JSOP_BINDGNAME);
+    if (IsGlobalOp(JSOp(*pc)) && !script()->hasNonSyntacticScope())
         envChain = constant(ObjectValue(script()->global().lexicalEnvironment()));
-    }
-    MBindNameCache* ins = MBindNameCache::New(alloc(), envChain, name, script(), pc);
+    else
+        envChain = current->environmentChain();
 
+    MBindNameCache* ins = MBindNameCache::New(alloc(), envChain, name, script(), pc);
     current->add(ins);
     current->push(ins);
 
