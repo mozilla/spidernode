@@ -811,22 +811,6 @@ TypeSet::IsTypeMarked(JSRuntime* rt, TypeSet::Type* v)
     return rv;
 }
 
-/* static */ bool
-TypeSet::IsTypeAllocatedDuringIncremental(TypeSet::Type v)
-{
-    bool rv;
-    if (v.isSingletonUnchecked()) {
-        JSObject* obj = v.singletonNoBarrier();
-        rv = obj->isTenured() && obj->asTenured().arena()->allocatedDuringIncremental;
-    } else if (v.isGroupUnchecked()) {
-        ObjectGroup* group = v.groupNoBarrier();
-        rv = group->arena()->allocatedDuringIncremental;
-    } else {
-        rv = false;
-    }
-    return rv;
-}
-
 static inline bool
 IsObjectKeyAboutToBeFinalized(TypeSet::ObjectKey** keyp)
 {
@@ -4463,6 +4447,7 @@ TypeScript::destroy()
 void
 Zone::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                              size_t* typePool,
+                             size_t* jitZone,
                              size_t* baselineStubsOptimized,
                              size_t* cachedCFG,
                              size_t* uniqueIdMap,
@@ -4470,13 +4455,8 @@ Zone::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                              size_t* atomsMarkBitmaps)
 {
     *typePool += types.typeLifoAlloc().sizeOfExcludingThis(mallocSizeOf);
-    if (jitZone()) {
-        // These functions return pointers to struct that are embedded within
-        // JitZone, which is why we use sizeOfExcludingThis().
-        *baselineStubsOptimized +=
-            jitZone()->optimizedStubSpace()->sizeOfExcludingThis(mallocSizeOf);
-        *cachedCFG += jitZone()->cfgSpace()->sizeOfExcludingThis(mallocSizeOf);
-    }
+    if (jitZone_)
+        jitZone_->addSizeOfIncludingThis(mallocSizeOf, jitZone, baselineStubsOptimized, cachedCFG);
     *uniqueIdMap += uniqueIds().sizeOfExcludingThis(mallocSizeOf);
     *shapeTables += baseShapes().sizeOfExcludingThis(mallocSizeOf)
                   + initialShapes().sizeOfExcludingThis(mallocSizeOf);

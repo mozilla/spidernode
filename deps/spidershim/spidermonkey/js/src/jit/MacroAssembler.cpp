@@ -1423,6 +1423,20 @@ MacroAssembler::loadStringChar(Register str, Register index, Register output, La
 }
 
 void
+MacroAssembler::loadStringIndexValue(Register str, Register dest, Label* fail)
+{
+    MOZ_ASSERT(str != dest);
+
+    load32(Address(str, JSString::offsetOfFlags()), dest);
+
+    // Does not have a cached index value.
+    branchTest32(Assembler::Zero, dest, Imm32(JSString::INDEX_VALUE_BIT), fail);
+
+    // Extract the index.
+    rshift32(Imm32(JSString::INDEX_VALUE_SHIFT), dest);
+}
+
+void
 MacroAssembler::loadJSContext(Register dest)
 {
     CompileCompartment* compartment = GetJitContext()->compartment;
@@ -1719,11 +1733,10 @@ MacroAssembler::printf(const char* output)
 static void
 Printf1_(const char* output, uintptr_t value) {
     AutoEnterOOMUnsafeRegion oomUnsafe;
-    char* line = JS_sprintf_append(nullptr, output, value);
+    js::UniqueChars line = JS_sprintf_append(nullptr, output, value);
     if (!line)
         oomUnsafe.crash("OOM at masm.printf");
-    fprintf(stderr, "%s", line);
-    js_free(line);
+    fprintf(stderr, "%s", line.get());
 }
 
 void
@@ -2760,6 +2773,10 @@ MacroAssembler::callWithABI(wasm::BytecodeOffset callOffset, wasm::SymbolicAddre
 {
     MOZ_ASSERT(wasm::NeedsBuiltinThunk(imm));
 
+    // We clobber WasmTlsReg below in the loadWasmTlsRegFromFrame(), but Ion
+    // assumes it is non-volatile, so preserve it manually.
+    Push(WasmTlsReg);
+
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust, /* callFromWasm = */ true);
 
@@ -2770,6 +2787,8 @@ MacroAssembler::callWithABI(wasm::BytecodeOffset callOffset, wasm::SymbolicAddre
 
     call(wasm::CallSiteDesc(callOffset.bytecodeOffset, wasm::CallSite::Symbolic), imm);
     callWithABIPost(stackAdjust, result, /* callFromWasm = */ true);
+
+    Pop(WasmTlsReg);
 }
 
 // ===============================================================

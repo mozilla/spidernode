@@ -465,15 +465,19 @@ CacheRegisterAllocator::fixupAliasedInputs(MacroAssembler& masm)
             if (!loc1.aliasesReg(loc2))
                 continue;
 
+            // loc1 and loc2 alias so we spill one of them. If one is a
+            // ValueReg and the other is a PayloadReg, we have to spill the
+            // PayloadReg: spilling the ValueReg instead would leave its type
+            // register unallocated on 32-bit platforms.
             if (loc1.kind() == OperandLocation::ValueReg) {
                 MOZ_ASSERT_IF(loc2.kind() == OperandLocation::ValueReg,
                               loc1 == loc2);
+                spillOperandToStack(masm, &loc2);
+            } else {
+                MOZ_ASSERT(loc1.kind() == OperandLocation::PayloadReg);
                 spillOperandToStack(masm, &loc1);
-                break;
+                break; // Spilled loc1, so nothing else will alias it.
             }
-
-            MOZ_ASSERT(loc1.kind() == OperandLocation::PayloadReg);
-            spillOperandToStack(masm, &loc2);
         }
     }
 }
@@ -1522,20 +1526,29 @@ CacheIRCompiler::emitGuardAndGetIndexFromString()
     if (!addFailurePath(&failure))
         return false;
 
-    LiveRegisterSet save(GeneralRegisterSet::Volatile(), liveVolatileFloatRegs());
-    masm.PushRegsInMask(save);
+    Label vmCall, done;
+    masm.loadStringIndexValue(str, output, &vmCall);
+    masm.jump(&done);
 
-    masm.setupUnalignedABICall(output);
-    masm.passABIArg(str);
-    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, GetIndexFromString));
-    masm.mov(ReturnReg, output);
+    {
+        masm.bind(&vmCall);
+        LiveRegisterSet save(GeneralRegisterSet::Volatile(), liveVolatileFloatRegs());
+        masm.PushRegsInMask(save);
 
-    LiveRegisterSet ignore;
-    ignore.add(output);
-    masm.PopRegsInMaskIgnore(save, ignore);
+        masm.setupUnalignedABICall(output);
+        masm.passABIArg(str);
+        masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, GetIndexFromString));
+        masm.mov(ReturnReg, output);
 
-    // GetIndexFromString returns a negative value on failure.
-    masm.branchTest32(Assembler::Signed, output, output, failure->label());
+        LiveRegisterSet ignore;
+        ignore.add(output);
+        masm.PopRegsInMaskIgnore(save, ignore);
+
+        // GetIndexFromString returns a negative value on failure.
+        masm.branchTest32(Assembler::Signed, output, output, failure->label());
+    }
+
+    masm.bind(&done);
     return true;
 }
 
@@ -1563,8 +1576,8 @@ CacheIRCompiler::emitLoadWrapperTarget()
     Register obj = allocator.useRegister(masm, reader.objOperandId());
     Register reg = allocator.defineRegister(masm, reader.objOperandId());
 
-    masm.loadPtr(Address(obj, ProxyObject::offsetOfValues()), reg);
-    masm.unboxObject(Address(reg, detail::ProxyValueArray::offsetOfPrivateSlot()), reg);
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), reg);
+    masm.unboxObject(Address(reg, detail::ProxyReservedSlots::offsetOfPrivateSlot()), reg);
     return true;
 }
 
@@ -1574,9 +1587,9 @@ CacheIRCompiler::emitLoadDOMExpandoValue()
     Register obj = allocator.useRegister(masm, reader.objOperandId());
     ValueOperand val = allocator.defineValueRegister(masm, reader.valOperandId());
 
-    masm.loadPtr(Address(obj, ProxyObject::offsetOfValues()), val.scratchReg());
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), val.scratchReg());
     masm.loadValue(Address(val.scratchReg(),
-                           ProxyObject::offsetOfExtraSlotInValues(GetDOMProxyExpandoSlot())),
+                           detail::ProxyReservedSlots::offsetOfPrivateSlot()),
                    val);
     return true;
 }
@@ -1589,8 +1602,8 @@ CacheIRCompiler::emitLoadDOMExpandoValueIgnoreGeneration()
 
     // Determine the expando's Address.
     Register scratch = output.scratchReg();
-    masm.loadPtr(Address(obj, ProxyObject::offsetOfValues()), scratch);
-    Address expandoAddr(scratch, ProxyObject::offsetOfExtraSlotInValues(GetDOMProxyExpandoSlot()));
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), scratch);
+    Address expandoAddr(scratch, detail::ProxyReservedSlots::offsetOfPrivateSlot());
 
 #ifdef DEBUG
     // Private values are stored as doubles, so assert we have a double.

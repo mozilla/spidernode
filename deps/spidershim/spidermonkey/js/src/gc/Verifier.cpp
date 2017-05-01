@@ -246,7 +246,7 @@ gc::GCRuntime::startVerifyPreBarriers()
 
     for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
         MOZ_ASSERT(!zone->usedByHelperThread());
-        zone->setNeedsIncrementalBarrier(true, Zone::UpdateJit);
+        zone->setNeedsIncrementalBarrier(true);
         zone->arenas.purge();
     }
 
@@ -340,7 +340,7 @@ gc::GCRuntime::endVerifyPreBarriers()
         if (!zone->needsIncrementalBarrier())
             compartmentCreated = true;
 
-        zone->setNeedsIncrementalBarrier(false, Zone::UpdateJit);
+        zone->setNeedsIncrementalBarrier(false);
     }
 
     /*
@@ -657,7 +657,8 @@ CheckGrayMarkingTracer::checkCell(Cell* cell)
         tenuredCell->isMarked(GRAY))
     {
         failures++;
-        fprintf(stderr, "Found black to gray edge %p\n", cell);
+        fprintf(stderr, "Found black to gray edge to %s %p\n",
+                GCTraceKindToAscii(cell->getTraceKind()), cell);
         dumpCellPath();
     }
 }
@@ -672,9 +673,8 @@ CheckGrayMarkingTracer::check(AutoLockForExclusiveAccess& lock)
 }
 
 JS_FRIEND_API(bool)
-js::CheckGrayMarkingState(JSContext* cx)
+js::CheckGrayMarkingState(JSRuntime* rt)
 {
-    JSRuntime* rt = cx->runtime();
     MOZ_ASSERT(!JS::CurrentThreadIsHeapCollecting());
     MOZ_ASSERT(!rt->gc.isIncrementalGCInProgress());
     if (!rt->gc.areGrayBitsValid())
