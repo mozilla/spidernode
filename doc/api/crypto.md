@@ -288,7 +288,8 @@ decipher.on('end', () => {
   // Prints: some clear text data
 });
 
-const encrypted = 'ca981be48e90867604588e75d04feabb63cc007a8f8ad89b10616ed84d815504';
+const encrypted =
+    'ca981be48e90867604588e75d04feabb63cc007a8f8ad89b10616ed84d815504';
 decipher.write(encrypted, 'hex');
 decipher.end();
 ```
@@ -312,7 +313,8 @@ Example: Using the [`decipher.update()`][] and [`decipher.final()`][] methods:
 const crypto = require('crypto');
 const decipher = crypto.createDecipher('aes192', 'a password');
 
-const encrypted = 'ca981be48e90867604588e75d04feabb63cc007a8f8ad89b10616ed84d815504';
+const encrypted =
+    'ca981be48e90867604588e75d04feabb63cc007a8f8ad89b10616ed84d815504';
 let decrypted = decipher.update(encrypted, 'hex', 'utf8');
 decrypted += decipher.final('utf8');
 console.log(decrypted);
@@ -1713,18 +1715,18 @@ This should normally never take longer than a few milliseconds. The only time
 when generating the random bytes may conceivably block for a longer period of
 time is right after boot, when the whole system is still low on entropy.
 
-### crypto.randomFillSync(buf[, offset][, size])
+### crypto.randomFillSync(buffer[, offset][, size])
 <!-- YAML
 added: REPLACEME
 -->
 
-* `buf` {Buffer|Uint8Array} Must be supplied.
+* `buffer` {Buffer|Uint8Array} Must be supplied.
 * `offset` {number} Defaults to `0`.
-* `size` {number} Defaults to `buf.length - offset`.
+* `size` {number} Defaults to `buffer.length - offset`.
 
 Synchronous version of [`crypto.randomFill()`][].
 
-Returns `buf`
+Returns `buffer`
 
 ```js
 const buf = Buffer.alloc(10);
@@ -1738,14 +1740,14 @@ crypto.randomFillSync(buf, 5, 5);
 console.log(buf.toString('hex'));
 ```
 
-### crypto.randomFill(buf[, offset][, size], callback)
+### crypto.randomFill(buffer[, offset][, size], callback)
 <!-- YAML
 added: REPLACEME
 -->
 
-* `buf` {Buffer|Uint8Array} Must be supplied.
+* `buffer` {Buffer|Uint8Array} Must be supplied.
 * `offset` {number} Defaults to `0`.
-* `size` {number} Defaults to `buf.length - offset`.
+* `size` {number} Defaults to `buffer.length - offset`.
 * `callback` {Function} `function(err, buf) {}`.
 
 This function is similar to [`crypto.randomBytes()`][] but requires the first
@@ -2213,7 +2215,7 @@ the `crypto`, `tls`, and `https` modules and are generally specific to OpenSSL.
 [`crypto.getHashes()`]: #crypto_crypto_gethashes
 [`crypto.pbkdf2()`]: #crypto_crypto_pbkdf2_password_salt_iterations_keylen_digest_callback
 [`crypto.randomBytes()`]: #crypto_crypto_randombytes_size_callback
-[`crypto.randomFill()`]: #crypto_crypto_randombytesbuffer_buf_size_offset_cb
+[`crypto.randomFill()`]: #crypto_crypto_randomfill_buffer_offset_size_callback
 [`decipher.final()`]: #crypto_decipher_final_output_encoding
 [`decipher.update()`]: #crypto_decipher_update_data_input_encoding_output_encoding
 [`diffieHellman.setPublicKey()`]: #crypto_diffiehellman_setpublickey_public_key_encoding

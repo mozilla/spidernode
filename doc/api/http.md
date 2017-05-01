@@ -12,6 +12,7 @@ user is able to stream data.
 
 HTTP message headers are represented by an object like this:
 
+<!-- eslint-disable -->
 ```js
 { 'content-length': '123',
   'content-type': 'text/plain',
@@ -34,6 +35,7 @@ property, which is an array of `[key, value, key2, value2, ...]`.  For
 example, the previous message header object might have a `rawHeaders`
 list like the following:
 
+<!-- eslint-disable semi -->
 ```js
 [ 'ConTent-Length', '123456',
   'content-LENGTH', '123',
@@ -309,7 +311,7 @@ const net = require('net');
 const url = require('url');
 
 // Create an HTTP tunneling proxy
-const proxy = http.createServer( (req, res) => {
+const proxy = http.createServer((req, res) => {
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.end('okay');
 });
@@ -405,7 +407,7 @@ A client server pair demonstrating how to listen for the `'upgrade'` event.
 const http = require('http');
 
 // Create an HTTP server
-const srv = http.createServer( (req, res) => {
+const srv = http.createServer((req, res) => {
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.end('okay');
 });
@@ -1460,6 +1462,7 @@ Accept: text/plain\r\n
 
 Then `request.url` will be:
 
+<!-- eslint-disable semi -->
 ```js
 '/status?name=ryan'
 ```
@@ -1570,10 +1573,10 @@ http.get('http://nodejs.org/dist/index.json', (res) => {
 
   let error;
   if (statusCode !== 200) {
-    error = new Error(`Request Failed.\n` +
+    error = new Error('Request Failed.\n' +
                       `Status Code: ${statusCode}`);
   } else if (!/^application\/json/.test(contentType)) {
-    error = new Error(`Invalid content-type.\n` +
+    error = new Error('Invalid content-type.\n' +
                       `Expected application/json but received ${contentType}`);
   }
   if (error) {

@@ -25,7 +25,6 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "ares.h"
-#include "debug-agent.h"
 #if HAVE_INSPECTOR
 #include "inspector_agent.h"
 #endif
@@ -35,6 +34,7 @@
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
+#include "node.h"
 
 #include <list>
 #include <stdint.h>
@@ -553,10 +553,6 @@ class Environment {
   ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)
 #undef V
 
-  inline debugger::Agent* debugger_agent() {
-    return &debugger_agent_;
-  }
-
 #if HAVE_INSPECTOR
   inline inspector::Agent* inspector_agent() {
     return &inspector_agent_;
@@ -571,6 +567,8 @@ class Environment {
   inline ReqWrapQueue* req_wrap_queue() { return &req_wrap_queue_; }
 
   static const int kContextEmbedderDataIndex = NODE_CONTEXT_EMBEDDER_DATA_INDEX;
+
+  void AddPromiseHook(promise_hook_func fn, void* arg);
 
  private:
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
@@ -596,7 +594,6 @@ class Environment {
   size_t makecallback_cntr_;
   int64_t async_wrap_uid_;
   std::vector<int64_t> destroy_ids_list_;
-  debugger::Agent debugger_agent_;
 #if HAVE_INSPECTOR
   inspector::Agent inspector_agent_;
 #endif
@@ -619,6 +616,16 @@ class Environment {
     void* arg_;
   };
   std::list<AtExitCallback> at_exit_functions_;
+
+  struct PromiseHookCallback {
+    promise_hook_func cb_;
+    void* arg_;
+  };
+  std::vector<PromiseHookCallback> promise_hooks_;
+
+  static void EnvPromiseHook(v8::PromiseHookType type,
+                             v8::Local<v8::Promise> promise,
+                             v8::Local<v8::Value> parent);
 
 #define V(PropertyName, TypeName)                                             \
   v8::Persistent<TypeName> PropertyName ## _;

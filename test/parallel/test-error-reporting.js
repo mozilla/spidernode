@@ -39,7 +39,7 @@ function errExec(script, callback) {
 
     if (!common.isChakraEngine) { // chakra does not output script
       // Assert the script is mentioned in error output.
-      assert.ok(stderr.indexOf(script) >= 0);
+      assert.ok(stderr.includes(script));
     }
 
     // Proxy the args for more tests.

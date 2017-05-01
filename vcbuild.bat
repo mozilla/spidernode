@@ -43,6 +43,7 @@ set dll=
 set engine=v8
 set build_addons_napi=
 set test_node_inspect=
+set test_check_deopts=
 
 :next-arg
 if "%1"=="" goto args-done
@@ -75,6 +76,7 @@ if /i "%1"=="test-pummel"   set test_args=%test_args% pummel&goto arg-ok
 if /i "%1"=="test-all"      set test_args=%test_args% sequential parallel message gc inspector internet pummel&set build_testgc_addon=1&set cpplint=1&set jslint=1&goto arg-ok
 if /i "%1"=="test-known-issues" set test_args=%test_args% known_issues&goto arg-ok
 if /i "%1"=="test-node-inspect" set test_node_inspect=1&goto arg-ok
+if /i "%1"=="test-check-deopts" set test_check_deopts=1&goto arg-ok
 if /i "%1"=="jslint"        set jslint=1&goto arg-ok
 if /i "%1"=="jslint-ci"     set jslint_ci=1&goto arg-ok
 if /i "%1"=="lint"          set cpplint=1&set jslint=1&goto arg-ok
@@ -94,6 +96,7 @@ if /i "%1"=="dll"           set dll=1&goto arg-ok
 if /i "%1"=="v8"            set engine=v8&goto arg-ok
 if /i "%1"=="chakracore"    set engine=chakracore&set chakra_jslint=deps\chakrashim\lib&goto arg-ok
 if /i "%1"=="spidermonkey"  set engine=spidermonkey&goto arg-ok
+if /i "%1"=="no-NODE-OPTIONS"	set no_NODE_OPTIONS=1&goto arg-ok
 
 echo Error: invalid command line option `%1`.
 exit /b 1
@@ -125,6 +128,7 @@ if defined release_urlbase set configure_flags=%configure_flags% --release-urlba
 if defined download_arg set configure_flags=%configure_flags% %download_arg%
 if defined enable_vtune_arg set configure_flags=%configure_flags% --enable-vtune-profiling
 if defined dll set configure_flags=%configure_flags% --shared
+if defined no_NODE_OPTIONS set configure_flags=%configure_flags% --without-node-options
 
 if "%i18n_arg%"=="full-icu" set configure_flags=%configure_flags% --with-intl=full-icu
 if "%i18n_arg%"=="small-icu" set configure_flags=%configure_flags% --with-intl=small-icu
@@ -365,7 +369,16 @@ endlocal
 goto run-tests
 
 :run-tests
-if not defined test_node_inspect goto node-tests
+if defined test_check_deopts goto node-check-deopts
+if defined test_node_inspect goto node-test-inspect
+goto node-tests
+
+:node-check-deopts
+python tools\test.py --mode=release --check-deopts parallel sequential -J
+if defined test_node_inspect goto node-test-inspect
+goto node-tests
+
+:node-test-inspect
 set USE_EMBEDDED_NODE_INSPECT=1
 %config%\node tools\test-npm-package.js --install deps\node-inspect test
 goto node-tests
@@ -427,12 +440,12 @@ if defined jslint_ci goto jslint-ci
 if not defined jslint goto exit
 if not exist tools\eslint\lib\eslint.js goto no-lint
 echo running jslint
-%config%\node tools\eslint\bin\eslint.js --cache --rule "linebreak-style: 0" --rulesdir=tools\eslint-rules benchmark lib test tools
+%config%\node tools\eslint\bin\eslint.js --cache --rule "linebreak-style: 0" --rulesdir=tools\eslint-rules --ext=.js,.md benchmark doc lib test tools
 goto exit
 
 :jslint-ci
 echo running jslint-ci
-%config%\node tools\jslint.js -J -f tap -o test-eslint.tap benchmark lib test %chakra_jslint% tools
+%config%\node tools\jslint.js -J -f tap -o test-eslint.tap benchmark doc lib test %chakra_jslint% tools
 goto exit
 
 :no-lint
@@ -445,7 +458,7 @@ echo Failed to create vc project files.
 goto exit
 
 :help
-echo vcbuild.bat [debug/release] [msi] [test-all/test-uv/test-inspector/test-internet/test-pummel/test-simple/test-message] [clean] [noprojgen] [small-icu/full-icu/without-intl] [nobuild] [sign] [x86/x64] [vc2015] [download-all] [enable-vtune] [lint/lint-ci]
+echo vcbuild.bat [debug/release] [msi] [test-all/test-uv/test-inspector/test-internet/test-pummel/test-simple/test-message] [clean] [noprojgen] [small-icu/full-icu/without-intl] [nobuild] [sign] [x86/x64] [vc2015] [download-all] [enable-vtune] [lint/lint-ci]  [no-NODE-OPTIONS]
 echo Examples:
 echo   vcbuild.bat                : builds release build
 echo   vcbuild.bat debug          : builds debug build

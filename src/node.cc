@@ -143,6 +143,7 @@ using v8::Number;
 using v8::Object;
 using v8::ObjectTemplate;
 using v8::Promise;
+using v8::PromiseHookType;
 using v8::PromiseRejectMessage;
 using v8::PropertyCallbackInfo;
 using v8::ScriptOrigin;
@@ -229,7 +230,6 @@ bool v8_initialized = false;
 // process-relative uptime base, initialized at start-up
 static double prog_start_time;
 static bool debugger_running;
-static uv_async_t dispatch_debug_messages_async;
 
 static Mutex node_isolate_mutex;
 static v8::Isolate* node_isolate;
@@ -1114,6 +1114,58 @@ bool ShouldAbortOnUncaughtException(Isolate* isolate) {
 }
 
 
+void DomainPromiseHook(PromiseHookType type,
+                       Local<Promise> promise,
+                       Local<Value> parent,
+                       void* arg) {
+  Environment* env = static_cast<Environment*>(arg);
+  Local<Context> context = env->context();
+
+  if (type == PromiseHookType::kResolve) return;
+  if (type == PromiseHookType::kInit && env->in_domain()) {
+    promise->Set(context,
+                 env->domain_string(),
+                 env->domain_array()->Get(context,
+                                          0).ToLocalChecked()).FromJust();
+    return;
+  }
+
+  // Loosely based on node::MakeCallback().
+  Local<Value> domain_v =
+      promise->Get(context, env->domain_string()).ToLocalChecked();
+  if (!domain_v->IsObject())
+    return;
+
+  Local<Object> domain = domain_v.As<Object>();
+  if (domain->Get(context, env->disposed_string())
+          .ToLocalChecked()->IsTrue()) {
+    return;
+  }
+
+  if (type == PromiseHookType::kBefore) {
+    Local<Value> enter_v =
+        domain->Get(context, env->enter_string()).ToLocalChecked();
+    if (enter_v->IsFunction()) {
+      if (enter_v.As<Function>()->Call(context, domain, 0, nullptr).IsEmpty()) {
+        FatalError("node::PromiseHook",
+                   "domain enter callback threw, please report this "
+                   "as a bug in Node.js");
+      }
+    }
+  } else {
+    Local<Value> exit_v =
+        domain->Get(context, env->exit_string()).ToLocalChecked();
+    if (exit_v->IsFunction()) {
+      if (exit_v.As<Function>()->Call(context, domain, 0, nullptr).IsEmpty()) {
+        FatalError("node::MakeCallback",
+                   "domain exit callback threw, please report this "
+                   "as a bug in Node.js");
+      }
+    }
+  }
+}
+
+
 void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -1153,8 +1205,11 @@ void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
   Local<ArrayBuffer> array_buffer =
       ArrayBuffer::New(env->isolate(), fields, sizeof(*fields) * fields_count);
 
+  env->AddPromiseHook(DomainPromiseHook, static_cast<void*>(env));
+
   args.GetReturnValue().Set(Uint32Array::New(array_buffer, 0, fields_count));
 }
+
 
 void RunMicrotasks(const FunctionCallbackInfo<Value>& args) {
   args.GetIsolate()->RunMicrotasks();
@@ -1231,6 +1286,12 @@ void SetupPromises(const FunctionCallbackInfo<Value>& args) {
 }
 
 }  // anonymous namespace
+
+
+void AddPromiseHook(v8::Isolate* isolate, promise_hook_func fn, void* arg) {
+  Environment* env = Environment::GetCurrent(isolate);
+  env->AddPromiseHook(fn, arg);
+}
 
 
 Local<Value> MakeCallback(Environment* env,
@@ -3631,6 +3692,9 @@ static void PrintHelp() {
 #endif
 #endif
          "NODE_NO_WARNINGS             set to 1 to silence process warnings\n"
+#if !defined(NODE_WITHOUT_NODE_OPTIONS)
+         "NODE_OPTIONS                 set CLI options in the environment\n"
+#endif
 #ifdef _WIN32
          "NODE_PATH                    ';'-separated list of directories\n"
 #else
@@ -3644,6 +3708,51 @@ static void PrintHelp() {
          "OPENSSL_CONF                 load OpenSSL configuration from file\n"
          "\n"
          "Documentation can be found at https://nodejs.org/\n");
+}
+
+
+static void CheckIfAllowedInEnv(const char* exe, bool is_env,
+                                const char* arg) {
+  if (!is_env)
+    return;
+
+  // Find the arg prefix when its --some_arg=val
+  const char* eq = strchr(arg, '=');
+  size_t arglen = eq ? eq - arg : strlen(arg);
+
+  static const char* whitelist[] = {
+    // Node options
+    "-r", "--require",
+    "--no-deprecation",
+    "--no-warnings",
+    "--trace-warnings",
+    "--redirect-warnings",
+    "--trace-deprecation",
+    "--trace-sync-io",
+    "--trace-events-enabled",
+    "--track-heap-objects",
+    "--throw-deprecation",
+    "--zero-fill-buffers",
+    "--v8-pool-size",
+    "--use-openssl-ca",
+    "--use-bundled-ca",
+    "--enable-fips",
+    "--force-fips",
+    "--openssl-config",
+    "--icu-data-dir",
+
+    // V8 options
+    "--max_old_space_size",
+  };
+
+  for (unsigned i = 0; i < arraysize(whitelist); i++) {
+    const char* allowed = whitelist[i];
+    if (strlen(allowed) == arglen && strncmp(allowed, arg, arglen) == 0)
+      return;
+  }
+
+  fprintf(stderr, "%s: %s is not allowed in NODE_OPTIONS\n", exe, arg);
+  exit(9);
 }
 
 
@@ -3663,7 +3772,8 @@ static void ParseArgs(int* argc,
                       int* exec_argc,
                       const char*** exec_argv,
                       int* v8_argc,
-                      const char*** v8_argv) {
+                      const char*** v8_argv,
+                      bool is_env) {
   const unsigned int nargs = static_cast<unsigned int>(*argc);
   const char** new_exec_argv = new const char*[nargs];
   const char** new_v8_argv = new const char*[nargs];
@@ -3671,7 +3781,7 @@ static void ParseArgs(int* argc,
 #if HAVE_OPENSSL
   bool use_bundled_ca = false;
   bool use_openssl_ca = false;
-#endif  // HAVE_INSPECTOR
+#endif  // HAVE_OPENSSL
 
   for (unsigned int i = 0; i < nargs; ++i) {
     new_exec_argv[i] = nullptr;
@@ -3691,6 +3801,8 @@ static void ParseArgs(int* argc,
   while (index < nargs && argv[index][0] == '-' && !short_circuit) {
     const char* const arg = argv[index];
     unsigned int args_consumed = 1;
+
+    CheckIfAllowedInEnv(argv[0], is_env, arg);
 
     if (debug_options.ParseOption(arg)) {
       // Done, consumed by DebugOptions::ParseOption().
@@ -3844,6 +3956,13 @@ static void ParseArgs(int* argc,
 
   // Copy remaining arguments.
   const unsigned int args_left = nargs - index;
+
+  if (is_env && args_left) {
+    fprintf(stderr, "%s: %s is not supported in NODE_OPTIONS\n",
+            argv[0], argv[index]);
+    exit(9);
+  }
+
   memcpy(new_argv + new_argc, argv + index, args_left * sizeof(*argv));
   new_argc += args_left;
 
@@ -3859,72 +3978,12 @@ static void ParseArgs(int* argc,
 }
 
 
-// Called from V8 Debug Agent TCP thread.
-static void DispatchMessagesDebugAgentCallback(Environment* env) {
-  // TODO(indutny): move async handle to environment
-  uv_async_send(&dispatch_debug_messages_async);
-}
-
-
 static void StartDebug(Environment* env, const char* path,
                        DebugOptions debug_options) {
   CHECK(!debugger_running);
-  if (debug_options.debugger_enabled()) {
-    env->debugger_agent()->set_dispatch_handler(
-          DispatchMessagesDebugAgentCallback);
-    debugger_running = env->debugger_agent()->Start(debug_options);
-    if (debugger_running == false) {
-      fprintf(stderr, "Starting debugger on %s:%d failed\n",
-              debug_options.host_name().c_str(), debug_options.port());
-      fflush(stderr);
-    }
 #if HAVE_INSPECTOR
-  } else {
-    debugger_running = v8_platform.StartInspector(env, path, debug_options);
+  debugger_running = v8_platform.StartInspector(env, path, debug_options);
 #endif  // HAVE_INSPECTOR
-  }
-}
-
-
-// Called from the main thread.
-static void EnableDebug(Environment* env) {
-  CHECK(debugger_running);
-
-  // Send message to enable debug in workers
-  HandleScope handle_scope(env->isolate());
-
-  Local<Object> message = Object::New(env->isolate());
-  message->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "cmd"),
-               FIXED_ONE_BYTE_STRING(env->isolate(), "NODE_DEBUG_ENABLED"));
-  Local<Value> argv[] = {
-    FIXED_ONE_BYTE_STRING(env->isolate(), "internalMessage"),
-    message
-  };
-  MakeCallback(env, env->process_object(), "emit", arraysize(argv), argv);
-
-  // Enabled debugger, possibly making it wait on a semaphore
-  env->debugger_agent()->Enable();
-}
-
-
-// Called from the main thread.
-static void DispatchDebugMessagesAsyncCallback(uv_async_t* handle) {
-  Mutex::ScopedLock scoped_lock(node_isolate_mutex);
-  if (auto isolate = node_isolate) {
-    if (debugger_running == false) {
-      fprintf(stderr, "Starting debugger agent.\n");
-
-      HandleScope scope(isolate);
-      Environment* env = Environment::GetCurrent(isolate);
-      Context::Scope context_scope(env->context());
-      debug_options.EnableDebugAgent(DebugAgentType::kDebugger);
-      StartDebug(env, nullptr, debug_options);
-      EnableDebug(env);
-    }
-
-    Isolate::Scope isolate_scope(isolate);
-    v8::Debug::ProcessDebugMessages(isolate);
-  }
 }
 
 
@@ -4069,15 +4128,9 @@ static void DebugPause(const FunctionCallbackInfo<Value>& args) {
 
 static void DebugEnd(const FunctionCallbackInfo<Value>& args) {
   if (debugger_running) {
+#if HAVE_INSPECTOR
     Environment* env = Environment::GetCurrent(args);
-#if HAVE_INSPECTOR
-    if (!debug_options.debugger_enabled()) {
-      env->inspector_agent()->Stop();
-    } else {
-#endif
-      env->debugger_agent()->Stop();
-#if HAVE_INSPECTOR
-    }
+    env->inspector_agent()->Stop();
 #endif
     debugger_running = false;
   }
@@ -4166,6 +4219,54 @@ inline void PlatformInit() {
 }
 
 
+void ProcessArgv(int* argc,
+                 const char** argv,
+                 int* exec_argc,
+                 const char*** exec_argv,
+                 bool is_env = false) {
+  // Parse a few arguments which are specific to Node.
+  int v8_argc;
+  const char** v8_argv;
+  ParseArgs(argc, argv, exec_argc, exec_argv, &v8_argc, &v8_argv, is_env);
+
+  // TODO(bnoordhuis) Intercept --prof arguments and start the CPU profiler
+  // manually?  That would give us a little more control over its runtime
+  // behavior but it could also interfere with the user's intentions in ways
+  // we fail to anticipate.  Dillema.
+  for (int i = 1; i < v8_argc; ++i) {
+    if (strncmp(v8_argv[i], "--prof", sizeof("--prof") - 1) == 0) {
+      v8_is_profiling = true;
+      break;
+    }
+  }
+
+#ifdef __POSIX__
+  // Block SIGPROF signals when sleeping in epoll_wait/kevent/etc.  Avoids the
+  // performance penalty of frequent EINTR wakeups when the profiler is running.
+  // Only do this for v8.log profiling, as it breaks v8::CpuProfiler users.
+  if (v8_is_profiling) {
+    uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL, SIGPROF);
+  }
+#endif
+
+  // The const_cast doesn't violate conceptual const-ness.  V8 doesn't modify
+  // the argv array or the elements it points to.
+  if (v8_argc > 1)
+    V8::SetFlagsFromCommandLine(&v8_argc, const_cast<char**>(v8_argv), true);
+
+  // Anything that's still in v8_argv is not a V8 or a node option.
+  for (int i = 1; i < v8_argc; i++) {
+    fprintf(stderr, "%s: bad option: %s\n", argv[0], v8_argv[i]);
+  }
+  delete[] v8_argv;
+  v8_argv = nullptr;
+
+  if (v8_argc > 1) {
+    exit(9);
+  }
+}
+
+
 void Init(int* argc,
           const char** argv,
           int* exec_argc,
@@ -4175,13 +4276,6 @@ void Init(int* argc,
 
   // Make inherited handles noninheritable.
   uv_disable_stdio_inheritance();
-
-  // init async debug messages dispatching
-  // Main thread uses uv_default_loop
-  CHECK_EQ(0, uv_async_init(uv_default_loop(),
-                            &dispatch_debug_messages_async,
-                            DispatchDebugMessagesAsyncCallback));
-  uv_unref(reinterpret_cast<uv_handle_t*>(&dispatch_debug_messages_async));
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
   // Set the ICU casing flag early
@@ -4219,30 +4313,35 @@ void Init(int* argc,
     SafeGetenv("OPENSSL_CONF", &openssl_config);
 #endif
 
-  // Parse a few arguments which are specific to Node.
-  int v8_argc;
-  const char** v8_argv;
-  ParseArgs(argc, argv, exec_argc, exec_argv, &v8_argc, &v8_argv);
+#if !defined(NODE_WITHOUT_NODE_OPTIONS)
+  std::string node_options;
+  if (SafeGetenv("NODE_OPTIONS", &node_options)) {
+    // Smallest tokens are 2-chars (a not space and a space), plus 2 extra
+    // pointers, for the prepended executable name, and appended NULL pointer.
+    size_t max_len = 2 + (node_options.length() + 1) / 2;
+    const char** argv_from_env = new const char*[max_len];
+    int argc_from_env = 0;
+    // [0] is expected to be the program name, fill it in from the real argv.
+    argv_from_env[argc_from_env++] = argv[0];
 
-  // TODO(bnoordhuis) Intercept --prof arguments and start the CPU profiler
-  // manually?  That would give us a little more control over its runtime
-  // behavior but it could also interfere with the user's intentions in ways
-  // we fail to anticipate.  Dillema.
-  for (int i = 1; i < v8_argc; ++i) {
-    if (strncmp(v8_argv[i], "--prof", sizeof("--prof") - 1) == 0) {
-      v8_is_profiling = true;
-      break;
+    char* cstr = strdup(node_options.c_str());
+    char* initptr = cstr;
+    char* token;
+    while ((token = strtok(initptr, " "))) {  // NOLINT(runtime/threadsafe_fn)
+      initptr = nullptr;
+      argv_from_env[argc_from_env++] = token;
     }
-  }
-
-#ifdef __POSIX__
-  // Block SIGPROF signals when sleeping in epoll_wait/kevent/etc.  Avoids the
-  // performance penalty of frequent EINTR wakeups when the profiler is running.
-  // Only do this for v8.log profiling, as it breaks v8::CpuProfiler users.
-  if (v8_is_profiling) {
-    uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL, SIGPROF);
+    argv_from_env[argc_from_env] = nullptr;
+    int exec_argc_;
+    const char** exec_argv_ = nullptr;
+    ProcessArgv(&argc_from_env, argv_from_env, &exec_argc_, &exec_argv_, true);
+    delete[] exec_argv_;
+    delete[] argv_from_env;
+    free(cstr);
   }
 #endif
+
+  ProcessArgv(argc, argv, exec_argc, exec_argv);
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
   // If the parameter isn't given, use the env variable.
@@ -4255,21 +4354,6 @@ void Init(int* argc,
                      "(check NODE_ICU_DATA or --icu-data-dir parameters)");
   }
 #endif
-  // The const_cast doesn't violate conceptual const-ness.  V8 doesn't modify
-  // the argv array or the elements it points to.
-  if (v8_argc > 1)
-    V8::SetFlagsFromCommandLine(&v8_argc, const_cast<char**>(v8_argv), true);
-
-  // Anything that's still in v8_argv is not a V8 or a node option.
-  for (int i = 1; i < v8_argc; i++) {
-    fprintf(stderr, "%s: bad option: %s\n", argv[0], v8_argv[i]);
-  }
-  delete[] v8_argv;
-  v8_argv = nullptr;
-
-  if (v8_argc > 1) {
-    exit(9);
-  }
 
   // Unconditionally force typed arrays to allocate outside the v8 heap. This
   // is to prevent memory pointers from being moved around that are returned by
@@ -4383,9 +4467,7 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
   const char* path = argc > 1 ? argv[1] : nullptr;
   StartDebug(&env, path, debug_options);
 
-  bool debugger_enabled =
-      debug_options.debugger_enabled() || debug_options.inspector_enabled();
-  if (debugger_enabled && !debugger_running)
+  if (debug_options.inspector_enabled() && !debugger_running)
     return 12;  // Signal internal error.
 
   {
@@ -4394,10 +4476,6 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
   }
 
   env.set_trace_sync_io(trace_sync_io);
-
-  // Enable debugger
-  if (debug_options.debugger_enabled())
-    EnableDebug(&env);
 
   if (load_napi_modules) {
     ProcessEmitWarning(&env, "N-API is an experimental feature "

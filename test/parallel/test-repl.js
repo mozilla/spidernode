@@ -19,7 +19,6 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-/* eslint-disable max-len, strict */
 'use strict';
 const common = require('../common');
 const assert = require('assert');
@@ -89,7 +88,7 @@ function error_test() {
                   client_unix.expect :
                   JSON.stringify(client_unix.expect)));
 
-    if (read_buffer.indexOf(prompt_unix) !== -1) {
+    if (read_buffer.includes(prompt_unix)) {
       // if it's an exact match, then don't do the regexp
       if (read_buffer !== client_unix.expect) {
         let expect = client_unix.expect;
@@ -110,7 +109,7 @@ function error_test() {
         tcp_test();
       }
 
-    } else if (read_buffer.indexOf(prompt_multiline) !== -1) {
+    } else if (read_buffer.includes(prompt_multiline)) {
       // Check that you meant to send a multiline test
       assert.strictEqual(prompt_multiline, client_unix.expect);
       read_buffer = '';
@@ -442,12 +441,12 @@ function tcp_test() {
         { client: client_tcp, send: '',
           expect: prompt_tcp },
         { client: client_tcp, send: 'invoke_me(333)',
-          expect: ('\'' + 'invoked 333' + '\'\n' + prompt_tcp) },
+          expect: (`'invoked 333'\n${prompt_tcp}`) },
         { client: client_tcp, send: 'a += 1',
-          expect: ('12346' + '\n' + prompt_tcp) },
+          expect: (`12346\n${prompt_tcp}`) },
         { client: client_tcp,
           send: 'require(' + JSON.stringify(moduleFilename) + ').number',
-          expect: ('42' + '\n' + prompt_tcp) }
+          expect: (`42\n${prompt_tcp}`) }
       ]);
     });
 
@@ -455,7 +454,7 @@ function tcp_test() {
       read_buffer += data.toString('ascii', 0, data.length);
       console.error('TCP data: ' + JSON.stringify(read_buffer) +
                    ', expecting ' + JSON.stringify(client_tcp.expect));
-      if (read_buffer.indexOf(prompt_tcp) !== -1) {
+      if (read_buffer.includes(prompt_tcp)) {
         assert.strictEqual(client_tcp.expect, read_buffer);
         console.error('match');
         read_buffer = '';
@@ -511,13 +510,13 @@ function unix_test() {
         { client: client_unix, send: '',
           expect: prompt_unix },
         { client: client_unix, send: 'message',
-          expect: ('\'' + message + '\'\n' + prompt_unix) },
+          expect: (`'${message}'\n${prompt_unix}`) },
         { client: client_unix, send: 'invoke_me(987)',
-          expect: ('\'' + 'invoked 987' + '\'\n' + prompt_unix) },
+          expect: (`'invoked 987'\n${prompt_unix}`) },
         { client: client_unix, send: 'a = 12345',
-          expect: ('12345' + '\n' + prompt_unix) },
+          expect: (`12345\n${prompt_unix}`) },
         { client: client_unix, send: '{a:1}',
-          expect: ('{ a: 1 }' + '\n' + prompt_unix) }
+          expect: (`{ a: 1 }\n${prompt_unix}`) }
       ]);
     });
 
@@ -525,7 +524,7 @@ function unix_test() {
       read_buffer += data.toString('ascii', 0, data.length);
       console.error('Unix data: ' + JSON.stringify(read_buffer) +
                    ', expecting ' + JSON.stringify(client_unix.expect));
-      if (read_buffer.indexOf(prompt_unix) !== -1) {
+      if (read_buffer.includes(prompt_unix)) {
         assert.strictEqual(client_unix.expect, read_buffer);
         console.error('match');
         read_buffer = '';
