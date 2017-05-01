@@ -105,11 +105,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     profilerSampleBufferGen_(0),
     profilerSampleBufferLapCount_(1),
     telemetryCallback(nullptr),
-    getIncumbentGlobalCallback(nullptr),
-    enqueuePromiseJobCallback(nullptr),
-    enqueuePromiseJobCallbackData(nullptr),
-    promiseRejectionTrackerCallback(nullptr),
-    promiseRejectionTrackerCallbackData(nullptr),
     startAsyncTaskCallback(nullptr),
     finishAsyncTaskCallback(nullptr),
     promiseTasksToDestroy(mutexid::PromiseTaskPtrVector),
@@ -267,9 +262,6 @@ JSRuntime::init(JSContext* cx, uint32_t maxbytes, uint32_t maxNurseryBytes)
     if (!caches().init())
         return false;
 
-    if (!wasm().init())
-        return false;
-
     return true;
 }
 
@@ -281,8 +273,6 @@ JSRuntime::destroyRuntime()
     MOZ_ASSERT(initialized_);
 
     sharedIntlData.ref().destroyInstance();
-
-    wasm().destroy();
 
     if (gcInitialized) {
         /*
@@ -511,12 +501,13 @@ static bool
 InvokeInterruptCallback(JSContext* cx)
 {
     MOZ_ASSERT(cx->requestDepth >= 1);
+    MOZ_ASSERT(!cx->compartment()->isAtomsCompartment());
 
     cx->runtime()->gc.gcIfRequested();
 
     // A worker thread may have requested an interrupt after finishing an Ion
     // compilation.
-    jit::AttachFinishedCompilations(cx);
+    jit::AttachFinishedCompilations(cx->zone()->group(), cx);
 
     // Important: Additional callbacks can occur inside the callback handler
     // if it re-enters the JS engine. The embedding must ensure that the
@@ -704,21 +695,21 @@ FreeOp::isDefaultFreeOp() const
 JSObject*
 JSRuntime::getIncumbentGlobal(JSContext* cx)
 {
-    MOZ_ASSERT(cx->runtime()->getIncumbentGlobalCallback,
+    MOZ_ASSERT(cx->getIncumbentGlobalCallback,
                "Must set a callback using SetGetIncumbentGlobalCallback before using Promises");
 
-    return cx->runtime()->getIncumbentGlobalCallback(cx);
+    return cx->getIncumbentGlobalCallback(cx);
 }
 
 bool
 JSRuntime::enqueuePromiseJob(JSContext* cx, HandleFunction job, HandleObject promise,
                              HandleObject incumbentGlobal)
 {
-    MOZ_ASSERT(cx->runtime()->enqueuePromiseJobCallback,
+    MOZ_ASSERT(cx->enqueuePromiseJobCallback,
                "Must set a callback using JS_SetEnqeueuPromiseJobCallback before using Promises");
     MOZ_ASSERT_IF(incumbentGlobal, !IsWrapper(incumbentGlobal) && !IsWindowProxy(incumbentGlobal));
 
-    void* data = cx->runtime()->enqueuePromiseJobCallbackData;
+    void* data = cx->enqueuePromiseJobCallbackData;
     RootedObject allocationSite(cx);
     if (promise) {
         RootedObject unwrappedPromise(cx, promise);
@@ -730,31 +721,31 @@ JSRuntime::enqueuePromiseJob(JSContext* cx, HandleFunction job, HandleObject pro
         if (unwrappedPromise->is<PromiseObject>())
             allocationSite = JS::GetPromiseAllocationSite(unwrappedPromise);
     }
-    return cx->runtime()->enqueuePromiseJobCallback(cx, job, allocationSite, incumbentGlobal, data);
+    return cx->enqueuePromiseJobCallback(cx, job, allocationSite, incumbentGlobal, data);
 }
 
 void
 JSRuntime::addUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise)
 {
     MOZ_ASSERT(promise->is<PromiseObject>());
-    if (!cx->runtime()->promiseRejectionTrackerCallback)
+    if (!cx->promiseRejectionTrackerCallback)
         return;
 
-    void* data = cx->runtime()->promiseRejectionTrackerCallbackData;
-    cx->runtime()->promiseRejectionTrackerCallback(cx, promise,
-                                                   PromiseRejectionHandlingState::Unhandled, data);
+    void* data = cx->promiseRejectionTrackerCallbackData;
+    cx->promiseRejectionTrackerCallback(cx, promise,
+                                        PromiseRejectionHandlingState::Unhandled, data);
 }
 
 void
 JSRuntime::removeUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise)
 {
     MOZ_ASSERT(promise->is<PromiseObject>());
-    if (!cx->runtime()->promiseRejectionTrackerCallback)
+    if (!cx->promiseRejectionTrackerCallback)
         return;
 
-    void* data = cx->runtime()->promiseRejectionTrackerCallbackData;
-    cx->runtime()->promiseRejectionTrackerCallback(cx, promise,
-                                                   PromiseRejectionHandlingState::Handled, data);
+    void* data = cx->promiseRejectionTrackerCallbackData;
+    cx->promiseRejectionTrackerCallback(cx, promise,
+                                        PromiseRejectionHandlingState::Handled, data);
 }
 
 mozilla::non_crypto::XorShift128PlusRNG&

@@ -876,7 +876,7 @@ class NativeObject : public ShapedObject
 
     // MAX_FIXED_SLOTS is the biggest number of fixed slots our GC
     // size classes will give an object.
-    static const uint32_t MAX_FIXED_SLOTS = 16;
+    static const uint32_t MAX_FIXED_SLOTS = shadow::Object::MAX_FIXED_SLOTS;
 
   protected:
     MOZ_ALWAYS_INLINE bool updateSlotsForSpan(JSContext* cx, size_t oldSpan, size_t newSpan);
@@ -1225,6 +1225,8 @@ class NativeObject : public ShapedObject
     }
 
     void setPrivateGCThing(gc::Cell* cell) {
+        MOZ_ASSERT_IF(IsMarkedBlack(this),
+                      !JS::GCThingIsMarkedGray(JS::GCCellPtr(cell, cell->getTraceKind())));
         void** pprivate = &privateRef(numFixedSlots());
         privateWriteBarrierPre(pprivate);
         *pprivate = reinterpret_cast<void*>(cell);

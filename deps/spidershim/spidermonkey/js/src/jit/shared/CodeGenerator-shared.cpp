@@ -412,8 +412,9 @@ CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot, MDefinition* mir,
 
         // Lambda should have a default value readable for iterating over the
         // inner frames.
-        if (mir->isLambda()) {
-            MConstant* constant = mir->toLambda()->functionOperand();
+        if (mir->isLambda() || mir->isLambdaArrow()) {
+            MConstant* constant = mir->isLambda() ? mir->toLambda()->functionOperand()
+                                                  : mir->toLambdaArrow()->functionOperand();
             uint32_t cstIndex;
             masm.propagateOOM(graph.addConstantToPool(constant->toJSValue(), &cstIndex));
             alloc = RValueAllocation::RecoverInstruction(index, cstIndex);
@@ -1653,17 +1654,17 @@ CodeGeneratorShared::emitPreBarrier(Register base, const LAllocation* index, int
 {
     if (index->isConstant()) {
         Address address(base, ToInt32(index) * sizeof(Value) + offsetAdjustment);
-        masm.patchableCallPreBarrier(address, MIRType::Value);
+        masm.guardedCallPreBarrier(address, MIRType::Value);
     } else {
         BaseIndex address(base, ToRegister(index), TimesEight, offsetAdjustment);
-        masm.patchableCallPreBarrier(address, MIRType::Value);
+        masm.guardedCallPreBarrier(address, MIRType::Value);
     }
 }
 
 void
 CodeGeneratorShared::emitPreBarrier(Address address)
 {
-    masm.patchableCallPreBarrier(address, MIRType::Value);
+    masm.guardedCallPreBarrier(address, MIRType::Value);
 }
 
 Label*

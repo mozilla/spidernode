@@ -25,6 +25,7 @@
 #include "jit/AtomicOperations.h"
 #include "jit/Disassembler.h"
 #include "vm/Runtime.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmInstance.h"
 
 using namespace js;
@@ -833,7 +834,7 @@ HandleFault(PEXCEPTION_POINTERS exception)
     if (!activation)
         return false;
 
-    Code* code = activation->compartment()->wasm.lookupCode(pc);
+    const Code* code = activation->compartment()->wasm.lookupCode(pc);
     if (!code)
         return false;
 
@@ -1543,7 +1544,7 @@ js::InterruptRunningJitCode(JSContext* cx)
 }
 
 MOZ_COLD bool
-js::wasm::IsPCInWasmCode(void *pc)
+js::wasm::IsPCInWasmCode(void* pc)
 {
     JSContext* cx = TlsContext.get();
     if (!cx)
@@ -1555,6 +1556,10 @@ js::wasm::IsPCInWasmCode(void *pc)
     if (!activation)
         return false;
 
-    return !!activation->compartment()->wasm.lookupCode(pc) ||
-           !!activation->cx()->runtime()->wasm().lookupBuiltin(pc);
+    if (activation->compartment()->wasm.lookupCode(pc))
+        return true;
+
+    const CodeRange* codeRange;
+    uint8_t* codeBase;
+    return LookupBuiltinThunk(pc, &codeRange, &codeBase);
 }

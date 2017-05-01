@@ -26,12 +26,15 @@
                                       \
   _(GCLock,                      400) \
                                       \
+  _(WasmInitBuiltinThunks,       450) \
+                                      \
   _(SharedImmutableStringsCache, 500) \
   _(FutexThread,                 500) \
   _(PromiseTaskPtrVector,        500) \
   _(GeckoProfilerStrings,        500) \
   _(ProtectedRegionTree,         500) \
   _(WasmSigIdSet,                500) \
+  _(WasmCodeProfilingLabels,     500) \
   _(ShellOffThreadState,         500) \
   _(SimulatorCacheLock,          500) \
   _(Arm64SimulatorLock,          500) \

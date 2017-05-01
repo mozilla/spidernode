@@ -299,7 +299,7 @@ js::ProxyHasOwn(JSContext* cx, HandleObject proxy, HandleValue idVal, MutableHan
     return true;
 }
 
-static Value
+static MOZ_ALWAYS_INLINE Value
 ValueToWindowProxyIfWindow(const Value& v)
 {
     if (v.isObject())
@@ -685,14 +685,20 @@ ProxyObject::trace(JSTracer* trc, JSObject* obj)
     // Note: If you add new slots here, make sure to change
     // nuke() to cope.
     TraceCrossCompartmentEdge(trc, obj, proxy->slotOfPrivate(), "private");
-    TraceEdge(trc, proxy->slotOfExtra(0), "extra0");
 
-    /*
-     * The GC can use the second reserved slot to link the cross compartment
-     * wrappers into a linked list, in which case we don't want to trace it.
-     */
-    if (!proxy->is<CrossCompartmentWrapperObject>())
-        TraceEdge(trc, proxy->slotOfExtra(1), "extra1");
+    size_t nreserved = proxy->numReservedSlots();
+    for (size_t i = 0; i < nreserved; i++) {
+        /*
+         * The GC can use the second reserved slot to link the cross compartment
+         * wrappers into a linked list, in which case we don't want to trace it.
+         */
+        if (proxy->is<CrossCompartmentWrapperObject>() &&
+            i == CrossCompartmentWrapperObject::GrayLinkReservedSlot)
+        {
+            continue;
+        }
+        TraceEdge(trc, proxy->reservedSlotPtr(i), "proxy_reserved");
+    }
 
     Proxy::trace(trc, obj);
 }
@@ -712,7 +718,9 @@ proxy_Finalize(FreeOp* fop, JSObject* obj)
 
     MOZ_ASSERT(obj->is<ProxyObject>());
     obj->as<ProxyObject>().handler()->finalize(fop, obj);
-    js_free(js::detail::GetProxyDataLayout(obj)->values);
+
+    if (!obj->as<ProxyObject>().usingInlineValueArray())
+        js_free(js::detail::GetProxyDataLayout(obj)->values());
 }
 
 static void
@@ -774,7 +782,9 @@ const ObjectOps js::ProxyObjectOps = {
 };
 
 const Class js::ProxyObject::proxyClass =
-    PROXY_CLASS_DEF("Proxy", JSCLASS_HAS_CACHED_PROTO(JSProto_Proxy));
+    PROXY_CLASS_DEF("Proxy",
+                    JSCLASS_HAS_CACHED_PROTO(JSProto_Proxy) |
+                    JSCLASS_HAS_RESERVED_SLOTS(2));
 
 const Class* const js::ProxyClassPtr = &js::ProxyObject::proxyClass;
 
@@ -801,8 +811,8 @@ ProxyObject::renew(const BaseProxyHandler* handler, const Value& priv)
 
     setHandler(handler);
     setCrossCompartmentPrivate(priv);
-    setExtra(0, UndefinedValue());
-    setExtra(1, UndefinedValue());
+    for (size_t i = 0; i < numReservedSlots(); i++)
+        setReservedSlot(i, UndefinedValue());
 }
 
 JS_FRIEND_API(JSObject*)

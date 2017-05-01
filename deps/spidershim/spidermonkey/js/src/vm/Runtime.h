@@ -54,7 +54,6 @@
 #include "vm/Stack.h"
 #include "vm/Stopwatch.h"
 #include "vm/Symbol.h"
-#include "wasm/WasmRuntime.h"
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -466,13 +465,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     void setTelemetryCallback(JSRuntime* rt, JSAccumulateTelemetryDataCallback callback);
 
   public:
-    js::ActiveThreadData<JSGetIncumbentGlobalCallback> getIncumbentGlobalCallback;
-    js::ActiveThreadData<JSEnqueuePromiseJobCallback> enqueuePromiseJobCallback;
-    js::ActiveThreadData<void*> enqueuePromiseJobCallbackData;
-
-    js::ActiveThreadData<JSPromiseRejectionTrackerCallback> promiseRejectionTrackerCallback;
-    js::ActiveThreadData<void*> promiseRejectionTrackerCallbackData;
-
     js::ActiveThreadData<JS::StartAsyncTaskCallback> startAsyncTaskCallback;
     js::UnprotectedData<JS::FinishAsyncTaskCallback> finishAsyncTaskCallback;
     js::ExclusiveData<js::PromiseTaskPtrVector> promiseTasksToDestroy;
@@ -534,13 +526,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
     /* AsmJSCache callbacks are runtime-wide. */
     js::UnprotectedData<JS::AsmJSCacheOps> asmJSCacheOps;
-
-  private:
-    // All runtime data needed for wasm and defined in wasm/WasmRuntime.h.
-    js::ActiveThreadData<js::wasm::Runtime> wasmRuntime_;
-
-  public:
-    js::wasm::Runtime& wasm() { return wasmRuntime_.ref(); }
 
   private:
     js::UnprotectedData<const JSPrincipals*> trustedPrincipals_;

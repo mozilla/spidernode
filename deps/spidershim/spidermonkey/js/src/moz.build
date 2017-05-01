@@ -368,16 +368,17 @@ UNIFIED_SOURCES += [
     'wasm/WasmBinaryToAST.cpp',
     'wasm/WasmBinaryToExperimentalText.cpp',
     'wasm/WasmBinaryToText.cpp',
+    'wasm/WasmBuiltins.cpp',
     'wasm/WasmCode.cpp',
     'wasm/WasmCompartment.cpp',
     'wasm/WasmCompile.cpp',
+    'wasm/WasmDebug.cpp',
     'wasm/WasmFrameIterator.cpp',
     'wasm/WasmGenerator.cpp',
     'wasm/WasmInstance.cpp',
     'wasm/WasmIonCompile.cpp',
     'wasm/WasmJS.cpp',
     'wasm/WasmModule.cpp',
-    'wasm/WasmRuntime.cpp',
     'wasm/WasmSignalHandlers.cpp',
     'wasm/WasmStubs.cpp',
     'wasm/WasmTable.cpp',
@@ -611,6 +612,8 @@ if CONFIG['MOZ_VTUNE']:
         'vtune/jitprofiling.c',
         'vtune/VTuneWrapper.cpp',
     ]
+    if CONFIG['CC_TYPE'] != 'msvc':
+        SOURCES['vtune/ittnotify_static.c'].flags += ['-Wno-varargs']
 
 if CONFIG['HAVE_LINUX_PERF_EVENT_H']:
     SOURCES += [

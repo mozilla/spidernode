@@ -178,6 +178,7 @@ struct Zone : public JS::shadow::Zone,
 
     void addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                 size_t* typePool,
+                                size_t* jitZone,
                                 size_t* baselineStubsOptimized,
                                 size_t* cachedCFG,
                                 size_t* uniqueIdMap,
@@ -214,14 +215,6 @@ struct Zone : public JS::shadow::Zone,
 
     void notifyObservingDebuggers();
 
-    enum GCState {
-        NoGC,
-        Mark,
-        MarkGray,
-        Sweep,
-        Finished,
-        Compact
-    };
     void setGCState(GCState state) {
         MOZ_ASSERT(CurrentThreadIsHeapBusy());
         MOZ_ASSERT_IF(state != NoGC, canCollect());
@@ -256,15 +249,6 @@ struct Zone : public JS::shadow::Zone,
             return needsIncrementalBarrier();
     }
 
-    GCState gcState() const { return gcState_; }
-    bool wasGCStarted() const { return gcState_ != NoGC; }
-    bool isGCMarkingBlack() { return gcState_ == Mark; }
-    bool isGCMarkingGray() { return gcState_ == MarkGray; }
-    bool isGCSweeping() { return gcState_ == Sweep; }
-    bool isGCFinished() { return gcState_ == Finished; }
-    bool isGCCompacting() { return gcState_ == Compact; }
-    bool isGCSweepingOrCompacting() { return gcState_ == Sweep || gcState_ == Compact; }
-
     // Get a number that is incremented whenever this zone is collected, and
     // possibly at other times too.
     uint64_t gcNumber();
@@ -275,9 +259,8 @@ struct Zone : public JS::shadow::Zone,
                runtimeFromActiveCooperatingThread()->hasZealMode(js::gc::ZealMode::VerifierPre);
     }
 
-    enum ShouldUpdateJit { DontUpdateJit, UpdateJit };
-    void setNeedsIncrementalBarrier(bool needs, ShouldUpdateJit updateJit);
-    const bool* addressOfNeedsIncrementalBarrier() const { return &needsIncrementalBarrier_; }
+    void setNeedsIncrementalBarrier(bool needs);
+    const uint32_t* addressOfNeedsIncrementalBarrier() const { return &needsIncrementalBarrier_; }
 
     js::jit::JitZone* getJitZone(JSContext* cx) { return jitZone_ ? jitZone_ : createJitZone(cx); }
     js::jit::JitZone* jitZone() { return jitZone_; }
@@ -620,10 +603,8 @@ struct Zone : public JS::shadow::Zone,
   private:
     js::ZoneGroupData<js::jit::JitZone*> jitZone_;
 
-    js::UnprotectedData<GCState> gcState_;
     js::ActiveThreadData<bool> gcScheduled_;
     js::ZoneGroupData<bool> gcPreserveCode_;
-    js::ZoneGroupData<bool> jitUsingBarriers_;
     js::ZoneGroupData<bool> keepShapeTables_;
 
     // Allow zones to be linked into a list
