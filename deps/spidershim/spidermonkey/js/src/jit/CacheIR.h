@@ -141,7 +141,8 @@ class TypedOperandId : public OperandId
     _(SetElem)              \
     _(BindName)             \
     _(In)                   \
-    _(HasOwn)
+    _(HasOwn)               \
+    _(TypeOf)
 
 enum class CacheKind : uint8_t
 {
@@ -245,6 +246,8 @@ extern const char* CacheKindNames[];
     _(CallProxyHasOwnResult)              \
     _(LoadUndefinedResult)                \
     _(LoadBooleanResult)                  \
+    _(LoadStringResult)                   \
+    _(LoadTypeOfObjectResult)             \
                                           \
     _(TypeMonitorResult)                  \
     _(ReturnFromIC)                       \
@@ -797,6 +800,10 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
     void loadUndefinedResult() {
         writeOp(CacheOp::LoadUndefinedResult);
     }
+    void loadStringResult(JSString* str) {
+        writeOp(CacheOp::LoadStringResult);
+        addStubField(uintptr_t(str), StubField::Type::String);
+    }
     void loadFixedSlotResult(ObjOperandId obj, size_t offset) {
         writeOpWithOperandId(CacheOp::LoadFixedSlotResult, obj);
         addStubField(offset, StubField::Type::RawWord);
@@ -900,6 +907,9 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
     }
     void loadObjectResult(ObjOperandId obj) {
         writeOpWithOperandId(CacheOp::LoadObjectResult, obj);
+    }
+    void loadTypeOfObjectResult(ObjOperandId obj) {
+        writeOpWithOperandId(CacheOp::LoadTypeOfObjectResult, obj);
     }
 
     void typeMonitorResult() {
@@ -1111,6 +1121,9 @@ class MOZ_RAII GetNameIRGenerator : public IRGenerator
     bool tryAttachGlobalNameGetter(ObjOperandId objId, HandleId id);
     bool tryAttachEnvironmentName(ObjOperandId objId, HandleId id);
 
+    void trackAttached(const char* name);
+    void trackNotAttached();
+
   public:
     GetNameIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc, ICState::Mode mode,
                        HandleObject env, HandlePropertyName name);
@@ -1126,6 +1139,9 @@ class MOZ_RAII BindNameIRGenerator : public IRGenerator
 
     bool tryAttachGlobalName(ObjOperandId objId, HandleId id);
     bool tryAttachEnvironmentName(ObjOperandId objId, HandleId id);
+
+    void trackAttached(const char* name);
+    void trackNotAttached();
 
   public:
     BindNameIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc, ICState::Mode mode,
@@ -1260,51 +1276,44 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator
     }
 };
 
-// InIRGenerator generates CacheIR for a In IC.
-class MOZ_RAII InIRGenerator : public IRGenerator
+// HasPropIRGenerator generates CacheIR for a HasProp IC. Used for
+// CacheKind::In / CacheKind::HasOwn.
+class MOZ_RAII HasPropIRGenerator : public IRGenerator
 {
-    HandleValue key_;
-    HandleObject obj_;
+    HandleValue val_;
+    HandleValue idVal_;
 
-    bool tryAttachDenseIn(uint32_t index, Int32OperandId indexId,
-                          HandleObject obj, ObjOperandId objId);
-    bool tryAttachDenseInHole(uint32_t index, Int32OperandId indexId,
-                              HandleObject obj, ObjOperandId objId);
-    bool tryAttachNativeIn(HandleId key, ValOperandId keyId,
-                           HandleObject obj, ObjOperandId objId);
-    bool tryAttachNativeInDoesNotExist(HandleId key, ValOperandId keyId,
-                                       HandleObject obj, ObjOperandId objId);
+    bool tryAttachDense(HandleObject obj, ObjOperandId objId,
+                        uint32_t index, Int32OperandId indexId);
+    bool tryAttachDenseHole(HandleObject obj, ObjOperandId objId,
+                            uint32_t index, Int32OperandId indexId);
+    bool tryAttachNative(HandleObject obj, ObjOperandId objId,
+                         HandleId key, ValOperandId keyId);
+    bool tryAttachNativeDoesNotExist(HandleObject obj, ObjOperandId objId,
+                                     HandleId key, ValOperandId keyId);
+    bool tryAttachProxyElement(HandleObject obj, ObjOperandId objId,
+                               ValOperandId keyId);
 
     void trackAttached(const char* name);
     void trackNotAttached();
 
   public:
-    InIRGenerator(JSContext* cx, HandleScript, jsbytecode* pc, ICState::Mode mode, HandleValue key,
-                  HandleObject obj);
+    // NOTE: Argument order is PROPERTY, OBJECT
+    HasPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc, CacheKind cacheKind,
+                       ICState::Mode mode, HandleValue idVal, HandleValue val);
 
     bool tryAttachStub();
 };
 
-// HasOwnIRGenerator generates CacheIR for a HasOwn IC.
-class MOZ_RAII HasOwnIRGenerator : public IRGenerator
+class MOZ_RAII TypeOfIRGenerator : public IRGenerator
 {
-    HandleValue key_;
     HandleValue val_;
 
-    bool tryAttachProxyElement(ValOperandId keyId, HandleObject obj, ObjOperandId objId);
-    bool tryAttachDenseHasOwn(uint32_t index, Int32OperandId indexId,
-                              HandleObject obj, ObjOperandId objId);
-    bool tryAttachNativeHasOwn(HandleId key, ValOperandId keyId,
-                           HandleObject obj, ObjOperandId objId);
-    bool tryAttachNativeHasOwnDoesNotExist(HandleId key, ValOperandId keyId,
-                                           HandleObject obj, ObjOperandId objId);
-
-    void trackAttached(const char* name);
-    void trackNotAttached();
+    bool tryAttachPrimitive(ValOperandId valId);
+    bool tryAttachObject(ValOperandId valId);
 
   public:
-    HasOwnIRGenerator(JSContext* cx, HandleScript, jsbytecode* pc, ICState::Mode mode, HandleValue key,
-                      HandleValue value);
+    TypeOfIRGenerator(JSContext* cx, HandleScript, jsbytecode* pc, ICState::Mode mode, HandleValue value);
 
     bool tryAttachStub();
 };

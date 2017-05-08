@@ -14,9 +14,9 @@
 
 #include "builtin/Object.h"
 #include "jit/JitFrames.h"
+#include "proxy/Proxy.h"
 #include "vm/HelperThreads.h"
 #include "vm/Interpreter.h"
-#include "vm/ProxyObject.h"
 #include "vm/Symbol.h"
 
 namespace js {
@@ -68,9 +68,11 @@ class CompartmentChecker
     }
 
     void check(JSObject* obj) {
-        MOZ_ASSERT(JS::ObjectIsNotGray(obj));
-        if (obj)
+        if (obj) {
+            MOZ_ASSERT(JS::ObjectIsNotGray(obj));
+            MOZ_ASSERT(!js::gc::IsAboutToBeFinalizedUnbarriered(&obj));
             check(obj->compartment());
+        }
     }
 
     template<typename T>
@@ -451,17 +453,27 @@ JSContext::runningWithTrustedPrincipals()
 }
 
 inline void
-JSContext::enterCompartment(
-    JSCompartment* c,
-    const js::AutoLockForExclusiveAccess* maybeLock /* = nullptr */)
+JSContext::enterNonAtomsCompartment(JSCompartment* c)
 {
     enterCompartmentDepth_++;
 
-    if (!c->zone()->isAtomsZone())
-        enterZoneGroup(c->zone()->group());
+    MOZ_ASSERT(!c->zone()->isAtomsZone());
+    enterZoneGroup(c->zone()->group());
 
     c->enter();
-    setCompartment(c, maybeLock);
+    setCompartment(c, nullptr);
+}
+
+inline void
+JSContext::enterAtomsCompartment(JSCompartment* c,
+                                 const js::AutoLockForExclusiveAccess& lock)
+{
+    enterCompartmentDepth_++;
+
+    MOZ_ASSERT(c->zone()->isAtomsZone());
+
+    c->enter();
+    setCompartment(c, &lock);
 }
 
 template <typename T>
@@ -469,7 +481,7 @@ inline void
 JSContext::enterCompartmentOf(const T& target)
 {
     MOZ_ASSERT(JS::CellIsNotGray(target));
-    enterCompartment(target->compartment(), nullptr);
+    enterNonAtomsCompartment(target->compartment());
 }
 
 inline void
@@ -529,7 +541,7 @@ inline void
 JSContext::enterZoneGroup(js::ZoneGroup* group)
 {
     MOZ_ASSERT(this == js::TlsContext.get());
-    group->enter();
+    group->enter(this);
 }
 
 inline void

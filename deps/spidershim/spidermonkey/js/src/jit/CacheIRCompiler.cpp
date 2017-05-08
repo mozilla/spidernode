@@ -1277,11 +1277,11 @@ CacheIRCompiler::emitGuardIsInt32Index()
         return true;
     }
 
+    ValueOperand input = allocator.useValueRegister(masm, inputId);
+
     FailurePath* failure;
     if (!addFailurePath(&failure))
         return false;
-
-    ValueOperand input = allocator.useValueRegister(masm, inputId);
 
     Label notInt32, done;
     masm.branchTestInt32(Assembler::NotEqual, input, &notInt32);
@@ -1352,6 +1352,9 @@ CacheIRCompiler::emitGuardType()
         break;
       case JSVAL_TYPE_UNDEFINED:
         masm.branchTestUndefined(Assembler::NotEqual, input, failure->label());
+        break;
+      case JSVAL_TYPE_NULL:
+        masm.branchTestNull(Assembler::NotEqual, input, failure->label());
         break;
       default:
         MOZ_CRASH("Unexpected type");
@@ -1632,18 +1635,24 @@ CacheIRCompiler::emitLoadUndefinedResult()
     return true;
 }
 
+static void
+EmitStoreBoolean(MacroAssembler& masm, bool b, const AutoOutputRegister& output)
+{
+    if (output.hasValue()) {
+        Value val = BooleanValue(b);
+        masm.moveValue(val, output.valueReg());
+    } else {
+        MOZ_ASSERT(output.type() == JSVAL_TYPE_BOOLEAN);
+        masm.movePtr(ImmWord(b), output.typedReg().gpr());
+    }
+}
+
 bool
 CacheIRCompiler::emitLoadBooleanResult()
 {
     AutoOutputRegister output(*this);
-    if (output.hasValue()) {
-        Value val = BooleanValue(reader.readBool());
-        masm.moveValue(val, output.valueReg());
-    } else {
-        MOZ_ASSERT(output.type() == JSVAL_TYPE_BOOLEAN);
-        bool b = reader.readBool();
-        masm.movePtr(ImmWord(b), output.typedReg().gpr());
-    }
+    bool b = reader.readBool();
+    EmitStoreBoolean(masm, b, output);
 
     return true;
 }
@@ -1947,12 +1956,7 @@ CacheIRCompiler::emitLoadDenseElementExistsResult()
     BaseObjectElementIndex element(scratch, index);
     masm.branchTestMagic(Assembler::Equal, element, failure->label());
 
-    if (output.hasValue()) {
-        masm.moveValue(BooleanValue(true), output.valueReg());
-    } else {
-        MOZ_ASSERT(output.type() == JSVAL_TYPE_BOOLEAN);
-        masm.movePtr(ImmWord(true), output.typedReg().gpr());
-    }
+    EmitStoreBoolean(masm, true, output);
     return true;
 }
 
@@ -1981,14 +1985,14 @@ CacheIRCompiler::emitLoadDenseElementHoleExistsResult()
 
     // Load value and replace with true.
     Label done;
-    masm.loadValue(BaseObjectElementIndex(scratch, index), output.valueReg());
-    masm.branchTestMagic(Assembler::Equal, output.valueReg(), &hole);
-    masm.moveValue(BooleanValue(true), output.valueReg());
+    BaseObjectElementIndex element(scratch, index);
+    masm.branchTestMagic(Assembler::Equal, element, &hole);
+    EmitStoreBoolean(masm, true, output);
     masm.jump(&done);
 
     // Load false for the hole.
     masm.bind(&hole);
-    masm.moveValue(BooleanValue(false), output.valueReg());
+    EmitStoreBoolean(masm, false, output);
 
     masm.bind(&done);
     return true;
@@ -2139,6 +2143,51 @@ CacheIRCompiler::emitLoadObjectResult()
     else
         masm.mov(obj, output.typedReg().gpr());
 
+    return true;
+}
+
+bool
+CacheIRCompiler::emitLoadTypeOfObjectResult()
+{
+    AutoOutputRegister output(*this);
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
+
+    Label slowCheck, isObject, isCallable, isUndefined, done;
+    masm.typeOfObject(obj, scratch, &slowCheck, &isObject, &isCallable, &isUndefined);
+
+    masm.bind(&isCallable);
+    masm.moveValue(StringValue(cx_->names().function), output.valueReg());
+    masm.jump(&done);
+
+    masm.bind(&isUndefined);
+    masm.moveValue(StringValue(cx_->names().undefined), output.valueReg());
+    masm.jump(&done);
+
+    masm.bind(&isObject);
+    masm.moveValue(StringValue(cx_->names().object), output.valueReg());
+    masm.jump(&done);
+
+    {
+        masm.bind(&slowCheck);
+        LiveRegisterSet save(GeneralRegisterSet::Volatile(), liveVolatileFloatRegs());
+        masm.PushRegsInMask(save);
+
+        masm.setupUnalignedABICall(scratch);
+        masm.passABIArg(obj);
+        masm.movePtr(ImmPtr(cx_->runtime()), scratch);
+        masm.passABIArg(scratch);
+        masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, TypeOfObject));
+        masm.mov(ReturnReg, scratch);
+
+        LiveRegisterSet ignore;
+        ignore.add(scratch);
+        masm.PopRegsInMaskIgnore(save, ignore);
+
+        masm.tagValue(JSVAL_TYPE_STRING, scratch, output.valueReg());
+    }
+
+    masm.bind(&done);
     return true;
 }
 

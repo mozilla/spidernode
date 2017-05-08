@@ -392,7 +392,7 @@ GeneratePrototypeHoleGuards(CacheIRWriter& writer, JSObject* obj, ObjOperandId o
 }
 
 static void
-TestMatchingReceiver(CacheIRWriter& writer, JSObject* obj, Shape* shape, ObjOperandId objId,
+TestMatchingReceiver(CacheIRWriter& writer, JSObject* obj, ObjOperandId objId,
                      Maybe<ObjOperandId>* expandoId)
 {
     if (obj->is<UnboxedPlainObject>()) {
@@ -415,10 +415,10 @@ TestMatchingReceiver(CacheIRWriter& writer, JSObject* obj, Shape* shape, ObjOper
 
 static void
 EmitReadSlotGuard(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
-                  Shape* shape, ObjOperandId objId, Maybe<ObjOperandId>* holderId)
+                  ObjOperandId objId, Maybe<ObjOperandId>* holderId)
 {
     Maybe<ObjOperandId> expandoId;
-    TestMatchingReceiver(writer, obj, shape, objId, &expandoId);
+    TestMatchingReceiver(writer, obj, objId, &expandoId);
 
     if (obj != holder) {
         GeneratePrototypeGuards(writer, obj, holder, objId);
@@ -440,7 +440,7 @@ EmitReadSlotGuard(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
                 lastObjId = protoId;
             }
         }
-    } else if (obj->is<UnboxedPlainObject>()) {
+    } else if (obj->is<UnboxedPlainObject>() && expandoId.isSome()) {
         holderId->emplace(*expandoId);
     } else {
         holderId->emplace(objId);
@@ -452,7 +452,7 @@ EmitReadSlotResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
                    Shape* shape, ObjOperandId objId)
 {
     Maybe<ObjOperandId> holderId;
-    EmitReadSlotGuard(writer, obj, holder, shape, objId, &holderId);
+    EmitReadSlotGuard(writer, obj, holder, objId, &holderId);
 
     if (obj == holder && obj->is<UnboxedPlainObject>())
         holder = obj->as<UnboxedPlainObject>().maybeExpando();
@@ -514,7 +514,7 @@ EmitCallGetterResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
     // require outerizing).
     if (mode == ICState::Mode::Specialized || IsWindow(obj)) {
         Maybe<ObjOperandId> expandoId;
-        TestMatchingReceiver(writer, obj, shape, objId, &expandoId);
+        TestMatchingReceiver(writer, obj, objId, &expandoId);
 
         if (obj != holder) {
             GeneratePrototypeGuards(writer, obj, holder, objId);
@@ -1408,7 +1408,7 @@ GetPropIRGenerator::tryAttachDenseElement(HandleObject obj, ObjOperandId objId,
 }
 
 static bool
-CanAttachDenseElementHole(JSObject* obj)
+CanAttachDenseElementHole(JSObject* obj, bool ownProp)
 {
     // Make sure the objects on the prototype don't have any indexed properties
     // or that such properties can't appear without a shape change.
@@ -1421,6 +1421,10 @@ CanAttachDenseElementHole(JSObject* obj)
 
         if (ClassCanHaveExtraProperties(obj->getClass()))
             return false;
+
+        // Don't need to check prototype for OwnProperty checks
+        if (ownProp)
+            return true;
 
         JSObject* proto = obj->staticPrototype();
         if (!proto)
@@ -1449,7 +1453,7 @@ GetPropIRGenerator::tryAttachDenseElementHole(HandleObject obj, ObjOperandId obj
     if (obj->as<NativeObject>().containsDenseElement(index))
         return false;
 
-    if (!CanAttachDenseElementHole(obj))
+    if (!CanAttachDenseElementHole(obj, false))
         return false;
 
     // Guard on the shape, to prevent non-dense elements from appearing.
@@ -1642,6 +1646,7 @@ GetNameIRGenerator::tryAttachStub()
     if (tryAttachEnvironmentName(envId, id))
         return true;
 
+    trackNotAttached();
     return false;
 }
 
@@ -1733,6 +1738,8 @@ GetNameIRGenerator::tryAttachGlobalNameValue(ObjOperandId objId, HandleId id)
     }
 
     writer.typeMonitorResult();
+
+    trackAttached("GlobalNameValue");
     return true;
 }
 
@@ -1773,6 +1780,8 @@ GetNameIRGenerator::tryAttachGlobalNameGetter(ObjOperandId objId, HandleId id)
     }
 
     EmitCallGetterResultNoGuards(writer, &globalLexical->global(), holder, shape, globalId);
+
+    trackAttached("GlobalNameGetter");
     return true;
 }
 
@@ -1852,9 +1861,41 @@ GetNameIRGenerator::tryAttachEnvironmentName(ObjOperandId objId, HandleId id)
         size_t dynamicSlotOffset = holder->dynamicSlotIndex(shape->slot()) * sizeof(Value);
         writer.loadEnvironmentDynamicSlotResult(lastObjId, dynamicSlotOffset);
     }
-
     writer.typeMonitorResult();
+
+    trackAttached("EnvironmentName");
     return true;
+}
+
+void
+GetNameIRGenerator::trackAttached(const char* name)
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "base", ObjectValue(*env_));
+        sp.valueProperty(guard, "property", StringValue(name_));
+        sp.attached(guard, name);
+        sp.endCache(guard);
+    }
+#endif
+}
+
+void
+GetNameIRGenerator::trackNotAttached()
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "base", ObjectValue(*env_));
+        sp.valueProperty(guard, "property", StringValue(name_));
+        sp.endCache(guard);
+    }
+#endif
 }
 
 BindNameIRGenerator::BindNameIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
@@ -1880,6 +1921,7 @@ BindNameIRGenerator::tryAttachStub()
     if (tryAttachEnvironmentName(envId, id))
         return true;
 
+    trackNotAttached();
     return false;
 }
 
@@ -1919,6 +1961,7 @@ BindNameIRGenerator::tryAttachGlobalName(ObjOperandId objId, HandleId id)
     }
     writer.returnFromIC();
 
+    trackAttached("GlobalName");
     return true;
 }
 
@@ -1978,150 +2021,20 @@ BindNameIRGenerator::tryAttachEnvironmentName(ObjOperandId objId, HandleId id)
     writer.loadObjectResult(lastObjId);
     writer.returnFromIC();
 
+    trackAttached("EnvironmentName");
     return true;
-}
-
-InIRGenerator::InIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
-                             ICState::Mode mode, HandleValue key, HandleObject obj)
-  : IRGenerator(cx, script, pc, CacheKind::In, mode),
-    key_(key), obj_(obj)
-{ }
-
-bool
-InIRGenerator::tryAttachDenseIn(uint32_t index, Int32OperandId indexId,
-                                HandleObject obj, ObjOperandId objId)
-{
-    if (!obj->isNative())
-        return false;
-    if (!obj->as<NativeObject>().containsDenseElement(index))
-        return false;
-
-    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
-    writer.loadDenseElementExistsResult(objId, indexId);
-    writer.returnFromIC();
-
-    trackAttached("DenseIn");
-    return true;
-}
-
-bool
-InIRGenerator::tryAttachDenseInHole(uint32_t index, Int32OperandId indexId,
-                                    HandleObject obj, ObjOperandId objId)
-{
-    if (!obj->isNative())
-        return false;
-
-    if (obj->as<NativeObject>().containsDenseElement(index))
-        return false;
-
-    if (!CanAttachDenseElementHole(obj))
-        return false;
-
-    // Guard on the shape, to prevent non-dense elements from appearing.
-    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
-
-    GeneratePrototypeHoleGuards(writer, obj, objId);
-    writer.loadDenseElementHoleExistsResult(objId, indexId);
-    writer.returnFromIC();
-
-    trackAttached("DenseInHole");
-    return true;
-}
-
-bool
-InIRGenerator::tryAttachNativeIn(HandleId key, ValOperandId keyId,
-                                 HandleObject obj, ObjOperandId objId)
-{
-    PropertyResult prop;
-    JSObject* holder;
-    if (!LookupPropertyPure(cx_, obj, key, &holder, &prop))
-        return false;
-
-    if (!prop.isNativeProperty())
-        return false;
-
-    Maybe<ObjOperandId> holderId;
-    emitIdGuard(keyId, key);
-    EmitReadSlotGuard(writer, obj, holder, prop.shape(), objId, &holderId);
-    writer.loadBooleanResult(true);
-    writer.returnFromIC();
-
-    trackAttached("NativeIn");
-    return true;
-}
-
-bool
-InIRGenerator::tryAttachNativeInDoesNotExist(HandleId key, ValOperandId keyId,
-                                             HandleObject obj, ObjOperandId objId)
-{
-    if (!CheckHasNoSuchProperty(cx_, obj, key))
-        return false;
-
-    Maybe<ObjOperandId> holderId;
-    emitIdGuard(keyId, key);
-    EmitReadSlotGuard(writer, obj, nullptr, nullptr, objId, &holderId);
-    writer.loadBooleanResult(false);
-    writer.returnFromIC();
-
-    trackAttached("NativeInDoesNotExist");
-    return true;
-}
-
-bool
-InIRGenerator::tryAttachStub()
-{
-    MOZ_ASSERT(cacheKind_ == CacheKind::In);
-
-    AutoAssertNoPendingException aanpe(cx_);
-
-    ValOperandId keyId(writer.setInputOperandId(0));
-    ValOperandId valId(writer.setInputOperandId(1));
-    ObjOperandId objId = writer.guardIsObject(valId);
-
-    RootedId id(cx_);
-    bool nameOrSymbol;
-    if (!ValueToNameOrSymbolId(cx_, key_, &id, &nameOrSymbol)) {
-        cx_->clearPendingException();
-        return false;
-    }
-
-    if (nameOrSymbol) {
-        if (tryAttachNativeIn(id, keyId, obj_, objId))
-            return true;
-        if (tryAttachNativeInDoesNotExist(id, keyId, obj_, objId))
-            return true;
-
-        trackNotAttached();
-        return false;
-    }
-
-    uint32_t index;
-    Int32OperandId indexId;
-    if (maybeGuardInt32Index(key_, keyId, &index, &indexId)) {
-        if (tryAttachDenseIn(index, indexId, obj_, objId))
-            return true;
-        if (tryAttachDenseInHole(index, indexId, obj_, objId))
-            return true;
-
-        trackNotAttached();
-        return false;
-    }
-
-    trackNotAttached();
-    return false;
 }
 
 void
-InIRGenerator::trackAttached(const char* name)
+BindNameIRGenerator::trackAttached(const char* name)
 {
 #ifdef JS_CACHEIR_SPEW
     CacheIRSpewer& sp = CacheIRSpewer::singleton();
     if (sp.enabled()) {
         LockGuard<Mutex> guard(sp.lock());
         sp.beginCache(guard, *this);
-        RootedValue objV(cx_, ObjectValue(*obj_));
-        sp.valueProperty(guard, "base", objV);
-        sp.valueProperty(guard, "property", key_);
+        sp.valueProperty(guard, "base", ObjectValue(*env_));
+        sp.valueProperty(guard, "property", StringValue(name_));
         sp.attached(guard, name);
         sp.endCache(guard);
     }
@@ -2129,86 +2042,158 @@ InIRGenerator::trackAttached(const char* name)
 }
 
 void
-InIRGenerator::trackNotAttached()
+BindNameIRGenerator::trackNotAttached()
 {
 #ifdef JS_CACHEIR_SPEW
     CacheIRSpewer& sp = CacheIRSpewer::singleton();
     if (sp.enabled()) {
         LockGuard<Mutex> guard(sp.lock());
         sp.beginCache(guard, *this);
-        RootedValue objV(cx_, ObjectValue(*obj_));
-        sp.valueProperty(guard, "base", objV);
-        sp.valueProperty(guard, "property", key_);
+        sp.valueProperty(guard, "base", ObjectValue(*env_));
+        sp.valueProperty(guard, "property", StringValue(name_));
         sp.endCache(guard);
     }
 #endif
 }
 
-HasOwnIRGenerator::HasOwnIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
-                                     ICState::Mode mode, HandleValue key, HandleValue value)
-  : IRGenerator(cx, script, pc, CacheKind::HasOwn, mode),
-    key_(key), val_(value)
+HasPropIRGenerator::HasPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                       CacheKind cacheKind, ICState::Mode mode,
+                                       HandleValue idVal, HandleValue val)
+  : IRGenerator(cx, script, pc, cacheKind, mode),
+    val_(val),
+    idVal_(idVal)
 { }
 
-
 bool
-HasOwnIRGenerator::tryAttachNativeHasOwn(HandleId key, ValOperandId keyId,
-                                         HandleObject obj, ObjOperandId objId)
+HasPropIRGenerator::tryAttachDense(HandleObject obj, ObjOperandId objId,
+                                   uint32_t index, Int32OperandId indexId)
 {
-    PropertyResult prop;
-    if (!LookupOwnPropertyPure(cx_, obj, key, &prop))
+    if (!obj->isNative())
+        return false;
+    if (!obj->as<NativeObject>().containsDenseElement(index))
         return false;
 
+    // Guard shape to ensure object class is NativeObject.
+    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
+
+    writer.loadDenseElementExistsResult(objId, indexId);
+    writer.returnFromIC();
+
+    trackAttached("DenseHasProp");
+    return true;
+}
+
+bool
+HasPropIRGenerator::tryAttachDenseHole(HandleObject obj, ObjOperandId objId,
+                                       uint32_t index, Int32OperandId indexId)
+{
+    bool hasOwn = (cacheKind_ == CacheKind::HasOwn);
+
+    if (!obj->isNative())
+        return false;
+    if (obj->as<NativeObject>().containsDenseElement(index))
+        return false;
+    if (!CanAttachDenseElementHole(obj, hasOwn))
+        return false;
+
+    // Guard shape to ensure class is NativeObject and to prevent non-dense
+    // elements being added. Also ensures prototype doesn't change if dynamic
+    // checks aren't emitted.
+    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
+
+    // Generate prototype guards if needed. This includes monitoring that
+    // properties were not added in the chain.
+    if (!hasOwn)
+        GeneratePrototypeHoleGuards(writer, obj, objId);
+
+    writer.loadDenseElementHoleExistsResult(objId, indexId);
+    writer.returnFromIC();
+
+    trackAttached("DenseHasPropHole");
+    return true;
+}
+
+bool
+HasPropIRGenerator::tryAttachNative(HandleObject obj, ObjOperandId objId,
+                                    HandleId key, ValOperandId keyId)
+{
+    bool hasOwn = (cacheKind_ == CacheKind::HasOwn);
+
+    JSObject* holder = nullptr;
+    PropertyResult prop;
+
+    if (hasOwn) {
+        if (!LookupOwnPropertyPure(cx_, obj, key, &prop))
+            return false;
+
+        holder = obj;
+    } else {
+        if (!LookupPropertyPure(cx_, obj, key, &holder, &prop))
+            return false;
+    }
     if (!prop.isFound())
         return false;
 
-    if (!obj->isNative() && !obj->is<UnboxedPlainObject>())
-        return false;
-
-    if (mode_ == ICState::Mode::Megamorphic) {
+    // Use MegamorphicHasOwnResult if applicable
+    if (hasOwn && mode_ == ICState::Mode::Megamorphic) {
         writer.megamorphicHasOwnResult(objId, keyId);
         writer.returnFromIC();
-        trackAttached("MegamorphicHasOwn");
+        trackAttached("MegamorphicHasProp");
         return true;
     }
 
-    Maybe<ObjOperandId> expandoId;
+    Maybe<ObjOperandId> tempId;
     emitIdGuard(keyId, key);
-    TestMatchingReceiver(writer, obj, nullptr, objId, &expandoId);
+    EmitReadSlotGuard(writer, obj, holder, objId, &tempId);
     writer.loadBooleanResult(true);
     writer.returnFromIC();
 
-    trackAttached("NativeHasOwn");
+    trackAttached("NativeHasProp");
     return true;
 }
 
 bool
-HasOwnIRGenerator::tryAttachNativeHasOwnDoesNotExist(HandleId key, ValOperandId keyId,
-                                                     HandleObject obj, ObjOperandId objId)
+HasPropIRGenerator::tryAttachNativeDoesNotExist(HandleObject obj, ObjOperandId objId,
+                                                HandleId key, ValOperandId keyId)
 {
-    if (!CheckHasNoSuchOwnProperty(cx_, obj, key))
-        return false;
+    bool hasOwn = (cacheKind_ == CacheKind::HasOwn);
 
-    if (mode_ == ICState::Mode::Megamorphic) {
+    if (hasOwn) {
+        if (!CheckHasNoSuchOwnProperty(cx_, obj, key))
+            return false;
+    } else {
+        if (!CheckHasNoSuchProperty(cx_, obj, key))
+            return false;
+    }
+
+    // Use MegamorphicHasOwnResult if applicable
+    if (hasOwn && mode_ == ICState::Mode::Megamorphic) {
         writer.megamorphicHasOwnResult(objId, keyId);
         writer.returnFromIC();
         trackAttached("MegamorphicHasOwn");
         return true;
     }
 
-    Maybe<ObjOperandId> expandoId;
+    Maybe<ObjOperandId> tempId;
     emitIdGuard(keyId, key);
-    TestMatchingReceiver(writer, obj, nullptr, objId, &expandoId);
+    if (hasOwn) {
+        TestMatchingReceiver(writer, obj, objId, &tempId);
+    } else {
+        EmitReadSlotGuard(writer, obj, nullptr, objId, &tempId);
+    }
     writer.loadBooleanResult(false);
     writer.returnFromIC();
 
-    trackAttached("NativeHasOwnDoesNotExist");
+    trackAttached("NativeDoesNotExist");
     return true;
 }
 
 bool
-HasOwnIRGenerator::tryAttachProxyElement(ValOperandId keyId, HandleObject obj, ObjOperandId objId)
+HasPropIRGenerator::tryAttachProxyElement(HandleObject obj, ObjOperandId objId,
+                                          ValOperandId keyId)
 {
+    MOZ_ASSERT(cacheKind_ == CacheKind::HasOwn);
+
     if (!obj->is<ProxyObject>())
         return false;
 
@@ -2216,34 +2201,19 @@ HasOwnIRGenerator::tryAttachProxyElement(ValOperandId keyId, HandleObject obj, O
     writer.callProxyHasOwnResult(objId, keyId);
     writer.returnFromIC();
 
-    trackAttached("ProxyHasOwn");
+    trackAttached("ProxyHasProp");
     return true;
 }
 
 bool
-HasOwnIRGenerator::tryAttachDenseHasOwn(uint32_t index, Int32OperandId indexId,
-                                        HandleObject obj, ObjOperandId objId)
+HasPropIRGenerator::tryAttachStub()
 {
-    if (!obj->isNative())
-        return false;
-    if (!obj->as<NativeObject>().containsDenseElement(index))
-        return false;
-
-    writer.guardShape(objId, obj->as<NativeObject>().lastProperty());
-    writer.loadDenseElementExistsResult(objId, indexId);
-    writer.returnFromIC();
-
-    trackAttached("DenseHasOwn");
-    return true;
-}
-
-bool
-HasOwnIRGenerator::tryAttachStub()
-{
-    MOZ_ASSERT(cacheKind_ == CacheKind::HasOwn);
+    MOZ_ASSERT(cacheKind_ == CacheKind::In ||
+               cacheKind_ == CacheKind::HasOwn);
 
     AutoAssertNoPendingException aanpe(cx_);
 
+    // NOTE: Argument order is PROPERTY, OBJECT
     ValOperandId keyId(writer.setInputOperandId(0));
     ValOperandId valId(writer.setInputOperandId(1));
 
@@ -2252,23 +2222,25 @@ HasOwnIRGenerator::tryAttachStub()
         return false;
     }
     RootedObject obj(cx_, &val_.toObject());
-
     ObjOperandId objId = writer.guardIsObject(valId);
 
-    if (tryAttachProxyElement(keyId, obj, objId))
-        return true;
+    // Optimize DOM Proxies for JSOP_HASOWN
+    if (cacheKind_ == CacheKind::HasOwn) {
+        if (tryAttachProxyElement(obj, objId, keyId))
+            return true;
+    }
 
     RootedId id(cx_);
     bool nameOrSymbol;
-    if (!ValueToNameOrSymbolId(cx_, key_, &id, &nameOrSymbol)) {
+    if (!ValueToNameOrSymbolId(cx_, idVal_, &id, &nameOrSymbol)) {
         cx_->clearPendingException();
         return false;
     }
 
     if (nameOrSymbol) {
-        if (tryAttachNativeHasOwn(id, keyId, obj, objId))
+        if (tryAttachNative(obj, objId, id, keyId))
             return true;
-        if (tryAttachNativeHasOwnDoesNotExist(id, keyId, obj, objId))
+        if (tryAttachNativeDoesNotExist(obj, objId, id, keyId))
             return true;
 
         trackNotAttached();
@@ -2277,8 +2249,10 @@ HasOwnIRGenerator::tryAttachStub()
 
     uint32_t index;
     Int32OperandId indexId;
-    if (maybeGuardInt32Index(key_, keyId, &index, &indexId)) {
-        if (tryAttachDenseHasOwn(index, indexId, obj, objId))
+    if (maybeGuardInt32Index(idVal_, keyId, &index, &indexId)) {
+        if (tryAttachDense(obj, objId, index, indexId))
+            return true;
+        if (tryAttachDenseHole(obj, objId, index, indexId))
             return true;
 
         trackNotAttached();
@@ -2290,7 +2264,7 @@ HasOwnIRGenerator::tryAttachStub()
 }
 
 void
-HasOwnIRGenerator::trackAttached(const char* name)
+HasPropIRGenerator::trackAttached(const char* name)
 {
 #ifdef JS_CACHEIR_SPEW
     CacheIRSpewer& sp = CacheIRSpewer::singleton();
@@ -2298,7 +2272,7 @@ HasOwnIRGenerator::trackAttached(const char* name)
         LockGuard<Mutex> guard(sp.lock());
         sp.beginCache(guard, *this);
         sp.valueProperty(guard, "base", val_);
-        sp.valueProperty(guard, "property", key_);
+        sp.valueProperty(guard, "property", idVal_);
         sp.attached(guard, name);
         sp.endCache(guard);
     }
@@ -2306,7 +2280,7 @@ HasOwnIRGenerator::trackAttached(const char* name)
 }
 
 void
-HasOwnIRGenerator::trackNotAttached()
+HasPropIRGenerator::trackNotAttached()
 {
 #ifdef JS_CACHEIR_SPEW
     CacheIRSpewer& sp = CacheIRSpewer::singleton();
@@ -2314,7 +2288,7 @@ HasOwnIRGenerator::trackNotAttached()
         LockGuard<Mutex> guard(sp.lock());
         sp.beginCache(guard, *this);
         sp.valueProperty(guard, "base", val_);
-        sp.valueProperty(guard, "property", key_);
+        sp.valueProperty(guard, "property", idVal_);
         sp.endCache(guard);
     }
 #endif
@@ -2764,7 +2738,7 @@ SetPropIRGenerator::tryAttachSetter(HandleObject obj, ObjOperandId objId, Handle
     // require outerizing).
     if (mode_ == ICState::Mode::Specialized || IsWindow(obj)) {
         Maybe<ObjOperandId> expandoId;
-        TestMatchingReceiver(writer, obj, propShape, objId, &expandoId);
+        TestMatchingReceiver(writer, obj, objId, &expandoId);
 
         if (obj != holder) {
             GeneratePrototypeGuards(writer, obj, holder, objId);
@@ -3505,3 +3479,52 @@ SetPropIRGenerator::tryAttachAddSlotStub(HandleObjectGroup oldGroup, HandleShape
     typeCheckInfo_.set(oldGroup, id);
     return true;
 }
+
+TypeOfIRGenerator::TypeOfIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                     ICState::Mode mode, HandleValue value)
+  : IRGenerator(cx, script, pc, CacheKind::TypeOf, mode),
+    val_(value)
+{ }
+
+bool
+TypeOfIRGenerator::tryAttachStub()
+{
+    MOZ_ASSERT(cacheKind_ == CacheKind::TypeOf);
+
+    AutoAssertNoPendingException aanpe(cx_);
+
+    ValOperandId valId(writer.setInputOperandId(0));
+
+    if (tryAttachPrimitive(valId))
+        return true;
+
+    MOZ_ALWAYS_TRUE(tryAttachObject(valId));
+    return true;
+}
+
+bool
+TypeOfIRGenerator::tryAttachPrimitive(ValOperandId valId)
+{
+    if (!val_.isPrimitive())
+        return false;
+
+    writer.guardType(valId, val_.isNumber() ? JSVAL_TYPE_DOUBLE : val_.extractNonDoubleType());
+    writer.loadStringResult(TypeName(js::TypeOfValue(val_), cx_->names()));
+    writer.returnFromIC();
+
+    return true;
+}
+
+bool
+TypeOfIRGenerator::tryAttachObject(ValOperandId valId)
+{
+    if (!val_.isObject())
+        return false;
+
+    ObjOperandId objId = writer.guardIsObject(valId);
+    writer.loadTypeOfObjectResult(objId);
+    writer.returnFromIC();
+
+    return true;
+}
+
