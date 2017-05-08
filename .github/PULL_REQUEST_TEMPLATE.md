@@ -13,9 +13,6 @@ Bug fixes and new features should include tests and possibly benchmarks.
   test (or a benchmark) included?
 - [ ] Is a documentation update included (if this change modifies
   existing APIs, or introduces new ones)?
-
-Finally, read through our contributors guide and make adjustments as necessary:
-https://github.com/nodejs/node/blob/master/CONTRIBUTING.md
 -->
 
 ### Description of change
