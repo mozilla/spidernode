@@ -7,6 +7,7 @@
 #include "vm/HelperThreads.h"
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/Unused.h"
 
 #include "jsnativestack.h"
@@ -299,25 +300,27 @@ static const JSClass parseTaskGlobalClass = {
 ParseTask::ParseTask(ParseTaskKind kind, JSContext* cx, JSObject* parseGlobal,
                      const char16_t* chars, size_t length,
                      JS::OffThreadCompileCallback callback, void* callbackData)
-  : kind(kind), options(cx), chars(chars), length(length),
+  : kind(kind), options(cx),
     alloc(JSContext::TEMP_LIFO_ALLOC_PRIMARY_CHUNK_SIZE),
     parseGlobal(parseGlobal),
     callback(callback), callbackData(callbackData),
     script(nullptr), sourceObject(nullptr),
     overRecursed(false), outOfMemory(false)
 {
+    data.construct<TwoByteChars>(chars, length);
 }
 
 ParseTask::ParseTask(ParseTaskKind kind, JSContext* cx, JSObject* parseGlobal,
-                     JS::TranscodeBuffer& buffer, size_t cursor,
+                     const JS::TranscodeRange& range,
                      JS::OffThreadCompileCallback callback, void* callbackData)
-  : kind(kind), options(cx), buffer(&buffer), cursor(cursor),
+  : kind(kind), options(cx),
     alloc(JSContext::TEMP_LIFO_ALLOC_PRIMARY_CHUNK_SIZE),
     parseGlobal(parseGlobal),
     callback(callback), callbackData(callbackData),
     script(nullptr), sourceObject(nullptr),
     overRecursed(false), outOfMemory(false)
 {
+    data.construct<const JS::TranscodeRange>(range);
 }
 
 bool
@@ -384,7 +387,8 @@ ScriptParseTask::ScriptParseTask(JSContext* cx, JSObject* parseGlobal,
 void
 ScriptParseTask::parse(JSContext* cx)
 {
-    SourceBufferHolder srcBuf(chars, length, SourceBufferHolder::NoOwnership);
+    auto& range = data.ref<TwoByteChars>();
+    SourceBufferHolder srcBuf(range.begin().get(), range.length(), SourceBufferHolder::NoOwnership);
     script = frontend::CompileGlobalScript(cx, alloc, ScopeKind::Global,
                                            options, srcBuf,
                                            /* sourceObjectOut = */ &sourceObject);
@@ -401,17 +405,18 @@ ModuleParseTask::ModuleParseTask(JSContext* cx, JSObject* parseGlobal,
 void
 ModuleParseTask::parse(JSContext* cx)
 {
-    SourceBufferHolder srcBuf(chars, length, SourceBufferHolder::NoOwnership);
+    auto& range = data.ref<TwoByteChars>();
+    SourceBufferHolder srcBuf(range.begin().get(), range.length(), SourceBufferHolder::NoOwnership);
     ModuleObject* module = frontend::CompileModule(cx, options, srcBuf, alloc, &sourceObject);
     if (module)
         script = module->script();
 }
 
 ScriptDecodeTask::ScriptDecodeTask(JSContext* cx, JSObject* parseGlobal,
-                                   JS::TranscodeBuffer& buffer, size_t cursor,
+                                   const JS::TranscodeRange& range,
                                    JS::OffThreadCompileCallback callback, void* callbackData)
   : ParseTask(ParseTaskKind::ScriptDecode, cx, parseGlobal,
-              buffer, cursor, callback, callbackData)
+              range, callback, callbackData)
 {
 }
 
@@ -420,7 +425,7 @@ ScriptDecodeTask::parse(JSContext* cx)
 {
     RootedScript resultScript(cx);
     XDROffThreadDecoder decoder(cx, alloc, &options, /* sourceObjectOut = */ &sourceObject,
-                                *buffer, cursor);
+                                data.ref<const JS::TranscodeRange>());
     decoder.codeScript(&resultScript);
     MOZ_ASSERT(bool(resultScript) == (decoder.resultCode() == JS::TranscodeResult_Ok));
     if (decoder.resultCode() == JS::TranscodeResult_Ok) {
@@ -652,12 +657,11 @@ js::StartOffThreadParseModule(JSContext* cx, const ReadOnlyCompileOptions& optio
 
 bool
 js::StartOffThreadDecodeScript(JSContext* cx, const ReadOnlyCompileOptions& options,
-                               JS::TranscodeBuffer& buffer, size_t cursor,
+                               const JS::TranscodeRange& range,
                                JS::OffThreadCompileCallback callback, void* callbackData)
 {
     auto functor = [&](JSObject* global) -> ScriptDecodeTask* {
-        return cx->new_<ScriptDecodeTask>(cx, global, buffer, cursor,
-                                          callback, callbackData);
+        return cx->new_<ScriptDecodeTask>(cx, global, range, callback, callbackData);
     };
     return StartOffThreadParseTask(cx, options, ParseTaskKind::ScriptDecode, functor);
 }
@@ -1155,7 +1159,9 @@ js::GCParallelTask::~GCParallelTask()
     // base class can't ensure that the task is done using the members. All we
     // can do now is check that someone has previously stopped the task.
 #ifdef DEBUG
-    AutoLockHelperThreadState helperLock;
+    mozilla::Maybe<AutoLockHelperThreadState> helperLock;
+    if (!HelperThreadState().isLockedByCurrentThread())
+        helperLock.emplace();
     MOZ_ASSERT(state == NotStarted);
 #endif
 }
@@ -1949,7 +1955,13 @@ HelperThread::threadLoop()
             HelperThreadState().wait(lock, GlobalHelperThreadState::PRODUCER);
         }
 
-        if (ionCompile) {
+        if (HelperThreadState().canStartGCParallelTask(lock)) {
+            js::oom::SetThreadType(js::oom::THREAD_TYPE_GCPARALLEL);
+            handleGCParallelWorkload(lock);
+        } else if (HelperThreadState().canStartGCHelperTask(lock)) {
+            js::oom::SetThreadType(js::oom::THREAD_TYPE_GCHELPER);
+            handleGCHelperWorkload(lock);
+        } else if (ionCompile) {
             js::oom::SetThreadType(js::oom::THREAD_TYPE_ION);
             handleIonWorkload(lock);
         } else if (HelperThreadState().canStartWasmCompile(lock)) {
@@ -1964,12 +1976,6 @@ HelperThread::threadLoop()
         } else if (HelperThreadState().canStartCompressionTask(lock)) {
             js::oom::SetThreadType(js::oom::THREAD_TYPE_COMPRESS);
             handleCompressionWorkload(lock);
-        } else if (HelperThreadState().canStartGCHelperTask(lock)) {
-            js::oom::SetThreadType(js::oom::THREAD_TYPE_GCHELPER);
-            handleGCHelperWorkload(lock);
-        } else if (HelperThreadState().canStartGCParallelTask(lock)) {
-            js::oom::SetThreadType(js::oom::THREAD_TYPE_GCPARALLEL);
-            handleGCParallelWorkload(lock);
         } else {
             MOZ_CRASH("No task to perform");
         }

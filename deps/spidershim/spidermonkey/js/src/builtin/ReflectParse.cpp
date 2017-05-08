@@ -243,7 +243,7 @@ class NodeBuilder
     typedef AutoValueArray<AST_LIMIT> CallbackArray;
 
     JSContext*  cx;
-    TokenStream* tokenStream;
+    TokenStreamAnyChars* tokenStream;
     bool        saveLoc;               /* save source location information?     */
     char const* src;                  /* source filename or null               */
     RootedValue srcval;                /* source filename JS value or null      */
@@ -302,7 +302,7 @@ class NodeBuilder
         return true;
     }
 
-    void setTokenStream(TokenStream* ts) {
+    void setTokenStream(TokenStreamAnyChars* ts) {
         tokenStream = ts;
     }
 
@@ -3226,6 +3226,8 @@ ASTSerializer::property(ParseNode* pn, MutableHandleValue dst)
         return expression(pn->pn_kid, &val) &&
                builder.prototypeMutation(val, &pn->pn_pos, dst);
     }
+    if (pn->isKind(PNK_SPREAD))
+        return expression(pn, dst);
 
     PropKind kind;
     switch (pn->getOp()) {
@@ -3346,6 +3348,16 @@ ASTSerializer::objectPattern(ParseNode* pn, MutableHandleValue dst)
         return false;
 
     for (ParseNode* propdef = pn->pn_head; propdef; propdef = propdef->pn_next) {
+        if (propdef->isKind(PNK_SPREAD)) {
+            RootedValue target(cx);
+            RootedValue spread(cx);
+            if (!pattern(propdef->pn_kid, &target))
+                return false;
+            if(!builder.spreadExpression(target, &propdef->pn_pos, &spread))
+                return false;
+            elts.infallibleAppend(spread);
+            continue;
+        }
         LOCAL_ASSERT(propdef->isKind(PNK_MUTATEPROTO) != propdef->isOp(JSOP_INITPROP));
 
         RootedValue key(cx);

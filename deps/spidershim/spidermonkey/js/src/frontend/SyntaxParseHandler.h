@@ -295,6 +295,7 @@ class SyntaxParseHandlerBase
     MOZ_MUST_USE bool addPrototypeMutation(Node literal, uint32_t begin, Node expr) { return true; }
     MOZ_MUST_USE bool addPropertyDefinition(Node literal, Node name, Node expr) { return true; }
     MOZ_MUST_USE bool addShorthand(Node literal, Node name, Node expr) { return true; }
+    MOZ_MUST_USE bool addSpreadProperty(Node literal, uint32_t begin, Node inner) { return true; }
     MOZ_MUST_USE bool addObjectMethodDefinition(Node literal, Node name, Node fn, JSOp op) { return true; }
     MOZ_MUST_USE bool addClassMethodDefinition(Node literal, Node name, Node fn, JSOp op, bool isStatic) { return true; }
     Node newYieldExpression(uint32_t begin, Node value) { return NodeGeneric; }
@@ -402,7 +403,7 @@ class SyntaxParseHandlerBase
     void setEndPosition(Node pn, Node oth) {}
     void setEndPosition(Node pn, uint32_t end) {}
 
-    uint32_t getFunctionNameOffset(Node func, TokenStreamBase& ts) {
+    uint32_t getFunctionNameOffset(Node func, TokenStreamAnyChars& ts) {
         // XXX This offset isn't relevant to the offending function name.  But
         //     we may not *have* that function name around, because of how lazy
         //     parsing works -- the actual name could be outside

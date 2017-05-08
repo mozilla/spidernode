@@ -27,8 +27,10 @@
 #include "jit/MOpcodes.h"
 #include "jit/TypedObjectPrediction.h"
 #include "jit/TypePolicy.h"
+#include "js/HeapAPI.h"
 #include "vm/ArrayObject.h"
 #include "vm/EnvironmentObject.h"
+#include "vm/RegExpObject.h"
 #include "vm/SharedMem.h"
 #include "vm/TypedArrayObject.h"
 #include "vm/UnboxedObject.h"
@@ -7306,6 +7308,10 @@ class MMod : public MBinaryArithInstruction
                unsigned_ == ins->toMod()->isUnsigned();
     }
 
+    bool possiblyCalls() const override {
+        return type() == MIRType::Double;
+    }
+
     ALLOW_CLONE(MMod)
 };
 
@@ -12489,24 +12495,21 @@ class MIteratorEnd
 
 };
 
-// Implementation for 'in' operator.
-class MIn
+// Implementation for 'in' operator using instruction cache
+class MInCache
   : public MBinaryInstruction,
-    public MixPolicy<BoxPolicy<0>, ObjectPolicy<1> >::Data
+    public MixPolicy<CacheIdPolicy<0>, ObjectPolicy<1> >::Data
 {
-    MIn(MDefinition* key, MDefinition* obj)
+    MInCache(MDefinition* key, MDefinition* obj)
       : MBinaryInstruction(key, obj)
     {
         setResultType(MIRType::Boolean);
     }
 
   public:
-    INSTRUCTION_HEADER(In)
+    INSTRUCTION_HEADER(InCache)
     TRIVIAL_NEW_WRAPPERS
-
-    bool possiblyCalls() const override {
-        return true;
-    }
+    NAMED_OPERANDS((0, key), (1, object))
 };
 
 

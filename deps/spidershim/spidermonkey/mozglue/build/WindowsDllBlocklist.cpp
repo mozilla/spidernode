@@ -233,9 +233,13 @@ static const DllBlockInfo sWindowsDllBlocklist[] = {
   // Crashes with Internet Download Manager, bug 1333486
   { "idmcchandler7.dll", ALL_VERSIONS },
   { "idmcchandler7_64.dll", ALL_VERSIONS },
+  { "idmcchandler5.dll", ALL_VERSIONS },
+  { "idmcchandler5_64.dll", ALL_VERSIONS },
 
   // Nahimic 2 breaks applicaton update (bug 1356637)
   { "nahimic2devprops.dll", ALL_VERSIONS },
+  // Nahimic is causing crashes, bug 1233556
+  { "nahimicmsiosd.dll", ALL_VERSIONS },
 
   { nullptr, 0 }
 };
@@ -707,13 +711,13 @@ continue_loading:
   printf_stderr("LdrLoadDll: continuing load... ('%S')\n", moduleFileName->Buffer);
 #endif
 
+#ifdef _M_AMD64
   // Prevent the stack walker from suspending this thread when LdrLoadDll
   // holds the RtlLookupFunctionEntry lock.
-  AcquireStackWalkWorkaroundLock();
-  NTSTATUS ret = stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
-  ReleaseStackWalkWorkaroundLock();
+  AutoSuppressStackWalking suppress;
+#endif
 
-  return ret;
+  return stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
 }
 
 WindowsDllInterceptor NtDllIntercept;

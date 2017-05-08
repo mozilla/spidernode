@@ -108,7 +108,19 @@ class AutoSetHandlingSegFault
 # define R12_sig(p) ((p)->sc_r12)
 # define R13_sig(p) ((p)->sc_r13)
 # define R14_sig(p) ((p)->sc_r14)
-# define R15_sig(p) ((p)->sc_r15)
+# if defined(__arm__)
+#  define R15_sig(p) ((p)->sc_pc)
+# else
+#  define R15_sig(p) ((p)->sc_r15)
+# endif
+# if defined(__aarch64__)
+#  define EPC_sig(p) ((p)->sc_elr)
+#  define RFP_sig(p) ((p)->sc_x[29])
+# endif
+# if defined(__mips__)
+#  define EPC_sig(p) ((p)->sc_pc)
+#  define RFP_sig(p) ((p)->sc_regs[30])
+# endif
 #elif defined(__linux__) || defined(__sun)
 # if defined(__linux__)
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs->_xmm[i])
@@ -171,6 +183,14 @@ class AutoSetHandlingSegFault
 # define R13_sig(p) ((p)->uc_mcontext.__gregs[_REG_R13])
 # define R14_sig(p) ((p)->uc_mcontext.__gregs[_REG_R14])
 # define R15_sig(p) ((p)->uc_mcontext.__gregs[_REG_R15])
+# if defined(__aarch64__)
+#  define EPC_sig(p) ((p)->uc_mcontext.__gregs[_REG_PC])
+#  define RFP_sig(p) ((p)->uc_mcontext.__gregs[_REG_X29])
+# endif
+# if defined(__mips__)
+#  define EPC_sig(p) ((p)->uc_mcontext.__gregs[_REG_EPC])
+#  define RFP_sig(p) ((p)->uc_mcontext.__gregs[_REG_S8])
+# endif
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 # if defined(__DragonFly__)
 #  define XMM_sig(p,i) (((union savefpu*)(p)->uc_mcontext.mc_fpregs)->sv_xmm.sv_xmm[i])
@@ -199,6 +219,14 @@ class AutoSetHandlingSegFault
 #  define R15_sig(p) ((p)->uc_mcontext.__gregs[_REG_R15])
 # else
 #  define R15_sig(p) ((p)->uc_mcontext.mc_r15)
+# endif
+# if defined(__FreeBSD__) && defined(__aarch64__)
+#  define EPC_sig(p) ((p)->uc_mcontext.mc_gpregs.gp_elr)
+#  define RFP_sig(p) ((p)->uc_mcontext.mc_gpregs.gp_x[29])
+# endif
+# if defined(__FreeBSD__) && defined(__mips__)
+#  define EPC_sig(p) ((p)->uc_mcontext.mc_pc)
+#  define RFP_sig(p) ((p)->uc_mcontext.mc_regs[30])
 # endif
 #elif defined(XP_DARWIN)
 # define EIP_sig(p) ((p)->uc_mcontext->__ss.__eip)
@@ -999,7 +1027,12 @@ HandleMachException(JSContext* cx, const ExceptionRequest& request)
     if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    HandleMemoryAccess(&context, pc, faultingAddress, *instance, activation, ppc);
+    {
+        // HandleMemoryAccess may call startInterrupt, which sets the wasm
+        // resume PC in the runtime.
+        AutoNoteSingleThreadedRegion anstr;
+        HandleMemoryAccess(&context, pc, faultingAddress, *instance, activation, ppc);
+    }
 
     // Update the thread state with the new pc and register values.
     kret = thread_set_state(cxThread, float_state, (thread_state_t)&context.float_, float_state_count);
@@ -1374,6 +1407,7 @@ ProcessHasSignalHandlers()
     sTriedInstallSignalHandlers = true;
 
 #if defined(ANDROID)
+# if !defined(__aarch64__)
     // Before Android 4.4 (SDK version 19), there is a bug
     //   https://android-review.googlesource.com/#/c/52333
     // in Bionic's pthread_join which causes pthread_join to return early when
@@ -1385,6 +1419,7 @@ ProcessHasSignalHandlers()
         if (atol(version_string) < 19)
             return false;
     }
+# endif
 # if defined(MOZ_LINKER)
     // Signal handling is broken on some android systems.
     if (IsSignalHandlingBroken())
