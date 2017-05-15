@@ -109,8 +109,8 @@ if (process.argv[2] === 'child') {
     if (options.useTryCatch)
       useTryCatchOpt = 'useTryCatch';
 
-    cmdToExec += `${process.argv[0]} ${cmdLineOption ? cmdLineOption : ''} ${
-      process.argv[1]} child ${throwInDomainErrHandlerOpt} ${useTryCatchOpt}`;
+    cmdToExec += `"${process.argv[0]}" ${cmdLineOption ? cmdLineOption : ''} "${
+      process.argv[1]}" child ${throwInDomainErrHandlerOpt} ${useTryCatchOpt}`;
 
     const child = exec(cmdToExec);
 
