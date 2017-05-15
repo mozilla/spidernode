@@ -799,8 +799,7 @@ BaselineCompiler::emitArgumentTypeChecks()
     frame.pushThis();
     frame.popRegsAndSync(1);
 
-    ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                              (uint32_t) 0);
+    ICTypeMonitor_Fallback::Compiler compiler(cx, uint32_t(0));
     if (!emitNonOpIC(compiler.getStub(&stubSpace_)))
         return false;
 
@@ -808,8 +807,7 @@ BaselineCompiler::emitArgumentTypeChecks()
         frame.pushArg(i);
         frame.popRegsAndSync(1);
 
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  i + 1);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, i + 1);
         if (!emitNonOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
@@ -1062,6 +1060,12 @@ BaselineCompiler::emit_JSOP_NOP()
 
 bool
 BaselineCompiler::emit_JSOP_NOP_DESTRUCTURING()
+{
+    return true;
+}
+
+bool
+BaselineCompiler::emit_JSOP_TRY_DESTRUCTURING_ITERCLOSE()
 {
     return true;
 }
@@ -2608,8 +2612,7 @@ BaselineCompiler::emit_JSOP_GETALIASEDVAR()
 
     if (ionCompileable_) {
         // No need to monitor types if we know Ion can't compile this script.
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  (ICMonitoredFallbackStub*) nullptr);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, nullptr);
         if (!emitOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
@@ -2758,8 +2761,7 @@ BaselineCompiler::emit_JSOP_GETIMPORT()
 
     if (ionCompileable_) {
         // No need to monitor types if we know Ion can't compile this script.
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  (ICMonitoredFallbackStub*) nullptr);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, nullptr);
         if (!emitOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
