@@ -2648,9 +2648,9 @@ void FatalException(Isolate* isolate,
 
 void FatalException(Isolate* isolate, const TryCatch& try_catch) {
   HandleScope scope(isolate);
-  // TODO(bajtos) do not call FatalException if try_catch is verbose
-  // (requires V8 API to expose getter for try_catch.is_verbose_)
-  FatalException(isolate, try_catch.Exception(), try_catch.Message());
+  if (!try_catch.IsVerbose()) {
+    FatalException(isolate, try_catch.Exception(), try_catch.Message());
+  }
 }
 
 
@@ -3708,25 +3708,29 @@ static void CheckIfAllowedInEnv(const char* exe, bool is_env,
 
   static const char* whitelist[] = {
     // Node options
-    "-r", "--require",
+    "--require", "-r",
+    "--inspect",
+    "--inspect-brk",
+    "--inspect-port",
     "--no-deprecation",
+    "--trace-deprecation",
+    "--throw-deprecation",
     "--no-warnings",
+    "--napi-modules",
     "--trace-warnings",
     "--redirect-warnings",
-    "--trace-deprecation",
     "--trace-sync-io",
     "--trace-events-enabled",
+    "--trace-events-categories",
     "--track-heap-objects",
-    "--throw-deprecation",
     "--zero-fill-buffers",
     "--v8-pool-size",
-    "--use-openssl-ca",
     "--use-bundled-ca",
+    "--use-openssl-ca",
     "--enable-fips",
     "--force-fips",
     "--openssl-config",
     "--icu-data-dir",
-    "--napi-modules",
 
     // V8 options
     "--max_old_space_size",
@@ -3911,8 +3915,8 @@ static void ParseArgs(int* argc,
     } else if (strcmp(arg, "--") == 0) {
       index += 1;
       break;
-    } else if (strcmp(arg, "--abort-on-uncaught-exception") ||
-               strcmp(arg, "--abort_on_uncaught_exception")) {
+    } else if (strcmp(arg, "--abort-on-uncaught-exception") == 0 ||
+               strcmp(arg, "--abort_on_uncaught_exception") == 0) {
       abort_on_uncaught_exception = true;
       // Also a V8 option.  Pass through as-is.
       new_v8_argv[new_v8_argc] = arg;
@@ -4343,8 +4347,11 @@ void Init(int* argc,
   // Initialize ICU.
   // If icu_data_dir is empty here, it will load the 'minimal' data.
   if (!i18n::InitializeICUDirectory(icu_data_dir)) {
-    FatalError(nullptr, "Could not initialize ICU "
-                     "(check NODE_ICU_DATA or --icu-data-dir parameters)");
+    fprintf(stderr,
+            "%s: could not initialize ICU "
+            "(check NODE_ICU_DATA or --icu-data-dir parameters)",
+            argv[0]);
+    exit(9);
   }
 #endif
 
@@ -4623,5 +4630,5 @@ int Start(int argc, char** argv) {
 #if !HAVE_INSPECTOR
 static void InitEmptyBindings() {}
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(inspector, InitEmptyBindings);
+NODE_MODULE_CONTEXT_AWARE_BUILTIN(inspector, InitEmptyBindings)
 #endif  // !HAVE_INSPECTOR
