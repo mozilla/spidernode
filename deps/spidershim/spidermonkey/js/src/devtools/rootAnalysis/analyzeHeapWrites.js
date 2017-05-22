@@ -101,10 +101,6 @@ function checkIndirectCall(entry, location, callee)
 {
     var name = entry.name;
 
-    // replace_malloc indirects through this table.
-    if (callee.startsWith('malloc_table_t.'))
-        return;
-
     // These hash table callbacks should be threadsafe.
     if (/PLDHashTable/.test(name) && (/matchEntry/.test(callee) || /hashKey/.test(callee)))
         return;
@@ -117,12 +113,6 @@ function checkIndirectCall(entry, location, callee)
 function checkVariableAssignment(entry, location, variable)
 {
     var name = entry.name;
-
-    // Malloc related state.
-    if (/replace_malloc_initialized/.test(variable))
-        return;
-    if (name == "replace_init")
-        return;
 
     dumpError(entry, location, "Variable assignment " + variable);
 }
@@ -167,15 +157,12 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_CopyImageOrientationFrom", "aDst", null],
         ["Gecko_SetImageElement", "aImage", null],
         ["Gecko_SetLayerImageImageValue", "aImage", null],
-        ["Gecko_SetUrlImageValue", "aImage", null],
         ["Gecko_CopyImageValueFrom", "aImage", null],
         ["Gecko_SetCursorArrayLength", "aStyleUI", null],
         ["Gecko_CopyCursorArrayFrom", "aDest", null],
         ["Gecko_SetCursorImageValue", "aCursor", null],
-        ["Gecko_SetCursorImage", "aCursor", null],
         ["Gecko_SetListStyleImageImageValue", "aList", null],
         ["Gecko_SetListStyleImageNone", "aList", null],
-        ["Gecko_SetListStyleImage", "aList", null],
         ["Gecko_CopyListStyleImageFrom", "aList", null],
         ["Gecko_ClearStyleContents", "aContent", null],
         ["Gecko_CopyStyleContentsFrom", "aContent", null],
@@ -190,6 +177,8 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_CSSFontFaceRule_GetCssText", "aResult", null],
         ["Gecko_EnsureTArrayCapacity", "aArray", null],
         ["Gecko_ClearPODTArray", "aArray", null],
+        ["Gecko_SetStyleGridTemplateArrayLengths", "aValue", null],
+        ["Gecko_ResizeTArrayForStrings", "aArray", null],
         ["Gecko_ClearAndResizeStyleContents", "aContent", null],
         [/Gecko_ClearAndResizeCounter/, "aContent", null],
         [/Gecko_CopyCounter.*?From/, "aContent", null],
@@ -218,7 +207,10 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_DestroyShapeSource", "aShape", null],
         ["Gecko_StyleShapeSource_SetURLValue", "aShape", null],
         ["Gecko_nsFont_InitSystem", "aDest", null],
+        ["Gecko_nsStyleFont_FixupNoneGeneric", "aFont", null],
         ["Gecko_StyleTransition_SetUnsupportedProperty", "aTransition", null],
+        ["Gecko_AddPropertyToSet", "aPropertySet", null],
+        ["Gecko_CalcStyleDifference", "aAnyStyleChanged", null],
     ];
     for (var [entryMatch, varMatch, csuMatch] of whitelist) {
         assert(entryMatch || varMatch || csuMatch);
@@ -353,7 +345,6 @@ function ignoreContents(entry)
 
         // These ought to be threadsafe.
         "NS_DebugBreak",
-        "replace_free", "replace_malloc",
         /mozalloc_handle_oom/,
         /^NS_Log/, /log_print/, /LazyLogModule::operator/,
         /SprintfLiteral/, "PR_smprintf", "PR_smprintf_free",
@@ -367,6 +358,7 @@ function ignoreContents(entry)
         "malloc",
         "free",
         "realloc",
+        "jemalloc_thread_local_arena",
         /profiler_register_thread/,
         /profiler_unregister_thread/,
 
@@ -384,6 +376,7 @@ function ignoreContents(entry)
         "Gecko_GetOrCreateFinalKeyframe",
         "Gecko_NewStyleQuoteValues",
         "Gecko_NewCSSValueSharedList",
+        "Gecko_NewNoneTransform",
         "Gecko_NewGridTemplateAreasValue",
         /nsCSSValue::SetCalcValue/,
         /CSSValueSerializeCalcOps::Append/,
@@ -393,7 +386,6 @@ function ignoreContents(entry)
         "Gecko_ClearMozBorderColors",
         "Gecko_AppendMozBorderColors",
         "Gecko_CopyMozBorderColors",
-        "Gecko_SetJemallocThreadLocalArena",
         "Gecko_SetNullImageValue",
 
         // Needs main thread assertions or other fixes.
@@ -403,6 +395,7 @@ function ignoreContents(entry)
         /LookAndFeel::GetColor/,
         "Gecko_CopyStyleContentsFrom",
         "Gecko_CSSValue_SetAbsoluteLength",
+        /nsCSSPropertyIDSet::AddProperty/,
     ];
     if (entry.matches(whitelist))
         return true;

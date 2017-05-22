@@ -190,6 +190,7 @@ StackWalkInitCriticalAddress()
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/StackWalk_windows.h"
+#include "mozilla/WindowsVersion.h"
 
 #ifdef MOZ_STATIC_JS // The standalone SM build lacks the interceptor headers.
 #include "nsWindowsDllInterceptor.h"
@@ -259,6 +260,8 @@ AutoSuppressStackWalking::~AutoSuppressStackWalking()
 
 static uint8_t* sJitCodeRegionStart;
 static size_t sJitCodeRegionSize;
+uint8_t* sMsMpegJitCodeRegionStart;
+size_t sMsMpegJitCodeRegionSize;
 
 MFBT_API void
 RegisterJitCodeRegion(uint8_t* aStart, size_t aSize)
@@ -406,9 +409,11 @@ EnsureWalkThreadReady()
   NtDllInterceptor.AddHook("LdrUnloadDll",
                            reinterpret_cast<intptr_t>(patched_LdrUnloadDll),
                            (void**)&stub_LdrUnloadDll);
-  NtDllInterceptor.AddHook("LdrResolveDelayLoadedAPI",
-                           reinterpret_cast<intptr_t>(patched_LdrResolveDelayLoadedAPI),
-                           (void**)&stub_LdrResolveDelayLoadedAPI);
+  if (IsWin8OrLater()) { // LdrResolveDelayLoadedAPI was introduced in Win8
+    NtDllInterceptor.AddHook("LdrResolveDelayLoadedAPI",
+                             reinterpret_cast<intptr_t>(patched_LdrResolveDelayLoadedAPI),
+                             (void**)&stub_LdrResolveDelayLoadedAPI);
+  }
 #endif
 
   InitializeDbgHelpCriticalSection();
@@ -523,6 +528,15 @@ WalkStackMain64(struct WalkStackData* aData)
     if (sJitCodeRegionStart &&
         (uint8_t*)context.Rip >= sJitCodeRegionStart &&
         (uint8_t*)context.Rip < sJitCodeRegionStart + sJitCodeRegionSize) {
+      break;
+    }
+
+    // We must also avoid msmpeg2vdec.dll's JIT region: they don't generate
+    // unwind data, so their JIT unwind callback just throws up its hands and
+    // terminates the process.
+    if (sMsMpegJitCodeRegionStart &&
+        (uint8_t*)context.Rip >= sMsMpegJitCodeRegionStart &&
+        (uint8_t*)context.Rip < sMsMpegJitCodeRegionStart + sMsMpegJitCodeRegionSize) {
       break;
     }
 
