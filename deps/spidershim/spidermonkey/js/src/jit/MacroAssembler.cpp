@@ -788,7 +788,7 @@ MacroAssembler::nurseryAllocate(Register result, Register temp, gc::AllocKind al
     CompileZone* zone = GetJitContext()->compartment->zone();
     int thingSize = int(gc::Arena::thingSize(allocKind));
     int totalSize = thingSize + nDynamicSlots * sizeof(HeapSlot);
-    MOZ_ASSERT(totalSize % gc::CellSize == 0);
+    MOZ_ASSERT(totalSize % gc::CellAlignBytes == 0);
     loadPtr(AbsoluteAddress(zone->addressOfNurseryPosition()), result);
     computeEffectiveAddress(Address(result, totalSize), temp);
     branchPtr(Assembler::Below, AbsoluteAddress(zone->addressOfNurseryCurrentEnd()), temp, fail);
@@ -3091,13 +3091,6 @@ MacroAssembler::wasmAssertNonExitInvariants(Register activation)
 }
 
 //}}} check_macroassembler_style
-
-void
-MacroAssembler::loadWasmActivationFromTls(Register dest)
-{
-    loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, cx)), dest);
-    loadPtr(Address(dest, JSContext::offsetOfWasmActivation()), dest);
-}
 
 void
 MacroAssembler::loadWasmTlsRegFromFrame(Register dest)
