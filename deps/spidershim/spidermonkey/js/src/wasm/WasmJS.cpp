@@ -815,6 +815,7 @@ WasmModuleObject::create(JSContext* cx, Module& module, HandleObject proto)
 
     obj->initReservedSlot(MODULE_SLOT, PrivateValue(&module));
     module.AddRef();
+    cx->zone()->updateJitCodeMallocBytes(module.codeLength());
     return obj;
 }
 
@@ -976,7 +977,8 @@ WasmInstanceObject::trace(JSTracer* trc, JSObject* obj)
 
 /* static */ WasmInstanceObject*
 WasmInstanceObject::create(JSContext* cx,
-                           UniqueCode code,
+                           SharedCode code,
+                           UniqueDebugState debug,
                            UniqueGlobalSegment globals,
                            HandleWasmMemoryObject memory,
                            SharedTableVector&& tables,
@@ -1010,7 +1012,8 @@ WasmInstanceObject::create(JSContext* cx,
     // Root the Instance via WasmInstanceObject before any possible GC.
     auto* instance = cx->new_<Instance>(cx,
                                         obj,
-                                        Move(code),
+                                        code,
+                                        Move(debug),
                                         Move(globals),
                                         memory,
                                         Move(tables),
@@ -1789,14 +1792,6 @@ WebAssembly_toSource(JSContext* cx, unsigned argc, Value* vp)
 #endif
 
 static bool
-Nop(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
 Reject(JSContext* cx, const CompileArgs& args, UniqueChars error, Handle<PromiseObject*> promise)
 {
     if (!error) {
@@ -1916,11 +1911,7 @@ WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    RootedFunction nopFun(cx, NewNativeFunction(cx, Nop, 0, nullptr));
-    if (!nopFun)
-        return false;
-
-    Rooted<PromiseObject*> promise(cx, PromiseObject::create(cx, nopFun));
+    Rooted<PromiseObject*> promise(cx, PromiseObject::createSkippingExecutor(cx));
     if (!promise)
         return false;
 
@@ -2013,11 +2004,7 @@ WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    RootedFunction nopFun(cx, NewNativeFunction(cx, Nop, 0, nullptr));
-    if (!nopFun)
-        return false;
-
-    Rooted<PromiseObject*> promise(cx, PromiseObject::create(cx, nopFun));
+    Rooted<PromiseObject*> promise(cx, PromiseObject::createSkippingExecutor(cx));
     if (!promise)
         return false;
 

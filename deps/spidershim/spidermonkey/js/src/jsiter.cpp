@@ -559,6 +559,10 @@ NewPropertyIteratorObject(JSContext* cx, unsigned flags)
 
         PropertyIteratorObject* res = &obj->as<PropertyIteratorObject>();
 
+        // CodeGenerator::visitIteratorStartO assumes the iterator object is not
+        // inside the nursery when deciding whether a barrier is necessary.
+        MOZ_ASSERT(!js::gc::IsInsideNursery(res));
+
         MOZ_ASSERT(res->numFixedSlots() == JSObject::ITER_CLASS_NFIXED_SLOTS);
         return res;
     }
@@ -1133,6 +1137,17 @@ const Class ArrayIteratorObject::class_ = {
     "Array Iterator",
     JSCLASS_HAS_RESERVED_SLOTS(ArrayIteratorSlotCount)
 };
+
+
+ArrayIteratorObject*
+js::NewArrayIteratorObject(JSContext* cx, NewObjectKind newKind)
+{
+    RootedObject proto(cx, GlobalObject::getOrCreateArrayIteratorPrototype(cx, cx->global()));
+    if (!proto)
+        return nullptr;
+
+    return NewObjectWithGivenProto<ArrayIteratorObject>(cx, proto, newKind);
+}
 
 static const JSFunctionSpec array_iterator_methods[] = {
     JS_SELF_HOSTED_FN("next", "ArrayIteratorNext", 0, 0),

@@ -21,6 +21,7 @@
 
 #include "gc/Barrier.h"
 #include "wasm/WasmCode.h"
+#include "wasm/WasmDebug.h"
 #include "wasm/WasmTable.h"
 
 namespace js {
@@ -61,12 +62,17 @@ typedef UniquePtr<GlobalSegment> UniqueGlobalSegment;
 // instances instantiated from the same Module. However, an Instance has no
 // direct reference to its source Module which allows a Module to be destroyed
 // while it still has live Instances.
+//
+// The instance's code may be shared among multiple instances provided none of
+// those instances are being debugged. Instances that are being debugged own
+// their code.
 
 class Instance
 {
     JSCompartment* const            compartment_;
     ReadBarrieredWasmInstanceObject object_;
-    const UniqueCode                code_;
+    const SharedCode                code_;
+    const UniqueDebugState          debug_;
     const UniqueGlobalSegment       globals_;
     GCPtrWasmMemoryObject           memory_;
     SharedTableVector               tables_;
@@ -77,25 +83,18 @@ class Instance
     FuncImportTls& funcImportTls(const FuncImport& fi);
     TableTls& tableTls(const TableDesc& td) const;
 
-    // Import call slow paths which are called directly from wasm code.
-    friend void* AddressOf(SymbolicAddress);
-    static int32_t callImport_void(Instance*, int32_t, int32_t, uint64_t*);
-    static int32_t callImport_i32(Instance*, int32_t, int32_t, uint64_t*);
-    static int32_t callImport_i64(Instance*, int32_t, int32_t, uint64_t*);
-    static int32_t callImport_f64(Instance*, int32_t, int32_t, uint64_t*);
-    static uint32_t growMemory_i32(Instance* instance, uint32_t delta);
-    static uint32_t currentMemory_i32(Instance* instance);
-    bool callImport(JSContext* cx, uint32_t funcImportIndex, unsigned argc, const uint64_t* argv,
-                    MutableHandleValue rval);
-
     // Only WasmInstanceObject can call the private trace function.
     friend class js::WasmInstanceObject;
     void tracePrivate(JSTracer* trc);
 
+    bool callImport(JSContext* cx, uint32_t funcImportIndex, unsigned argc, const uint64_t* argv,
+                    MutableHandleValue rval);
+
   public:
     Instance(JSContext* cx,
              HandleWasmInstanceObject object,
-             UniqueCode code,
+             SharedCode code,
+             UniqueDebugState debug,
              UniqueGlobalSegment globals,
              HandleWasmMemoryObject memory,
              SharedTableVector&& tables,
@@ -107,8 +106,9 @@ class Instance
 
     JSContext* cx() const { return tlsData()->cx; }
     JSCompartment* compartment() const { return compartment_; }
-    Code& code() { return *code_; }
     const Code& code() const { return *code_; }
+    DebugState& debug() { return *debug_; }
+    const DebugState& debug() const { return *debug_; }
     const CodeSegment& codeSegment() const { return code_->segment(); }
     const GlobalSegment& globalSegment() const { return *globals_; }
     uint8_t* codeBase() const { return code_->segment().base(); }
@@ -162,9 +162,19 @@ class Instance
     void addSizeOfMisc(MallocSizeOf mallocSizeOf,
                        Metadata::SeenSet* seenMetadata,
                        ShareableBytes::SeenSet* seenBytes,
+                       Code::SeenSet* seenCode,
                        Table::SeenSet* seenTables,
                        size_t* code,
                        size_t* data) const;
+
+  public:
+    // Functions to be called directly from wasm code.
+    static int32_t callImport_void(Instance*, int32_t, int32_t, uint64_t*);
+    static int32_t callImport_i32(Instance*, int32_t, int32_t, uint64_t*);
+    static int32_t callImport_i64(Instance*, int32_t, int32_t, uint64_t*);
+    static int32_t callImport_f64(Instance*, int32_t, int32_t, uint64_t*);
+    static uint32_t growMemory_i32(Instance* instance, uint32_t delta);
+    static uint32_t currentMemory_i32(Instance* instance);
 };
 
 typedef UniquePtr<Instance> UniqueInstance;

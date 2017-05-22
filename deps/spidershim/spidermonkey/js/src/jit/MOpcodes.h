@@ -133,6 +133,7 @@ namespace jit {
     _(NewArray)                                                             \
     _(NewArrayCopyOnWrite)                                                  \
     _(NewArrayDynamicLength)                                                \
+    _(NewArrayIterator)                                                     \
     _(NewTypedArray)                                                        \
     _(NewTypedArrayDynamicLength)                                           \
     _(NewObject)                                                            \
@@ -265,7 +266,8 @@ namespace jit {
     _(Ceil)                                                                 \
     _(Round)                                                                \
     _(NearbyInt)                                                            \
-    _(In)                                                                   \
+    _(InCache)                                                              \
+    _(HasOwnCache)                                                          \
     _(InstanceOf)                                                           \
     _(CallInstanceOf)                                                       \
     _(InterruptCheck)                                                       \

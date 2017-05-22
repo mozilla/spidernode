@@ -27,6 +27,7 @@
 
 #include "nsWindowsDllInterceptor.h"
 #include "mozilla/Sprintf.h"
+#include "mozilla/StackWalk_windows.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WindowsVersion.h"
 #include "nsWindowsHelpers.h"
@@ -63,12 +64,16 @@ struct DllBlockInfo {
   //
   // If the USE_TIMESTAMP flag is set, then we use the timestamp from
   // the IMAGE_FILE_HEADER in lieu of a version number.
+  //
+  // If the CHILD_PROCESSES_ONLY flag is set, then the dll is blocked
+  // only when we are a child process.
   unsigned long long maxVersion;
 
   enum {
     FLAGS_DEFAULT = 0,
     BLOCK_WIN8PLUS_ONLY = 1,
     USE_TIMESTAMP = 4,
+    CHILD_PROCESSES_ONLY = 8
   } flags;
 };
 
@@ -232,6 +237,13 @@ static const DllBlockInfo sWindowsDllBlocklist[] = {
   // Crashes with Internet Download Manager, bug 1333486
   { "idmcchandler7.dll", ALL_VERSIONS },
   { "idmcchandler7_64.dll", ALL_VERSIONS },
+  { "idmcchandler5.dll", ALL_VERSIONS },
+  { "idmcchandler5_64.dll", ALL_VERSIONS },
+
+  // Nahimic 2 breaks applicaton update (bug 1356637)
+  { "nahimic2devprops.dll", ALL_VERSIONS },
+  // Nahimic is causing crashes, bug 1233556
+  { "nahimicmsiosd.dll", ALL_VERSIONS },
 
   { nullptr, 0 }
 };
@@ -255,6 +267,7 @@ static const char kUser32BeforeBlocklistParameter[] = "User32BeforeBlocklist=1\n
 static const int kUser32BeforeBlocklistParameterLen =
   sizeof(kUser32BeforeBlocklistParameter) - 1;
 
+static uint32_t sInitFlags;
 static bool sBlocklistInitAttempted;
 static bool sBlocklistInitFailed;
 static bool sUser32BeforeBlocklist;
@@ -639,8 +652,13 @@ patched_LdrLoadDll (PWCHAR filePath, PULONG flags, PUNICODE_STRING moduleFileNam
     printf_stderr("LdrLoadDll: info->name: '%s'\n", info->name);
 #endif
 
-    if ((info->flags == DllBlockInfo::BLOCK_WIN8PLUS_ONLY) &&
+    if ((info->flags & DllBlockInfo::BLOCK_WIN8PLUS_ONLY) &&
         !IsWin8OrLater()) {
+      goto continue_loading;
+    }
+
+    if ((info->flags & DllBlockInfo::CHILD_PROCESSES_ONLY) &&
+        !(sInitFlags & eDllBlocklistInitFlagIsChildProcess)) {
       goto continue_loading;
     }
 
@@ -703,6 +721,12 @@ continue_loading:
   printf_stderr("LdrLoadDll: continuing load... ('%S')\n", moduleFileName->Buffer);
 #endif
 
+#ifdef _M_AMD64
+  // Prevent the stack walker from suspending this thread when LdrLoadDll
+  // holds the RtlLookupFunctionEntry lock.
+  AutoSuppressStackWalking suppress;
+#endif
+
   return stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
 }
 
@@ -711,11 +735,12 @@ WindowsDllInterceptor NtDllIntercept;
 } // namespace
 
 MFBT_API void
-DllBlocklist_Initialize()
+DllBlocklist_Initialize(uint32_t aInitFlags)
 {
   if (sBlocklistInitAttempted) {
     return;
   }
+  sInitFlags = aInitFlags;
   sBlocklistInitAttempted = true;
 
   // In order to be effective against AppInit DLLs, the blocklist must be

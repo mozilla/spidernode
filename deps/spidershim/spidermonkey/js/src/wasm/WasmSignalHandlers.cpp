@@ -25,6 +25,7 @@
 #include "jit/AtomicOperations.h"
 #include "jit/Disassembler.h"
 #include "vm/Runtime.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmInstance.h"
 
 using namespace js;
@@ -107,8 +108,20 @@ class AutoSetHandlingSegFault
 # define R12_sig(p) ((p)->sc_r12)
 # define R13_sig(p) ((p)->sc_r13)
 # define R14_sig(p) ((p)->sc_r14)
-# define R15_sig(p) ((p)->sc_r15)
-#elif defined(__linux__) || defined(SOLARIS)
+# if defined(__arm__)
+#  define R15_sig(p) ((p)->sc_pc)
+# else
+#  define R15_sig(p) ((p)->sc_r15)
+# endif
+# if defined(__aarch64__)
+#  define EPC_sig(p) ((p)->sc_elr)
+#  define RFP_sig(p) ((p)->sc_x[29])
+# endif
+# if defined(__mips__)
+#  define EPC_sig(p) ((p)->sc_pc)
+#  define RFP_sig(p) ((p)->sc_regs[30])
+# endif
+#elif defined(__linux__) || defined(__sun)
 # if defined(__linux__)
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs->_xmm[i])
 #  define EIP_sig(p) ((p)->uc_mcontext.gregs[REG_EIP])
@@ -142,6 +155,7 @@ class AutoSetHandlingSegFault
 # endif
 # if defined(__linux__) && defined(__aarch64__)
 #  define EPC_sig(p) ((p)->uc_mcontext.pc)
+#  define RFP_sig(p) ((p)->uc_mcontext.regs[29])
 # endif
 # if defined(__linux__) && defined(__mips__)
 #  define EPC_sig(p) ((p)->uc_mcontext.pc)
@@ -169,6 +183,14 @@ class AutoSetHandlingSegFault
 # define R13_sig(p) ((p)->uc_mcontext.__gregs[_REG_R13])
 # define R14_sig(p) ((p)->uc_mcontext.__gregs[_REG_R14])
 # define R15_sig(p) ((p)->uc_mcontext.__gregs[_REG_R15])
+# if defined(__aarch64__)
+#  define EPC_sig(p) ((p)->uc_mcontext.__gregs[_REG_PC])
+#  define RFP_sig(p) ((p)->uc_mcontext.__gregs[_REG_X29])
+# endif
+# if defined(__mips__)
+#  define EPC_sig(p) ((p)->uc_mcontext.__gregs[_REG_EPC])
+#  define RFP_sig(p) ((p)->uc_mcontext.__gregs[_REG_S8])
+# endif
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 # if defined(__DragonFly__)
 #  define XMM_sig(p,i) (((union savefpu*)(p)->uc_mcontext.mc_fpregs)->sv_xmm.sv_xmm[i])
@@ -197,6 +219,14 @@ class AutoSetHandlingSegFault
 #  define R15_sig(p) ((p)->uc_mcontext.__gregs[_REG_R15])
 # else
 #  define R15_sig(p) ((p)->uc_mcontext.mc_r15)
+# endif
+# if defined(__FreeBSD__) && defined(__aarch64__)
+#  define EPC_sig(p) ((p)->uc_mcontext.mc_gpregs.gp_elr)
+#  define RFP_sig(p) ((p)->uc_mcontext.mc_gpregs.gp_x[29])
+# endif
+# if defined(__FreeBSD__) && defined(__mips__)
+#  define EPC_sig(p) ((p)->uc_mcontext.mc_pc)
+#  define RFP_sig(p) ((p)->uc_mcontext.mc_regs[30])
 # endif
 #elif defined(XP_DARWIN)
 # define EIP_sig(p) ((p)->uc_mcontext->__ss.__eip)
@@ -369,7 +399,7 @@ ContextToPC(CONTEXT* context)
 #endif
 }
 
-uint8_t*
+static uint8_t*
 ContextToFP(CONTEXT* context)
 {
 #ifdef JS_CODEGEN_NONE
@@ -378,6 +408,22 @@ ContextToFP(CONTEXT* context)
     return reinterpret_cast<uint8_t*>(FP_sig(context));
 #endif
 }
+
+#if defined(XP_DARWIN)
+static uint8_t*
+ContextToFP(EMULATOR_CONTEXT* context)
+{
+# if defined(__x86_64__)
+    return (uint8_t*)context->thread.__rbp;
+# elif defined(__i386__)
+    return (uint8_t*)context->thread.uts.ts32.__ebp;
+# elif defined(__arm__)
+    return (uint8_t*)context->thread.__fp;
+# else
+#  error Unsupported architecture
+# endif
+}
+#endif  // XP_DARWIN
 
 #if defined(WASM_HUGE_MEMORY)
 MOZ_COLD static void
@@ -615,7 +661,7 @@ ComputeAccessAddress(EMULATOR_CONTEXT* context, const Disassembler::ComplexAddre
 
 MOZ_COLD static void
 HandleMemoryAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddress,
-                   const Instance& instance, uint8_t** ppc)
+                   const Instance& instance, WasmActivation* activation, uint8_t** ppc)
 {
     MOZ_RELEASE_ASSERT(instance.codeSegment().containsFunctionPC(pc));
 
@@ -625,6 +671,7 @@ HandleMemoryAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddr
         // experimental SIMD.js or Atomics. When these are converted to
         // non-experimental wasm features, this case, as well as outOfBoundsCode,
         // can be removed.
+        activation->startInterrupt(pc, ContextToFP(context));
         *ppc = instance.codeSegment().outOfBoundsCode();
         return;
     }
@@ -760,13 +807,14 @@ HandleMemoryAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddr
 
 MOZ_COLD static void
 HandleMemoryAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddress,
-                   const Instance& instance, uint8_t** ppc)
+                   const Instance& instance, WasmActivation* activation, uint8_t** ppc)
 {
     MOZ_RELEASE_ASSERT(instance.codeSegment().containsFunctionPC(pc));
 
     const MemoryAccess* memoryAccess = instance.code().lookupMemoryAccess(pc);
     if (!memoryAccess) {
         // See explanation in the WASM_HUGE_MEMORY HandleMemoryAccess.
+        activation->startInterrupt(pc, ContextToFP(context));
         *ppc = instance.codeSegment().outOfBoundsCode();
         return;
     }
@@ -810,18 +858,18 @@ HandleFault(PEXCEPTION_POINTERS exception)
         return false;
     AutoSetHandlingSegFault handling(cx);
 
-    WasmActivation* activation = cx->wasmActivationStack();
+    WasmActivation* activation = MaybeActiveActivation(cx);
     if (!activation)
         return false;
 
-    Code* code = activation->compartment()->wasm.lookupCode(pc);
+    const Code* code = activation->compartment()->wasm.lookupCode(pc);
     if (!code)
         return false;
 
     if (!code->segment().containsFunctionPC(pc)) {
-        // On Windows, it is possible for InterruptRunningCode to execute
+        // On Windows, it is possible for InterruptRunningJitCode to execute
         // between a faulting heap access and the handling of the fault due
-        // to InterruptRunningCode's use of SuspendThread. When this happens,
+        // to InterruptRunningJitCode's use of SuspendThread. When this happens,
         // after ResumeThread, the exception handler is called with pc equal to
         // CodeSegment.interrupt, which is logically wrong. The Right Thing would
         // be for the OS to make fault-handling atomic (so that CONTEXT.pc was
@@ -829,6 +877,7 @@ HandleFault(PEXCEPTION_POINTERS exception)
         // case and silence the exception ourselves (the exception will
         // retrigger after the interrupt jumps back to resumePC).
         return pc == code->segment().interruptCode() &&
+               activation->interrupted() &&
                code->segment().containsFunctionPC(activation->resumePC());
     }
 
@@ -843,7 +892,19 @@ HandleFault(PEXCEPTION_POINTERS exception)
     if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
+    // Similar to the non-atomic situation above, on Windows, an OOB fault at a
+    // PC can trigger *after* an async interrupt observed that PC and attempted
+    // to redirect to the async stub. In this unique case, interrupted() is
+    // already true when the OOB handler is called. Since the point of the async
+    // interrupt is to get out of an iloop and the OOB trap will do just that,
+    // we can simply clear the interrupt. (The update to CONTEXT.pc made by
+    // HandleMemoryAccess will clobber the interrupt's previous update.)
+    if (activation->interrupted()) {
+        MOZ_ASSERT(activation->resumePC() == pc);
+        activation->finishInterrupt();
+    }
+
+    HandleMemoryAccess(context, pc, faultingAddress, *instance, activation, ppc);
     return true;
 }
 
@@ -875,20 +936,6 @@ ContextToPC(EMULATOR_CONTEXT* context)
     static_assert(sizeof(context->thread.__pc) == sizeof(void*),
                   "stored IP should be compile-time pointer-sized");
     return reinterpret_cast<uint8_t**>(&context->thread.__pc);
-# else
-#  error Unsupported architecture
-# endif
-}
-
-static void*
-ContextToFP(EMULATOR_CONTEXT* context)
-{
-# if defined(__x86_64__)
-    return (void*)context->thread.__rbp;
-# elif defined(__i386__)
-    return (void*)context->thread.uts.ts32.__ebp;
-# elif defined(__arm__)
-    return (void*)context->thread.__fp;
 # else
 #  error Unsupported architecture
 # endif
@@ -965,7 +1012,11 @@ HandleMachException(JSContext* cx, const ExceptionRequest& request)
     if (request.body.exception != EXC_BAD_ACCESS || request.body.codeCnt != 2)
         return false;
 
-    WasmActivation* activation = cx->wasmActivationStack();
+    // The faulting thread is suspended so we can access cx fields that can
+    // normally only be accessed by the cx's active thread.
+    AutoNoteSingleThreadedRegion anstr;
+
+    WasmActivation* activation = MaybeActiveActivation(cx);
     if (!activation)
         return false;
 
@@ -980,7 +1031,7 @@ HandleMachException(JSContext* cx, const ExceptionRequest& request)
     if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    HandleMemoryAccess(&context, pc, faultingAddress, *instance, ppc);
+    HandleMemoryAccess(&context, pc, faultingAddress, *instance, activation, ppc);
 
     // Update the thread state with the new pc and register values.
     kret = thread_set_state(cxThread, float_state, (thread_state_t)&context.float_, float_state_count);
@@ -1172,7 +1223,7 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
         return false;
     AutoSetHandlingSegFault handling(cx);
 
-    WasmActivation* activation = cx->wasmActivationStack();
+    WasmActivation* activation = MaybeActiveActivation(cx);
     if (!activation)
         return false;
 
@@ -1207,12 +1258,13 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
         // partly overlaps the end of the heap.  In this case, it is an out-of-bounds
         // error and we should signal that properly, but to do so we must inspect
         // the operand of the failed access.
+        activation->startInterrupt(pc, ContextToFP(context));
         *ppc = instance->codeSegment().unalignedAccessCode();
         return true;
     }
 #endif
 
-    HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
+    HandleMemoryAccess(context, pc, faultingAddress, *instance, activation, ppc);
     return true;
 }
 
@@ -1279,31 +1331,54 @@ RedirectJitCodeToInterruptCheck(JSContext* cx, CONTEXT* context)
     if (cx != cx->runtime()->activeContext())
         return false;
 
+    // The faulting thread is suspended so we can access cx fields that can
+    // normally only be accessed by the cx's active thread.
+    AutoNoteSingleThreadedRegion anstr;
+
     RedirectIonBackedgesToInterruptCheck(cx);
 
-    if (WasmActivation* activation = cx->wasmActivationStack()) {
 #ifdef JS_SIMULATOR
-        (void)ContextToPC(context);  // silence static 'unused' errors
-
-        void* pc = cx->simulator()->get_pc_as<void*>();
-
-        const Code* code = activation->compartment()->wasm.lookupCode(pc);
-        if (code && code->segment().containsFunctionPC(pc))
-            cx->simulator()->set_resume_pc(code->segment().interruptCode());
+    uint8_t* pc = cx->simulator()->get_pc_as<uint8_t*>();
 #else
-        uint8_t** ppc = ContextToPC(context);
-        uint8_t* pc = *ppc;
-
-        const Code* code = activation->compartment()->wasm.lookupCode(pc);
-        if (code && code->segment().containsFunctionPC(pc)) {
-            activation->setResumePC(pc);
-            *ppc = code->segment().interruptCode();
-            return true;
-        }
+    uint8_t* pc = *ContextToPC(context);
 #endif
-    }
 
-    return false;
+    // Only interrupt in function code so that the frame iterators have the
+    // invariant that resumePC always has a function CodeRange and we can't
+    // get into any weird interrupt-during-interrupt-stub cases.
+    if (!cx->compartment())
+        return false;
+    const Code* code = cx->compartment()->wasm.lookupCode(pc);
+    if (!code || !code->segment().containsFunctionPC(pc))
+        return false;
+
+    // Only probe cx->activation() via MaybeActiveActivation after we know the
+    // pc is in wasm code. This way we don't depend on signal-safe update of
+    // cx->activation().
+    WasmActivation* activation = MaybeActiveActivation(cx);
+    MOZ_ASSERT(activation);
+
+#ifdef JS_SIMULATOR
+    // The checks performed by the !JS_SIMULATOR path happen in
+    // Simulator::handleWasmInterrupt.
+    cx->simulator()->trigger_wasm_interrupt();
+#else
+    // fp may be null when first entering wasm code from an entry stub.
+    uint8_t* fp = ContextToFP(context);
+    if (!fp)
+        return false;
+
+    // The out-of-bounds/unaligned trap paths which call startInterrupt() go
+    // through function code, so test if already interrupted. These paths are
+    // temporary though, so this case can be removed later.
+    if (activation->interrupted())
+        return false;
+
+    activation->startInterrupt(pc, fp);
+    *ContextToPC(context) = code->segment().interruptCode();
+#endif
+
+    return true;
 }
 
 #if !defined(XP_WIN)
@@ -1347,6 +1422,7 @@ ProcessHasSignalHandlers()
     sTriedInstallSignalHandlers = true;
 
 #if defined(ANDROID)
+# if !defined(__aarch64__)
     // Before Android 4.4 (SDK version 19), there is a bug
     //   https://android-review.googlesource.com/#/c/52333
     // in Bionic's pthread_join which causes pthread_join to return early when
@@ -1358,6 +1434,7 @@ ProcessHasSignalHandlers()
         if (atol(version_string) < 19)
             return false;
     }
+# endif
 # if defined(MOZ_LINKER)
     // Signal handling is broken on some android systems.
     if (IsSignalHandlingBroken())
@@ -1499,7 +1576,7 @@ js::InterruptRunningJitCode(JSContext* cx)
     HANDLE thread = (HANDLE)cx->threadNative();
     if (SuspendThread(thread) != -1) {
         CONTEXT context;
-        context.ContextFlags = CONTEXT_CONTROL;
+        context.ContextFlags = CONTEXT_FULL;
         if (GetThreadContext(thread, &context)) {
             if (RedirectJitCodeToInterruptCheck(cx, &context))
                 SetThreadContext(thread, &context);
@@ -1514,20 +1591,4 @@ js::InterruptRunningJitCode(JSContext* cx)
     pthread_t thread = (pthread_t)cx->threadNative();
     pthread_kill(thread, sInterruptSignal);
 #endif
-}
-
-MOZ_COLD bool
-js::wasm::IsPCInWasmCode(void *pc)
-{
-    JSContext* cx = TlsContext.get();
-    if (!cx)
-        return false;
-
-    MOZ_RELEASE_ASSERT(!cx->handlingSegFault);
-
-    WasmActivation* activation = cx->wasmActivationStack();
-    if (!activation)
-        return false;
-
-    return !!activation->compartment()->wasm.lookupCode(pc);
 }

@@ -234,8 +234,8 @@ ToId(JSContext* cx, double index, MutableHandleId id)
  * |*hole| to false. Otherwise set |*hole| to true and |vp| to Undefined.
  */
 static bool
-GetElement(JSContext* cx, HandleObject obj, HandleObject receiver, uint32_t index, bool* hole,
-           MutableHandleValue vp)
+HasAndGetElement(JSContext* cx, HandleObject obj, HandleObject receiver, uint32_t index,
+                 bool* hole, MutableHandleValue vp)
 {
     if (index < GetAnyBoxedOrUnboxedInitializedLength(obj)) {
         vp.set(GetAnyBoxedOrUnboxedDenseElement(obj, index));
@@ -270,9 +270,10 @@ GetElement(JSContext* cx, HandleObject obj, HandleObject receiver, uint32_t inde
 }
 
 static inline bool
-GetElement(JSContext* cx, HandleObject obj, uint32_t index, bool* hole, MutableHandleValue vp)
+HasAndGetElement(JSContext* cx, HandleObject obj, uint32_t index, bool* hole,
+                 MutableHandleValue vp)
 {
-    return GetElement(cx, obj, obj, index, hole, vp);
+    return HasAndGetElement(cx, obj, obj, index, hole, vp);
 }
 
 bool
@@ -315,7 +316,7 @@ js::GetElementsWithAdder(JSContext* cx, HandleObject obj, HandleObject receiver,
     for (uint32_t i = begin; i < end; i++) {
         if (adder->getBehavior() == ElementAdder::CheckHasElemPreserveHoles) {
             bool hole;
-            if (!GetElement(cx, obj, receiver, i, &hole, &val))
+            if (!HasAndGetElement(cx, obj, receiver, i, &hole, &val))
                 return false;
             if (hole) {
                 adder->appendHole();
@@ -790,6 +791,11 @@ js::ArraySetLength(JSContext* cx, Handle<ArrayObject*> arr, HandleId id,
     header->initializedLength = Min(header->initializedLength, newLen);
 
     if (attrs & JSPROP_READONLY) {
+        if (header->numShiftedElements() > 0) {
+            arr->unshiftElements();
+            header = arr->getElementsHeader();
+        }
+
         header->setNonwritableArrayLength();
 
         // When an array's length becomes non-writable, writes to indexes
@@ -1019,7 +1025,7 @@ array_toSource(JSContext* cx, unsigned argc, Value* vp)
     for (uint32_t index = 0; index < length; index++) {
         bool hole;
         if (!CheckForInterrupt(cx) ||
-            !GetElement(cx, obj, index, &hole, &elt)) {
+            !HasAndGetElement(cx, obj, index, &hole, &elt)) {
             return false;
         }
 
@@ -1492,8 +1498,8 @@ js::array_reverse(JSContext* cx, unsigned argc, Value* vp)
     for (uint32_t i = 0, half = len / 2; i < half; i++) {
         bool hole, hole2;
         if (!CheckForInterrupt(cx) ||
-            !GetElement(cx, obj, i, &hole, &lowval) ||
-            !GetElement(cx, obj, len - i - 1, &hole2, &hival))
+            !HasAndGetElement(cx, obj, i, &hole, &lowval) ||
+            !HasAndGetElement(cx, obj, len - i - 1, &hole2, &hival))
         {
             return false;
         }
@@ -2035,7 +2041,7 @@ js::array_sort(JSContext* cx, unsigned argc, Value* vp)
                 return false;
 
             bool hole;
-            if (!GetElement(cx, obj, i, &hole, &v))
+            if (!HasAndGetElement(cx, obj, i, &hole, &v))
                 return false;
             if (hole)
                 continue;
@@ -2228,18 +2234,16 @@ ShiftMoveBoxedOrUnboxedDenseElements(JSObject* obj)
 {
     MOZ_ASSERT(HasBoxedOrUnboxedDenseElements<Type>(obj));
 
-    /*
-     * At this point the length and initialized length have already been
-     * decremented and the result fetched, so just shift the array elements
-     * themselves.
-     */
     size_t initlen = GetBoxedOrUnboxedInitializedLength<Type>(obj);
+    MOZ_ASSERT(initlen > 0);
+
     if (Type == JSVAL_TYPE_MAGIC) {
-        obj->as<NativeObject>().moveDenseElementsNoPreBarrier(0, 1, initlen);
+        if (!obj->as<NativeObject>().tryShiftDenseElements(1))
+            obj->as<NativeObject>().moveDenseElementsNoPreBarrier(0, 1, initlen - 1);
     } else {
         uint8_t* data = obj->as<UnboxedArrayObject>().elements();
         size_t elementSize = UnboxedTypeSize(Type);
-        memmove(data, data + elementSize, initlen * elementSize);
+        memmove(data, data + elementSize, (initlen - 1) * elementSize);
     }
 
     return DenseElementResult::Success;
@@ -2273,6 +2277,11 @@ ArrayShiftDenseKernel(JSContext* cx, HandleObject obj, MutableHandleValue rval)
     rval.set(GetBoxedOrUnboxedDenseElement<Type>(obj, 0));
     if (rval.isMagic(JS_ELEMENTS_HOLE))
         rval.setUndefined();
+
+    if (Type == JSVAL_TYPE_MAGIC) {
+        if (obj->as<NativeObject>().tryShiftDenseElements(1))
+            return DenseElementResult::Success;
+    }
 
     DenseElementResult result = MoveBoxedOrUnboxedDenseElements<Type>(cx, obj, 0, 1, initlen - 1);
     if (result != DenseElementResult::Success)
@@ -2336,7 +2345,7 @@ js::array_shift(JSContext* cx, unsigned argc, Value* vp)
         if (!CheckForInterrupt(cx))
             return false;
         bool hole;
-        if (!GetElement(cx, obj, i + 1, &hole, &value))
+        if (!HasAndGetElement(cx, obj, i + 1, &hole, &value))
             return false;
         if (hole) {
             if (!DeletePropertyOrThrow(cx, obj, i))
@@ -2413,11 +2422,11 @@ js::array_unshift(JSContext* cx, unsigned argc, Value* vp)
                 double upperIndex = double(last) + args.length();
                 RootedValue value(cx);
                 do {
-                    --last, --upperIndex;
+                    --last; --upperIndex;
                     if (!CheckForInterrupt(cx))
                         return false;
                     bool hole;
-                    if (!GetElement(cx, obj, last, &hole, &value))
+                    if (!HasAndGetElement(cx, obj, last, &hole, &value))
                         return false;
                     if (hole) {
                         if (!DeletePropertyOrThrow(cx, obj, upperIndex))
@@ -2496,7 +2505,7 @@ ArraySpliceCopy(JSContext* cx, HandleObject arr, HandleObject obj,
 
         // Steps 11.b, 11.c.i.
         bool hole;
-        if (!GetElement(cx, obj, actualStart + k, &hole, &fromValue))
+        if (!HasAndGetElement(cx, obj, actualStart + k, &hole, &fromValue))
             return false;
 
         // Step 11.c.
@@ -2636,7 +2645,7 @@ array_splice_impl(JSContext* cx, unsigned argc, Value* vp, bool returnValueIsUse
 
                 /* Steps 15.b.iii, 15.b.iv.1. */
                 bool hole;
-                if (!GetElement(cx, obj, from, &hole, &fromValue))
+                if (!HasAndGetElement(cx, obj, from, &hole, &fromValue))
                     return false;
 
                 /* Steps 15.b.iv. */
@@ -2720,7 +2729,7 @@ array_splice_impl(JSContext* cx, unsigned argc, Value* vp, bool returnValueIsUse
 
                 /* Steps 16.b.iii, 16.b.iv.1. */
                 bool hole;
-                if (!GetElement(cx, obj, from, &hole, &fromValue))
+                if (!HasAndGetElement(cx, obj, from, &hole, &fromValue))
                     return false;
 
                 /* Steps 16.b.iv. */
@@ -2823,10 +2832,10 @@ GetIndexedPropertiesInRange(JSContext* cx, HandleObject obj, uint32_t begin, uin
             for (; !r.empty(); r.popFront()) {
                 Shape& shape = r.front();
                 jsid id = shape.propid();
-                if (!JSID_IS_INT(id))
+                uint32_t i;
+                if (!IdIsIndex(id, &i))
                     continue;
 
-                uint32_t i = uint32_t(JSID_TO_INT(id));
                 if (!(begin <= i && i < end))
                     continue;
 
@@ -2873,7 +2882,7 @@ SliceSlowly(JSContext* cx, HandleObject obj, uint32_t begin, uint32_t end, Handl
     for (uint32_t slot = begin; slot < end; slot++) {
         bool hole;
         if (!CheckForInterrupt(cx) ||
-            !GetElement(cx, obj, slot, &hole, &value))
+            !HasAndGetElement(cx, obj, slot, &hole, &value))
         {
             return false;
         }
@@ -2901,7 +2910,7 @@ SliceSparse(JSContext* cx, HandleObject obj, uint32_t begin, uint32_t end, Handl
         MOZ_ASSERT(begin <= index && index < end);
 
         bool hole;
-        if (!GetElement(cx, obj, index, &hole, &value))
+        if (!HasAndGetElement(cx, obj, index, &hole, &value))
             return false;
 
         if (!hole && !DefineElement(cx, result, index - begin, value))
@@ -3044,7 +3053,7 @@ js::array_slice(JSContext* cx, unsigned argc, Value* vp)
 
         /* Steps 10.a-b, and 10.c.i. */
         bool kNotPresent;
-        if (!GetElement(cx, obj, k, &kNotPresent, &kValue))
+        if (!HasAndGetElement(cx, obj, k, &kNotPresent, &kValue))
             return false;
 
         /* Step 10.c. */

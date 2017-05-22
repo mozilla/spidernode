@@ -240,10 +240,6 @@ BaselineCompiler::compile()
     // Adopt fallback stubs from the compiler into the baseline script.
     baselineScript->adoptFallbackStubs(&stubSpace_);
 
-    // All barriers are emitted off-by-default, toggle them on if needed.
-    if (cx->zone()->needsIncrementalBarrier())
-        baselineScript->toggleBarriers(true, DontReprotect);
-
     // If profiler instrumentation is enabled, toggle instrumentation on.
     if (cx->runtime()->jitRuntime()->isProfilerInstrumentationEnabled(cx->runtime()))
         baselineScript->toggleProfilerInstrumentation(true);
@@ -803,8 +799,7 @@ BaselineCompiler::emitArgumentTypeChecks()
     frame.pushThis();
     frame.popRegsAndSync(1);
 
-    ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                              (uint32_t) 0);
+    ICTypeMonitor_Fallback::Compiler compiler(cx, uint32_t(0));
     if (!emitNonOpIC(compiler.getStub(&stubSpace_)))
         return false;
 
@@ -812,8 +807,7 @@ BaselineCompiler::emitArgumentTypeChecks()
         frame.pushArg(i);
         frame.popRegsAndSync(1);
 
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  i + 1);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, i + 1);
         if (!emitNonOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
@@ -1066,6 +1060,12 @@ BaselineCompiler::emit_JSOP_NOP()
 
 bool
 BaselineCompiler::emit_JSOP_NOP_DESTRUCTURING()
+{
+    return true;
+}
+
+bool
+BaselineCompiler::emit_JSOP_TRY_DESTRUCTURING_ITERCLOSE()
 {
     return true;
 }
@@ -2353,6 +2353,19 @@ BaselineCompiler::emit_JSOP_IN()
 }
 
 bool
+BaselineCompiler::emit_JSOP_HASOWN()
+{
+    frame.popRegsAndSync(2);
+
+    ICHasOwn_Fallback::Compiler stubCompiler(cx);
+    if (!emitOpIC(stubCompiler.getStub(&stubSpace_)))
+        return false;
+
+    frame.push(R0);
+    return true;
+}
+
+bool
 BaselineCompiler::emit_JSOP_GETGNAME()
 {
     if (script->hasNonSyntacticScope())
@@ -2599,8 +2612,7 @@ BaselineCompiler::emit_JSOP_GETALIASEDVAR()
 
     if (ionCompileable_) {
         // No need to monitor types if we know Ion can't compile this script.
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  (ICMonitoredFallbackStub*) nullptr);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, nullptr);
         if (!emitOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
@@ -2639,7 +2651,7 @@ BaselineCompiler::emit_JSOP_SETALIASEDVAR()
 
     getEnvironmentCoordinateObject(objReg);
     Address address = getEnvironmentCoordinateAddressFromObject(objReg, R1.scratchReg());
-    masm.patchableCallPreBarrier(address, MIRType::Value);
+    masm.guardedCallPreBarrier(address, MIRType::Value);
     masm.storeValue(R0, address);
     frame.push(R0);
 
@@ -2749,8 +2761,7 @@ BaselineCompiler::emit_JSOP_GETIMPORT()
 
     if (ionCompileable_) {
         // No need to monitor types if we know Ion can't compile this script.
-        ICTypeMonitor_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
-                                                  (ICMonitoredFallbackStub*) nullptr);
+        ICTypeMonitor_Fallback::Compiler compiler(cx, nullptr);
         if (!emitOpIC(compiler.getStub(&stubSpace_)))
             return false;
     }
@@ -3059,7 +3070,7 @@ BaselineCompiler::emitFormalArgAccess(uint32_t arg, bool get)
         masm.loadValue(argAddr, R0);
         frame.push(R0);
     } else {
-        masm.patchableCallPreBarrier(argAddr, MIRType::Value);
+        masm.guardedCallPreBarrier(argAddr, MIRType::Value);
         masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), R0);
         masm.storeValue(R0, argAddr);
 
@@ -4270,7 +4281,7 @@ BaselineCompiler::emit_JSOP_INITIALYIELD()
     Register envObj = R0.scratchReg();
     Address envChainSlot(genObj, GeneratorObject::offsetOfEnvironmentChainSlot());
     masm.loadPtr(frame.addressOfEnvironmentChain(), envObj);
-    masm.patchableCallPreBarrier(envChainSlot, MIRType::Value);
+    masm.guardedCallPreBarrier(envChainSlot, MIRType::Value);
     masm.storeValue(JSVAL_TYPE_OBJECT, envObj, envChainSlot);
 
     Register temp = R1.scratchReg();
@@ -4316,7 +4327,7 @@ BaselineCompiler::emit_JSOP_YIELD()
         Register envObj = R0.scratchReg();
         Address envChainSlot(genObj, GeneratorObject::offsetOfEnvironmentChainSlot());
         masm.loadPtr(frame.addressOfEnvironmentChain(), envObj);
-        masm.patchableCallPreBarrier(envChainSlot, MIRType::Value);
+        masm.guardedCallPreBarrier(envChainSlot, MIRType::Value);
         masm.storeValue(JSVAL_TYPE_OBJECT, envObj, envChainSlot);
 
         Register temp = R1.scratchReg();
@@ -4559,7 +4570,7 @@ BaselineCompiler::emit_JSOP_RESUME()
         }
         masm.bind(&loopDone);
 
-        masm.patchableCallPreBarrier(exprStackSlot, MIRType::Value);
+        masm.guardedCallPreBarrier(exprStackSlot, MIRType::Value);
         masm.storeValue(NullValue(), exprStackSlot);
         regs.add(initLength);
     }

@@ -192,7 +192,7 @@ CacheRegisterAllocator::saveIonLiveRegisters(MacroAssembler& masm, LiveRegisterS
     // work. Try to keep it simple by taking one small step at a time.
 
     // Step 1. Discard any dead operands so we can reuse their registers.
-    freeDeadOperandRegisters();
+    freeDeadOperandLocations(masm);
 
     // Step 2. Figure out the size of our live regs.
     size_t sizeOfLiveRegsInBytes =
@@ -292,6 +292,8 @@ CacheRegisterAllocator::saveIonLiveRegisters(MacroAssembler& masm, LiveRegisterS
         }
         masm.PushRegsInMask(liveRegs);
     }
+    freePayloadSlots_.clear();
+    freeValueSlots_.clear();
 
     MOZ_ASSERT(masm.framePushed() == ionScript->frameSize() + sizeOfLiveRegsInBytes);
 
@@ -410,9 +412,65 @@ IonCacheIRCompiler::init()
         }
         break;
       }
-      case CacheKind::GetName:
-      case CacheKind::In:
+      case CacheKind::GetName: {
+        IonGetNameIC* ic = ic_->asGetNameIC();
+        ValueOperand output = ic->output();
+
+        available.add(output);
+        available.add(ic->temp());
+
+        liveRegs_.emplace(ic->liveRegs());
+        outputUnchecked_.emplace(output);
+
+        MOZ_ASSERT(numInputs == 1);
+        allocator.initInputLocation(0, ic->environment(), JSVAL_TYPE_OBJECT);
+        break;
+      }
+      case CacheKind::BindName: {
+        IonBindNameIC* ic = ic_->asBindNameIC();
+        Register output = ic->output();
+
+        available.add(output);
+        available.add(ic->temp());
+
+        liveRegs_.emplace(ic->liveRegs());
+        outputUnchecked_.emplace(TypedOrValueRegister(MIRType::Object, AnyRegister(output)));
+
+        MOZ_ASSERT(numInputs == 1);
+        allocator.initInputLocation(0, ic->environment(), JSVAL_TYPE_OBJECT);
+        break;
+      }
+      case CacheKind::In: {
+        IonInIC* ic = ic_->asInIC();
+        Register output = ic->output();
+
+        available.add(output);
+
+        liveRegs_.emplace(ic->liveRegs());
+        outputUnchecked_.emplace(TypedOrValueRegister(MIRType::Boolean, AnyRegister(output)));
+
+        MOZ_ASSERT(numInputs == 2);
+        allocator.initInputLocation(0, ic->key());
+        allocator.initInputLocation(1, TypedOrValueRegister(MIRType::Object,
+                                                            AnyRegister(ic->object())));
+        break;
+      }
+      case CacheKind::TypeOf:
         MOZ_CRASH("Invalid cache");
+      case CacheKind::HasOwn: {
+        IonHasOwnIC* ic = ic_->asHasOwnIC();
+        Register output = ic->output();
+
+        available.add(output);
+
+        liveRegs_.emplace(ic->liveRegs());
+        outputUnchecked_.emplace(TypedOrValueRegister(MIRType::Boolean, AnyRegister(output)));
+
+        MOZ_ASSERT(numInputs == 2);
+        allocator.initInputLocation(0, ic->id());
+        allocator.initInputLocation(1, ic->value());
+        break;
+      }
     }
 
     if (liveRegs_)
@@ -487,10 +545,6 @@ IonCacheIRCompiler::compile()
                                            ImmPtr((void*)-1));
     }
 
-    // All barriers are emitted off-by-default, enable them if needed.
-    if (cx_->zone()->needsIncrementalBarrier())
-        newStubCode->togglePreBarriers(true, DontReprotect);
-
     return newStubCode;
 }
 
@@ -519,6 +573,22 @@ IonCacheIRCompiler::emitGuardGroup()
         return false;
 
     masm.branchTestObjGroup(Assembler::NotEqual, obj, group, failure->label());
+    return true;
+}
+
+bool
+IonCacheIRCompiler::emitGuardGroupHasUnanalyzedNewScript()
+{
+    ObjectGroup* group = groupStubField(reader.stubOffset());
+    AutoScratchRegister scratch1(allocator, masm);
+    AutoScratchRegister scratch2(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.movePtr(ImmGCPtr(group), scratch1);
+    masm.guardGroupHasUnanalyzedNewScript(scratch1, scratch2, failure->label());
     return true;
 }
 
@@ -981,6 +1051,33 @@ IonCacheIRCompiler::emitCallProxyGetByValueResult()
     return true;
 }
 
+typedef bool (*ProxyHasOwnFn)(JSContext*, HandleObject, HandleValue, MutableHandleValue);
+static const VMFunction ProxyHasOwnInfo = FunctionInfo<ProxyHasOwnFn>(ProxyHasOwn, "ProxyHasOwn");
+
+bool
+IonCacheIRCompiler::emitCallProxyHasOwnResult()
+{
+    AutoSaveLiveRegisters save(*this);
+    AutoOutputRegister output(*this);
+
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    ValueOperand idVal = allocator.useValueRegister(masm, reader.valOperandId());
+
+    allocator.discardStack(masm);
+
+    prepareVMCall(masm);
+
+    masm.Push(idVal);
+    masm.Push(obj);
+
+    if (!callVM(masm, ProxyHasOwnInfo))
+        return false;
+
+    masm.storeCallResultValue(output);
+    return true;
+}
+
+
 bool
 IonCacheIRCompiler::emitLoadUnboxedPropertyResult()
 {
@@ -1020,13 +1117,51 @@ IonCacheIRCompiler::emitLoadFrameArgumentResult()
 bool
 IonCacheIRCompiler::emitLoadEnvironmentFixedSlotResult()
 {
-    MOZ_CRASH("Baseline-specific op");
+    AutoOutputRegister output(*this);
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    int32_t offset = int32StubField(reader.stubOffset());
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    // Check for uninitialized lexicals.
+    Address slot(obj, offset);
+    masm.branchTestMagic(Assembler::Equal, slot, failure->label());
+
+    // Load the value.
+    masm.loadTypedOrValue(slot, output);
+    return true;
 }
 
 bool
 IonCacheIRCompiler::emitLoadEnvironmentDynamicSlotResult()
 {
-    MOZ_CRASH("Baseline-specific op");
+    AutoOutputRegister output(*this);
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    int32_t offset = int32StubField(reader.stubOffset());
+    AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.loadPtr(Address(obj, NativeObject::offsetOfSlots()), scratch);
+
+    // Check for uninitialized lexicals.
+    Address slot(scratch, offset);
+    masm.branchTestMagic(Assembler::Equal, slot, failure->label());
+
+    // Load the value.
+    masm.loadTypedOrValue(slot, output);
+    return true;
+}
+
+
+bool
+IonCacheIRCompiler::emitLoadStringResult()
+{
+    MOZ_CRASH("not used in ion");
 }
 
 static bool
@@ -1868,8 +2003,8 @@ IonCacheIRCompiler::emitLoadDOMExpandoValueGuardGeneration()
     if (!addFailurePath(&failure))
         return false;
 
-    masm.loadPtr(Address(obj, ProxyObject::offsetOfValues()), scratch1);
-    Address expandoAddr(scratch1, ProxyObject::offsetOfExtraSlotInValues(GetDOMProxyExpandoSlot()));
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), scratch1);
+    Address expandoAddr(scratch1, detail::ProxyReservedSlots::offsetOfPrivateSlot());
 
     // Guard the ExpandoAndGeneration* matches the proxy's ExpandoAndGeneration.
     masm.loadValue(expandoAddr, output);

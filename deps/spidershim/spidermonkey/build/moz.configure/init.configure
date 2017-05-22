@@ -368,6 +368,8 @@ def split_triplet(triplet):
         canonical_os = canonical_kernel = 'NetBSD'
     elif os.startswith('openbsd'):
         canonical_os = canonical_kernel = 'OpenBSD'
+    elif os.startswith('solaris'):
+        canonical_os = canonical_kernel = 'SunOS'
     else:
         die('Unknown OS: %s' % os)
 
@@ -502,6 +504,13 @@ set_config('HAVE_64BIT_BUILD', have_64_bit)
 set_define('HAVE_64BIT_BUILD', have_64_bit)
 add_old_configure_assignment('HAVE_64BIT_BUILD', have_64_bit)
 
+@depends(host)
+def host_os_kernel_major_version(host):
+    versions = host.raw_os.split('.')
+    version = ''.join(x for x in versions[0] if x.isdigit())
+    return version
+
+set_config('HOST_MAJOR_VERSION', host_os_kernel_major_version)
 
 # Autoconf needs these set
 @depends(host)
@@ -626,6 +635,13 @@ def target_is_linux(target):
 
 set_define('XP_LINUX', target_is_linux)
 
+@depends(target)
+def target_is_solaris(target):
+    if target.kernel == 'SunOS':
+        return True
+
+set_define('XP_SOLARIS', target_is_solaris)
+
 # The application/project to build
 # ==============================================================
 option('--enable-application', nargs=1, env='MOZ_BUILD_APP',
@@ -701,11 +717,15 @@ def milestone(build_env, _):
                      is_nightly=is_nightly,
                      is_release_or_beta=is_release_or_beta)
 
+@depends(milestone)
+def is_nightly(milestone):
+    return milestone.is_nightly
+
 set_config('GRE_MILESTONE', delayed_getattr(milestone, 'version'))
-set_config('NIGHTLY_BUILD', delayed_getattr(milestone, 'is_nightly'))
-set_define('NIGHTLY_BUILD', delayed_getattr(milestone, 'is_nightly'))
+set_config('NIGHTLY_BUILD', is_nightly)
+set_define('NIGHTLY_BUILD', is_nightly)
 add_old_configure_assignment('NIGHTLY_BUILD',
-                             delayed_getattr(milestone, 'is_nightly'))
+                             is_nightly)
 set_config('RELEASE_OR_BETA', delayed_getattr(milestone, 'is_release_or_beta'))
 set_define('RELEASE_OR_BETA', delayed_getattr(milestone, 'is_release_or_beta'))
 add_old_configure_assignment('RELEASE_OR_BETA',

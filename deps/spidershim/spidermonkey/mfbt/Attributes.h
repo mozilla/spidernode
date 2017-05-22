@@ -627,12 +627,23 @@
  * then the annotation would be:
  *   MOZ_FORMAT_PRINTF(3, 4)
  *
+ * The second argument should be 0 for vprintf-like functions; that
+ * is, those taking a va_list argument.
+ *
  * Note that the checking is limited to standards-conforming
  * printf-likes, and in particular this should not be used for
  * PR_snprintf and friends, which are "printf-like" but which assign
  * different meanings to the various formats.
+ *
+ * MinGW requires special handling due to different format specifiers
+ * on different platforms. The macro __MINGW_PRINTF_FORMAT maps to
+ * either gnu_printf or ms_printf depending on where we are compiling
+ * to avoid warnings on format specifiers that are legal.
  */
-#ifdef __GNUC__
+#ifdef __MINGW32__
+#define MOZ_FORMAT_PRINTF(stringIndex, firstToCheck)  \
+    __attribute__ ((format (__MINGW_PRINTF_FORMAT, stringIndex, firstToCheck)))
+#elif __GNUC__
 #define MOZ_FORMAT_PRINTF(stringIndex, firstToCheck)  \
     __attribute__ ((format (printf, stringIndex, firstToCheck)))
 #else

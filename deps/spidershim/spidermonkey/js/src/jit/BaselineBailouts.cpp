@@ -468,13 +468,18 @@ IsInlinableFallback(ICFallbackStub* icEntry)
 static inline void*
 GetStubReturnAddress(JSContext* cx, jsbytecode* pc)
 {
+    JitCompartment* jitComp = cx->compartment()->jitCompartment();
+
     if (IsGetPropPC(pc))
-        return cx->compartment()->jitCompartment()->baselineGetPropReturnAddr();
+        return jitComp->bailoutReturnAddr(BailoutReturnStub::GetProp);
     if (IsSetPropPC(pc))
-        return cx->compartment()->jitCompartment()->baselineSetPropReturnAddr();
+        return jitComp->bailoutReturnAddr(BailoutReturnStub::SetProp);
+
     // This should be a call op of some kind, now.
     MOZ_ASSERT(IsCallPC(pc) && !IsSpreadCallPC(pc));
-    return cx->compartment()->jitCompartment()->baselineCallReturnAddr(IsConstructorCallPC(pc));
+    if (IsConstructorCallPC(pc))
+        return jitComp->bailoutReturnAddr(BailoutReturnStub::New);
+    return jitComp->bailoutReturnAddr(BailoutReturnStub::Call);
 }
 
 static inline jsbytecode*
@@ -511,10 +516,9 @@ HasLiveStackValueAtDepth(JSScript* script, jsbytecode* pc, uint32_t stackDepth)
             break;
 
           case JSTRY_FOR_OF:
-            // For-of loops have the iterator, the result object, and the value
-            // of the result object on stack. The iterator is below the result
-            // object and the value.
-            if (stackDepth == tn->stackDepth - 2)
+            // For-of loops have the iterator and the result.value on stack.
+            // The iterator is below the result.value.
+            if (stackDepth == tn->stackDepth - 1)
                 return true;
             break;
 

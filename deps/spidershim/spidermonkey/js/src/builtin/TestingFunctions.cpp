@@ -1303,6 +1303,37 @@ NewExternalString(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+NewMaybeExternalString(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    if (args.length() != 1 || !args[0].isString()) {
+        JS_ReportErrorASCII(cx, "newMaybeExternalString takes exactly one string argument.");
+        return false;
+    }
+
+    RootedString str(cx, args[0].toString());
+    size_t len = str->length();
+
+    UniqueTwoByteChars buf(cx->pod_malloc<char16_t>(len));
+    if (!buf)
+        return false;
+
+    if (!JS_CopyStringChars(cx, mozilla::Range<char16_t>(buf.get(), len), str))
+        return false;
+
+    bool allocatedExternal;
+    JSString* res = JS_NewMaybeExternalString(cx, buf.get(), len, &ExternalStringFinalizer,
+                                              &allocatedExternal);
+    if (!res)
+        return false;
+
+    mozilla::Unused << buf.release();
+    args.rval().setString(res);
+    return true;
+}
+
+static bool
 EnsureFlatString(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -1410,6 +1441,16 @@ ResetOOMFailure(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+static size_t
+CountCompartments(JSContext* cx)
+{
+    size_t count = 0;
+    ZoneGroup* group = cx->compartment()->zone()->group();
+    for (auto zone : group->zones())
+        count += zone->compartments().length();
+    return count;
+}
+
 static bool
 OOMTest(JSContext* cx, unsigned argc, Value* vp)
 {
@@ -1472,6 +1513,8 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
     MOZ_ASSERT(!cx->isExceptionPending());
     cx->runtime()->hadOutOfMemory = false;
 
+    size_t compartmentCount = CountCompartments(cx);
+
     JS_SetGCZeal(cx, 0, JS_DEFAULT_ZEAL_FREQ);
 
     for (unsigned thread = threadStart; thread < threadEnd; thread++) {
@@ -1518,6 +1561,16 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
 
             cx->clearPendingException();
             cx->runtime()->hadOutOfMemory = false;
+
+            // Some tests create a new compartment or zone on every
+            // iteration. Our GC is triggered by GC allocations and not by
+            // number of copmartments or zones, so these won't normally get
+            // cleaned up. The check here stops some tests running out of
+            // memory.
+            if (CountCompartments(cx) > compartmentCount + 100) {
+                JS_GC(cx);
+                compartmentCount = CountCompartments(cx);
+            }
 
 #ifdef JS_TRACE_LOGGING
             // Reset the TraceLogger state if enabled.
@@ -2644,6 +2697,31 @@ SharedMemoryEnabled(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+static bool
+SharedArrayRawBufferCount(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setInt32(SharedArrayRawBuffer::liveBuffers());
+    return true;
+}
+
+static bool
+SharedArrayRawBufferRefcount(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() != 1 || !args[0].isObject()) {
+        JS_ReportErrorASCII(cx, "Expected SharedArrayBuffer object");
+        return false;
+    }
+    RootedObject obj(cx, &args[0].toObject());
+    if (!obj->is<SharedArrayBufferObject>()) {
+        JS_ReportErrorASCII(cx, "Expected SharedArrayBuffer object");
+        return false;
+    }
+    args.rval().setInt32(obj->as<SharedArrayBufferObject>().rawBufferObject()->refcount());
+    return true;
+}
+
 #ifdef NIGHTLY_BUILD
 static bool
 ObjectAddress(JSContext* cx, unsigned argc, Value* vp)
@@ -2763,14 +2841,13 @@ GetBacktrace(JSContext* cx, unsigned argc, Value* vp)
         showThisProps = ToBoolean(v);
     }
 
-    char* buf = JS::FormatStackDump(cx, nullptr, showArgs, showLocals, showThisProps);
+    JS::UniqueChars buf = JS::FormatStackDump(cx, nullptr, showArgs, showLocals, showThisProps);
     if (!buf)
         return false;
 
     RootedString str(cx);
-    if (!(str = JS_NewStringCopyZ(cx, buf)))
+    if (!(str = JS_NewStringCopyZ(cx, buf.get())))
         return false;
-    JS_smprintf_free(buf);
 
     args.rval().setString(str);
     return true;
@@ -4241,9 +4318,8 @@ static bool
 TimeSinceCreation(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    bool ignore;
-    double when = (mozilla::TimeStamp::Now()
-                   - mozilla::TimeStamp::ProcessCreation(ignore)).ToMilliseconds();
+    double when = (mozilla::TimeStamp::Now() -
+                   mozilla::TimeStamp::ProcessCreation()).ToMilliseconds();
     args.rval().setNumber(when);
     return true;
 }
@@ -4271,6 +4347,17 @@ GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     args.rval().setObject(*notesArray);
+    return true;
+}
+
+static bool
+IsConstructor(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() < 1)
+        args.rval().setBoolean(false);
+    else
+        args.rval().setBoolean(IsConstructor(args[0]));
     return true;
 }
 
@@ -4353,6 +4440,10 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("newExternalString", NewExternalString, 1, 0,
 "newExternalString(str)",
 "  Copies str's chars and returns a new external string."),
+
+    JS_FN_HELP("newMaybeExternalString", NewMaybeExternalString, 1, 0,
+"newMaybeExternalString(str)",
+"  Like newExternalString but uses the JS_NewMaybeExternalString API."),
 
     JS_FN_HELP("ensureFlatString", EnsureFlatString, 1, 0,
 "ensureFlatString(str)",
@@ -4708,6 +4799,14 @@ gc::ZealModeHelpText),
 "sharedMemoryEnabled()",
 "  Return true if SharedArrayBuffer and Atomics are enabled"),
 
+    JS_FN_HELP("sharedArrayRawBufferCount", SharedArrayRawBufferCount, 0, 0,
+"sharedArrayRawBufferCount()",
+"  Return the number of live SharedArrayRawBuffer objects"),
+
+    JS_FN_HELP("sharedArrayRawBufferRefcount", SharedArrayRawBufferRefcount, 0, 0,
+"sharedArrayRawBufferRefcount(sab)",
+"  Return the reference count of the SharedArrayRawBuffer object held by sab"),
+
 #ifdef NIGHTLY_BUILD
     JS_FN_HELP("objectAddress", ObjectAddress, 1, 0,
 "objectAddress(obj)",
@@ -4831,6 +4930,10 @@ gc::ZealModeHelpText),
 "TimeSinceCreation()",
 "  Returns the time in milliseconds since process creation.\n"
 "  This uses a clock compatible with the profiler.\n"),
+
+    JS_FN_HELP("isConstructor", IsConstructor, 1, 0,
+"isConstructor(value)",
+"  Returns whether the value is considered IsConstructor.\n"),
 
     JS_FS_HELP_END
 };

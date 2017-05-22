@@ -19,7 +19,9 @@
 #include "wasm/WasmInstance.h"
 
 #include "jit/BaselineJIT.h"
+#include "jit/InlinableNatives.h"
 #include "jit/JitCommon.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmModule.h"
 
 #include "jsobjinlines.h"
@@ -317,7 +319,8 @@ Instance::currentMemory_i32(Instance* instance)
 
 Instance::Instance(JSContext* cx,
                    Handle<WasmInstanceObject*> object,
-                   UniqueCode code,
+                   SharedCode code,
+                   UniqueDebugState debug,
                    UniqueGlobalSegment globals,
                    HandleWasmMemoryObject memory,
                    SharedTableVector&& tables,
@@ -325,7 +328,8 @@ Instance::Instance(JSContext* cx,
                    const ValVector& globalImports)
   : compartment_(cx->compartment()),
     object_(object),
-    code_(Move(code)),
+    code_(code),
+    debug_(Move(debug)),
     globals_(Move(globals)),
     memory_(memory),
     tables_(Move(tables)),
@@ -355,6 +359,11 @@ Instance::Instance(JSContext* cx,
             import.code = calleeInstance.codeSegment().base() + codeRange.funcNormalEntry();
             import.baselineScript = nullptr;
             import.obj = calleeInstanceObj;
+        } else if (void* thunk = MaybeGetBuiltinThunk(f, fi.sig(), cx)) {
+            import.tls = tlsData();
+            import.code = thunk;
+            import.baselineScript = nullptr;
+            import.obj = f;
         } else {
             import.tls = tlsData();
             import.code = codeBase() + fi.interpExitCodeOffset();
@@ -785,7 +794,7 @@ Instance::ensureEnterFrameTrapsState(JSContext* cx, bool enabled)
     if (enterFrameTrapsEnabled_ == enabled)
         return;
 
-    code_->adjustEnterAndLeaveFrameTrapsState(cx, enabled);
+    debug_->adjustEnterAndLeaveFrameTrapsState(cx, enabled);
     enterFrameTrapsEnabled_ = enabled;
 }
 
@@ -793,13 +802,15 @@ void
 Instance::addSizeOfMisc(MallocSizeOf mallocSizeOf,
                         Metadata::SeenSet* seenMetadata,
                         ShareableBytes::SeenSet* seenBytes,
+                        Code::SeenSet* seenCode,
                         Table::SeenSet* seenTables,
                         size_t* code,
                         size_t* data) const
 {
     *data += mallocSizeOf(this) + globals_->sizeOfMisc(mallocSizeOf);
+    debug_->addSizeOfMisc(mallocSizeOf, seenMetadata, seenBytes, seenCode, code, data);
 
-    code_->addSizeOfMisc(mallocSizeOf, seenMetadata, seenBytes, code, data);
+    code_->addSizeOfMiscIfNotSeen(mallocSizeOf, seenMetadata, seenBytes, seenCode, code, data);
 
     for (const SharedTable& table : tables_)
          *data += table->sizeOfIncludingThisIfNotSeen(mallocSizeOf, seenTables);

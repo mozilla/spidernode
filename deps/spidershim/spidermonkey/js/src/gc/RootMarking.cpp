@@ -278,8 +278,7 @@ js::gc::GCRuntime::traceRuntimeForMinorGC(JSTracer* trc, AutoLockForExclusiveAcc
     // the verifier for the last time.
     gcstats::AutoPhase ap(stats(), gcstats::PHASE_MARK_ROOTS);
 
-    // FIXME: As per bug 1298816 comment 12, we should be able to remove this.
-    jit::JitRuntime::TraceJitcodeGlobalTable(trc);
+    jit::JitRuntime::TraceJitcodeGlobalTableForMinorGC(trc);
 
     traceRuntimeCommon(trc, TraceRuntime, lock);
 }
@@ -550,4 +549,10 @@ JS_PUBLIC_API(void)
 JS::AddPersistentRoot(JS::RootingContext* cx, RootKind kind, PersistentRooted<void*>* root)
 {
     static_cast<JSContext*>(cx)->runtime()->heapRoots.ref()[kind].insertBack(root);
+}
+
+JS_PUBLIC_API(void)
+JS::AddPersistentRoot(JSRuntime* rt, RootKind kind, PersistentRooted<void*>* root)
+{
+    rt->heapRoots.ref()[kind].insertBack(root);
 }

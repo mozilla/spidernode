@@ -20,15 +20,12 @@
 #define wasm_code_h
 
 #include "js/HashTable.h"
+#include "threading/ExclusiveData.h"
 #include "wasm/WasmTypes.h"
 
 namespace js {
 
 struct AsmJSMetadata;
-class Debugger;
-class WasmActivation;
-class WasmBreakpoint;
-class WasmBreakpointSite;
 class WasmInstanceObject;
 
 namespace wasm {
@@ -37,10 +34,27 @@ struct LinkData;
 struct Metadata;
 class FrameIterator;
 
+// ShareableBytes is a reference-counted Vector of bytes.
+
+struct ShareableBytes : ShareableBase<ShareableBytes>
+{
+    // Vector is 'final', so instead make Vector a member and add boilerplate.
+    Bytes bytes;
+    size_t sizeOfExcludingThis(MallocSizeOf m) const { return bytes.sizeOfExcludingThis(m); }
+    const uint8_t* begin() const { return bytes.begin(); }
+    const uint8_t* end() const { return bytes.end(); }
+    size_t length() const { return bytes.length(); }
+    bool append(const uint8_t *p, uint32_t ct) { return bytes.append(p, ct); }
+};
+
+typedef RefPtr<ShareableBytes> MutableBytes;
+typedef RefPtr<const ShareableBytes> SharedBytes;
+
 // A wasm CodeSegment owns the allocated executable code for a wasm module.
 
 class CodeSegment;
 typedef UniquePtr<CodeSegment> UniqueCodeSegment;
+typedef UniquePtr<const CodeSegment> UniqueConstCodeSegment;
 
 class CodeSegment
 {
@@ -57,26 +71,40 @@ class CodeSegment
     uint8_t* outOfBoundsCode_;
     uint8_t* unalignedAccessCode_;
 
+    // This assumes ownership of the codeBytes, and deletes them in the event of error.
+    bool initialize(uint8_t* codeBase, uint32_t codeLength, const ShareableBytes& bytecode,
+                    const LinkData& linkData, const Metadata& metadata);
+
+    // codeBytes must be executable memory.
+    // This assumes ownership of the codeBytes, and deletes them in the event of error.
+    static UniqueConstCodeSegment create(uint8_t* codeBytes,
+                                         uint32_t codeLength,
+                                         const ShareableBytes& bytecode,
+                                         const LinkData& linkData,
+                                         const Metadata& metadata);
   public:
-#ifdef MOZ_VTUNE
-    unsigned vtune_method_id_; // Zero if unset.
-#endif
-
-  protected:
-    CodeSegment() { PodZero(this); }
-    template <class> friend struct js::MallocProvider;
-
     CodeSegment(const CodeSegment&) = delete;
-    CodeSegment(CodeSegment&&) = delete;
     void operator=(const CodeSegment&) = delete;
-    void operator=(CodeSegment&&) = delete;
 
-  public:
-    static UniqueCodeSegment create(JSContext* cx,
-                                    const Bytes& code,
-                                    const LinkData& linkData,
-                                    const Metadata& metadata,
-                                    HandleWasmMemoryObject memory);
+    CodeSegment()
+      : bytes_(nullptr),
+        functionLength_(0),
+        length_(0),
+        interruptCode_(nullptr),
+        outOfBoundsCode_(nullptr),
+        unalignedAccessCode_(nullptr)
+    {}
+
+    static UniqueConstCodeSegment create(jit::MacroAssembler& masm,
+                                         const ShareableBytes& bytecode,
+                                         const LinkData& linkData,
+                                         const Metadata& metadata);
+
+    static UniqueConstCodeSegment create(const Bytes& codeBytes,
+                                         const ShareableBytes& bytecode,
+                                         const LinkData& linkData,
+                                         const Metadata& metadata);
+
     ~CodeSegment();
 
     uint8_t* base() const { return bytes_; }
@@ -98,24 +126,16 @@ class CodeSegment
     bool containsCodePC(const void* pc) const {
         return pc >= base() && pc < (base() + length_);
     }
+
+    UniqueConstBytes unlinkedBytesForDebugging(const LinkData& linkData) const;
+
+    size_t serializedSize() const;
+    uint8_t* serialize(uint8_t* cursor, const LinkData& linkData) const;
+    const uint8_t* deserialize(const uint8_t* cursor, const ShareableBytes& bytecode,
+                               const LinkData& linkData, const Metadata& metadata);
+
+    void addSizeOfMisc(mozilla::MallocSizeOf mallocSizeOf, size_t* code, size_t* data) const;
 };
-
-// ShareableBytes is a ref-counted vector of bytes which are incrementally built
-// during compilation and then immutably shared.
-
-struct ShareableBytes : ShareableBase<ShareableBytes>
-{
-    // Vector is 'final', so instead make Vector a member and add boilerplate.
-    Bytes bytes;
-    size_t sizeOfExcludingThis(MallocSizeOf m) const { return bytes.sizeOfExcludingThis(m); }
-    const uint8_t* begin() const { return bytes.begin(); }
-    const uint8_t* end() const { return bytes.end(); }
-    size_t length() const { return bytes.length(); }
-    bool append(const uint8_t *p, uint32_t ct) { return bytes.append(p, ct); }
-};
-
-typedef RefPtr<ShareableBytes> MutableBytes;
-typedef RefPtr<const ShareableBytes> SharedBytes;
 
 // A FuncExport represents a single function definition inside a wasm Module
 // that has been exported one or more times. A FuncExport represents an
@@ -223,119 +243,6 @@ class FuncImport
 
 typedef Vector<FuncImport, 0, SystemAllocPolicy> FuncImportVector;
 
-// A CodeRange describes a single contiguous range of code within a wasm
-// module's code segment. A CodeRange describes what the code does and, for
-// function bodies, the name and source coordinates of the function.
-
-class CodeRange
-{
-  public:
-    enum Kind {
-        Function,          // function definition
-        Entry,             // calls into wasm from C++
-        ImportJitExit,     // fast-path calling from wasm into JIT code
-        ImportInterpExit,  // slow-path calling from wasm into C++ interp
-        TrapExit,          // calls C++ to report and jumps to throw stub
-        DebugTrap,         // calls C++ to handle debug event
-        FarJumpIsland,     // inserted to connect otherwise out-of-range insns
-        Inline,            // stub that is jumped-to within prologue/epilogue
-        Throw,             // special stack-unwinding stub
-        Interrupt          // stub executes asynchronously to interrupt wasm
-    };
-
-  private:
-    // All fields are treated as cacheable POD:
-    uint32_t begin_;
-    uint32_t ret_;
-    uint32_t end_;
-    uint32_t funcIndex_;
-    uint32_t funcLineOrBytecode_;
-    uint8_t funcBeginToNormalEntry_;
-    Kind kind_ : 8;
-
-  public:
-    CodeRange() = default;
-    CodeRange(Kind kind, Offsets offsets);
-    CodeRange(Kind kind, CallableOffsets offsets);
-    CodeRange(uint32_t funcIndex, uint32_t lineOrBytecode, FuncOffsets offsets);
-
-    // All CodeRanges have a begin and end.
-
-    uint32_t begin() const {
-        return begin_;
-    }
-    uint32_t end() const {
-        return end_;
-    }
-
-    // Other fields are only available for certain CodeRange::Kinds.
-
-    Kind kind() const {
-        return kind_;
-    }
-
-    bool isFunction() const {
-        return kind() == Function;
-    }
-    bool isImportExit() const {
-        return kind() == ImportJitExit || kind() == ImportInterpExit;
-    }
-    bool isTrapExit() const {
-        return kind() == TrapExit;
-    }
-    bool isInline() const {
-        return kind() == Inline;
-    }
-    bool isThunk() const {
-        return kind() == FarJumpIsland;
-    }
-
-    // Every CodeRange except entry and inline stubs are callable and have a
-    // return statement. Asynchronous frame iteration needs to know the offset
-    // of the return instruction to calculate the frame pointer.
-
-    uint32_t ret() const {
-        MOZ_ASSERT(isFunction() || isImportExit() || isTrapExit());
-        return ret_;
-    }
-
-    // Function CodeRanges have two entry points: one for normal calls (with a
-    // known signature) and one for table calls (which involves dynamic
-    // signature checking).
-
-    uint32_t funcTableEntry() const {
-        MOZ_ASSERT(isFunction());
-        return begin_;
-    }
-    uint32_t funcNormalEntry() const {
-        MOZ_ASSERT(isFunction());
-        return begin_ + funcBeginToNormalEntry_;
-    }
-    uint32_t funcIndex() const {
-        MOZ_ASSERT(isFunction());
-        return funcIndex_;
-    }
-    uint32_t funcLineOrBytecode() const {
-        MOZ_ASSERT(isFunction());
-        return funcLineOrBytecode_;
-    }
-
-    // A sorted array of CodeRanges can be looked up via BinarySearch and PC.
-
-    struct PC {
-        size_t offset;
-        explicit PC(size_t offset) : offset(offset) {}
-        bool operator==(const CodeRange& rhs) const {
-            return offset >= rhs.begin() && offset < rhs.end();
-        }
-        bool operator<(const CodeRange& rhs) const {
-            return offset < rhs.begin();
-        }
-    };
-};
-
-WASM_DECLARE_POD_VECTOR(CodeRange, CodeRangeVector)
-
 // A wasm module can either use no memory, a unshared memory (ArrayBuffer) or
 // shared memory (SharedArrayBuffer).
 
@@ -410,6 +317,8 @@ struct MetadataCacheablePod
     {}
 };
 
+typedef uint8_t ModuleHash[8];
+
 struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
 {
     explicit Metadata(ModuleKind kind = ModuleKind::Wasm) : MetadataCacheablePod(kind) {}
@@ -429,6 +338,7 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     NameInBytecodeVector  funcNames;
     CustomSectionVector   customSections;
     CacheableChars        filename;
+    ModuleHash            hash;
 
     // Debug-enabled code is not serialized.
     bool                  debugEnabled;
@@ -471,76 +381,27 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
 typedef RefPtr<Metadata> MutableMetadata;
 typedef RefPtr<const Metadata> SharedMetadata;
 
-// The generated source location for the AST node/expression. The offset field refers
-// an offset in an binary format file.
-
-struct ExprLoc
-{
-    uint32_t lineno;
-    uint32_t column;
-    uint32_t offset;
-    ExprLoc() : lineno(0), column(0), offset(0) {}
-    ExprLoc(uint32_t lineno_, uint32_t column_, uint32_t offset_)
-      : lineno(lineno_), column(column_), offset(offset_)
-    {}
-};
-
-typedef Vector<ExprLoc, 0, SystemAllocPolicy> ExprLocVector;
-typedef Vector<uint32_t, 0, SystemAllocPolicy> ExprLocIndexVector;
-
-// The generated source map for WebAssembly binary file. This map is generated during
-// building the text buffer (see BinaryToExperimentalText).
-
-class GeneratedSourceMap
-{
-    ExprLocVector exprlocs_;
-    UniquePtr<ExprLocIndexVector> sortedByOffsetExprLocIndices_;
-    uint32_t totalLines_;
-
-  public:
-    explicit GeneratedSourceMap() : totalLines_(0) {}
-    ExprLocVector& exprlocs() { return exprlocs_; }
-
-    uint32_t totalLines() { return totalLines_; }
-    void setTotalLines(uint32_t val) { totalLines_ = val; }
-
-    bool searchLineByOffset(JSContext* cx, uint32_t offset, size_t* exprlocIndex);
-};
-
-typedef UniquePtr<GeneratedSourceMap> UniqueGeneratedSourceMap;
-typedef HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> StepModeCounters;
-typedef HashMap<uint32_t, WasmBreakpointSite*, DefaultHasher<uint32_t>, SystemAllocPolicy> WasmBreakpointSiteMap;
-
 // Code objects own executable code and the metadata that describes it. At the
 // moment, Code objects are owned uniquely by instances since CodeSegments are
 // not shareable. However, once this restriction is removed, a single Code
 // object will be shared between a module and all its instances.
+//
+// profilingLabels_ is lazily initialized, but behind a lock.
 
-class Code
+class Code : public ShareableBase<Code>
 {
-    const UniqueCodeSegment  segment_;
-    const SharedMetadata     metadata_;
-    const SharedBytes        maybeBytecode_;
-    UniqueGeneratedSourceMap maybeSourceMap_;
-
-    // Mutated at runtime:
-    CacheableCharsVector     profilingLabels_;
-
-    // State maintained when debugging is enabled:
-
-    uint32_t                 enterAndLeaveFrameTrapsCounter_;
-    WasmBreakpointSiteMap    breakpointSites_;
-    StepModeCounters         stepModeCounters_;
-
-    void toggleDebugTrap(uint32_t offset, bool enabled);
-    bool ensureSourceMap(JSContext* cx);
+    UniqueConstCodeSegment              segment_;
+    SharedMetadata                      metadata_;
+    SharedBytes                         maybeBytecode_;
+    ExclusiveData<CacheableCharsVector> profilingLabels_;
 
   public:
-    Code(UniqueCodeSegment segment,
+    Code();
+
+    Code(UniqueConstCodeSegment segment,
          const Metadata& metadata,
          const ShareableBytes* maybeBytecode);
 
-    CodeSegment& segment() { return *segment_; }
     const CodeSegment& segment() const { return *segment_; }
     const Metadata& metadata() const { return *metadata_; }
 
@@ -556,62 +417,33 @@ class Code
     bool getFuncName(uint32_t funcIndex, UTF8Bytes* name) const;
     JSAtom* getFuncAtom(JSContext* cx, uint32_t funcIndex) const;
 
-    // If the source bytecode was saved when this Code was constructed, this
-    // method will render the binary as text. Otherwise, a diagnostic string
-    // will be returned.
-
-    JSString* createText(JSContext* cx);
-    bool getLineOffsets(JSContext* cx, size_t lineno, Vector<uint32_t>* offsets);
-    bool getOffsetLocation(JSContext* cx, uint32_t offset, bool* found, size_t* lineno, size_t* column);
-    bool totalSourceLines(JSContext* cx, uint32_t* count);
-
     // To save memory, profilingLabels_ are generated lazily when profiling mode
     // is enabled.
 
-    void ensureProfilingLabels(bool profilingEnabled);
+    void ensureProfilingLabels(bool profilingEnabled) const;
     const char* profilingLabel(uint32_t funcIndex) const;
-
-    // The Code can track enter/leave frame events. Any such event triggers
-    // debug trap. The enter/leave frame events enabled or disabled across
-    // all functions.
-
-    void adjustEnterAndLeaveFrameTrapsState(JSContext* cx, bool enabled);
-
-    // When the Code is debugEnabled, individual breakpoints can be enabled or
-    // disabled at instruction offsets.
-
-    bool hasBreakpointTrapAtOffset(uint32_t offset);
-    void toggleBreakpointTrap(JSRuntime* rt, uint32_t offset, bool enabled);
-    WasmBreakpointSite* getOrCreateBreakpointSite(JSContext* cx, uint32_t offset);
-    bool hasBreakpointSite(uint32_t offset);
-    void destroyBreakpointSite(FreeOp* fop, uint32_t offset);
-    bool clearBreakpointsIn(JSContext* cx, WasmInstanceObject* instance,
-                            js::Debugger* dbg, JSObject* handler);
-
-    // When the Code is debug-enabled, single-stepping mode can be toggled on
-    // the granularity of individual functions.
-
-    bool stepModeEnabled(uint32_t funcIndex) const;
-    bool incrementStepModeCount(JSContext* cx, uint32_t funcIndex);
-    bool decrementStepModeCount(JSContext* cx, uint32_t funcIndex);
-
-    // Stack inspection helpers.
-
-    bool debugGetLocalTypes(uint32_t funcIndex, ValTypeVector* locals, size_t* argsLength);
-    ExprType debugGetResultType(uint32_t funcIndex);
 
     // about:memory reporting:
 
-    void addSizeOfMisc(MallocSizeOf mallocSizeOf,
-                       Metadata::SeenSet* seenMetadata,
-                       ShareableBytes::SeenSet* seenBytes,
-                       size_t* code,
-                       size_t* data) const;
+    void addSizeOfMiscIfNotSeen(MallocSizeOf mallocSizeOf,
+                                Metadata::SeenSet* seenMetadata,
+                                ShareableBytes::SeenSet* seenBytes,
+                                Code::SeenSet* seenCode,
+                                size_t* code,
+                                size_t* data) const;
 
-    WASM_DECLARE_SERIALIZABLE(Code);
+    // A Code object is serialized as the length and bytes of the machine code
+    // after statically unlinking it; the Code is then later recreated from the
+    // machine code and other parts.
+
+    size_t serializedSize() const;
+    uint8_t* serialize(uint8_t* cursor, const LinkData& linkData) const;
+    const uint8_t* deserialize(const uint8_t* cursor, const SharedBytes& bytecode,
+                               const LinkData& linkData, Metadata* maybeMetadata);
 };
 
-typedef UniquePtr<Code> UniqueCode;
+typedef RefPtr<const Code> SharedCode;
+typedef RefPtr<Code> MutableCode;
 
 } // namespace wasm
 } // namespace js

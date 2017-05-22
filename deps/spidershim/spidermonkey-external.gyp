@@ -10,7 +10,7 @@
             'defines': ['NDEBUG'],
             'include_dirs': [ '<(external_spidermonkey_release)/dist/include', ],
             'library_dirs': [
-              '<(external_spidermonkey_release)/js/src',
+              '<(external_spidermonkey_release)/js/src/build',
               '<(external_spidermonkey_release)/mozglue/build',
             ],
             'ldflags': [
@@ -46,7 +46,7 @@
             'defines': ['DEBUG'],
             'include_dirs': [ '<(external_spidermonkey_debug)/dist/include', ],
             'library_dirs': [
-              '<(external_spidermonkey_debug)/js/src',
+              '<(external_spidermonkey_debug)/js/src/build',
               '<(external_spidermonkey_debug)/mozglue/build',
             ],
 
