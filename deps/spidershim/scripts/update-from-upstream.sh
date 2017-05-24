@@ -53,4 +53,4 @@ git add -f `git ls-files --others spidermonkey` || true
 scripts/build-spidermonkey-files.py && git add spidermonkey-files.gypi
 
 rev=`(cd "$SM_DIR" && git rev-parse HEAD)`
-git commit -m "Syncing SpiderMonkey from Mozilla upstream revision $rev"
+git commit -m "Sync SpiderMonkey from rev $rev"
