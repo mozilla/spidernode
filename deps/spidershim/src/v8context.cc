@@ -38,13 +38,13 @@ bool InitLibraries(JSContext* cx) {
     options.setVersion(JSVERSION_DEFAULT)                                     \
         .setNoScriptRval(true)                                                \
         .setSourceIsLazy(false)                                               \
-        .setFile(id##_name)                     \
+        .setFile(id##_name)                                                   \
         .setLine(1)                                                           \
-        .setColumn(0)                                                         \
+        .setColumn(0, 0)                                                      \
         .forceAsync = true;                                                   \
     JS::RootedValue value(cx);                                                \
     if (!JS::Evaluate(cx, options,                                            \
-                      id##_data,               \
+                      id##_data,                                              \
                       mozilla::ArrayLength(id##_data), &value)) {             \
       return false;                                                           \
     }                                                                         \
