@@ -51,19 +51,18 @@ class JSONPrinter
     void property(const char* name, uint32_t value);
     void property(const char* name, int64_t value);
     void property(const char* name, uint64_t value);
-#ifdef XP_DARWIN
-    // On OSX, size_t is long unsigned, uint32_t is unsigned, and uint64_t is
-    // long long unsigned. Everywhere else, size_t matches either uint32_t or
-    // uint64_t.
+#if defined(XP_DARWIN) || defined(__OpenBSD__)
+    // On OSX and OpenBSD, size_t is long unsigned, uint32_t is unsigned, and
+    // uint64_t is long long unsigned. Everywhere else, size_t matches either
+    // uint32_t or uint64_t.
     void property(const char* name, size_t value);
 #endif
-    void property(const char* name, double value);
 
     void formatProperty(const char* name, const char* format, ...) MOZ_FORMAT_PRINTF(3, 4);
 
     // JSON requires decimals to be separated by periods, but the LC_NUMERIC
     // setting may cause printf to use commas in some locales.
-    enum TimePrecision { SECONDS, MILLISECONDS };
+    enum TimePrecision { SECONDS, MILLISECONDS, MICROSECONDS };
     void property(const char* name, const mozilla::TimeDuration& dur, TimePrecision precision);
 
     void floatProperty(const char* name, double value, size_t precision);

@@ -2410,6 +2410,27 @@ TemporaryTypeSet::maybeCallable(CompilerConstraintList* constraints)
 }
 
 bool
+TemporaryTypeSet::maybeProxy(CompilerConstraintList* constraints)
+{
+    if (!maybeObject())
+        return false;
+
+    if (unknownObject())
+        return true;
+
+    unsigned count = getObjectCount();
+    for (unsigned i = 0; i < count; i++) {
+        const Class* clasp = getObjectClass(i);
+        if (!clasp)
+            continue;
+        if (clasp->isProxy() || !getObject(i)->hasStableClassAndProto(constraints))
+            return true;
+    }
+
+    return false;
+}
+
+bool
 TemporaryTypeSet::maybeEmulatesUndefined(CompilerConstraintList* constraints)
 {
     if (!maybeObject())
@@ -2575,6 +2596,14 @@ js::ReportMagicWordFailure(uintptr_t actual, uintptr_t expected)
 {
     MOZ_CRASH_UNSAFE_PRINTF("Got 0x%" PRIxPTR " expected magic word 0x%" PRIxPTR,
                             actual, expected);
+}
+
+void
+js::ReportMagicWordFailure(uintptr_t actual, uintptr_t expected, uintptr_t flags, uintptr_t objectSet)
+{
+    MOZ_CRASH_UNSAFE_PRINTF("Got 0x%" PRIxPTR " expected magic word 0x%" PRIxPTR
+                            " flags 0x%" PRIxPTR " objectSet 0x%" PRIxPTR,
+                            actual, expected, flags, objectSet);
 }
 #endif
 
