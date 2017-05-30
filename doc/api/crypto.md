@@ -1820,7 +1820,7 @@ comparing HMAC digests or secret values like authentication cookies or
 `a` and `b` must both be `Buffer`s, `TypedArray`s, or `DataView`s, and they
 must have the same length.
 
-**Note**: Use of `crypto.timingSafeEqual` does not guarantee that the
+*Note*: Use of `crypto.timingSafeEqual` does not guarantee that the
 *surrounding* code is timing-safe. Care should be taken to ensure that the
 surrounding code does not introduce timing vulnerabilities.
 
@@ -1901,7 +1901,7 @@ the `crypto`, `tls`, and `https` modules and are generally specific to OpenSSL.
   <tr>
     <td><code>SSL_OP_CIPHER_SERVER_PREFERENCE</code></td>
     <td>Attempts to use the server's preferences instead of the client's when
-    selecting a cipher. Behaviour depends on protocol version. See
+    selecting a cipher. Behavior depends on protocol version. See
     https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_options.html.</td>
   </tr>
   <tr>

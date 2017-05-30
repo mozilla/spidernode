@@ -8443,6 +8443,8 @@ class JSPromise : public JSObject {
       kFulfillReactionsOffset + kPointerSize;
   static const int kFlagsOffset = kRejectReactionsOffset + kPointerSize;
   static const int kSize = kFlagsOffset + kPointerSize;
+  static const int kSizeWithEmbedderFields =
+      kSize + v8::Promise::kEmbedderFieldCount * kPointerSize;
 
   // Flags layout.
   static const int kHasHandlerBit = 0;
@@ -10925,6 +10927,9 @@ class JSArray: public JSObject {
   // Layout description.
   static const int kLengthOffset = JSObject::kHeaderSize;
   static const int kSize = kLengthOffset + kPointerSize;
+
+  // Max. number of elements being copied in Array builtins.
+  static const int kMaxCopyElements = 16;
 
   static const int kInitialMaxFastElementArray =
       (kMaxRegularHeapObjectSize - FixedArray::kHeaderSize - kSize -

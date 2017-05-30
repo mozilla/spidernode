@@ -10,7 +10,7 @@ To view this documentation as a manual page in a terminal, run `man node`.
 
 ## Synopsis
 
-`node [options] [v8 options] [script.js | -e "script"] [--] [arguments]`
+`node [options] [v8 options] [script.js | -e "script" | -] [--] [arguments]`
 
 `node debug [script.js | -e "script" | <host>:<port>] …`
 
@@ -112,6 +112,18 @@ added: v7.6.0
 -->
 
 Activate inspector on host:port and break at start of user script.
+Default host:port is 127.0.0.1:9229.
+
+
+### `--inspect-port=[host:]port`
+<!-- YAML
+added: v7.6.0
+-->
+
+Set the host:port to be used when the inspector is activated.
+Useful when activating the inspector by sending the `SIGUSR1` signal.
+
+Default host is 127.0.0.1.
 
 
 ### `--no-deprecation`
@@ -278,8 +290,8 @@ added: v0.1.3
 
 Print v8 command line options.
 
-Note: v8 options allow words to be separated by both dashes (`-`) or underscores
-(`_`).
+*Note*: V8 options allow words to be separated by both dashes (`-`) or
+underscores (`_`).
 
 For example, `--stack-trace-limit` is equivalent to `--stack_trace_limit`.
 
@@ -345,6 +357,17 @@ added: v0.11.15
 
 Specify ICU data load path. (overrides `NODE_ICU_DATA`)
 
+
+### `-`
+<!-- YAML
+added: REPLACEME
+-->
+
+Alias for stdin, analogous to the use of - in other command line utilities,
+meaning that the script will be read from stdin, and the rest of the options
+are passed to that script.
+
+
 ### `--`
 <!-- YAML
 added: v7.5.0
@@ -371,7 +394,7 @@ added: v0.1.32
 
 `':'`-separated list of directories prefixed to the module search path.
 
-_Note: on Windows, this is a `';'`-separated list instead._
+*Note*: On Windows, this is a `';'`-separated list instead.
 
 
 ### `NODE_DISABLE_COLORS=1`
@@ -421,6 +444,7 @@ Node options that are allowed are:
 - `--redirect-warnings`
 - `--require`, `-r`
 - `--throw-deprecation`
+- `--tls-cipher-list`
 - `--trace-deprecation`
 - `--trace-events-categories`
 - `--trace-events-enabled`
@@ -501,7 +525,7 @@ added: v7.7.0
 If `--use-openssl-ca` is enabled, this overrides and sets OpenSSL's directory
 containing trusted certificates.
 
-Note: Be aware that unless the child environment is explicitly set, this
+*Note*: Be aware that unless the child environment is explicitly set, this
 evironment variable will be inherited by any child processes, and if they use
 OpenSSL, it may cause them to trust the same CAs as node.
 
@@ -513,7 +537,7 @@ added: v7.7.0
 If `--use-openssl-ca` is enabled, this overrides and sets OpenSSL's file
 containing trusted certificates.
 
-Note: Be aware that unless the child environment is explicitly set, this
+*Note*: Be aware that unless the child environment is explicitly set, this
 evironment variable will be inherited by any child processes, and if they use
 OpenSSL, it may cause them to trust the same CAs as node.
 
