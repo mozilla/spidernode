@@ -5422,7 +5422,14 @@ BytecodeEmitter::emitIteratorClose(IteratorKind iterKind /* = IteratorKind::Sync
     checkTypeSet(JSOP_CALL);
 
     if (iterKind == IteratorKind::Async) {
-        if (!emitAwait())                                 // ... ... RESULT
+        if (completionKind != CompletionKind::Throw) {
+            // Await clobbers rval, so save the current rval.
+            if (!emit1(JSOP_GETRVAL))                     // ... ... RESULT RVAL
+                return false;
+            if (!emit1(JSOP_SWAP))                        // ... ... RVAL RESULT
+                return false;
+        }
+        if (!emitAwait())                                 // ... ... RVAL? RESULT
             return false;
     }
 
@@ -5450,8 +5457,15 @@ BytecodeEmitter::emitIteratorClose(IteratorKind iterKind /* = IteratorKind::Sync
         if (!emitPopN(2))                                 // ... RESULT
             return false;
     } else {
-        if (!emitCheckIsObj(CheckIsObjectKind::IteratorReturn)) // ... RESULT
+        if (!emitCheckIsObj(CheckIsObjectKind::IteratorReturn)) // ... RVAL? RESULT
             return false;
+
+        if (iterKind == IteratorKind::Async) {
+            if (!emit1(JSOP_SWAP))                        // ... RESULT RVAL
+                return false;
+            if (!emit1(JSOP_SETRVAL))                     // ... RESULT
+                return false;
+        }
     }
 
     if (!ifReturnMethodIsDefined.emitElse())
@@ -5894,7 +5908,7 @@ BytecodeEmitter::emitDestructuringOpsObject(ParseNode* pattern, DestructuringFla
 
     MOZ_ASSERT(this->stackDepth > 0);                             // ... RHS
 
-    if (!emitRequireObjectCoercible())                            // ... RHS
+    if (!emit1(JSOP_CHECKOBJCOERCIBLE))                           // ... RHS
         return false;
 
     bool needsRestPropertyExcludedSet = pattern->pn_count > 1 &&
@@ -6927,42 +6941,6 @@ BytecodeEmitter::emitWith(ParseNode* pn)
         return false;
 
     return emitterScope.leave(this);
-}
-
-bool
-BytecodeEmitter::emitRequireObjectCoercible()
-{
-    // For simplicity, handle this in self-hosted code, at cost of 13 bytes of
-    // bytecode versus 1 byte for a dedicated opcode.  As more places need this
-    // behavior, we may want to reconsider this tradeoff.
-
-#ifdef DEBUG
-    auto depth = this->stackDepth;
-#endif
-    MOZ_ASSERT(depth > 0);                 // VAL
-    if (!emit1(JSOP_DUP))                  // VAL VAL
-        return false;
-
-    // Note that "intrinsic" is a misnomer: we're calling a *self-hosted*
-    // function that's not an intrinsic!  But it nonetheless works as desired.
-    if (!emitAtomOp(cx->names().RequireObjectCoercible,
-                    JSOP_GETINTRINSIC))    // VAL VAL REQUIREOBJECTCOERCIBLE
-    {
-        return false;
-    }
-    if (!emit1(JSOP_UNDEFINED))            // VAL VAL REQUIREOBJECTCOERCIBLE UNDEFINED
-        return false;
-    if (!emit2(JSOP_PICK, 2))              // VAL REQUIREOBJECTCOERCIBLE UNDEFINED VAL
-        return false;
-    if (!emitCall(JSOP_CALL_IGNORES_RV, 1))// VAL IGNORED
-        return false;
-    checkTypeSet(JSOP_CALL_IGNORES_RV);
-
-    if (!emit1(JSOP_POP))                  // VAL
-        return false;
-
-    MOZ_ASSERT(depth == this->stackDepth);
-    return true;
 }
 
 bool
@@ -10723,7 +10701,15 @@ BytecodeEmitter::emitClass(ParseNode* pn)
         // offsets in the source buffer as source notes so that when we
         // actually make the constructor during execution, we can give it the
         // correct toString output.
-        if (!newSrcNote3(SRC_CLASS_SPAN, ptrdiff_t(pn->pn_pos.begin), ptrdiff_t(pn->pn_pos.end)))
+        //
+        // Token positions are already offset from the start column. Since
+        // toString offsets are absolute offsets into the ScriptSource,
+        // de-offset from the starting column.
+        ptrdiff_t classStart = ptrdiff_t(pn->pn_pos.begin) -
+                               tokenStream().options().sourceStartColumn;
+        ptrdiff_t classEnd = ptrdiff_t(pn->pn_pos.end) -
+                             tokenStream().options().sourceStartColumn;
+        if (!newSrcNote3(SRC_CLASS_SPAN, classStart, classEnd))
             return false;
 
         JSAtom *name = names ? names->innerBinding()->pn_atom : cx->names().empty;
