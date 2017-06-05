@@ -33,21 +33,28 @@ namespace wasm {
 // LinkData is built incrementing by ModuleGenerator and then stored immutably
 // in Module.
 
-struct LinkDataCacheablePod
+struct LinkDataTierCacheablePod
 {
     uint32_t functionCodeLength;
-    uint32_t globalDataLength;
     uint32_t interruptOffset;
     uint32_t outOfBoundsOffset;
     uint32_t unalignedAccessOffset;
 
-    LinkDataCacheablePod() { mozilla::PodZero(this); }
+    LinkDataTierCacheablePod() { mozilla::PodZero(this); }
 };
 
-struct LinkData : LinkDataCacheablePod
+struct LinkDataTier : LinkDataTierCacheablePod
 {
-    LinkDataCacheablePod& pod() { return *this; }
-    const LinkDataCacheablePod& pod() const { return *this; }
+    const Tier tier;
+
+    explicit LinkDataTier(Tier tier)
+      : tier(tier)
+    {
+        MOZ_ASSERT(tier == Tier::Baseline || tier == Tier::Ion);
+    }
+
+    LinkDataTierCacheablePod& pod() { return *this; }
+    const LinkDataTierCacheablePod& pod() const { return *this; }
 
     struct InternalLink {
         enum Kind {
@@ -74,8 +81,24 @@ struct LinkData : LinkDataCacheablePod
     WASM_DECLARE_SERIALIZABLE(LinkData)
 };
 
-typedef UniquePtr<LinkData> UniqueLinkData;
-typedef UniquePtr<const LinkData> UniqueConstLinkData;
+typedef UniquePtr<LinkDataTier> UniqueLinkDataTier;
+
+struct LinkData
+{
+    // `tier_` will become more complicated once tiering is implemented.
+    UniqueLinkDataTier tier_;
+
+    LinkData() : tier_(nullptr) {}
+
+    // Construct the tier_ object.
+    bool initTier(Tier tier);
+
+    Tiers tiers() const;
+    const LinkDataTier& linkData(Tier tier) const;
+    LinkDataTier& linkData(Tier tier);
+
+    WASM_DECLARE_SERIALIZABLE(LinkData)
+};
 
 // Module represents a compiled wasm module and primarily provides two
 // operations: instantiation and serialization. A Module can be instantiated any
@@ -145,11 +168,13 @@ class Module : public JS::WasmModule
     }
     ~Module() override { /* Note: can be called on any thread */ }
 
+    const Code& code() const { return *code_; }
     const Metadata& metadata() const { return code_->metadata(); }
+    const MetadataTier& metadata(Tier t) const { return code_->metadata(t); }
     const ImportVector& imports() const { return imports_; }
     const ExportVector& exports() const { return exports_; }
     const Bytes& bytecode() const { return bytecode_->bytes; }
-    uint32_t codeLength() const { return code_->segment().length(); }
+    uint32_t codeLength(Tier t) const { return code_->segment(t).length(); }
 
     // Instantiate this module with the given imports:
 
