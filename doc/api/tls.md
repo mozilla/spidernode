@@ -750,10 +750,10 @@ decrease overall server throughput.
 <!-- YAML
 added: v0.11.3
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/12839
     description: The `lookup` option is supported now.
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11984
     description: The `ALPNProtocols` and `NPNProtocols` options can
                  be `Uint8Array`s now.
@@ -782,7 +782,7 @@ changes:
     verification fails; `err.code` contains the OpenSSL error code. Defaults to
     `true`.
   * `NPNProtocols` {string[]|Buffer[]|Uint8Array[]|Buffer|Uint8Array}
-    An array of strings, Buffer`s or `Uint8Array`s, or a single `Buffer` or
+    An array of strings, `Buffer`s or `Uint8Array`s, or a single `Buffer` or
     `Uint8Array` containing supported NPN protocols. `Buffer`s should have the
     format `[len][name][len][name]...` e.g. `0x05hello0x05world`, where the
     first byte is the length of the next protocol name. Passing an array is
@@ -1013,7 +1013,7 @@ publicly trusted list of CAs as given in
 <!-- YAML
 added: v0.3.2
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11984
     description: The `ALPNProtocols` and `NPNProtocols` options can
                  be `Uint8Array`s now.
@@ -1034,7 +1034,7 @@ changes:
     connection which is not authorized with the list of supplied CAs. This
     option only has an effect if `requestCert` is `true`. Defaults to `true`.
   * `NPNProtocols` {string[]|Buffer[]|Uint8Array[]|Buffer|Uint8Array}
-    An array of strings, Buffer`s or `Uint8Array`s, or a single `Buffer` or
+    An array of strings, `Buffer`s or `Uint8Array`s, or a single `Buffer` or
     `Uint8Array` containing supported NPN protocols. `Buffer`s should have the
     format `[len][name][len][name]...` e.g. `0x05hello0x05world`, where the
     first byte is the length of the next protocol name. Passing an array is

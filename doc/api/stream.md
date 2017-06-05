@@ -353,7 +353,7 @@ See also: [`writable.uncork()`][].
 <!-- YAML
 added: v0.9.4
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11608
     description: The `chunk` argument can now be a `Uint8Array` instance.
 -->
@@ -439,7 +439,7 @@ See also: [`writable.cork()`][].
 <!-- YAML
 added: v0.9.4
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11608
     description: The `chunk` argument can now be a `Uint8Array` instance.
   - version: v6.0.0
@@ -512,7 +512,7 @@ A Writable stream in object mode will always ignore the `encoding` argument.
 
 ##### writable.destroy([error])
 <!-- YAML
-added: REPLACEME
+added: v8.0.0
 -->
 
 Destroy the stream, and emit the passed error. After this call, the
@@ -595,9 +595,8 @@ possible states:
 * `readable._readableState.flowing = true`
 
 When `readable._readableState.flowing` is `null`, no mechanism for consuming the
-streams data is provided so the stream will not generate its data.
-
-Attaching a listener for the `'data'` event, calling the `readable.pipe()`
+streams data is provided so the stream will not generate its data. While in this
+state, attaching a listener for the `'data'` event, calling the `readable.pipe()`
 method, or calling the `readable.resume()` method will switch
 `readable._readableState.flowing` to `true`, causing the Readable to begin
 actively emitting events as data is generated.
@@ -605,7 +604,22 @@ actively emitting events as data is generated.
 Calling `readable.pause()`, `readable.unpipe()`, or receiving "back pressure"
 will cause the `readable._readableState.flowing` to be set as `false`,
 temporarily halting the flowing of events but *not* halting the generation of
-data.
+data. While in this state, attaching a listener for the `'data'` event
+would not cause `readable._readableState.flowing` to switch to `true`.
+
+```js
+const { PassThrough, Writable } = require('stream');
+const pass = new PassThrough();
+const writable = new Writable();
+
+pass.pipe(writable);
+pass.unpipe(writable);
+// flowing is now false
+
+pass.on('data', (chunk) => { console.log(chunk.toString()); });
+pass.write('ok'); // will not emit 'data'
+pass.resume(); // must be called to make 'data' being emitted
+```
 
 While `readable._readableState.flowing` is `false`, data may be accumulating
 within the streams internal buffer.
@@ -754,7 +768,8 @@ end
 ```
 
 *Note*: In general, the `readable.pipe()` and `'data'` event mechanisms are
-preferred over the use of the `'readable'` event.
+easier to understand than the `'readable'` event.
+However, handling `'readable'` might result in increased throughput.
 
 ##### readable.isPaused()
 <!-- YAML
@@ -997,7 +1012,7 @@ setTimeout(() => {
 <!-- YAML
 added: v0.9.11
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11608
     description: The `chunk` argument can now be a `Uint8Array` instance.
 -->
@@ -1023,7 +1038,7 @@ section for more information.
 // Pull off a header delimited by \n\n
 // use unshift() if we get too much
 // Call the callback with (error, header, stream)
-const StringDecoder = require('string_decoder').StringDecoder;
+const { StringDecoder } = require('string_decoder');
 function parseHeader(stream, callback) {
   stream.on('error', callback);
   stream.on('readable', onReadable);
@@ -1087,8 +1102,8 @@ libraries.
 For example:
 
 ```js
-const OldReader = require('./old-api-module.js').OldReader;
-const Readable = require('stream').Readable;
+const { OldReader } = require('./old-api-module.js');
+const { Readable } = require('stream');
 const oreader = new OldReader();
 const myReader = new Readable().wrap(oreader);
 
@@ -1099,7 +1114,7 @@ myReader.on('readable', () => {
 
 ##### readable.destroy([error])
 <!-- YAML
-added: REPLACEME
+added: v8.0.0
 -->
 
 Destroy the stream, and emit `'error'`. After this call, the
@@ -1148,7 +1163,7 @@ Examples of Transform streams include:
 
 ##### transform.destroy([error])
 <!-- YAML
-added: REPLACEME
+added: v8.0.0
 -->
 
 Destroy the stream, and emit `'error'`. After this call, the
@@ -1170,7 +1185,7 @@ of the four basic stream classes (`stream.Writable`, `stream.Readable`,
 parent class constructor:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 class MyWritable extends Writable {
   constructor(options) {
@@ -1264,7 +1279,7 @@ objects and passing appropriate methods as constructor options.
 For example:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 const myWritable = new Writable({
   write(chunk, encoding, callback) {
@@ -1307,7 +1322,7 @@ constructor and implement the `writable._write()` method. The
 For example:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 class MyWritable extends Writable {
   constructor(options) {
@@ -1321,7 +1336,7 @@ class MyWritable extends Writable {
 Or, when using pre-ES6 style constructors:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 const util = require('util');
 
 function MyWritable(options) {
@@ -1335,7 +1350,7 @@ util.inherits(MyWritable, Writable);
 Or, using the Simplified Constructor approach:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 const myWritable = new Writable({
   write(chunk, encoding, callback) {
@@ -1415,7 +1430,7 @@ user programs.
 
 #### writable.\_destroy(err, callback)
 <!-- YAML
-added: REPLACEME
+added: v8.0.0
 -->
 
 * `err` {Error} An error.
@@ -1424,7 +1439,7 @@ added: REPLACEME
 
 #### writable.\_final(callback)
 <!-- YAML
-added: REPLACEME
+added: v8.0.0
 -->
 
 * `callback` {Function} Call this function (optionally with an error
@@ -1449,7 +1464,7 @@ on how the stream is being used.  Using the callback ensures consistent and
 predictable handling of errors.
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 const myWritable = new Writable({
   write(chunk, encoding, callback) {
@@ -1470,7 +1485,7 @@ is not of any real particular usefulness, the example illustrates each of the
 required elements of a custom [Writable][] stream instance:
 
 ```js
-const Writable = require('stream').Writable;
+const { Writable } = require('stream');
 
 class MyWritable extends Writable {
   constructor(options) {
@@ -1514,7 +1529,7 @@ constructor and implement the `readable._read()` method.
 For example:
 
 ```js
-const Readable = require('stream').Readable;
+const { Readable } = require('stream');
 
 class MyReadable extends Readable {
   constructor(options) {
@@ -1528,7 +1543,7 @@ class MyReadable extends Readable {
 Or, when using pre-ES6 style constructors:
 
 ```js
-const Readable = require('stream').Readable;
+const { Readable } = require('stream');
 const util = require('util');
 
 function MyReadable(options) {
@@ -1542,7 +1557,7 @@ util.inherits(MyReadable, Readable);
 Or, using the Simplified Constructor approach:
 
 ```js
-const Readable = require('stream').Readable;
+const { Readable } = require('stream');
 
 const myReadable = new Readable({
   read(size) {
@@ -1585,7 +1600,7 @@ user programs.
 #### readable.push(chunk[, encoding])
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/11608
     description: The `chunk` argument can now be a `Uint8Array` instance.
 -->
@@ -1661,7 +1676,7 @@ consistent and predictable handling of errors.
 
 <!-- eslint-disable no-useless-return -->
 ```js
-const Readable = require('stream').Readable;
+const { Readable } = require('stream');
 
 const myReadable = new Readable({
   read(size) {
@@ -1682,7 +1697,7 @@ The following is a basic example of a Readable stream that emits the numerals
 from 1 to 1,000,000 in ascending order, and then ends.
 
 ```js
-const Readable = require('stream').Readable;
+const { Readable } = require('stream');
 
 class Counter extends Readable {
   constructor(opt) {
@@ -1739,7 +1754,7 @@ constructor and implement *both* the `readable._read()` and
 For example:
 
 ```js
-const Duplex = require('stream').Duplex;
+const { Duplex } = require('stream');
 
 class MyDuplex extends Duplex {
   constructor(options) {
@@ -1752,7 +1767,7 @@ class MyDuplex extends Duplex {
 Or, when using pre-ES6 style constructors:
 
 ```js
-const Duplex = require('stream').Duplex;
+const { Duplex } = require('stream');
 const util = require('util');
 
 function MyDuplex(options) {
@@ -1766,7 +1781,7 @@ util.inherits(MyDuplex, Duplex);
 Or, using the Simplified Constructor approach:
 
 ```js
-const Duplex = require('stream').Duplex;
+const { Duplex } = require('stream');
 
 const myDuplex = new Duplex({
   read(size) {
@@ -1789,7 +1804,7 @@ incoming written data via the [Writable][] interface that is read back out
 via the [Readable][] interface.
 
 ```js
-const Duplex = require('stream').Duplex;
+const { Duplex } = require('stream');
 const kSource = Symbol('source');
 
 class MyDuplex extends Duplex {
@@ -1830,7 +1845,7 @@ that accepts JavaScript numbers that are converted to hexadecimal strings on
 the Readable side.
 
 ```js
-const Transform = require('stream').Transform;
+const { Transform } = require('stream');
 
 // All Transform streams are also Duplex Streams
 const myTransform = new Transform({
@@ -1895,7 +1910,7 @@ the output on the Readable side is not consumed.
 For example:
 
 ```js
-const Transform = require('stream').Transform;
+const { Transform } = require('stream');
 
 class MyTransform extends Transform {
   constructor(options) {
@@ -1908,7 +1923,7 @@ class MyTransform extends Transform {
 Or, when using pre-ES6 style constructors:
 
 ```js
-const Transform = require('stream').Transform;
+const { Transform } = require('stream');
 const util = require('util');
 
 function MyTransform(options) {
@@ -1922,7 +1937,7 @@ util.inherits(MyTransform, Transform);
 Or, using the Simplified Constructor approach:
 
 ```js
-const Transform = require('stream').Transform;
+const { Transform } = require('stream');
 
 const myTransform = new Transform({
   transform(chunk, encoding, callback) {
