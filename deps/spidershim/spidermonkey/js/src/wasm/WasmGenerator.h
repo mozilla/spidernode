@@ -89,12 +89,6 @@ class FuncBytes
 typedef UniquePtr<FuncBytes> UniqueFuncBytes;
 typedef Vector<UniqueFuncBytes, 8, SystemAllocPolicy> UniqueFuncBytesVector;
 
-enum class CompileMode
-{
-    Baseline,
-    Ion
-};
-
 // FuncCompileUnit contains all the data necessary to produce and store the
 // results of a single function's compilation.
 
@@ -137,7 +131,7 @@ typedef Vector<FuncCompileUnit, 8, SystemAllocPolicy> FuncCompileUnitVector;
 class CompileTask
 {
     const ModuleEnvironment&   env_;
-    CompileMode                mode_;
+    Tier                       tier_;
     LifoAlloc                  lifo_;
     Maybe<jit::TempAllocator>  alloc_;
     Maybe<jit::MacroAssembler> masm_;
@@ -154,11 +148,12 @@ class CompileTask
     }
 
   public:
-    CompileTask(const ModuleEnvironment& env, CompileMode mode, size_t defaultChunkSize)
+    CompileTask(const ModuleEnvironment& env, Tier tier, size_t defaultChunkSize)
       : env_(env),
-        mode_(mode),
+        tier_(tier),
         lifo_(defaultChunkSize)
     {
+        MOZ_ASSERT(tier == Tier::Baseline || tier == Tier::Ion);
         init();
     }
     LifoAlloc& lifo() {
@@ -176,8 +171,8 @@ class CompileTask
     FuncCompileUnitVector& units() {
         return units_;
     }
-    CompileMode mode() const {
-        return mode_;
+    Tier tier() const {
+        return tier_;
     }
     bool debugEnabled() const {
         return debugEnabled_;
@@ -215,12 +210,14 @@ class MOZ_STACK_CLASS ModuleGenerator
     typedef EnumeratedArray<Trap, Trap::Limit, CallableOffsets> TrapExitOffsetArray;
 
     // Constant parameters
-    CompileMode                     compileMode_;
+    Tier                            tier_;
     UniqueChars*                    error_;
 
     // Data that is moved into the result of finish()
     Assumptions                     assumptions_;
+    LinkDataTier*                   linkDataTier_; // Owned by linkData_
     LinkData                        linkData_;
+    MetadataTier*                   metadataTier_; // Owned by metadata_
     MutableMetadata                 metadata_;
 
     // Data scoped to the ModuleGenerator's lifetime
