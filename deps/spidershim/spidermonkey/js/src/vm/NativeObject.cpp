@@ -115,7 +115,7 @@ ObjectElements::FreezeElements(JSContext* cx, HandleNativeObject obj)
         return true;
 
     if (obj->getElementsHeader()->numShiftedElements() > 0)
-        obj->unshiftElements();
+        obj->moveShiftedElements();
 
     ObjectElements* header = obj->getElementsHeader();
 
@@ -707,7 +707,7 @@ NativeObject::maybeDensifySparseElements(JSContext* cx, HandleNativeObject obj)
 }
 
 void
-NativeObject::unshiftElements()
+NativeObject::moveShiftedElements()
 {
     ObjectElements* header = getElementsHeader();
     uint32_t numShifted = header->numShiftedElements();
@@ -723,7 +723,7 @@ NativeObject::unshiftElements()
     elements_ = newHeader->elements();
 
     // To move the elements, temporarily update initializedLength to include
-    // both shifted and unshifted elements.
+    // the shifted elements.
     newHeader->initializedLength += numShifted;
 
     // Move the elements. Initialize to |undefined| to ensure pre-barriers
@@ -739,14 +739,14 @@ NativeObject::unshiftElements()
 }
 
 void
-NativeObject::maybeUnshiftElements()
+NativeObject::maybeMoveShiftedElements()
 {
     ObjectElements* header = getElementsHeader();
     MOZ_ASSERT(header->numShiftedElements() > 0);
 
-    // Unshift if less than a third of the allocated space is in use.
+    // Move the elements if less than a third of the allocated space is in use.
     if (header->capacity < header->numAllocatedElements() / 3)
-        unshiftElements();
+        moveShiftedElements();
 }
 
 // Given a requested capacity (in elements) and (potentially) the length of an
@@ -847,22 +847,31 @@ NativeObject::growElements(JSContext* cx, uint32_t reqCapacity)
     if (denseElementsAreCopyOnWrite())
         MOZ_CRASH();
 
-    // If there are shifted elements, consider unshifting them first. If we
-    // don't unshift here, the code below will include the shifted elements in
-    // the resize.
+    // If there are shifted elements, consider moving them first. If we don't
+    // move them here, the code below will include the shifted elements in the
+    // resize.
     uint32_t numShifted = getElementsHeader()->numShiftedElements();
     if (numShifted > 0) {
-        maybeUnshiftElements();
+        // If the number of elements is small, it's cheaper to just move them as
+        // it may avoid a malloc/realloc. Note that there's no technical reason
+        // for using this particular value, but it works well in real-world use
+        // cases.
+        static const size_t MaxElementsToMoveEagerly = 20;
+
+        if (getElementsHeader()->initializedLength <= MaxElementsToMoveEagerly)
+            moveShiftedElements();
+        else
+            maybeMoveShiftedElements();
         if (getDenseCapacity() >= reqCapacity)
             return true;
         numShifted = getElementsHeader()->numShiftedElements();
 
-        // Ensure |reqCapacity + numShifted| below won't overflow by forcing an
-        // unshift in that case.
+        // If |reqCapacity + numShifted| overflows, we just move all shifted
+        // elements to avoid the problem.
         CheckedInt<uint32_t> checkedReqCapacity(reqCapacity);
         checkedReqCapacity += numShifted;
         if (MOZ_UNLIKELY(!checkedReqCapacity.isValid())) {
-            unshiftElements();
+            moveShiftedElements();
             numShifted = 0;
         }
     }
@@ -932,10 +941,10 @@ NativeObject::shrinkElements(JSContext* cx, uint32_t reqCapacity)
     if (!hasDynamicElements())
         return;
 
-    // If we have shifted elements, consider unshifting them.
+    // If we have shifted elements, consider moving them.
     uint32_t numShifted = getElementsHeader()->numShiftedElements();
     if (numShifted > 0) {
-        maybeUnshiftElements();
+        maybeMoveShiftedElements();
         numShifted = getElementsHeader()->numShiftedElements();
     }
 
@@ -1408,9 +1417,8 @@ GetExistingPropertyValue(JSContext* cx, HandleNativeObject obj, HandleId id,
 }
 
 /*
- * If ES6 draft rev 37 9.1.6.3 ValidateAndApplyPropertyDescriptor step 4 would
- * return early, because desc is redundant with an existing own property obj[id],
- * then set *redundant = true and return true.
+ * If desc is redundant with an existing own property obj[id], then set
+ * |*redundant = true| and return true.
  */
 static bool
 DefinePropertyIsRedundant(JSContext* cx, HandleNativeObject obj, HandleId id,
@@ -1419,14 +1427,14 @@ DefinePropertyIsRedundant(JSContext* cx, HandleNativeObject obj, HandleId id,
 {
     *redundant = false;
 
-    if (desc.hasConfigurable() && desc.configurable() != ((shapeAttrs & JSPROP_PERMANENT) == 0))
+    if (desc.hasConfigurable() && desc.configurable() != IsConfigurable(shapeAttrs))
         return true;
-    if (desc.hasEnumerable() && desc.enumerable() != ((shapeAttrs & JSPROP_ENUMERATE) != 0))
+    if (desc.hasEnumerable() && desc.enumerable() != IsEnumerable(shapeAttrs))
         return true;
     if (desc.isDataDescriptor()) {
-        if ((shapeAttrs & (JSPROP_GETTER | JSPROP_SETTER)) != 0)
+        if (IsAccessorDescriptor(shapeAttrs))
             return true;
-        if (desc.hasWritable() && desc.writable() != ((shapeAttrs & JSPROP_READONLY) == 0))
+        if (desc.hasWritable() && desc.writable() != IsWritable(shapeAttrs))
             return true;
         if (desc.hasValue()) {
             // Get the current value of the existing property.
@@ -1444,8 +1452,8 @@ DefinePropertyIsRedundant(JSContext* cx, HandleNativeObject obj, HandleId id,
                     return false;
             }
 
-            // The specification calls for SameValue here, but it seems to be a
-            // bug. See <https://bugs.ecmascript.org/show_bug.cgi?id=3508>.
+            // Don't call SameValue here to ensure we properly update distinct
+            // NaN values.
             if (desc.value() != currentValue)
                 return true;
         }
@@ -1483,7 +1491,8 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
 {
     desc_.assertValid();
 
-    // Section numbers and step numbers below refer to ES2016.
+    // Section numbers and step numbers below refer to ES2018, draft rev
+    // 540b827fccf6122a984be99ab9af7be20e3b5562.
     //
     // This function aims to implement 9.1.6 [[DefineOwnProperty]] as well as
     // the [[DefineOwnProperty]] methods described in 9.4.2.1 (arrays), 9.4.4.2
@@ -1520,8 +1529,8 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             // Either we are resolving the .length property on this object, or
             // redefining it. In the latter case only, we must set a bit. To
             // distinguish the two cases, we note that when resolving, the
-            // property won't already exist; whereas the first time it is
-            // redefined, it will.
+            // JSPROP_RESOLVING mask is set; whereas the first time it is
+            // redefined, it isn't set.
             if ((desc_.attributes() & JSPROP_RESOLVING) == 0)
                 obj->as<ArgumentsObject>().markLengthOverridden();
         } else if (JSID_IS_SYMBOL(id) && JSID_TO_SYMBOL(id) == cx->wellKnownSymbols().iterator) {
@@ -1569,7 +1578,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
         return result.succeed();
     }
 
-    // Steps 3-4. (Step 3 is a special case of step 4.) We use shapeAttrs as a
+    // Step 3 and 7.a.i.3, 8.a.iii, 10 (partially). We use shapeAttrs as a
     // stand-in for shape in many places below, since shape might not be a
     // pointer to a real Shape (see IsImplicitDenseOrTypedArrayElement).
     unsigned shapeAttrs = GetPropertyAttributes(obj, prop);
@@ -1596,7 +1605,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
                               obj->is<GlobalObject>() &&
                               !obj->getClass()->isDOMClass();
 
-    // Step 5.
+    // Step 4.
     if (!IsConfigurable(shapeAttrs) && !skipRedefineChecks) {
         if (desc.hasConfigurable() && desc.configurable())
             return result.fail(JSMSG_CANT_REDEFINE_PROP);
@@ -1610,9 +1619,9 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
     if (!desc.hasEnumerable())
         desc.setEnumerable(IsEnumerable(shapeAttrs));
 
-    // Steps 6-9.
+    // Steps 5-8.
     if (desc.isGenericDescriptor()) {
-        // Step 6. No further validation is required.
+        // Step 5. No further validation is required.
 
         // Fill in desc. A generic descriptor has none of these fields, so copy
         // everything from shape.
@@ -1631,7 +1640,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             desc.setSetterObject(prop.shape()->setterObject());
         }
     } else if (desc.isDataDescriptor() != IsDataDescriptor(shapeAttrs)) {
-        // Step 7.
+        // Step 6.
         if (!IsConfigurable(shapeAttrs) && !skipRedefineChecks)
             return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
@@ -1642,11 +1651,13 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             prop.setNativeProperty(obj->lookup(cx, id));
         }
 
-        // Fill in desc fields with default values (steps 7.b.i and 7.c.i).
+        // Fill in desc fields with default values (steps 6.b.i and 6.c.i).
         CompletePropertyDescriptor(&desc);
     } else if (desc.isDataDescriptor()) {
-        // Step 8.
+        // Step 7.
         bool frozen = !IsConfigurable(shapeAttrs) && !IsWritable(shapeAttrs);
+
+        // Step 7.a.i.1.
         if (frozen && desc.hasWritable() && desc.writable() && !skipRedefineChecks)
             return result.fail(JSMSG_CANT_REDEFINE_PROP);
 
@@ -1666,7 +1677,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
                 // Fill in desc.[[Value]].
                 desc.setValue(currentValue);
             } else {
-                // Step 8.a.ii.1.
+                // Step 7.a.i.2.
                 bool same;
                 MOZ_ASSERT(!cx->helperThread());
                 if (!SameValue(cx, desc.value(), currentValue, &same))
@@ -1676,16 +1687,21 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             }
         }
 
+        // Step 7.a.i.3.
+        if (frozen && !skipRedefineChecks)
+            return result.succeed();
+
         if (!desc.hasWritable())
             desc.setWritable(IsWritable(shapeAttrs));
     } else {
-        // Step 9.
+        // Step 8.
         MOZ_ASSERT(prop.shape()->isAccessorDescriptor());
         MOZ_ASSERT(desc.isAccessorDescriptor());
 
         // The spec says to use SameValue, but since the values in
         // question are objects, we can just compare pointers.
         if (desc.hasSetterObject()) {
+            // Step 8.a.i.
             if (!IsConfigurable(shapeAttrs) &&
                 desc.setterObject() != prop.shape()->setterObject() &&
                 !skipRedefineChecks)
@@ -1697,6 +1713,7 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             desc.setSetterObject(prop.shape()->setterObject());
         }
         if (desc.hasGetterObject()) {
+            // Step 8.a.ii.
             if (!IsConfigurable(shapeAttrs) &&
                 desc.getterObject() != prop.shape()->getterObject() &&
                 !skipRedefineChecks)
@@ -1707,11 +1724,15 @@ js::NativeDefineProperty(JSContext* cx, HandleNativeObject obj, HandleId id,
             // Fill in desc.[[Get]] from shape.
             desc.setGetterObject(prop.shape()->getterObject());
         }
+
+        // Step 8.a.iii (Omitted).
     }
 
-    // Step 10.
+    // Step 9.
     if (!AddOrChangeProperty<IsAddOrChange::AddOrChange>(cx, obj, id, desc))
         return false;
+
+    // Step 10.
     return result.succeed();
 }
 

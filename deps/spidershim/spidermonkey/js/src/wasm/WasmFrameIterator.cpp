@@ -74,6 +74,7 @@ FrameIterator::FrameIterator(WasmActivation* activation, Unwind unwind)
 
     code_ = activation_->compartment()->wasm.lookupCode(activation->resumePC());
     MOZ_ASSERT(code_);
+    MOZ_ASSERT(&fp_->tls->instance->code() == code_);
 
     codeRange_ = code_->lookupRange(activation->resumePC());
     MOZ_ASSERT(codeRange_->kind() == CodeRange::Function);
@@ -979,7 +980,7 @@ wasm::LookupFaultingInstance(WasmActivation* activation, void* pc, void* fp)
 }
 
 WasmActivation*
-wasm::MaybeActiveActivation(JSContext* cx)
+wasm::ActivationIfInnermost(JSContext* cx)
 {
     // WasmCall pushes both an outer WasmActivation and an inner JitActivation
     // that only becomes active when calling JIT code.
