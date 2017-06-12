@@ -375,9 +375,10 @@ GeckoProfilerEntryMarker::GeckoProfilerEntryMarker(JSRuntime* rt,
     spBefore_ = profiler->stackPointer();
 
     // We want to push a CPP frame so the profiler can correctly order JS and native stacks.
+    // Only the sp value is important.
     profiler->pseudoStack_->pushCppFrame(
-        "js::RunScript", /* dynamicString = */ nullptr, /* sp = */ this, /* line = */ 0,
-        js::ProfileEntry::Category::OTHER, js::ProfileEntry::BEGIN_PSEUDO_JS);
+        /* label = */ "", /* dynamicString = */ nullptr, /* sp = */ this, /* line = */ 0,
+        ProfileEntry::Kind::CPP_MARKER_FOR_JS, ProfileEntry::Category::OTHER);
 
     profiler->pseudoStack_->pushJsFrame(
         "js::RunScript", /* dynamicString = */ nullptr, script, script->code());
@@ -407,10 +408,7 @@ AutoGeckoProfilerEntry::AutoGeckoProfilerEntry(JSRuntime* rt, const char* label,
 
     profiler_->pseudoStack_->pushCppFrame(
         label, /* dynamicString = */ nullptr, /* sp = */ this, /* line = */ 0,
-        js::ProfileEntry::Category::OTHER, js::ProfileEntry::BEGIN_PSEUDO_JS);
-
-    profiler_->pseudoStack_->pushCppFrame(
-        label, /* dynamicString = */ nullptr, /* sp = */ this, /* line = */ 0, category);
+        ProfileEntry::Kind::CPP_NORMAL, category);
 }
 
 AutoGeckoProfilerEntry::~AutoGeckoProfilerEntry()
@@ -418,8 +416,7 @@ AutoGeckoProfilerEntry::~AutoGeckoProfilerEntry()
     if (!profiler_)
         return;
 
-    profiler_->pseudoStack_->pop();   // the C++ frame
-    profiler_->pseudoStack_->pop();   // the BEGIN_PSEUDO_JS frame
+    profiler_->pseudoStack_->pop();
     MOZ_ASSERT(spBefore_ == profiler_->stackPointer());
 }
 
@@ -444,8 +441,8 @@ GeckoProfilerBaselineOSRMarker::GeckoProfilerBaselineOSRMarker(JSRuntime* rt, bo
         return;
 
     volatile ProfileEntry& entry = profiler->pseudoStack_->entries[sp - 1];
-    MOZ_ASSERT(entry.isJs());
-    entry.setOSR();
+    MOZ_ASSERT(entry.kind() == ProfileEntry::Kind::JS_NORMAL);
+    entry.setKind(ProfileEntry::Kind::JS_OSR);
 }
 
 GeckoProfilerBaselineOSRMarker::~GeckoProfilerBaselineOSRMarker()
@@ -459,8 +456,8 @@ GeckoProfilerBaselineOSRMarker::~GeckoProfilerBaselineOSRMarker()
         return;
 
     volatile ProfileEntry& entry = profiler->stack()[sp - 1];
-    MOZ_ASSERT(entry.isJs());
-    entry.unsetOSR();
+    MOZ_ASSERT(entry.kind() == ProfileEntry::Kind::JS_OSR);
+    entry.setKind(ProfileEntry::Kind::JS_NORMAL);
 }
 
 JS_PUBLIC_API(JSScript*)
@@ -502,7 +499,7 @@ ProfileEntry::pcToOffset(JSScript* aScript, jsbytecode* aPc) {
     return aPc ? aScript->pcToOffset(aPc) : NullPCOffset;
 }
 
-JS_FRIEND_API(void)
+void
 ProfileEntry::setPC(jsbytecode* pc) volatile
 {
     MOZ_ASSERT(isJs());

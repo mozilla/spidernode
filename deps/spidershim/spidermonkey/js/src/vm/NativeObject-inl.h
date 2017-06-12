@@ -185,7 +185,7 @@ NativeObject::tryShiftDenseElements(uint32_t count)
     MOZ_ASSERT(count < header->initializedLength);
 
     if (MOZ_UNLIKELY(header->numShiftedElements() + count > ObjectElements::MaxShiftedElements)) {
-        unshiftElements();
+        moveShiftedElements();
         header = getElementsHeader();
     }
 
@@ -668,28 +668,6 @@ CallResolveOp(JSContext* cx, HandleNativeObject obj, HandleId id,
         propp.setNativeProperty(shape);
     else
         propp.setNotFound();
-
-    return true;
-}
-
-static MOZ_ALWAYS_INLINE bool
-ClassMayResolveId(const JSAtomState& names, const Class* clasp, jsid id, JSObject* maybeObj)
-{
-    MOZ_ASSERT_IF(maybeObj, maybeObj->getClass() == clasp);
-
-    if (!clasp->getResolve()) {
-        // Sanity check: we should only have a mayResolve hook if we have a
-        // resolve hook.
-        MOZ_ASSERT(!clasp->getMayResolve(), "Class with mayResolve hook but no resolve hook");
-        return false;
-    }
-
-    if (JSMayResolveOp mayResolve = clasp->getMayResolve()) {
-        // Tell the analysis our mayResolve hooks won't trigger GC.
-        JS::AutoSuppressGCAnalysis nogc;
-        if (!mayResolve(names, id, maybeObj))
-            return false;
-    }
 
     return true;
 }
