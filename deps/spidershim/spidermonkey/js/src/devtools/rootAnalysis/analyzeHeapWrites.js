@@ -217,6 +217,8 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_AddPropertyToSet", "aPropertySet", null],
         ["Gecko_CalcStyleDifference", "aAnyStyleChanged", null],
         ["Gecko_nsStyleSVG_CopyContextProperties", "aDst", null],
+        ["Gecko_nsStyleFont_PrefillDefaultForGeneric", "aFont", null],
+        ["Gecko_nsStyleSVG_SetContextPropertiesLength", "aSvg", null],
     ];
     for (var [entryMatch, varMatch, csuMatch] of whitelist) {
         assert(entryMatch || varMatch || csuMatch);
@@ -331,8 +333,8 @@ function ignoreCallEdge(entry, callee)
     // We manually lock here
     if (name == "Gecko_nsFont_InitSystem" ||
         name == "Gecko_GetFontMetrics" ||
-        name == "Gecko_nsStyleFont_FixupNoneGeneric" ||
-        name == "Gecko_nsStyleFont_FixupMinFontSize")
+        name == "Gecko_nsStyleFont_FixupMinFontSize" ||
+        /ThreadSafeGetDefaultFontHelper/.test(name))
     {
         return true;
     }
@@ -390,6 +392,7 @@ function ignoreContents(entry)
         /CSSValueSerializeCalcOps::Append/,
         "Gecko_CSSValue_SetFunction",
         "Gecko_CSSValue_SetArray",
+        "Gecko_CSSValue_InitSharedList",
         "Gecko_EnsureMozBorderColors",
         "Gecko_ClearMozBorderColors",
         "Gecko_AppendMozBorderColors",
