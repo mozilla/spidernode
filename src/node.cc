@@ -264,6 +264,9 @@ static struct {
 #if HAVE_INSPECTOR
   bool StartInspector(Environment *env, const char* script_path,
                       const node::DebugOptions& options) {
+    // Inspector agent can't fail to start, but if it was configured to listen
+    // right away on the websocket port and fails to bind/etc, this will return
+    // false.
     return env->inspector_agent()->Start(platform_, script_path, options);
   }
 
@@ -3056,8 +3059,8 @@ static void DebugPortGetter(Local<Name> property,
 #if HAVE_INSPECTOR
   if (port == 0) {
     Environment* env = Environment::GetCurrent(info);
-    if (env->inspector_agent()->IsStarted())
-      port = env->inspector_agent()->io()->port();
+    if (auto io = env->inspector_agent()->io())
+      port = io->port();
   }
 #endif  // HAVE_INSPECTOR
   info.GetReturnValue().Set(port);
@@ -3405,13 +3408,7 @@ void SetupProcessObject(Environment* env,
     READONLY_PROPERTY(process, "traceDeprecation", True(env->isolate()));
   }
 
-  // TODO(refack): move the following 4 to `node_config`
-  // --inspect
-  if (debug_options.inspector_enabled()) {
-    READONLY_DONT_ENUM_PROPERTY(process,
-                                "_inspectorEnbale", True(env->isolate()));
-  }
-
+  // TODO(refack): move the following 3 to `node_config`
   // --inspect-brk
   if (debug_options.wait_for_connect()) {
     READONLY_DONT_ENUM_PROPERTY(process,
