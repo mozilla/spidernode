@@ -181,7 +181,6 @@ case "$target" in
         case "$CC_VERSION" in
         19*)
             _CC_SUITE=14
-            MSVS_VERSION=2015
             MSVC_C_RUNTIME_DLL=vcruntime140.dll
             MSVC_CXX_RUNTIME_DLL=msvcp140.dll
 
@@ -195,7 +194,6 @@ case "$target" in
             CXXFLAGS="$CXXFLAGS -Zc:sizedDealloc-"
             ;;
         esac
-        AC_SUBST(MSVS_VERSION)
         AC_SUBST(MSVC_C_RUNTIME_DLL)
         AC_SUBST(MSVC_CXX_RUNTIME_DLL)
 
@@ -1504,12 +1502,16 @@ AC_SUBST(MOZ_OPTIMIZE_LDFLAGS)
 AC_SUBST(MOZ_PGO_OPTIMIZE_FLAGS)
 
 dnl ========================================================
-dnl = Disable trace logging
+dnl = Trace logging. Enabled by default in DEBUG builds.
 dnl ========================================================
-ENABLE_TRACE_LOGGING=1
-MOZ_ARG_DISABLE_BOOL(trace-logging,
-[  --disable-trace-logging   Disable trace logging],
+MOZ_ARG_ENABLE_BOOL(trace-logging,
+[  --enable-trace-logging   Enable trace logging],
+    ENABLE_TRACE_LOGGING=1,
     ENABLE_TRACE_LOGGING= )
+
+if test -n "$MOZ_DEBUG"; then
+    ENABLE_TRACE_LOGGING=1
+fi
 
 AC_SUBST(ENABLE_TRACE_LOGGING)
 

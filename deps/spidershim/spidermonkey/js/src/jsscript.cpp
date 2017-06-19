@@ -664,15 +664,16 @@ js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope,
         script->bodyScopeIndex_ = bodyScopeIndex;
     }
 
+    if (mode == XDR_DECODE) {
+        if (!script->createScriptData(cx, length, nsrcnotes, natoms)) {
+            return false;
+        }
+    }
+
     auto scriptDataGuard = mozilla::MakeScopeExit([&] {
         if (mode == XDR_DECODE)
             script->freeScriptData();
     });
-
-    if (mode == XDR_DECODE) {
-        if (!script->createScriptData(cx, length, nsrcnotes, natoms))
-            return false;
-    }
 
     jsbytecode* code = script->code();
     if (!xdr->codeBytes(code, length) || !xdr->codeBytes(code + length, nsrcnotes)) {
@@ -1381,6 +1382,7 @@ static const ClassOps ScriptSourceObjectClassOps = {
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     ScriptSourceObject::finalize,

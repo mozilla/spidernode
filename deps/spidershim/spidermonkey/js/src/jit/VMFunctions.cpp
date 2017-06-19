@@ -323,6 +323,19 @@ StringsEqual(JSContext* cx, HandleString lhs, HandleString rhs, bool* res)
 template bool StringsEqual<true>(JSContext* cx, HandleString lhs, HandleString rhs, bool* res);
 template bool StringsEqual<false>(JSContext* cx, HandleString lhs, HandleString rhs, bool* res);
 
+bool StringSplitHelper(JSContext* cx, HandleString str, HandleString sep,
+                       HandleObjectGroup group, uint32_t limit,
+                       MutableHandleValue result)
+{
+    JSObject* resultObj = str_split_string(cx, group, str, sep, limit);
+    if (!resultObj)
+        return false;
+
+    result.setObject(*resultObj);
+    return true;
+}
+
+
 bool
 ArrayPopDense(JSContext* cx, HandleObject obj, MutableHandleValue rval)
 {
@@ -1420,15 +1433,15 @@ MarkValueFromIon(JSRuntime* rt, Value* vp)
 void
 MarkStringFromIon(JSRuntime* rt, JSString** stringp)
 {
-    if (*stringp)
-        TraceManuallyBarrieredEdge(&rt->gc.marker, stringp, "write barrier");
+    MOZ_ASSERT(*stringp);
+    TraceManuallyBarrieredEdge(&rt->gc.marker, stringp, "write barrier");
 }
 
 void
 MarkObjectFromIon(JSRuntime* rt, JSObject** objp)
 {
-    if (*objp)
-        TraceManuallyBarrieredEdge(&rt->gc.marker, objp, "write barrier");
+    MOZ_ASSERT(*objp);
+    TraceManuallyBarrieredEdge(&rt->gc.marker, objp, "write barrier");
 }
 
 void
@@ -1482,6 +1495,12 @@ bool
 BaselineThrowUninitializedThis(JSContext* cx, BaselineFrame* frame)
 {
     return ThrowUninitializedThis(cx, frame);
+}
+
+bool
+BaselineThrowInitializedThis(JSContext* cx, BaselineFrame* frame)
+{
+    return ThrowInitializedThis(cx, frame);
 }
 
 

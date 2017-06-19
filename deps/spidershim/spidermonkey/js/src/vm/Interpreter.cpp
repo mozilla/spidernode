@@ -245,8 +245,8 @@ SetPropertyOperation(JSContext* cx, JSOp op, HandleValue lval, HandleId id, Hand
            result.checkStrictErrorOrWarning(cx, obj, id, op == JSOP_STRICTSETPROP);
 }
 
-static JSFunction*
-MakeDefaultConstructor(JSContext* cx, HandleScript script, jsbytecode* pc, HandleObject proto)
+JSFunction*
+js::MakeDefaultConstructor(JSContext* cx, HandleScript script, jsbytecode* pc, HandleObject proto)
 {
     JSOp op = JSOp(*pc);
     JSAtom* atom = script->getAtom(pc);
@@ -2757,7 +2757,7 @@ END_CASE(JSOP_CHECKTHIS)
 CASE(JSOP_CHECKTHISREINIT)
 {
     if (!REGS.sp[-1].isMagic(JS_UNINITIALIZED_LEXICAL)) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_REINIT_THIS);
+        MOZ_ALWAYS_FALSE(ThrowInitializedThis(cx, REGS.fp()));
         goto error;
     }
 }
@@ -2793,6 +2793,9 @@ CASE(JSOP_GETPROP_SUPER)
 
     if (!GetProperty(cx, obj, receiver, script->getName(REGS.pc), rref))
         goto error;
+
+    TypeScript::Monitor(cx, script, REGS.pc, rref);
+    assertSameCompartmentDebugOnly(cx, rref);
 
     REGS.sp--;
 }
@@ -4207,14 +4210,10 @@ CASE(JSOP_SUPERBASE)
 
     ReservedRooted<JSObject*> homeObj(&rootObject0, &homeObjVal.toObject());
     ReservedRooted<JSObject*> superBase(&rootObject1);
-    if (!GetPrototype(cx, homeObj, &superBase))
+    superBase = HomeObjectSuperBase(cx, homeObj);
+    if (!superBase)
         goto error;
 
-    if (!superBase) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_CANT_CONVERT_TO,
-                                  "null", "object");
-        goto error;
-    }
     PUSH_OBJECT(*superBase);
 }
 END_CASE(JSOP_SUPERBASE)
@@ -4227,24 +4226,10 @@ END_CASE(JSOP_NEWTARGET)
 CASE(JSOP_SUPERFUN)
 {
     ReservedRooted<JSObject*> superEnvFunc(&rootObject0, &GetSuperEnvFunction(cx, REGS));
-    MOZ_ASSERT(superEnvFunc->as<JSFunction>().isClassConstructor());
-    MOZ_ASSERT(superEnvFunc->as<JSFunction>().nonLazyScript()->isDerivedClassConstructor());
-
     ReservedRooted<JSObject*> superFun(&rootObject1);
-
-    if (!GetPrototype(cx, superEnvFunc, &superFun))
-        goto error;
-
-    ReservedRooted<Value> superFunVal(&rootValue0, UndefinedValue());
+    superFun = SuperFunOperation(cx, superEnvFunc);
     if (!superFun)
-        superFunVal = NullValue();
-    else if (!superFun->isConstructor())
-        superFunVal = ObjectValue(*superFun);
-
-    if (superFunVal.isObjectOrNull()) {
-        ReportIsNotFunction(cx, superFunVal, JSDVG_IGNORE_STACK, CONSTRUCT);
         goto error;
-    }
 
     PUSH_OBJECT(*superFun);
 }
@@ -5223,5 +5208,54 @@ js::ThrowUninitializedThis(JSContext* cx, AbstractFramePtr frame)
 
     MOZ_ASSERT(fun->isArrow());
     JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_UNINITIALIZED_THIS_ARROW);
+    return false;
+}
+
+JSObject*
+js::HomeObjectSuperBase(JSContext* cx, HandleObject homeObj)
+{
+    RootedObject superBase(cx);
+
+    if (!GetPrototype(cx, homeObj, &superBase))
+        return nullptr;
+
+    if (!superBase) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_CANT_CONVERT_TO,
+                                  "null", "object");
+        return nullptr;
+    }
+
+    return superBase;
+}
+
+JSObject*
+js::SuperFunOperation(JSContext* cx, HandleObject callee)
+{
+    MOZ_ASSERT(callee->as<JSFunction>().isClassConstructor());
+    MOZ_ASSERT(callee->as<JSFunction>().nonLazyScript()->isDerivedClassConstructor());
+
+    RootedObject superFun(cx);
+
+    if (!GetPrototype(cx, callee, &superFun))
+        return nullptr;
+
+    RootedValue superFunVal(cx, UndefinedValue());
+    if (!superFun)
+        superFunVal = NullValue();
+    else if (!superFun->isConstructor())
+        superFunVal = ObjectValue(*superFun);
+
+    if (superFunVal.isObjectOrNull()) {
+        ReportIsNotFunction(cx, superFunVal, JSDVG_IGNORE_STACK, CONSTRUCT);
+        return nullptr;
+    }
+
+    return superFun;
+}
+
+bool
+js::ThrowInitializedThis(JSContext* cx, AbstractFramePtr frame)
+{
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_REINIT_THIS);
     return false;
 }

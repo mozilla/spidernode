@@ -962,6 +962,7 @@ static const ClassOps JSFunctionClassOps = {
     nullptr,                 /* getProperty */
     nullptr,                 /* setProperty */
     fun_enumerate,
+    nullptr,                 /* newEnumerate */
     fun_resolve,
     fun_mayResolve,
     nullptr,                 /* finalize    */
@@ -1566,6 +1567,14 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             // Only functions without inner functions are re-lazified.
             script->setLazyScript(lazy);
         }
+
+        // XDR the newly delazified function.
+        if (script->scriptSource()->hasEncoder()) {
+            RootedScriptSource sourceObject(cx, lazy->sourceObject());
+            if (!script->scriptSource()->xdrEncodeFunction(cx, fun, sourceObject))
+                return false;
+        }
+
         return true;
     }
 

@@ -572,6 +572,9 @@ bool
 ThrowUninitializedThis(JSContext* cx, AbstractFramePtr frame);
 
 bool
+ThrowInitializedThis(JSContext* cx, AbstractFramePtr frame);
+
+bool
 DefaultClassConstructor(JSContext* cx, unsigned argc, Value* vp);
 
 bool
@@ -585,6 +588,15 @@ ObjectWithProtoOperation(JSContext* cx, HandleValue proto);
 
 JSObject*
 FunWithProtoOperation(JSContext* cx, HandleFunction fun, HandleObject parent, HandleObject proto);
+
+JSFunction*
+MakeDefaultConstructor(JSContext* cx, HandleScript script, jsbytecode* pc, HandleObject proto);
+
+JSObject*
+HomeObjectSuperBase(JSContext* cx, HandleObject homeObj);
+
+JSObject*
+SuperFunOperation(JSContext* cx, HandleObject callee);
 
 }  /* namespace js */
 

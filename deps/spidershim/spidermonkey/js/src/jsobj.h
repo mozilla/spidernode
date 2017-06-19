@@ -144,7 +144,6 @@ class JSObject : public js::gc::Cell
     js::WatchOp          getOpsWatch()          const { return getClass()->getOpsWatch(); }
     js::UnwatchOp        getOpsUnwatch()        const { return getClass()->getOpsUnwatch(); }
     js::GetElementsOp    getOpsGetElements()    const { return getClass()->getOpsGetElements(); }
-    JSNewEnumerateOp     getOpsEnumerate()      const { return getClass()->getOpsEnumerate(); }
     JSFunToStringOp      getOpsFunToString()    const { return getClass()->getOpsFunToString(); }
 
     js::ObjectGroup* group() const {
@@ -505,6 +504,7 @@ class JSObject : public js::gc::Cell
     // places that want it (JITs and the like), and it'd be a pain to mark them
     // all as friends.
     inline bool nonProxyIsExtensible() const;
+    bool uninlinedNonProxyIsExtensible() const;
 
   public:
     /*
