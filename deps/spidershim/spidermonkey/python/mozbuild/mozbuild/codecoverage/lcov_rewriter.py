@@ -14,6 +14,7 @@ from mozpack.copier import FileRegistry
 from mozpack.files import PreprocessedFile
 from mozpack.manifests import InstallManifest
 from mozpack.chrome.manifest import parse_manifest
+import mozpack.path as mozpath
 from chrome_map import ChromeManifestHandler
 
 import buildconfig
@@ -229,6 +230,20 @@ class LcovFile(object):
     # LF:<number of instrumented lines>
     # LH:<number of lines with a non-zero execution count>
     # end_of_record
+    PREFIX_TYPES = {
+      'TN': 0,
+      'SF': 0,
+      'FN': 1,
+      'FNDA': 1,
+      'FNF': 0,
+      'FNH': 0,
+      'BRDA': 3,
+      'BRF': 0,
+      'BRH': 0,
+      'DA': 2,
+      'LH': 0,
+      'LF': 0,
+    }
 
     def __init__(self, lcov_fh):
         # These are keyed by source file because output will split sources (at
@@ -267,14 +282,10 @@ class LcovFile(object):
 
             # We occasionally end up with multi-line scripts in data:
             # uris that will trip up the parser, just skip them for now.
-            if colon < 0 or prefix not in ('TN', 'SF', 'FN', 'FNDA', 'FNF',
-                                           'FNH', 'BRDA', 'BRF', 'BRH', 'DA',
-                                           'LF', 'LH'):
+            if colon < 0 or prefix not in self.PREFIX_TYPES:
                 continue
-            if prefix not in ('SF', 'TN'):
-                args = line[(colon + 1):].split(',')
-            else:
-                args = line[(colon + 1):],
+
+            args = line[(colon + 1):].split(',', self.PREFIX_TYPES[prefix])
 
             def try_convert(a):
                 try:
@@ -581,7 +592,36 @@ class UrlFinder(object):
              url = url.split(' -> ')[1].rstrip()
 
         url_obj = urlparse.urlparse(url)
-        if url_obj.scheme == 'file' and os.path.isabs(url_obj.path):
+        if url_obj.scheme == 'jar':
+            app_name = buildconfig.substs.get('MOZ_APP_NAME')
+            omnijar_name = buildconfig.substs.get('OMNIJAR_NAME')
+
+            if app_name in url:
+                if omnijar_name in url:
+                    # e.g. file:///home/worker/workspace/build/application/firefox/omni.ja!/components/MainProcessSingleton.js
+                    parts = url_obj.path.split(omnijar_name + '!', 1)
+                elif '.xpi!' in url:
+                    # e.g. file:///home/worker/workspace/build/application/firefox/browser/features/e10srollout@mozilla.org.xpi!/bootstrap.js
+                    parts = url_obj.path.split('.xpi!', 1)
+                else:
+                    # We don't know how to handle this jar: path, so return it to the
+                    # caller to make it print a warning.
+                    return url_obj.path, None, False
+
+                dir_parts = parts[0].rsplit(app_name + '/', 1)
+                url = mozpath.normpath(mozpath.join(self.topobjdir, 'dist', 'bin', dir_parts[1].lstrip('/'), parts[1].lstrip('/')))
+            elif '.xpi!' in url:
+                # e.g. file:///tmp/tmpMdo5gV.mozrunner/extensions/workerbootstrap-test@mozilla.org.xpi!/bootstrap.js
+                # This matching mechanism is quite brittle and based on examples seen in the wild.
+                # There's no rule to match the XPI name to the path in dist/xpi-stage.
+                parts = url_obj.path.split('.xpi!', 1)
+                addon_name = os.path.basename(parts[0])
+                if '-test@mozilla.org' in addon_name:
+                    addon_name = addon_name[:-len('-test@mozilla.org')]
+                elif addon_name.endswith('@mozilla.org'):
+                    addon_name = addon_name[:-len('@mozilla.org')]
+                url = mozpath.normpath(mozpath.join(self.topobjdir, 'dist', 'xpi-stage', addon_name, parts[1].lstrip('/')))
+        elif url_obj.scheme == 'file' and os.path.isabs(url_obj.path):
             path = url_obj.path
             if not os.path.isfile(path):
                 # This may have been in a profile directory that no
@@ -590,7 +630,7 @@ class UrlFinder(object):
             if not path.startswith(self.topobjdir):
                 return path, None, False
             url = url_obj.path
-        if url_obj.scheme in ('http', 'https', 'javascript', 'data', 'about'):
+        elif url_obj.scheme in ('http', 'https', 'javascript', 'data', 'about'):
             return None
 
         result = self.find_files(url)

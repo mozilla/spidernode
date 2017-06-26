@@ -83,6 +83,22 @@ LH:8
 end_of_record
 """
 
+fn_with_multiple_commas = """TN:Compartment_5f7f5c30251800
+SF:resource://gre/modules/osfile.jsm
+FN:1,function,name,with,commas
+FNDA:1,function,name,with,commas
+FNF:1
+FNH:1
+BRDA:9,0,61,1
+BRF:1
+BRH:1
+DA:9,1
+DA:24,1
+LF:2
+LH:2
+end_of_record
+"""
+
 class TestLcovParser(unittest.TestCase):
 
     def get_lcov(self, lcov_string):
@@ -112,6 +128,9 @@ class TestLcovParser(unittest.TestCase):
         output = self.parser_roundtrip(multiple_records, True)
         self.assertEqual(multiple_records, output)
 
+    def test_multiple_commas(self):
+        output = self.parser_roundtrip(fn_with_multiple_commas, True)
+        self.assertEqual(fn_with_multiple_commas, output)
 
 multiple_included_files = """//@line 1 "foo.js"
 bazfoobar
@@ -224,6 +243,65 @@ class TestLineRemapping(unittest.TestCase):
                          sum(r.function_count for r in lcov_file.records))
         self.assertEqual(original_covered_function_count,
                          sum(r.covered_function_count for r in lcov_file.records))
+
+class TestUrlFinder(unittest.TestCase):
+    def setUp(self):
+        chrome_map_file = os.path.join(buildconfig.topobjdir, 'chrome-map.json')
+        self._old_chrome_info_file = None
+        if os.path.isfile(chrome_map_file):
+            backup_file = os.path.join(buildconfig.topobjdir, 'chrome-map-backup.json')
+            self._old_chrome_info_file = backup_file
+            self._chrome_map_file = chrome_map_file
+            shutil.move(chrome_map_file, backup_file)
+
+        empty_chrome_info = [
+            {},
+            {},
+            {
+                'dist/bin/components/MainProcessSingleton.js': [
+                    'path1',
+                    False
+                ],
+                'dist/bin/browser/components/nsSessionStartup.js': [
+                    'path2',
+                    False
+                ],
+                'dist/bin/browser/features/e10srollout@mozilla.org/bootstrap.js': [
+                    'path3',
+                    False
+                ],
+                'dist/bin/browser/features/firefox@getpocket.com/bootstrap.js': [
+                    'path4',
+                    False
+                ],
+                'dist/xpi-stage/workerbootstrap/bootstrap.js': [
+                    'path5',
+                    False
+                ]
+            },
+        ]
+        with open(chrome_map_file, 'w') as fh:
+            json.dump(empty_chrome_info, fh)
+
+    def tearDown(self):
+        if self._old_chrome_info_file:
+            shutil.move(self._old_chrome_info_file, self._chrome_map_file)
+
+    def test_jar_paths(self):
+        app_name = buildconfig.substs.get('MOZ_APP_NAME')
+        omnijar_name = buildconfig.substs.get('OMNIJAR_NAME')
+
+        paths = [
+            ('jar:file:///home/worker/workspace/build/application/' + app_name + '/' + omnijar_name + '!/components/MainProcessSingleton.js', 'path1'),
+            ('jar:file:///home/worker/workspace/build/application/' + app_name + '/browser/' + omnijar_name + '!/components/nsSessionStartup.js', 'path2'),
+            ('jar:file:///home/worker/workspace/build/application/' + app_name + '/browser/features/e10srollout@mozilla.org.xpi!/bootstrap.js', 'path3'),
+            ('jar:file:///home/worker/workspace/build/application/' + app_name + '/browser/features/firefox@getpocket.com.xpi!/bootstrap.js', 'path4'),
+            ('jar:file:///tmp/tmpMdo5gV.mozrunner/extensions/workerbootstrap-test@mozilla.org.xpi!/bootstrap.js', 'path5'),
+        ]
+
+        url_finder = lcov_rewriter.UrlFinder('', '', [])
+        for path, expected in paths:
+            self.assertEqual(url_finder.rewrite_url(path)[0], expected)
 
 if __name__ == '__main__':
     mozunit.main()

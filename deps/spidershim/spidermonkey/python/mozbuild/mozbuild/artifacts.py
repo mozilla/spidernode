@@ -131,13 +131,14 @@ class ArtifactJob(object):
         ('bin/OCSPStaplingServer', ('bin', 'bin')),
         ('bin/certutil', ('bin', 'bin')),
         ('bin/fileid', ('bin', 'bin')),
+        ('bin/geckodriver', ('bin', 'bin')),
         ('bin/pk12util', ('bin', 'bin')),
         ('bin/screentopng', ('bin', 'bin')),
         ('bin/ssltunnel', ('bin', 'bin')),
         ('bin/xpcshell', ('bin', 'bin')),
         ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
-        ('bin/components/*', ('bin/components', 'bin/components')),
+        ('bin/components/*.xpt', ('bin/components', 'bin/components')),
     }
 
     # We can tell our input is a test archive by this suffix, which happens to
@@ -435,6 +436,7 @@ class WinArtifactJob(ArtifactJob):
         ('bin/OCSPStaplingServer.exe', ('bin', 'bin')),
         ('bin/certutil.exe', ('bin', 'bin')),
         ('bin/fileid.exe', ('bin', 'bin')),
+        ('bin/geckodriver.exe', ('bin', 'bin')),
         ('bin/pk12util.exe', ('bin', 'bin')),
         ('bin/screenshot.exe', ('bin', 'bin')),
         ('bin/ssltunnel.exe', ('bin', 'bin')),
