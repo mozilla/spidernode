@@ -512,7 +512,7 @@ added: v6.11.0
 
 Load an OpenSSL configuration file on startup. Among other uses, this can be
 used to enable FIPS-compliant crypto if Node.js is built with `./configure
-\-\-openssl\-fips`.
+--openssl-fips`.
 
 If the [`--openssl-config`][] command line option is used, the environment
 variable is ignored.
@@ -558,4 +558,4 @@ equivalent to using the `--redirect-warnings=file` command-line flag.
 [REPL]: repl.html
 [SlowBuffer]: buffer.html#buffer_class_slowbuffer
 [debugger]: debugger.html
-[emit_warning]: process.html#process_process_emitwarning_warning_name_ctor
+[emit_warning]: process.html#process_process_emitwarning_warning_type_code_ctor

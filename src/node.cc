@@ -247,7 +247,10 @@ node::DebugOptions debug_options;
 static struct {
 #if NODE_USE_V8_PLATFORM
   void Initialize(int thread_pool_size) {
-    platform_ = v8::platform::CreateDefaultPlatform(thread_pool_size);
+    platform_ = v8::platform::CreateDefaultPlatform(
+        thread_pool_size,
+        v8::platform::IdleTaskSupport::kDisabled,
+        v8::platform::InProcessStackDumping::kDisabled);
     V8::InitializePlatform(platform_);
     tracing::TraceEventHelper::SetCurrentPlatform(platform_);
   }
@@ -4377,7 +4380,7 @@ void Init(int* argc,
   if (!i18n::InitializeICUDirectory(icu_data_dir)) {
     fprintf(stderr,
             "%s: could not initialize ICU "
-            "(check NODE_ICU_DATA or --icu-data-dir parameters)",
+            "(check NODE_ICU_DATA or --icu-data-dir parameters)\n",
             argv[0]);
     exit(9);
   }
