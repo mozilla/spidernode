@@ -1016,7 +1016,17 @@ BaselineCompiler::emitBody()
             return Method_Error;
 
         switch (op) {
-          default:
+          // ===== NOT Yet Implemented =====
+          case JSOP_FORCEINTERPRETER:
+            // Intentionally not implemented.
+          case JSOP_SETINTRINSIC:
+            // Run-once opcode during self-hosting initialization.
+          case JSOP_UNUSED222:
+          case JSOP_UNUSED223:
+          case JSOP_LIMIT:
+            // === !! WARNING WARNING WARNING !! ===
+            // Do you really want to sacrifice performance by not implementing
+            // this operation in the BaselineCompiler?
             JitSpew(JitSpew_BaselineAbort, "Unhandled op: %s", CodeName[op]);
             return Method_CantCompile;
 
@@ -2294,6 +2304,28 @@ BaselineCompiler::emit_JSOP_GETELEM()
 }
 
 bool
+BaselineCompiler::emit_JSOP_GETELEM_SUPER()
+{
+    // Index -> R1, Receiver -> R2, Object -> R0
+    frame.popRegsAndSync(1);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), R2);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-2)), R1);
+
+    // Keep receiver on stack.
+    frame.popn(2);
+    frame.push(R2);
+    frame.syncStack(0);
+
+    ICGetElem_Fallback::Compiler stubCompiler(cx, /* hasReceiver = */ true);
+    if (!emitOpIC(stubCompiler.getStub(&stubSpace_)))
+        return false;
+
+    frame.pop();
+    frame.push(R0);
+    return true;
+}
+
+bool
 BaselineCompiler::emit_JSOP_CALLELEM()
 {
     return emit_JSOP_GETELEM();
@@ -2324,6 +2356,47 @@ bool
 BaselineCompiler::emit_JSOP_STRICTSETELEM()
 {
     return emit_JSOP_SETELEM();
+}
+
+typedef bool (*SetObjectElementFn)(JSContext*, HandleObject, HandleValue,
+                                  HandleValue, HandleValue, bool);
+static const VMFunction SetObjectElementInfo =
+    FunctionInfo<SetObjectElementFn>(js::SetObjectElement, "SetObjectElement");
+
+bool
+BaselineCompiler::emit_JSOP_SETELEM_SUPER()
+{
+    bool strict = IsCheckStrictOp(JSOp(*pc));
+
+    // Incoming stack is |propval, receiver, obj, rval|. We need to shuffle
+    // stack to leave rval when operation is complete.
+
+    // Pop rval into R0, then load propval into R1 and replace with rval.
+    frame.popRegsAndSync(1);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-3)), R1);
+    masm.storeValue(R0, frame.addressOfStackValue(frame.peek(-3)));
+
+    prepareVMCall();
+
+    pushArg(Imm32(strict));
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-2)), R2);
+    pushArg(R2); // receiver
+    pushArg(R0); // rval
+    pushArg(R1); // propval
+    masm.unboxObject(frame.addressOfStackValue(frame.peek(-1)), R0.scratchReg());
+    pushArg(R0.scratchReg()); // obj
+
+    if (!callVM(SetObjectElementInfo))
+        return false;
+
+    frame.popn(2);
+    return true;
+}
+
+bool
+BaselineCompiler::emit_JSOP_STRICTSETELEM_SUPER()
+{
+    return emit_JSOP_SETELEM_SUPER();
 }
 
 typedef bool (*DeleteElementFn)(JSContext*, HandleValue, HandleValue, bool*);
@@ -2524,6 +2597,46 @@ BaselineCompiler::emit_JSOP_STRICTSETGNAME()
     return emit_JSOP_SETPROP();
 }
 
+typedef bool (*SetPropertySuperFn)(JSContext*, HandleObject, HandleValue,
+                                   HandlePropertyName, HandleValue, bool);
+static const VMFunction SetPropertySuperInfo =
+    FunctionInfo<SetPropertySuperFn>(js::SetPropertySuper, "SetPropertySuper");
+
+bool
+BaselineCompiler::emit_JSOP_SETPROP_SUPER()
+{
+    bool strict = IsCheckStrictOp(JSOp(*pc));
+
+    // Incoming stack is |receiver, obj, rval|. We need to shuffle stack to
+    // leave rval when operation is complete.
+
+    // Pop rval into R0, then load receiver into R1 and replace with rval.
+    frame.popRegsAndSync(1);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-2)), R1);
+    masm.storeValue(R0, frame.addressOfStackValue(frame.peek(-2)));
+
+    prepareVMCall();
+
+    pushArg(Imm32(strict));
+    pushArg(R0); // rval
+    pushArg(ImmGCPtr(script->getName(pc)));
+    pushArg(R1); // receiver
+    masm.unboxObject(frame.addressOfStackValue(frame.peek(-1)), R0.scratchReg());
+    pushArg(R0.scratchReg()); // obj
+
+    if (!callVM(SetPropertySuperInfo))
+        return false;
+
+    frame.pop();
+    return true;
+}
+
+bool
+BaselineCompiler::emit_JSOP_STRICTSETPROP_SUPER()
+{
+    return emit_JSOP_SETPROP_SUPER();
+}
+
 bool
 BaselineCompiler::emit_JSOP_GETPROP()
 {
@@ -2557,6 +2670,24 @@ BaselineCompiler::emit_JSOP_GETBOUNDNAME()
 {
     return emit_JSOP_GETPROP();
 }
+
+bool
+BaselineCompiler::emit_JSOP_GETPROP_SUPER()
+{
+    // Receiver -> R1, Object -> R0
+    frame.popRegsAndSync(1);
+    masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), R1);
+    frame.pop();
+
+    ICGetProp_Fallback::Compiler compiler(cx, ICStubCompiler::Engine::Baseline,
+                                          /* hasReceiver = */ true);
+    if (!emitOpIC(compiler.getStub(&stubSpace_)))
+        return false;
+
+    frame.push(R0);
+    return true;
+}
+
 
 typedef bool (*DeletePropertyFn)(JSContext*, HandleValue, HandlePropertyName, bool*);
 static const VMFunction DeletePropertyStrictInfo =

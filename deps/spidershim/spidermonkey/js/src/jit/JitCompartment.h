@@ -477,6 +477,7 @@ class JitZone
 
 enum class BailoutReturnStub {
     GetProp,
+    GetPropSuper,
     SetProp,
     Call,
     New,
@@ -627,7 +628,7 @@ class JitCompartment
 
 // Called from JSCompartment::discardJitCode().
 void InvalidateAll(FreeOp* fop, JS::Zone* zone);
-void FinishInvalidation(FreeOp* fop, JSScript* script);
+void FinishInvalidation(FreeOp* fop, JSScript* script, bool addMarker);
 
 // On windows systems, really large frames need to be incrementally touched.
 // The following constant defines the minimum increment of the touch.
