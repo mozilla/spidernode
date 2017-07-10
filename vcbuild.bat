@@ -206,9 +206,12 @@ if defined msi (
     goto wix-not-found
   )
 )
-@rem VS2015 vsvarsall is quick, so run anyway
+
+@rem check if VS2015 is already setup
+if "_%VisualStudioVersion%_" == "_14.0_" if "_%VCVARS_VER%_" == "_140_" goto found_vs2015
 call "%VS140COMNTOOLS%\..\..\vc\vcvarsall.bat"
 SET VCVARS_VER=140
+:found_vs2015
 if not defined VCINSTALLDIR goto msbuild-not-found
 @rem Visual C++ Build Tools 2015 does not define VisualStudioVersion
 echo Found MSVS version 14.0
@@ -439,12 +442,16 @@ goto cpplint
 
 :cpplint
 if not defined cpplint goto jslint
-echo running cpplint
+call :run-cpplint src\*.c src\*.cc src\*.h test\addons\*.cc test\addons\*.h test\cctest\*.cc test\cctest\*.h test\gc\binding.cc tools\icu\*.cc tools\icu\*.h
+call :run-python tools/check-imports.py
+goto jslint
+
+:run-cpplint
+if "%*"=="" goto exit
+echo running cpplint '%*'
 set cppfilelist=
 setlocal enabledelayedexpansion
-for /f "tokens=*" %%G in ('dir /b /s /a src\*.c src\*.cc src\*.h ^
-test\addons\*.cc test\addons\*.h test\cctest\*.cc test\cctest\*.h ^
-test\gc\binding.cc tools\icu\*.cc tools\icu\*.h') do (
+for /f "tokens=*" %%G in ('dir /b /s /a %*') do (
   set relpath=%%G
   set relpath=!relpath:*%~dp0=!
   call :add-to-list !relpath!
@@ -453,8 +460,7 @@ test\gc\binding.cc tools\icu\*.cc tools\icu\*.h') do (
   set cppfilelist=%localcppfilelist%
 )
 call :run-python tools/cpplint.py %cppfilelist%
-call :run-python tools/check-imports.py
-goto jslint
+goto exit
 
 :add-to-list
 echo %1 | findstr /c:"src\node_root_certs.h"

@@ -37,7 +37,6 @@ const testRoot = process.env.NODE_TEST_DIR ?
 
 const noop = () => {};
 
-exports.noop = noop;
 exports.fixturesDir = path.join(__dirname, '..', 'fixtures');
 exports.tmpDirName = 'tmp';
 // PORT should match the definition in test/testpy/__init__.py.
@@ -490,7 +489,7 @@ exports.mustCallAtLeast = function(fn, minimum) {
   return _mustCallInner(fn, minimum, 'minimum');
 };
 
-function _mustCallInner(fn, criteria, field) {
+function _mustCallInner(fn, criteria = 1, field) {
   if (typeof fn === 'number') {
     criteria = fn;
     fn = noop;
@@ -498,9 +497,7 @@ function _mustCallInner(fn, criteria, field) {
     fn = noop;
   }
 
-  if (criteria === undefined)
-    criteria = 1;
-  else if (typeof criteria !== 'number')
+  if (typeof criteria !== 'number')
     throw new TypeError(`Invalid ${field} value: ${criteria}`);
 
   const context = {
@@ -572,8 +569,13 @@ exports.mustNotCall = function(msg) {
   };
 };
 
-exports.skip = function(msg) {
+exports.printSkipMessage = function(msg) {
   console.log(`1..0 # Skipped: ${msg}`);
+};
+
+exports.skip = function(msg) {
+  exports.printSkipMessage(msg);
+  process.exit(0);
 };
 
 // A stream to push an array into a REPL
@@ -708,8 +710,14 @@ Object.defineProperty(exports, 'hasSmallICU', {
 });
 
 // Useful for testing expected internal/error objects
-exports.expectsError = function expectsError({code, type, message}) {
-  return function(error) {
+exports.expectsError = function expectsError(fn, options, exact) {
+  if (typeof fn !== 'function') {
+    exact = options;
+    options = fn;
+    fn = undefined;
+  }
+  const { code, type, message } = options;
+  const innerFn = exports.mustCall(function(error) {
     assert.strictEqual(error.code, code);
     if (type !== undefined) {
       assert(error instanceof type,
@@ -722,13 +730,17 @@ exports.expectsError = function expectsError({code, type, message}) {
       assert.strictEqual(error.message, message);
     }
     return true;
-  };
+  }, exact);
+  if (fn) {
+    assert.throws(fn, innerFn);
+    return;
+  }
+  return innerFn;
 };
 
 exports.skipIfInspectorDisabled = function skipIfInspectorDisabled() {
   if (process.config.variables.v8_enable_inspector === 0) {
     exports.skip('V8 inspector is disabled');
-    process.exit(0);
   }
 };
 

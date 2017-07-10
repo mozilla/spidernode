@@ -1,6 +1,10 @@
 'use strict';
 
 const common = require('../common');
+// Refs: https://github.com/nodejs/node/pull/2253
+if (common.isSunOS)
+  common.skip('unreliable on SunOS');
+
 const assert = require('assert');
 const path = require('path');
 const childProcess = require('child_process');
@@ -8,12 +12,6 @@ const childProcess = require('child_process');
 if (common.isChakraEngine) {
   console.log('1..0 # Skipped: This test is disabled for chakra engine ' +
   'because debugger support is not implemented yet.');
-  return;
-}
-
-// Refs: https://github.com/nodejs/node/pull/2253
-if (common.isSunOS) {
-  common.skip('unreliable on SunOS');
   return;
 }
 

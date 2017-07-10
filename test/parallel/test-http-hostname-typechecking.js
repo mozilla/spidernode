@@ -1,5 +1,5 @@
 'use strict';
-const common = require('../common');
+require('../common');
 
 const assert = require('assert');
 const http = require('http');
@@ -18,10 +18,12 @@ vals.forEach((v) => {
   assert.throws(() => http.request({host: v}), errHost);
 });
 
-// These values are OK and should not throw synchronously
+// These values are OK and should not throw synchronously.
+// Only testing for 'hostname' validation so ignore connection errors.
+const dontCare = () => {};
 ['', undefined, null].forEach((v) => {
   assert.doesNotThrow(() => {
-    http.request({hostname: v}).on('error', common.mustCall()).end();
-    http.request({host: v}).on('error', common.mustCall()).end();
+    http.request({hostname: v}).on('error', dontCare).end();
+    http.request({host: v}).on('error', dontCare).end();
   });
 });

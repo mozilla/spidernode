@@ -50,7 +50,8 @@ Platform normalizes the `dd` command
 
 Check if there is more than 1gb of total memory.
 
-### expectsError(settings)
+### expectsError([fn, ]settings[, exact])
+* `fn` [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function)
 * `settings` [&lt;Object>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object)
   with the following optional properties:
   * `code` [&lt;String>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type)
@@ -62,9 +63,14 @@ Check if there is more than 1gb of total memory.
     if a string is provided for `message`, expected error must have it for its
     `message` property; if a regular expression is provided for `message`, the
     regular expression must match the `message` property of the expected error
+* `exact` [&lt;Number>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Number_type) default = 1
 
 * return function suitable for use as a validation function passed as the second
-  argument to `assert.throws()`
+  argument to e.g. `assert.throws()`. If the returned function has not been called
+  exactly `exact` number of times when the test is complete, then the test will
+  fail.
+
+If `fn` is provided, it will be passed to `assert.throws` as first argument.
 
 The expected error should be [subclassed by the `internal/errors` module](https://github.com/nodejs/node/blob/master/doc/guides/using-internal-errors.md#api).
 
@@ -209,18 +215,18 @@ Gets IP of localhost
 Array of IPV6 hosts.
 
 ### mustCall([fn][, exact])
-* `fn` [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function) default = `common.noop`
+* `fn` [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function) default = () => {}
 * `exact` [&lt;Number>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Number_type) default = 1
 * return [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function)
 
 Returns a function that calls `fn`. If the returned function has not been called
-exactly `expected` number of times when the test is complete, then the test will
+exactly `exact` number of times when the test is complete, then the test will
 fail.
 
-If `fn` is not provided, `common.noop` will be used.
+If `fn` is not provided, an empty function will be used.
 
 ### mustCallAtLeast([fn][, minimum])
-* `fn` [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function) default = `common.noop`
+* `fn` [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function) default = () => {}
 * `minimum` [&lt;Number>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Number_type) default = 1
 * return [&lt;Function>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function)
 
@@ -228,7 +234,7 @@ Returns a function that calls `fn`. If the returned function has not been called
 at least `minimum` number of times when the test is complete, then the test will
 fail.
 
-If `fn` is not provided, `common.noop` will be used.
+If `fn` is not provided, an empty function will be used.
 
 ### mustNotCall([msg])
 * `msg` [&lt;String>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type) default = 'function should not have been called'
@@ -242,19 +248,6 @@ Returns a function that triggers an `AssertionError` if it is invoked. `msg` is 
 * return [&lt;Boolean>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Boolean_type)
 
 Returns `true` if the exit code `exitCode` and/or signal name `signal` represent the exit code and/or signal name of a node process that aborted, `false` otherwise.
-
-### noop
-
-A non-op `Function` that can be used for a variety of scenarios.
-
-For instance,
-
-<!-- eslint-disable strict, no-undef -->
-```js
-const common = require('../common');
-
-someAsyncAPI('foo', common.mustCall(common.noop));
-```
 
 ### opensslCli
 * return [&lt;Boolean>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Boolean_type)
@@ -277,6 +270,11 @@ Path to the test sock.
 
 Port tests are running on.
 
+### printSkipMessage(msg)
+* `msg` [&lt;String>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type)
+
+Logs '1..0 # Skipped: ' + `msg`
+
 ### refreshTmpDir
 * return [&lt;String>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type)
 
@@ -298,7 +296,7 @@ Path to the 'root' directory. either `/` or `c:\\` (windows)
 ### skip(msg)
 * `msg` [&lt;String>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type)
 
-Logs '1..0 # Skipped: ' + `msg`
+Logs '1..0 # Skipped: ' + `msg` and exits with exit code `0`.
 
 ### spawnPwd(options)
 * `options` [&lt;Object>](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object)
