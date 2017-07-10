@@ -34,8 +34,8 @@ namespace JS { struct Zone; }
  *   RegExpShared:
  *     The compiled representation of the regexp (lazily created, cleared
  *     during some forms of GC).
- *   RegExpCompartment:
- *     Owns all RegExpShared instances in a compartment.
+ *   RegExpZone:
+ *     Owns all RegExpShared instances in a zone.
  */
 namespace js {
 
@@ -152,7 +152,12 @@ class RegExpObject : public NativeObject
 
     void setShared(RegExpShared& shared) {
         MOZ_ASSERT(!hasShared());
-        sharedRef() = &shared;
+        sharedRef().init(&shared);
+    }
+
+    PreBarriered<RegExpShared*>& sharedRef() {
+        auto& ref = NativeObject::privateRef(PRIVATE_SLOT);
+        return reinterpret_cast<PreBarriered<RegExpShared*>&>(ref);
     }
 
     static void trace(JSTracer* trc, JSObject* obj);
@@ -177,11 +182,6 @@ class RegExpObject : public NativeObject
      */
     static MOZ_MUST_USE bool createShared(JSContext* cx, Handle<RegExpObject*> regexp,
                                           MutableHandleRegExpShared shared);
-
-    ReadBarriered<RegExpShared*>& sharedRef() {
-        auto& ref = NativeObject::privateRef(PRIVATE_SLOT);
-        return reinterpret_cast<ReadBarriered<RegExpShared*>&>(ref);
-    }
 
     /* Call setShared in preference to setPrivate. */
     void setPrivate(void* priv) = delete;

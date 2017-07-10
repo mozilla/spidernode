@@ -39,6 +39,7 @@ JS::Zone::Zone(JSRuntime* rt, ZoneGroup* group)
     gcWeakKeys_(group, SystemAllocPolicy(), rt->randomHashCodeScrambler()),
     gcSweepGroupEdges_(group),
     typeDescrObjects_(group, this),
+    regExps(this),
     markedAtoms_(group),
     atomCache_(group),
     externalStringCache_(group),
@@ -93,7 +94,8 @@ bool Zone::init(bool isSystemArg)
            gcWeakKeys().init() &&
            typeDescrObjects().init() &&
            markedAtoms().init() &&
-           atomCache().init();
+           atomCache().init() &&
+           regExps.init();
 }
 
 void
@@ -179,7 +181,7 @@ Zone::sweepWeakMaps()
 }
 
 void
-Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode, bool addMarkers)
+Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode)
 {
     if (!jitZone())
         return;
@@ -202,7 +204,7 @@ Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode, bool addMarkers)
     jit::InvalidateAll(fop, this);
 
     for (auto script = cellIter<JSScript>(); !script.done(); script.next())  {
-        jit::FinishInvalidation(fop, script, addMarkers);
+        jit::FinishInvalidation(fop, script);
 
         /*
          * Discard baseline script if it's not marked as active. Note that
@@ -344,6 +346,8 @@ Zone::nextZone() const
 void
 Zone::clearTables()
 {
+    MOZ_ASSERT(regExps.empty());
+
     if (baseShapes().initialized())
         baseShapes().clear();
     if (initialShapes().initialized())

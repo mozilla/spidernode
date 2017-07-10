@@ -18,6 +18,7 @@
 #include "js/GCHashTable.h"
 #include "js/TracingAPI.h"
 #include "vm/MallocProvider.h"
+#include "vm/RegExpShared.h"
 #include "vm/TypeInference.h"
 
 namespace js {
@@ -174,10 +175,11 @@ struct Zone : public JS::shadow::Zone,
 
     void findOutgoingEdges(js::gc::ZoneComponentFinder& finder);
 
-    void discardJitCode(js::FreeOp* fop, bool discardBaselineCode = true, bool addMarkers = true);
+    void discardJitCode(js::FreeOp* fop, bool discardBaselineCode = true);
 
     void addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                 size_t* typePool,
+                                size_t* regexpZone,
                                 size_t* jitZone,
                                 size_t* baselineStubsOptimized,
                                 size_t* cachedCFG,
@@ -396,6 +398,8 @@ struct Zone : public JS::shadow::Zone,
     js::gc::MemoryCounter<Zone> jitCodeCounter;
 
   public:
+    js::RegExpZone regExps;
+
     JS::WeakCache<TypeDescrObjectSet>& typeDescrObjects() { return typeDescrObjects_.ref(); }
 
     bool addTypeDescrObject(JSContext* cx, HandleObject obj);
@@ -403,10 +407,11 @@ struct Zone : public JS::shadow::Zone,
     bool triggerGCForTooMuchMalloc() {
         JSRuntime* rt = runtimeFromAnyThread();
 
-        if (CurrentThreadCanAccessRuntime(rt))
-            return rt->gc.triggerZoneGC(this, JS::gcreason::TOO_MUCH_MALLOC);
-        else
-            return false;
+        if (CurrentThreadCanAccessRuntime(rt)) {
+            return rt->gc.triggerZoneGC(this, JS::gcreason::TOO_MUCH_MALLOC,
+                                        gcMallocCounter.bytes(), gcMallocCounter.maxBytes());
+        }
+        return false;
     }
 
     void resetGCMallocBytes() { gcMallocCounter.reset(); }
