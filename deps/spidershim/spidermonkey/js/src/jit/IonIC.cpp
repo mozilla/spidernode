@@ -52,7 +52,10 @@ IonIC::scratchRegisterForEntryJump()
         return asInIC()->temp();
       case CacheKind::HasOwn:
         return asHasOwnIC()->output();
+      case CacheKind::GetIterator:
+        return asGetIteratorIC()->temp1();
       case CacheKind::Call:
+      case CacheKind::Compare:
       case CacheKind::TypeOf:
       case CacheKind::GetPropSuper:
       case CacheKind::GetElemSuper:
@@ -186,7 +189,7 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
 
 /* static */ bool
 IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonSetPropertyIC* ic,
-			 HandleObject obj, HandleValue idVal, HandleValue rhs)
+                         HandleObject obj, HandleValue idVal, HandleValue rhs)
 {
     RootedShape oldShape(cx);
     RootedObjectGroup oldGroup(cx);
@@ -223,7 +226,10 @@ IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonSetProperty
 
     jsbytecode* pc = ic->pc();
     if (ic->kind() == CacheKind::SetElem) {
-        if (IsPropertyInitOp(JSOp(*pc))) {
+        if (*pc == JSOP_INITELEM_INC) {
+            if (!InitArrayElemOperation(cx, pc, obj, idVal.toInt32(), rhs))
+                return false;
+        } else if (IsPropertyInitOp(JSOp(*pc))) {
             if (!InitElemOperation(cx, pc, obj, idVal, rhs))
                 return false;
         } else {
@@ -238,7 +244,12 @@ IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonSetProperty
             RootedScript script(cx, ic->script());
             MOZ_ASSERT(!script->hasNonSyntacticScope());
             InitGlobalLexicalOperation(cx, &cx->global()->lexicalEnvironment(), script, pc, rhs);
+        } else if (IsPropertyInitOp(JSOp(*pc))) {
+            RootedId id(cx, AtomToId(&idVal.toString()->asAtom()));
+            if (!InitPropertyOperation(cx, JSOp(*pc), obj, id, rhs))
+                return false;
         } else {
+            MOZ_ASSERT(IsPropertySetOp(JSOp(*pc)));
             RootedPropertyName name(cx, idVal.toString()->asAtom().asPropertyName());
             if (!SetProperty(cx, obj, name, rhs, ic->strict(), pc))
                 return false;
@@ -343,6 +354,31 @@ IonBindNameIC::update(JSContext* cx, HandleScript outerScript, IonBindNameIC* ic
         return nullptr;
 
     return holder;
+}
+
+/* static */ JSObject*
+IonGetIteratorIC::update(JSContext* cx, HandleScript outerScript, IonGetIteratorIC* ic,
+                         HandleValue value)
+{
+    IonScript* ionScript = outerScript->ionScript();
+    jsbytecode* pc = ic->pc();
+
+    if (ic->state().maybeTransition())
+        ic->discardStubs(cx->zone());
+
+    if (ic->state().canAttachStub()) {
+        bool attached = false;
+        RootedScript script(cx, ic->script());
+        GetIteratorIRGenerator gen(cx, script, pc, ic->state().mode(), value);
+        if (gen.tryAttachStub())
+            ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript, &attached);
+
+        if (!attached)
+            ic->state().trackNotAttached();
+    }
+
+    uint8_t flags = GET_UINT8(pc);
+    return ValueToIterator(cx, flags, value);
 }
 
 /* static */ bool

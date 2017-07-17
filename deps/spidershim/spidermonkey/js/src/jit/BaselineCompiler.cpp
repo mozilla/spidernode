@@ -1698,7 +1698,7 @@ BaselineCompiler::emit_JSOP_CALLSITEOBJ()
     return true;
 }
 
-typedef JSObject* (*CloneRegExpObjectFn)(JSContext*, JSObject*);
+typedef JSObject* (*CloneRegExpObjectFn)(JSContext*, Handle<RegExpObject*>);
 static const VMFunction CloneRegExpObjectInfo =
     FunctionInfo<CloneRegExpObjectFn>(CloneRegExpObject, "CloneRegExpObject");
 
@@ -4047,9 +4047,11 @@ BaselineCompiler::emit_JSOP_TOID()
     frame.syncStack(0);
     masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), R0);
 
-    // No-op if index is int32.
+    // No-op if the index is trivally convertable to an id.
     Label done;
     masm.branchTestInt32(Assembler::Equal, R0, &done);
+    masm.branchTestString(Assembler::Equal, R0, &done);
+    masm.branchTestSymbol(Assembler::Equal, R0, &done);
 
     prepareVMCall();
 
@@ -4201,7 +4203,7 @@ BaselineCompiler::emit_JSOP_ITER()
 {
     frame.popRegsAndSync(1);
 
-    ICIteratorNew_Fallback::Compiler compiler(cx);
+    ICGetIterator_Fallback::Compiler compiler(cx);
     if (!emitOpIC(compiler.getStub(&stubSpace_)))
         return false;
 

@@ -3571,6 +3571,69 @@ TypeOfIRGenerator::tryAttachObject(ValOperandId valId)
     return true;
 }
 
+GetIteratorIRGenerator::GetIteratorIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                               ICState::Mode mode, HandleValue value)
+  : IRGenerator(cx, script, pc, CacheKind::GetIterator, mode),
+    val_(value)
+{ }
+
+bool
+GetIteratorIRGenerator::tryAttachStub()
+{
+    MOZ_ASSERT(cacheKind_ == CacheKind::GetIterator);
+
+    AutoAssertNoPendingException aanpe(cx_);
+
+    if (mode_ == ICState::Mode::Megamorphic)
+        return false;
+
+    ValOperandId valId(writer.setInputOperandId(0));
+    if (!val_.isObject())
+        return false;
+
+    RootedObject obj(cx_, &val_.toObject());
+
+    ObjOperandId objId = writer.guardIsObject(valId);
+    if (tryAttachNativeIterator(objId, obj))
+        return true;
+
+    return false;
+}
+
+bool
+GetIteratorIRGenerator::tryAttachNativeIterator(ObjOperandId objId, HandleObject obj)
+{
+    MOZ_ASSERT(JSOp(*pc_) == JSOP_ITER);
+
+    if (GET_UINT8(pc_) != JSITER_ENUMERATE)
+        return false;
+
+    PropertyIteratorObject* iterobj = LookupInIteratorCache(cx_, obj);
+    if (!iterobj)
+        return false;
+
+    MOZ_ASSERT(obj->isNative() || obj->is<UnboxedPlainObject>());
+
+    // Guard on the receiver's shape/group.
+    Maybe<ObjOperandId> expandoId;
+    TestMatchingReceiver(writer, obj, objId, &expandoId);
+
+    // Ensure the receiver or its expando object has no dense elements.
+    if (obj->isNative())
+        writer.guardNoDenseElements(objId);
+    else if (expandoId)
+        writer.guardNoDenseElements(*expandoId);
+
+    // Do the same for the objects on the proto chain.
+    GeneratePrototypeHoleGuards(writer, obj, objId);
+
+    ObjOperandId iterId =
+        writer.guardAndGetIterator(objId, iterobj, &cx_->compartment()->enumerators);
+    writer.loadObjectResult(iterId);
+    writer.returnFromIC();
+
+    return true;
+}
 
 CallIRGenerator::CallIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
                                  ICState::Mode mode, uint32_t argc,
@@ -3695,4 +3758,122 @@ CallIRGenerator::tryAttachStub()
 
     MOZ_ASSERT(strategy == OptStrategy::None);
     return false;
+}
+
+CompareIRGenerator::CompareIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                       ICState::Mode mode, JSOp op,
+                                       HandleValue lhsVal, HandleValue rhsVal)
+  : IRGenerator(cx, script, pc, CacheKind::Compare, mode),
+    op_(op), lhsVal_(lhsVal), rhsVal_(rhsVal)
+{ }
+
+bool
+CompareIRGenerator::tryAttachString(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isString() || !rhsVal_.isString())
+        return false;
+
+    StringOperandId lhsStrId = writer.guardIsString(lhsId);
+    StringOperandId rhsStrId = writer.guardIsString(rhsId);
+    writer.compareStringResult(op_, lhsStrId, rhsStrId);
+    writer.returnFromIC();
+
+    trackAttached("String");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachObject(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isObject() || !rhsVal_.isObject())
+        return false;
+
+    ObjOperandId lhsObjId = writer.guardIsObject(lhsId);
+    ObjOperandId rhsObjId = writer.guardIsObject(rhsId);
+    writer.compareObjectResult(op_, lhsObjId, rhsObjId);
+    writer.returnFromIC();
+
+    trackAttached("Object");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachSymbol(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isSymbol() || !rhsVal_.isSymbol())
+        return false;
+
+    SymbolOperandId lhsSymId = writer.guardIsSymbol(lhsId);
+    SymbolOperandId rhsSymId = writer.guardIsSymbol(rhsId);
+    writer.compareSymbolResult(op_, lhsSymId, rhsSymId);
+    writer.returnFromIC();
+
+    trackAttached("Symbol");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachStub()
+{
+    MOZ_ASSERT(cacheKind_ == CacheKind::Compare);
+    MOZ_ASSERT(IsEqualityOp(op_) ||
+               op_ == JSOP_LE || op_ == JSOP_LT ||
+               op_ == JSOP_GE || op_ == JSOP_GT);
+
+    AutoAssertNoPendingException aanpe(cx_);
+
+    ValOperandId lhsId(writer.setInputOperandId(0));
+    ValOperandId rhsId(writer.setInputOperandId(1));
+
+    if (IsEqualityOp(op_)) {
+        if (tryAttachString(lhsId, rhsId))
+            return true;
+        if (tryAttachObject(lhsId, rhsId))
+            return true;
+        if (tryAttachSymbol(lhsId, rhsId))
+            return true;
+
+        trackNotAttached();
+        return false;
+    }
+
+    trackNotAttached();
+    return false;
+}
+
+void
+CompareIRGenerator::trackAttached(const char* name)
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "lhs", lhsVal_);
+        sp.valueProperty(guard, "rhs", rhsVal_);
+        sp.attached(guard, name);
+        sp.endCache(guard);
+    }
+#endif
+}
+
+void
+CompareIRGenerator::trackNotAttached()
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "lhs", lhsVal_);
+        sp.valueProperty(guard, "rhs", rhsVal_);
+        sp.endCache(guard);
+    }
+#endif
 }

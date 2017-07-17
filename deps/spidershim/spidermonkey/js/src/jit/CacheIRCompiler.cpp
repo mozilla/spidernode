@@ -2227,6 +2227,64 @@ CacheIRCompiler::emitLoadTypeOfObjectResult()
 }
 
 bool
+CacheIRCompiler::emitCompareStringResult()
+{
+    AutoOutputRegister output(*this);
+
+    Register left = allocator.useRegister(masm, reader.stringOperandId());
+    Register right = allocator.useRegister(masm, reader.stringOperandId());
+    JSOp op = reader.jsop();
+
+    AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.compareStrings(op, left, right, scratch, failure->label());
+    masm.tagValue(JSVAL_TYPE_BOOLEAN, scratch, output.valueReg());
+    return true;
+}
+
+bool
+CacheIRCompiler::emitComparePointerResultShared(bool symbol)
+{
+    AutoOutputRegister output(*this);
+
+    Register left = symbol ? allocator.useRegister(masm, reader.symbolOperandId())
+                           : allocator.useRegister(masm, reader.objOperandId());
+    Register right = symbol ? allocator.useRegister(masm, reader.symbolOperandId())
+                            : allocator.useRegister(masm, reader.objOperandId());
+    JSOp op = reader.jsop();
+
+    AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
+
+    Label ifTrue, done;
+    masm.branchPtr(JSOpToCondition(op, /* signed = */true), left, right, &ifTrue);
+
+    masm.moveValue(BooleanValue(false), output.valueReg());
+    masm.jump(&done);
+
+    masm.bind(&ifTrue);
+    masm.moveValue(BooleanValue(true), output.valueReg());
+    masm.bind(&done);
+    return true;
+}
+
+
+bool
+CacheIRCompiler::emitCompareObjectResult()
+{
+    return emitComparePointerResultShared(false);
+}
+
+bool
+CacheIRCompiler::emitCompareSymbolResult()
+{
+    return emitComparePointerResultShared(true);
+}
+
+bool
 CacheIRCompiler::emitCallPrintString()
 {
     const char* str = reinterpret_cast<char*>(reader.pointer());
@@ -2270,6 +2328,23 @@ CacheIRCompiler::emitStoreTypedObjectReferenceProp(ValueOperand val, ReferenceTy
         masm.storePtr(scratch, dest);
         break;
     }
+}
+
+void
+CacheIRCompiler::emitRegisterEnumerator(Register enumeratorsList, Register iter, Register scratch)
+{
+    // iter->next = list
+    masm.storePtr(enumeratorsList, Address(iter, NativeIterator::offsetOfNext()));
+
+    // iter->prev = list->prev
+    masm.loadPtr(Address(enumeratorsList, NativeIterator::offsetOfPrev()), scratch);
+    masm.storePtr(scratch, Address(iter, NativeIterator::offsetOfPrev()));
+
+    // list->prev->next = iter
+    masm.storePtr(iter, Address(scratch, NativeIterator::offsetOfNext()));
+
+    // list->prev = ni
+    masm.storePtr(iter, Address(enumeratorsList, NativeIterator::offsetOfPrev()));
 }
 
 void
