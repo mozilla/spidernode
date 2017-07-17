@@ -393,6 +393,9 @@ test-node-inspect: $(NODE_EXE)
 test-tick-processor: all
 	$(PYTHON) tools/test.py tick-processor
 
+test-hash-seed: all
+	$(NODE) test/pummel/test-hash-seed.js
+
 test-known-issues: all
 	$(PYTHON) tools/test.py known_issues
 
@@ -437,6 +440,8 @@ test-v8: v8
         --no-presubmit \
         --shell-dir=$(PWD)/deps/v8/out/$(V8_ARCH).$(BUILDTYPE_LOWER) \
 	 $(TAP_V8)
+	@echo Testing hash seed
+	$(MAKE) test-hash-seed
 
 test-v8-intl: v8
 #	note: performs full test unless QUICKCHECK is specified
@@ -990,6 +995,7 @@ endif
   test-ci-native \
   test-gc \
   test-gc-clean \
+  test-hash-seed \
   test-v8 \
   test-v8-all \
   test-v8-benchmarks \

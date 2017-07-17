@@ -27,7 +27,6 @@ const assert = require('assert');
 const os = require('os');
 const child_process = require('child_process');
 const stream = require('stream');
-const buffer = require('buffer');
 const util = require('util');
 const Timer = process.binding('timer_wrap').Timer;
 const execSync = require('child_process').execSync;
@@ -45,7 +44,7 @@ exports.isWindows = process.platform === 'win32';
 exports.isChakraEngine = process.jsEngine === 'chakracore';
 exports.isWOW64 = exports.isWindows &&
                   (process.env.PROCESSOR_ARCHITEW6432 !== undefined);
-exports.isAix = process.platform === 'aix';
+exports.isAIX = process.platform === 'aix';
 exports.isLinuxPPCBE = (process.platform === 'linux') &&
                        (process.arch === 'ppc64') &&
                        (os.endianness() === 'BE');
@@ -55,8 +54,6 @@ exports.isLinux = process.platform === 'linux';
 exports.isOSX = process.platform === 'darwin';
 
 exports.enoughTestMem = os.totalmem() > 0x40000000; /* 1 Gb */
-exports.bufferMaxSizeMsg = new RegExp(
-  `^RangeError: "size" argument must not be larger than ${buffer.kMaxLength}$`);
 const cpus = os.cpus();
 exports.enoughTestCpu = Array.isArray(cpus) &&
                         (cpus.length > 1 || cpus[0].speed > 999);
@@ -247,7 +244,7 @@ Object.defineProperty(exports, 'opensslCli', {get: function() {
 
 Object.defineProperty(exports, 'hasCrypto', {
   get: function() {
-    return process.versions.openssl ? true : false;
+    return Boolean(process.versions.openssl);
   }
 });
 
@@ -257,22 +254,21 @@ Object.defineProperty(exports, 'hasFipsCrypto', {
   }
 });
 
-if (exports.isWindows) {
-  exports.PIPE = '\\\\.\\pipe\\libuv-test';
-  if (process.env.TEST_THREAD_ID) {
-    exports.PIPE += `.${process.env.TEST_THREAD_ID}`;
-  }
-} else {
-  exports.PIPE = `${exports.tmpDir}/test.sock`;
+{
+  const pipePrefix = exports.isWindows ? '\\\\.\\pipe\\' : `${exports.tmpDir}/`;
+  const pipeName = `node-test.${process.pid}.sock`;
+  exports.PIPE = pipePrefix + pipeName;
 }
 
-const ifaces = os.networkInterfaces();
-const re = /lo/;
-exports.hasIPv6 = Object.keys(ifaces).some(function(name) {
-  return re.test(name) && ifaces[name].some(function(info) {
-    return info.family === 'IPv6';
+{
+  const iFaces = os.networkInterfaces();
+  const re = /lo/;
+  exports.hasIPv6 = Object.keys(iFaces).some(function(name) {
+    return re.test(name) && iFaces[name].some(function(info) {
+      return info.family === 'IPv6';
+    });
   });
-});
+}
 
 /*
  * Check that when running a test with
@@ -335,7 +331,7 @@ exports.platformTimeout = function(ms) {
   if (global.__coverage__)
     ms = 4 * ms;
 
-  if (exports.isAix)
+  if (exports.isAIX)
     return 2 * ms; // default localhost speed is slower on AIX
 
   if (process.arch !== 'arm')
