@@ -580,6 +580,11 @@ by the `assert` module.
 
 Used when attempting to perform an operation outside the bounds of a `Buffer`.
 
+<a id="ERR_CHILD_CLOSED_BEFORE_REPLY"></a>
+### ERR_CHILD_CLOSED_BEFORE_REPLY
+
+Used when a child process is closed before the parent received a reply.
+
 <a id="ERR_CONSOLE_WRITABLE_STREAM"></a>
 ### ERR_CONSOLE_WRITABLE_STREAM
 
@@ -590,6 +595,10 @@ Used when `Console` is instantiated without `stdout` stream or when `stdout` or
 ### ERR_CPU_USAGE
 
 Used when the native call from `process.cpuUsage` cannot be processed properly.
+
+<a id="ERR_DNS_SET_SERVERS_FAILED"></a>
+
+Used when `c-ares` failed to set the DNS server.
 
 <a id="ERR_FALSY_VALUE_REJECTION"></a>
 ### ERR_FALSY_VALUE_REJECTION
@@ -680,11 +689,20 @@ Used when an attempt is made to send an unsupported "handle" over an IPC
 communication channel to a child process. See [`child.send()`] and
 [`process.send()`] for more information.
 
+<a id="ERR_INVALID_IP_ADDRESS"></a>
+
+Used when an IP address is not valid.
+
 <a id="ERR_INVALID_OPT_VALUE"></a>
 ### ERR_INVALID_OPT_VALUE
 
 Used generically to identify when an invalid or unexpected value has been
 passed in an options object.
+
+<a id="ERR_INVALID_OPT_VALUE_ENCODING"></a>
+### ERR_INVALID_OPT_VALUE_ENCODING
+
+Used when an invalid or unknown file encoding is passed.
 
 <a id="ERR_INVALID_REPL_EVAL_CONFIG"></a>
 ### ERR_INVALID_REPL_EVAL_CONFIG
