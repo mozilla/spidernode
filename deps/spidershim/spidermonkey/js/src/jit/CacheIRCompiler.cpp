@@ -71,7 +71,7 @@ CacheRegisterAllocator::useValueRegister(MacroAssembler& masm, ValOperandId op)
 
       case OperandLocation::DoubleReg: {
         ValueOperand reg = allocateValueRegister(masm);
-        masm.boxDouble(loc.doubleReg(), reg);
+        masm.boxDouble(loc.doubleReg(), reg, ScratchDoubleReg);
         loc.setValueReg(reg);
         return reg;
       }
@@ -117,7 +117,7 @@ CacheRegisterAllocator::useFixedValueRegister(MacroAssembler& masm, ValOperandId
         masm.tagValue(loc.payloadType(), reg.scratchReg(), reg);
         break;
       case OperandLocation::DoubleReg:
-        masm.boxDouble(loc.doubleReg(), reg);
+        masm.boxDouble(loc.doubleReg(), reg, ScratchDoubleReg);
         break;
       case OperandLocation::Uninitialized:
         MOZ_CRASH();
@@ -1436,22 +1436,6 @@ CacheIRCompiler::emitGuardIsProxy()
 }
 
 bool
-CacheIRCompiler::emitGuardIsCrossCompartmentWrapper()
-{
-    Register obj = allocator.useRegister(masm, reader.objOperandId());
-    AutoScratchRegister scratch(allocator, masm);
-
-    FailurePath* failure;
-    if (!addFailurePath(&failure))
-        return false;
-
-    Address handlerAddr(obj, ProxyObject::offsetOfHandler());
-    masm.branchPtr(Assembler::NotEqual, handlerAddr, ImmPtr(&CrossCompartmentWrapper::singleton),
-                   failure->label());
-    return true;
-}
-
-bool
 CacheIRCompiler::emitGuardNotDOMProxy()
 {
     Register obj = allocator.useRegister(masm, reader.objOperandId());
@@ -1924,6 +1908,19 @@ CacheIRCompiler::emitLoadDenseElementResult()
     BaseObjectElementIndex element(scratch, index);
     masm.branchTestMagic(Assembler::Equal, element, failure->label());
     masm.loadTypedOrValue(element, output);
+    return true;
+}
+
+bool
+CacheIRCompiler::emitGuardIndexIsNonNegative()
+{
+    Register index = allocator.useRegister(masm, reader.int32OperandId());
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.branch32(Assembler::LessThan, index, Imm32(0), failure->label());
     return true;
 }
 

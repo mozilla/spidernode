@@ -144,10 +144,10 @@ namespace jit {
     _(NewStringObject)                                                      \
     _(ObjectState)                                                          \
     _(ArrayState)                                                           \
+    _(ArgumentState)                                                        \
     _(InitElem)                                                             \
     _(InitElemGetterSetter)                                                 \
     _(MutateProto)                                                          \
-    _(InitProp)                                                             \
     _(InitPropGetterSetter)                                                 \
     _(Start)                                                                \
     _(OsrEntry)                                                             \
@@ -161,6 +161,7 @@ namespace jit {
     _(RegExpInstanceOptimizable)                                            \
     _(GetFirstDollarIndex)                                                  \
     _(StringReplace)                                                        \
+    _(ClassConstructor)                                                     \
     _(Lambda)                                                               \
     _(LambdaArrow)                                                          \
     _(SetFunName)                                                           \
@@ -217,6 +218,7 @@ namespace jit {
     _(LoadUnboxedScalar)                                                    \
     _(LoadUnboxedObjectOrNull)                                              \
     _(LoadUnboxedString)                                                    \
+    _(LoadElementFromState)                                                 \
     _(StoreElement)                                                         \
     _(StoreElementHole)                                                     \
     _(FallibleStoreElement)                                                 \
@@ -277,6 +279,7 @@ namespace jit {
     _(IsConstructor)                                                        \
     _(IsCallable)                                                           \
     _(IsArray)                                                              \
+    _(IsTypedArray)                                                         \
     _(IsObject)                                                             \
     _(HasClass)                                                             \
     _(CopySign)                                                             \
@@ -296,6 +299,7 @@ namespace jit {
     _(CheckObjCoercible)                                                    \
     _(DebugCheckSelfHosted)                                                 \
     _(FinishBoundFunctionInit)                                              \
+    _(IsPackedArray)                                                        \
     _(AsmJSLoadHeap)                                                        \
     _(AsmJSStoreHeap)                                                       \
     _(AsmJSCompareExchangeHeap)                                             \

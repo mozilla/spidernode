@@ -1305,7 +1305,7 @@ ParseCompileOptions(JSContext* cx, CompileOptions& options, HandleObject opts,
         int32_t c;
         if (!ToInt32(cx, v, &c))
             return false;
-        options.setColumn(c, c);
+        options.setColumn(c);
     }
 
     if (!JS_GetProperty(cx, opts, "sourceIsLazy", &v))
@@ -4540,7 +4540,7 @@ OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (!JS::CanCompileOffThread(cx, options, loadLength)) {
+    if (!JS::CanDecodeOffThread(cx, options, loadLength)) {
         JS_ReportErrorASCII(cx, "cannot compile code on worker thread");
         return false;
     }

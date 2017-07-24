@@ -45,10 +45,19 @@ using mozilla::TimeDuration;
  */
 JS_STATIC_ASSERT(JS::gcreason::NUM_TELEMETRY_REASONS >= JS::gcreason::NUM_REASONS);
 
-static inline decltype(mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT))
+using PhaseKindRange = decltype(mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT));
+
+static inline PhaseKindRange
 AllPhaseKinds()
 {
     return mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT);
+}
+
+static inline PhaseKindRange
+MajorGCPhaseKinds()
+{
+    return mozilla::MakeEnumeratedRange(PhaseKind::GC_BEGIN,
+                                        PhaseKind(size_t(PhaseKind::GC_END) + 1));
 }
 
 const char*
@@ -442,7 +451,7 @@ Statistics::formatDetailedSliceDescription(unsigned i, const SliceData& slice) c
     Reason: %s\n\
     Reset: %s%s\n\
     State: %s -> %s\n\
-    Page Faults: %ld\n\
+    Page Faults: %" PRIu64 "\n\
     Pause: %.3fms of %s budget (@ %.3fms)\n\
 ";
     char buffer[1024];
@@ -796,7 +805,7 @@ CheckSelfTime(Phase parent,
 }
 
 static PhaseKind
-LongestPhaseSelfTime(const Statistics::PhaseTimeTable& times)
+LongestPhaseSelfTimeInMajorGC(const Statistics::PhaseTimeTable& times)
 {
     // Start with total times per expanded phase, including children's times.
     Statistics::PhaseTimeTable selfTimes(times);
@@ -820,7 +829,7 @@ LongestPhaseSelfTime(const Statistics::PhaseTimeTable& times)
     // Loop over this table to find the longest phase.
     TimeDuration longestTime = 0;
     PhaseKind longestPhase = PhaseKind::NONE;
-    for (auto i : AllPhaseKinds()) {
+    for (auto i : MajorGCPhaseKinds()) {
         if (phaseTimes[i] > longestTime) {
             longestTime = phaseTimes[i];
             longestPhase = i;
@@ -920,6 +929,9 @@ void
 Statistics::beginSlice(const ZoneGCStats& zoneStats, JSGCInvocationKind gckind,
                        SliceBudget budget, JS::gcreason::Reason reason)
 {
+    MOZ_ASSERT(phaseStack.empty() ||
+               (phaseStack.length() == 1 && phaseStack[0] == Phase::MUTATOR));
+
     this->zoneStats = zoneStats;
 
     bool first = !runtime->gc.isIncrementalGCInProgress();
@@ -953,6 +965,9 @@ Statistics::beginSlice(const ZoneGCStats& zoneStats, JSGCInvocationKind gckind,
 void
 Statistics::endSlice()
 {
+    MOZ_ASSERT(phaseStack.empty() ||
+               (phaseStack.length() == 1 && phaseStack[0] == Phase::MUTATOR));
+
     if (!aborted) {
         auto& slice = slices_.back();
         slice.end = TimeStamp::Now();
@@ -971,15 +986,24 @@ Statistics::endSlice()
             if (budget_ms == runtime->gc.defaultSliceBudget())
                 runtime->addTelemetry(JS_TELEMETRY_GC_ANIMATION_MS, t(sliceTime));
 
-            // Record any phase that goes more than 2x over its budget.
-            if (sliceTime.ToMilliseconds() > 2 * budget_ms) {
-                reportLongestPhase(slice.phaseTimes, JS_TELEMETRY_GC_SLOW_PHASE);
-                // If we spend a significant length of time waiting for parallel
-                // tasks then report the longest task.
-                TimeDuration joinTime = SumPhase(PhaseKind::JOIN_PARALLEL_TASKS, slice.phaseTimes);
-                if (joinTime.ToMilliseconds() > budget_ms)
-                    reportLongestPhase(slice.parallelTimes, JS_TELEMETRY_GC_SLOW_TASK);
+            // Record any phase that goes 1.5 times or 5ms over its budget.
+            double longSliceThreshold = std::min(1.5 * budget_ms, budget_ms + 5.0);
+            if (sliceTime.ToMilliseconds() > longSliceThreshold) {
+                PhaseKind longest = LongestPhaseSelfTimeInMajorGC(slice.phaseTimes);
+                reportLongestPhaseInMajorGC(longest, JS_TELEMETRY_GC_SLOW_PHASE);
+
+                // If the longest phase was waiting for parallel tasks then
+                // record the longest task.
+                if (longest == PhaseKind::JOIN_PARALLEL_TASKS) {
+                    PhaseKind longestParallel = LongestPhaseSelfTimeInMajorGC(slice.parallelTimes);
+                    reportLongestPhaseInMajorGC(longestParallel, JS_TELEMETRY_GC_SLOW_TASK);
+                }
             }
+
+            // Record how long we went over budget.
+            int64_t overrun = sliceTime.ToMicroseconds() - (1000 * budget_ms);
+            if (overrun > 0)
+                runtime->addTelemetry(JS_TELEMETRY_GC_BUDGET_OVERRUN, uint32_t(overrun));
         }
 
         sliceCount_++;
@@ -1027,14 +1051,12 @@ Statistics::endSlice()
 }
 
 void
-Statistics::reportLongestPhase(const PhaseTimeTable& times, int telemetryId)
+Statistics::reportLongestPhaseInMajorGC(PhaseKind longest, int telemetryId)
 {
-    PhaseKind longest = LongestPhaseSelfTime(times);
-    if (longest == PhaseKind::NONE)
-        return;
-
-    uint8_t bucket = phaseKinds[longest].telemetryBucket;
-    runtime->addTelemetry(telemetryId, bucket);
+    if (longest != PhaseKind::NONE) {
+        uint8_t bucket = phaseKinds[longest].telemetryBucket;
+        runtime->addTelemetry(telemetryId, bucket);
+    }
 }
 
 bool
@@ -1201,6 +1223,8 @@ Statistics::endPhase(PhaseKind phaseKind)
 void
 Statistics::recordParallelPhase(PhaseKind phaseKind, TimeDuration duration)
 {
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime));
+
     Phase phase = lookupChildPhase(phaseKind);
 
     // Record the duration for all phases in the tree up to the root. This is
@@ -1212,18 +1236,6 @@ Statistics::recordParallelPhase(PhaseKind phaseKind, TimeDuration duration)
         parallelTimes[phase] += duration;
         phase = phases[phase].parent;
     }
-}
-
-void
-Statistics::endParallelPhase(PhaseKind phaseKind, const GCParallelTask* task)
-{
-    Phase phase = lookupChildPhase(phaseKind);
-    phaseStack.popBack();
-
-    if (!slices_.empty())
-        slices_.back().phaseTimes[phase] += task->duration();
-    phaseTimes[phase] += task->duration();
-    phaseStartTimes[phase] = TimeStamp();
 }
 
 TimeStamp

@@ -3690,7 +3690,6 @@ GCRuntime::purgeRuntime(AutoLockForExclusiveAccess& lock)
     rt->caches().gsnCache.purge();
     rt->caches().envCoordinateNameCache.purge();
     rt->caches().newObjectCache.purge();
-    rt->caches().nativeIterCache.purge();
     rt->caches().uncompressedSourceCache.purge();
     if (rt->caches().evalCache.initialized())
         rt->caches().evalCache.clear();
@@ -3877,7 +3876,7 @@ GCRuntime::prepareZonesForCollection(JS::gcreason::Reason reason, bool* isFullOu
         if (ShouldCollectZone(zone, reason)) {
             if (!zone->isAtomsZone()) {
                 any = true;
-                zone->setGCState(Zone::Mark);
+                zone->changeGCState(Zone::NoGC, Zone::Mark);
             }
         } else {
             *isFullOut = false;
@@ -3925,7 +3924,7 @@ GCRuntime::prepareZonesForCollection(JS::gcreason::Reason reason, bool* isFullOu
         Zone* atomsZone = rt->atomsCompartment(lock)->zone();
         if (atomsZone->isGCScheduled()) {
             MOZ_ASSERT(!atomsZone->isCollecting());
-            atomsZone->setGCState(Zone::Mark);
+            atomsZone->changeGCState(Zone::NoGC, Zone::Mark);
             any = true;
         }
     }
@@ -4391,20 +4390,16 @@ js::gc::MarkingValidator::nonIncrementalMark(AutoLockForExclusiveAccess& lock)
         gc->markAllWeakReferences(gcstats::PhaseKind::SWEEP_MARK_WEAK);
 
         /* Update zone state for gray marking. */
-        for (GCZonesIter zone(runtime); !zone.done(); zone.next()) {
-            MOZ_ASSERT(zone->isGCMarkingBlack());
-            zone->setGCState(Zone::MarkGray);
-        }
+        for (GCZonesIter zone(runtime); !zone.done(); zone.next())
+            zone->changeGCState(Zone::Mark, Zone::MarkGray);
         gc->marker.setMarkColorGray();
 
         gc->markAllGrayReferences(gcstats::PhaseKind::SWEEP_MARK_GRAY);
         gc->markAllWeakReferences(gcstats::PhaseKind::SWEEP_MARK_GRAY_WEAK);
 
         /* Restore zone state. */
-        for (GCZonesIter zone(runtime); !zone.done(); zone.next()) {
-            MOZ_ASSERT(zone->isGCMarkingGray());
-            zone->setGCState(Zone::Mark);
-        }
+        for (GCZonesIter zone(runtime); !zone.done(); zone.next())
+            zone->changeGCState(Zone::MarkGray, Zone::Mark);
         MOZ_ASSERT(gc->marker.isDrained());
         gc->marker.setMarkColorBlack();
     }
@@ -4712,9 +4707,8 @@ GCRuntime::getNextSweepGroup()
         MOZ_ASSERT(!isIncremental);
         for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
             MOZ_ASSERT(!zone->gcNextGraphComponent);
-            MOZ_ASSERT(zone->isGCMarking());
             zone->setNeedsIncrementalBarrier(false);
-            zone->setGCState(Zone::NoGC);
+            zone->changeGCState(Zone::Mark, Zone::NoGC);
             zone->gcGrayRoots().clearAndFree();
         }
 
@@ -4985,10 +4979,8 @@ GCRuntime::endMarkingSweepGroup()
      * these will be marked through, as they are not marked with
      * MarkCrossCompartmentXXX.
      */
-    for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
-        MOZ_ASSERT(zone->isGCMarkingBlack());
-        zone->setGCState(Zone::MarkGray);
-    }
+    for (GCSweepGroupIter zone(rt); !zone.done(); zone.next())
+        zone->changeGCState(Zone::Mark, Zone::MarkGray);
     marker.setMarkColorGray();
 
     /* Mark incoming gray pointers from previously swept compartments. */
@@ -4999,10 +4991,8 @@ GCRuntime::endMarkingSweepGroup()
     markWeakReferencesInCurrentGroup(gcstats::PhaseKind::SWEEP_MARK_GRAY_WEAK);
 
     /* Restore marking state. */
-    for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
-        MOZ_ASSERT(zone->isGCMarkingGray());
-        zone->setGCState(Zone::Mark);
-    }
+    for (GCSweepGroupIter zone(rt); !zone.done(); zone.next())
+        zone->changeGCState(Zone::MarkGray, Zone::Mark);
     MOZ_ASSERT(marker.isDrained());
     marker.setMarkColorBlack();
 }
@@ -5307,8 +5297,7 @@ GCRuntime::beginSweepingSweepGroup()
     bool sweepingAtoms = false;
     for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
         /* Set the GC state to sweeping. */
-        MOZ_ASSERT(zone->isGCMarking());
-        zone->setGCState(Zone::Sweep);
+        zone->changeGCState(Zone::Mark, Zone::Sweep);
 
         /* Purge the ArenaLists before sweeping. */
         zone->arenas.purge();
@@ -5413,9 +5402,8 @@ GCRuntime::endSweepingSweepGroup()
 
     /* Update the GC state for zones we have swept. */
     for (GCSweepGroupIter zone(rt); !zone.done(); zone.next()) {
-        MOZ_ASSERT(zone->isGCSweeping());
         AutoLockGC lock(rt);
-        zone->setGCState(Zone::Finished);
+        zone->changeGCState(Zone::Sweep, Zone::Finished);
         zone->threshold.updateAfterGC(zone->usage.gcBytes(), invocationKind, tunables,
                                       schedulingState, lock);
     }
@@ -6087,14 +6075,13 @@ GCRuntime::compactPhase(JS::gcreason::Reason reason, SliceBudget& sliceBudget,
         zonesToMaybeCompact.ref().removeFront();
 
         MOZ_ASSERT(zone->group()->nursery().isEmpty());
-        MOZ_ASSERT(zone->isGCFinished());
-        zone->setGCState(Zone::Compact);
+        zone->changeGCState(Zone::Finished, Zone::Compact);
 
         if (relocateArenas(zone, reason, relocatedArenas, sliceBudget)) {
             updateZonePointersToRelocatedCells(zone, lock);
             relocatedZones.append(zone);
         } else {
-            zone->setGCState(Zone::Finished);
+            zone->changeGCState(Zone::Compact, Zone::Finished);
         }
 
         if (sliceBudget.isOverBudget())
@@ -6107,7 +6094,7 @@ GCRuntime::compactPhase(JS::gcreason::Reason reason, SliceBudget& sliceBudget,
         do {
             Zone* zone = relocatedZones.front();
             relocatedZones.removeFront();
-            zone->setGCState(Zone::Finished);
+            zone->changeGCState(Zone::Compact, Zone::Finished);
         }
         while (!relocatedZones.isEmpty());
     }
@@ -6119,7 +6106,6 @@ GCRuntime::compactPhase(JS::gcreason::Reason reason, SliceBudget& sliceBudget,
 
     // Clear caches that can contain cell pointers.
     rt->caches().newObjectCache.purge();
-    rt->caches().nativeIterCache.purge();
     if (rt->caches().evalCache.initialized())
         rt->caches().evalCache.clear();
 
@@ -6150,8 +6136,8 @@ GCRuntime::finishCollection(JS::gcreason::Reason reason)
 
     for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
         if (zone->isCollecting()) {
-            MOZ_ASSERT(zone->isGCFinished());
-            zone->setGCState(Zone::NoGC);
+            zone->changeGCState(Zone::Finished, Zone::NoGC);
+            zone->notifyObservingDebuggers();
         }
 
         MOZ_ASSERT(!zone->isCollectingFromAnyThread());
@@ -6255,9 +6241,8 @@ GCRuntime::resetIncrementalGC(gc::AbortReason reason, AutoLockForExclusiveAccess
             ResetGrayList(c);
 
         for (GCZonesIter zone(rt); !zone.done(); zone.next()) {
-            MOZ_ASSERT(zone->isGCMarking());
             zone->setNeedsIncrementalBarrier(false);
-            zone->setGCState(Zone::NoGC);
+            zone->changeGCState(Zone::Mark, Zone::NoGC);
         }
 
         blocksToFreeAfterSweeping.ref().freeAll();
@@ -6779,7 +6764,7 @@ GCRuntime::gcCycle(bool nonincrementalByAPI, SliceBudget& budget, JS::gcreason::
 
     AutoExposeLiveCrossZoneEdges aelcze(&foundBlackGrayEdges.ref());
 
-    EvictAllNurseries(rt, reason);
+    minorGC(reason, gcstats::PhaseKind::EVICT_NURSERY_FOR_MAJOR_GC);
 
     AutoTraceSession session(rt, JS::HeapState::MajorCollecting);
 
@@ -6988,8 +6973,7 @@ GCRuntime::collect(bool nonincrementalByAPI, SliceBudget budget, JS::gcreason::R
          * Sometimes when we finish a GC we need to immediately start a new one.
          * This happens in the following cases:
          *  - when we reset the current GC
-         *  - when finalizers drop roots during shutdown (the cleanUpEverything
-         *    case)
+         *  - when finalizers drop roots during shutdown
          *  - when zones that we thought were dead at the start of GC are
          *    not collected (see the large comment in beginMarkPhase)
          */
@@ -6997,7 +6981,7 @@ GCRuntime::collect(bool nonincrementalByAPI, SliceBudget budget, JS::gcreason::R
         if (!isIncrementalGCInProgress()) {
             if (wasReset) {
                 repeat = true;
-            } else if (rootsRemoved && cleanUpEverything) {
+            } else if (rootsRemoved && IsShutdownGC(reason)) {
                 /* Need to re-schedule all zones for GC. */
                 JS::PrepareForFullGC(rt->activeContextFromOwnThread());
                 repeat = true;

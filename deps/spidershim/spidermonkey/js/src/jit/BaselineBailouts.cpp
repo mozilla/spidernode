@@ -10,6 +10,7 @@
 #include "jsprf.h"
 #include "jsutil.h"
 #include "jit/arm/Simulator-arm.h"
+#include "jit/BaselineFrame.h"
 #include "jit/BaselineIC.h"
 #include "jit/BaselineJIT.h"
 #include "jit/CompileInfo.h"
@@ -1584,8 +1585,10 @@ jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation, JitFrameIter
     JitSpew(JitSpew_BaselineBailouts, "  Incoming frame ptr = %p", builder.startFrame());
 
     SnapshotIteratorForBailout snapIter(activation, iter);
-    if (!snapIter.init(cx))
+    if (!snapIter.init(cx)) {
+        ReportOutOfMemory(cx);
         return BAILOUT_RETURN_FATAL_ERROR;
+    }
 
 #ifdef TRACK_SNAPSHOTS
     snapIter.spewBailingFrom();

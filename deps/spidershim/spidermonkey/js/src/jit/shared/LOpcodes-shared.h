@@ -80,7 +80,6 @@
     _(InitElem)                     \
     _(InitElemGetterSetter)         \
     _(MutateProto)                  \
-    _(InitProp)                     \
     _(InitPropGetterSetter)         \
     _(CheckOverRecursed)            \
     _(DefVar)                       \
@@ -240,6 +239,7 @@
     _(BinarySharedStub)             \
     _(UnarySharedStub)              \
     _(NullarySharedStub)            \
+    _(ClassConstructor)             \
     _(Lambda)                       \
     _(LambdaArrow)                  \
     _(LambdaForSingleton)           \
@@ -283,6 +283,7 @@
     _(LoadUnboxedScalar)            \
     _(LoadUnboxedPointerV)          \
     _(LoadUnboxedPointerT)          \
+    _(LoadElementFromStateV)        \
     _(UnboxObjectOrNull)            \
     _(StoreElementV)                \
     _(StoreElementT)                \
@@ -391,6 +392,7 @@
     _(IsConstructor)                \
     _(IsArrayO)                     \
     _(IsArrayV)                     \
+    _(IsTypedArray)                 \
     _(IsObject)                     \
     _(IsObjectAndBranch)            \
     _(HasClass)                     \
@@ -414,6 +416,7 @@
     _(CheckObjCoercible)            \
     _(DebugCheckSelfHosted)         \
     _(FinishBoundFunctionInit)      \
+    _(IsPackedArray)                \
     _(AsmJSLoadHeap)                \
     _(AsmJSStoreHeap)               \
     _(AsmJSCompareExchangeHeap)     \
