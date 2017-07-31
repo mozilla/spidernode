@@ -45,10 +45,19 @@ using mozilla::TimeDuration;
  */
 JS_STATIC_ASSERT(JS::gcreason::NUM_TELEMETRY_REASONS >= JS::gcreason::NUM_REASONS);
 
-static inline decltype(mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT))
+using PhaseKindRange = decltype(mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT));
+
+static inline PhaseKindRange
 AllPhaseKinds()
 {
     return mozilla::MakeEnumeratedRange(PhaseKind::FIRST, PhaseKind::LIMIT);
+}
+
+static inline PhaseKindRange
+MajorGCPhaseKinds()
+{
+    return mozilla::MakeEnumeratedRange(PhaseKind::GC_BEGIN,
+                                        PhaseKind(size_t(PhaseKind::GC_END) + 1));
 }
 
 const char*
@@ -154,21 +163,19 @@ Statistics::lookupChildPhase(PhaseKind phaseKind) const
 
     MOZ_ASSERT(phaseKind < PhaseKind::LIMIT);
 
-    // Most phases only correspond to a single expanded phase so check for that
-    // first.
-    Phase phase = phaseKinds[phaseKind].firstPhase;
-    if (phases[phase].nextInPhase == Phase::NONE) {
-        MOZ_ASSERT(phases[phase].parent == currentPhase());
-        return phase;
+    // Search all expanded phases that correspond to the required
+    // phase to find the one whose parent is the current expanded phase.
+    Phase phase;
+    for (phase = phaseKinds[phaseKind].firstPhase;
+         phase != Phase::NONE;
+         phase = phases[phase].nextInPhase)
+    {
+        if (phases[phase].parent == currentPhase())
+            break;
     }
 
-    // Otherwise search all expanded phases that correspond to the required
-    // phase to find the one whose parent is the current expanded phase.
-    Phase parent = currentPhase();
-    while (phases[phase].parent != parent) {
-        phase = phases[phase].nextInPhase;
-        MOZ_ASSERT(phase != Phase::NONE);
-    }
+    MOZ_RELEASE_ASSERT(phase != Phase::NONE,
+                       "Requested child phase not found under current phase");
 
     return phase;
 }
@@ -442,7 +449,7 @@ Statistics::formatDetailedSliceDescription(unsigned i, const SliceData& slice) c
     Reason: %s\n\
     Reset: %s%s\n\
     State: %s -> %s\n\
-    Page Faults: %ld\n\
+    Page Faults: %" PRIu64 "\n\
     Pause: %.3fms of %s budget (@ %.3fms)\n\
 ";
     char buffer[1024];
@@ -617,6 +624,11 @@ Statistics::formatJsonSliceDescription(unsigned i, const SliceData& slice, JSONP
     json.property("initial_state", gc::StateName(slice.initialState));
     json.property("final_state", gc::StateName(slice.finalState));
     json.property("budget", budgetDescription);
+    json.property("major_gc_number", startingMajorGCNumber);
+    if (thresholdTriggered) {
+        json.floatProperty("trigger_amount", triggerAmount, 0);
+        json.floatProperty("trigger_threshold", triggerThreshold, 0);
+    }
     json.property("page_faults", int64_t(slice.endFaults - slice.startFaults));
     json.property("start_timestamp", slice.start - originTime, JSONPrinter::SECONDS);
     json.property("end_timestamp", slice.end - originTime, JSONPrinter::SECONDS);
@@ -637,6 +649,9 @@ Statistics::Statistics(JSRuntime* rt)
     fp(nullptr),
     nonincrementalReason_(gc::AbortReason::None),
     preBytes(0),
+    thresholdTriggered(false),
+    triggerAmount(0.0),
+    triggerThreshold(0.0),
     maxPauseInInterval(0),
     sliceCallback(nullptr),
     nurseryCollectionCallback(nullptr),
@@ -788,7 +803,7 @@ CheckSelfTime(Phase parent,
 }
 
 static PhaseKind
-LongestPhaseSelfTime(const Statistics::PhaseTimeTable& times)
+LongestPhaseSelfTimeInMajorGC(const Statistics::PhaseTimeTable& times)
 {
     // Start with total times per expanded phase, including children's times.
     Statistics::PhaseTimeTable selfTimes(times);
@@ -812,7 +827,7 @@ LongestPhaseSelfTime(const Statistics::PhaseTimeTable& times)
     // Loop over this table to find the longest phase.
     TimeDuration longestTime = 0;
     PhaseKind longestPhase = PhaseKind::NONE;
-    for (auto i : AllPhaseKinds()) {
+    for (auto i : MajorGCPhaseKinds()) {
         if (phaseTimes[i] > longestTime) {
             longestTime = phaseTimes[i];
             longestPhase = i;
@@ -874,23 +889,16 @@ Statistics::endGC()
     runtime->addTelemetry(JS_TELEMETRY_GC_SCC_SWEEP_TOTAL_MS, t(sccTotal));
     runtime->addTelemetry(JS_TELEMETRY_GC_SCC_SWEEP_MAX_PAUSE_MS, t(sccLongest));
 
-    if (!aborted) {
-        TimeDuration total, longest;
-        gcDuration(&total, &longest);
+    TimeDuration total, longest;
+    gcDuration(&total, &longest);
 
-        runtime->addTelemetry(JS_TELEMETRY_GC_MS, t(total));
-        runtime->addTelemetry(JS_TELEMETRY_GC_MAX_PAUSE_MS, t(longest));
-        runtime->addTelemetry(JS_TELEMETRY_GC_MAX_PAUSE_MS_2, t(longest));
+    runtime->addTelemetry(JS_TELEMETRY_GC_MS, t(total));
+    runtime->addTelemetry(JS_TELEMETRY_GC_MAX_PAUSE_MS, t(longest));
+    runtime->addTelemetry(JS_TELEMETRY_GC_MAX_PAUSE_MS_2, t(longest));
 
-        const double mmu50 = computeMMU(TimeDuration::FromMilliseconds(50));
-        runtime->addTelemetry(JS_TELEMETRY_GC_MMU_50, mmu50 * 100);
-    }
-
-    if (fp)
-        printStats();
-
-    // Clear the OOM flag.
-    aborted = false;
+    const double mmu50 = computeMMU(TimeDuration::FromMilliseconds(50));
+    runtime->addTelemetry(JS_TELEMETRY_GC_MMU_50, mmu50 * 100);
+    thresholdTriggered = false;
 }
 
 void
@@ -919,6 +927,9 @@ void
 Statistics::beginSlice(const ZoneGCStats& zoneStats, JSGCInvocationKind gckind,
                        SliceBudget budget, JS::gcreason::Reason reason)
 {
+    MOZ_ASSERT(phaseStack.empty() ||
+               (phaseStack.length() == 1 && phaseStack[0] == Phase::MUTATOR));
+
     this->zoneStats = zoneStats;
 
     bool first = !runtime->gc.isIncrementalGCInProgress();
@@ -952,6 +963,9 @@ Statistics::beginSlice(const ZoneGCStats& zoneStats, JSGCInvocationKind gckind,
 void
 Statistics::endSlice()
 {
+    MOZ_ASSERT(phaseStack.empty() ||
+               (phaseStack.length() == 1 && phaseStack[0] == Phase::MUTATOR));
+
     if (!aborted) {
         auto& slice = slices_.back();
         slice.end = TimeStamp::Now();
@@ -970,23 +984,37 @@ Statistics::endSlice()
             if (budget_ms == runtime->gc.defaultSliceBudget())
                 runtime->addTelemetry(JS_TELEMETRY_GC_ANIMATION_MS, t(sliceTime));
 
-            // Record any phase that goes more than 2x over its budget.
-            if (sliceTime.ToMilliseconds() > 2 * budget_ms) {
-                reportLongestPhase(slice.phaseTimes, JS_TELEMETRY_GC_SLOW_PHASE);
-                // If we spend a significant length of time waiting for parallel
-                // tasks then report the longest task.
-                TimeDuration joinTime = SumPhase(PhaseKind::JOIN_PARALLEL_TASKS, slice.phaseTimes);
-                if (joinTime.ToMilliseconds() > budget_ms)
-                    reportLongestPhase(slice.parallelTimes, JS_TELEMETRY_GC_SLOW_TASK);
+            // Record any phase that goes 1.5 times or 5ms over its budget.
+            double longSliceThreshold = std::min(1.5 * budget_ms, budget_ms + 5.0);
+            if (sliceTime.ToMilliseconds() > longSliceThreshold) {
+                PhaseKind longest = LongestPhaseSelfTimeInMajorGC(slice.phaseTimes);
+                reportLongestPhaseInMajorGC(longest, JS_TELEMETRY_GC_SLOW_PHASE);
+
+                // If the longest phase was waiting for parallel tasks then
+                // record the longest task.
+                if (longest == PhaseKind::JOIN_PARALLEL_TASKS) {
+                    PhaseKind longestParallel = LongestPhaseSelfTimeInMajorGC(slice.parallelTimes);
+                    reportLongestPhaseInMajorGC(longestParallel, JS_TELEMETRY_GC_SLOW_TASK);
+                }
             }
+
+            // Record how long we went over budget.
+            int64_t overrun = sliceTime.ToMicroseconds() - (1000 * budget_ms);
+            if (overrun > 0)
+                runtime->addTelemetry(JS_TELEMETRY_GC_BUDGET_OVERRUN, uint32_t(overrun));
         }
 
         sliceCount_++;
     }
 
     bool last = !runtime->gc.isIncrementalGCInProgress();
-    if (last)
-        endGC();
+    if (last) {
+        if (fp)
+            printStats();
+
+        if (!aborted)
+            endGC();
+    }
 
     if (enableProfiling_ && !aborted && slices_.back().duration() >= profileThreshold_)
         printSliceProfile();
@@ -1016,17 +1044,17 @@ Statistics::endSlice()
         phaseStartTimes[Phase::MUTATOR] = mutatorStartTime;
         phaseTimes[Phase::MUTATOR] = mutatorTime;
     }
+
+    aborted = false;
 }
 
 void
-Statistics::reportLongestPhase(const PhaseTimeTable& times, int telemetryId)
+Statistics::reportLongestPhaseInMajorGC(PhaseKind longest, int telemetryId)
 {
-    PhaseKind longest = LongestPhaseSelfTime(times);
-    if (longest == PhaseKind::NONE)
-        return;
-
-    uint8_t bucket = phaseKinds[longest].telemetryBucket;
-    runtime->addTelemetry(telemetryId, bucket);
+    if (longest != PhaseKind::NONE) {
+        uint8_t bucket = phaseKinds[longest].telemetryBucket;
+        runtime->addTelemetry(telemetryId, bucket);
+    }
 }
 
 bool
@@ -1112,20 +1140,52 @@ Statistics::beginPhase(PhaseKind phaseKind)
 void
 Statistics::recordPhaseBegin(Phase phase)
 {
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime));
+
     // Guard against any other re-entry.
     MOZ_ASSERT(!phaseStartTimes[phase]);
 
     MOZ_ASSERT(phaseStack.length() < MAX_PHASE_NESTING);
-    MOZ_ASSERT(phases[phase].parent == currentPhase());
+
+    Phase current = currentPhase();
+    MOZ_ASSERT(phases[phase].parent == current);
+
+    TimeStamp now = TimeStamp::Now();
+
+    if (current != Phase::NONE) {
+#ifdef ANDROID
+        // Sadly this happens sometimes.
+        if (now < phaseStartTimes[currentPhase()]) {
+            now = phaseStartTimes[currentPhase()];
+            aborted = true;
+        }
+#endif
+
+        MOZ_RELEASE_ASSERT(now >= phaseStartTimes[currentPhase()]);
+    }
 
     phaseStack.infallibleAppend(phase);
-    phaseStartTimes[phase] = TimeStamp::Now();
+    phaseStartTimes[phase] = now;
 }
 
 void
 Statistics::recordPhaseEnd(Phase phase)
 {
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime));
+
+    MOZ_ASSERT(phaseStartTimes[phase]);
+
     TimeStamp now = TimeStamp::Now();
+
+#ifdef ANDROID
+    // Sadly this happens sometimes.
+    if (now < phaseStartTimes[phase]) {
+        now = phaseStartTimes[phase];
+        aborted = true;
+    }
+#endif
+
+    MOZ_RELEASE_ASSERT(now >= phaseStartTimes[phase]);
 
     if (phase == Phase::MUTATOR)
         timedGCStart = now;
@@ -1161,6 +1221,8 @@ Statistics::endPhase(PhaseKind phaseKind)
 void
 Statistics::recordParallelPhase(PhaseKind phaseKind, TimeDuration duration)
 {
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime));
+
     Phase phase = lookupChildPhase(phaseKind);
 
     // Record the duration for all phases in the tree up to the root. This is
@@ -1172,18 +1234,6 @@ Statistics::recordParallelPhase(PhaseKind phaseKind, TimeDuration duration)
         parallelTimes[phase] += duration;
         phase = phases[phase].parent;
     }
-}
-
-void
-Statistics::endParallelPhase(PhaseKind phaseKind, const GCParallelTask* task)
-{
-    Phase phase = lookupChildPhase(phaseKind);
-    phaseStack.popBack();
-
-    if (!slices_.empty())
-        slices_.back().phaseTimes[phase] += task->duration();
-    phaseTimes[phase] += task->duration();
-    phaseStartTimes[phase] = TimeStamp();
 }
 
 TimeStamp

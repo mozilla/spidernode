@@ -476,6 +476,13 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     void addUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise);
     void removeUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise);
 
+    js::UnprotectedData<JS::RequestReadableStreamDataCallback> readableStreamDataRequestCallback;
+    js::UnprotectedData<JS::WriteIntoReadRequestBufferCallback> readableStreamWriteIntoReadRequestCallback;
+    js::UnprotectedData<JS::CancelReadableStreamCallback> readableStreamCancelCallback;
+    js::UnprotectedData<JS::ReadableStreamClosedCallback> readableStreamClosedCallback;
+    js::UnprotectedData<JS::ReadableStreamErroredCallback> readableStreamErroredCallback;
+    js::UnprotectedData<JS::ReadableStreamFinalizeCallback> readableStreamFinalizeCallback;
+
     /* Had an out-of-memory error which did not populate an exception. */
     mozilla::Atomic<bool> hadOutOfMemory;
 
@@ -509,9 +516,9 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
   private:
     /* Gecko profiling metadata */
-    js::UnprotectedData<js::GeckoProfiler> geckoProfiler_;
+    js::UnprotectedData<js::GeckoProfilerRuntime> geckoProfiler_;
   public:
-    js::GeckoProfiler& geckoProfiler() { return geckoProfiler_.ref(); }
+    js::GeckoProfilerRuntime& geckoProfiler() { return geckoProfiler_.ref(); }
 
     // Heap GC roots for PersistentRooted pointers.
     js::ActiveThreadData<mozilla::EnumeratedArray<JS::RootKind, JS::RootKind::Limit,
@@ -554,10 +561,10 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
   private:
     // List of non-ephemeron weak containers to sweep during beginSweepingSweepGroup.
-    js::ActiveThreadData<mozilla::LinkedList<JS::WeakCache<void*>>> weakCaches_;
+    js::ActiveThreadData<mozilla::LinkedList<JS::detail::WeakCacheBase>> weakCaches_;
   public:
-    mozilla::LinkedList<JS::WeakCache<void*>>& weakCaches() { return weakCaches_.ref(); }
-    void registerWeakCache(JS::WeakCache<void*>* cachep) {
+    mozilla::LinkedList<JS::detail::WeakCacheBase>& weakCaches() { return weakCaches_.ref(); }
+    void registerWeakCache(JS::detail::WeakCacheBase* cachep) {
         weakCaches().insertBack(cachep);
     }
 
@@ -1089,13 +1096,26 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     // resume PC at a time.
     js::ActiveThreadData<void*> wasmResumePC_;
 
+    // To ensure a consistent state of fp/pc, the unwound pc might be
+    // different from the resumePC, especially at call boundaries.
+    js::ActiveThreadData<void*> wasmUnwindPC_;
+
   public:
+    void startWasmInterrupt(void* resumePC, void* unwindPC) {
+        MOZ_ASSERT(resumePC && unwindPC);
+        wasmResumePC_ = resumePC;
+        wasmUnwindPC_ = unwindPC;
+    }
+    void finishWasmInterrupt() {
+        MOZ_ASSERT(wasmResumePC_ && wasmUnwindPC_);
+        wasmResumePC_ = nullptr;
+        wasmUnwindPC_ = nullptr;
+    }
     void* wasmResumePC() const {
         return wasmResumePC_;
     }
-    void setWasmResumePC(void* resumePC) {
-        MOZ_ASSERT(!!resumePC == !wasmResumePC_);
-        wasmResumePC_ = resumePC;
+    void* wasmUnwindPC() const {
+        return wasmUnwindPC_;
     }
 };
 
@@ -1371,12 +1391,6 @@ inline gc::StoreBuffer&
 ZoneGroup::storeBuffer()
 {
     return runtime->gc.storeBuffer();
-}
-
-inline void
-ZoneGroup::callAfterMinorGC(void (*thunk)(void* data), void* data)
-{
-    nursery().queueSweepAction(thunk, data);
 }
 
 // This callback is set by JS::SetProcessLargeAllocationFailureCallback

@@ -131,13 +131,14 @@ class ArtifactJob(object):
         ('bin/OCSPStaplingServer', ('bin', 'bin')),
         ('bin/certutil', ('bin', 'bin')),
         ('bin/fileid', ('bin', 'bin')),
+        ('bin/geckodriver', ('bin', 'bin')),
         ('bin/pk12util', ('bin', 'bin')),
         ('bin/screentopng', ('bin', 'bin')),
         ('bin/ssltunnel', ('bin', 'bin')),
         ('bin/xpcshell', ('bin', 'bin')),
         ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
         ('bin/plugins/*', ('bin/plugins', 'plugins')),
-        ('bin/components/*', ('bin/components', 'bin/components')),
+        ('bin/components/*.xpt', ('bin/components', 'bin/components')),
     }
 
     # We can tell our input is a test archive by this suffix, which happens to
@@ -435,6 +436,7 @@ class WinArtifactJob(ArtifactJob):
         ('bin/OCSPStaplingServer.exe', ('bin', 'bin')),
         ('bin/certutil.exe', ('bin', 'bin')),
         ('bin/fileid.exe', ('bin', 'bin')),
+        ('bin/geckodriver.exe', ('bin', 'bin')),
         ('bin/pk12util.exe', ('bin', 'bin')),
         ('bin/screenshot.exe', ('bin', 'bin')),
         ('bin/ssltunnel.exe', ('bin', 'bin')),
@@ -488,14 +490,14 @@ JOB_DETAILS = {
                                       r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
     'macosx64-debug': (MacArtifactJob, (r'public/build/firefox-(.*)\.mac\.dmg|public/build/target\.dmg',
                                         r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
-    'win32-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32.zip',
-                                   r'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win32-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32.zip',
-                                     r'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win64-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64.zip',
-                                   r'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win64-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64.zip',
-                                     r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'win32-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32\.zip|public/build/target\.zip',
+                                   r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
+    'win32-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32\.zip|public/build/target\.zip',
+                                     r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
+    'win64-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64\.zip|public/build/target\.zip',
+                                   r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
+    'win64-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64\.zip|public/build/target\.zip',
+                                     r'public/build/firefox-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
 }
 
 

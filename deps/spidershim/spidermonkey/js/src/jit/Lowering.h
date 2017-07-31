@@ -91,7 +91,6 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitInitElem(MInitElem* ins);
     void visitInitElemGetterSetter(MInitElemGetterSetter* ins);
     void visitMutateProto(MMutateProto* ins);
-    void visitInitProp(MInitProp* ins);
     void visitInitPropGetterSetter(MInitPropGetterSetter* ins);
     void visitCheckOverRecursed(MCheckOverRecursed* ins);
     void visitDefVar(MDefVar* ins);
@@ -186,6 +185,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitBinarySharedStub(MBinarySharedStub* ins);
     void visitUnarySharedStub(MUnarySharedStub* ins);
     void visitNullarySharedStub(MNullarySharedStub* ins);
+    void visitClassConstructor(MClassConstructor* ins);
     void visitLambda(MLambda* ins);
     void visitLambdaArrow(MLambdaArrow* ins);
     void visitSetFunName(MSetFunName* ins);
@@ -232,6 +232,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitLoadElementHole(MLoadElementHole* ins);
     void visitLoadUnboxedObjectOrNull(MLoadUnboxedObjectOrNull* ins);
     void visitLoadUnboxedString(MLoadUnboxedString* ins);
+    void visitLoadElementFromState(MLoadElementFromState* ins);
     void visitStoreElement(MStoreElement* ins);
     void visitStoreElementHole(MStoreElementHole* ins);
     void visitFallibleStoreElement(MFallibleStoreElement* ins);
@@ -275,7 +276,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitCallInitElementArray(MCallInitElementArray* ins);
     void visitSetPropertyCache(MSetPropertyCache* ins);
     void visitCallSetProperty(MCallSetProperty* ins);
-    void visitIteratorStart(MIteratorStart* ins);
+    void visitGetIteratorCache(MGetIteratorCache* ins);
     void visitIteratorMore(MIteratorMore* ins);
     void visitIsNoIter(MIsNoIter* ins);
     void visitIteratorEnd(MIteratorEnd* ins);
@@ -293,6 +294,8 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitCallInstanceOf(MCallInstanceOf* ins);
     void visitIsCallable(MIsCallable* ins);
     void visitIsConstructor(MIsConstructor* ins);
+    void visitIsArray(MIsArray* ins);
+    void visitIsTypedArray(MIsTypedArray* ins);
     void visitIsObject(MIsObject* ins);
     void visitHasClass(MHasClass* ins);
     void visitWasmAddOffset(MWasmAddOffset* ins);
@@ -324,6 +327,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitBeta(MBeta* ins);
     void visitObjectState(MObjectState* ins);
     void visitArrayState(MArrayState* ins);
+    void visitArgumentState(MArgumentState* ins);
     void visitUnknownValue(MUnknownValue* ins);
     void visitLexicalCheck(MLexicalCheck* ins);
     void visitThrowRuntimeLexicalError(MThrowRuntimeLexicalError* ins);
@@ -339,6 +343,8 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitCheckIsCallable(MCheckIsCallable* ins);
     void visitCheckObjCoercible(MCheckObjCoercible* ins);
     void visitDebugCheckSelfHosted(MDebugCheckSelfHosted* ins);
+    void visitFinishBoundFunctionInit(MFinishBoundFunctionInit* ins);
+    void visitIsPackedArray(MIsPackedArray* ins);
 };
 
 } // namespace jit

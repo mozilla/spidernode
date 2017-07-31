@@ -308,6 +308,7 @@ struct JSContext : public JS::RootingContext,
     void addPendingOutOfMemory();
 
     JSRuntime* runtime() { return runtime_; }
+    const JSRuntime* runtime() const { return runtime_; }
 
     static size_t offsetOfCompartment() {
         return offsetof(JSContext, compartment_);
@@ -388,9 +389,6 @@ struct JSContext : public JS::RootingContext,
 
     js::Activation* profilingActivation() const {
         return profilingActivation_;
-    }
-    void* addressOfProfilingActivation() {
-        return (void*) &profilingActivation_;
     }
     static size_t offsetOfProfilingActivation() {
         return offsetof(JSContext, profilingActivation_);
@@ -473,10 +471,6 @@ struct JSContext : public JS::RootingContext,
      * in non-exposed debugging facilities.
      */
     js::ThreadLocalData<int32_t> suppressGC;
-
-    // In some cases, invoking GC barriers (incremental or otherwise) will break
-    // things. These barriers assert if this flag is set.
-    js::ThreadLocalData<bool> allowGCBarriers;
 
 #ifdef DEBUG
     // Whether this thread is actively Ion compiling.
@@ -571,6 +565,10 @@ struct JSContext : public JS::RootingContext,
     // exclusive threads are running.
     js::ThreadLocalData<unsigned> keepAtoms;
 
+    bool canCollectAtoms() const {
+        return !keepAtoms && !runtime()->hasHelperThreadZones();
+    }
+
   private:
     // Pools used for recycling name maps and vectors when parsing and
     // emitting bytecode. Purged on GC when there are no active script
@@ -601,6 +599,12 @@ struct JSContext : public JS::RootingContext,
     void enableProfilerSampling() {
         suppressProfilerSampling = false;
     }
+
+  private:
+    /* Gecko profiling metadata */
+    js::UnprotectedData<js::GeckoProfilerThread> geckoProfiler_;
+  public:
+    js::GeckoProfilerThread& geckoProfiler() { return geckoProfiler_.ref(); }
 
 #if defined(XP_DARWIN)
     js::wasm::MachExceptionHandler wasmMachExceptionHandler;
@@ -1260,8 +1264,8 @@ class MOZ_RAII AutoKeepAtoms
 
         JSRuntime* rt = cx->runtime();
         if (!cx->helperThread()) {
-            if (rt->gc.fullGCForAtomsRequested() && !cx->keepAtoms)
-                rt->gc.triggerFullGCForAtoms();
+            if (rt->gc.fullGCForAtomsRequested() && cx->canCollectAtoms())
+                rt->gc.triggerFullGCForAtoms(cx);
         }
     }
 };

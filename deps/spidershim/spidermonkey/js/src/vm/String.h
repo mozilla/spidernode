@@ -652,17 +652,17 @@ class JSLinearString : public JSString
   public:
     template<typename CharT>
     MOZ_ALWAYS_INLINE
-    const CharT* nonInlineChars(const JS::AutoCheckCannotGC& nogc) const;
+    const CharT* nonInlineChars(const JS::AutoRequireNoGC& nogc) const;
 
     MOZ_ALWAYS_INLINE
-    const JS::Latin1Char* nonInlineLatin1Chars(const JS::AutoCheckCannotGC& nogc) const {
+    const JS::Latin1Char* nonInlineLatin1Chars(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(!isInline());
         MOZ_ASSERT(hasLatin1Chars());
         return d.s.u2.nonInlineCharsLatin1;
     }
 
     MOZ_ALWAYS_INLINE
-    const char16_t* nonInlineTwoByteChars(const JS::AutoCheckCannotGC& nogc) const {
+    const char16_t* nonInlineTwoByteChars(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(!isInline());
         MOZ_ASSERT(hasTwoByteChars());
         return d.s.u2.nonInlineCharsTwoByte;
@@ -670,24 +670,24 @@ class JSLinearString : public JSString
 
     template<typename CharT>
     MOZ_ALWAYS_INLINE
-    const CharT* chars(const JS::AutoCheckCannotGC& nogc) const;
+    const CharT* chars(const JS::AutoRequireNoGC& nogc) const;
 
     MOZ_ALWAYS_INLINE
-    const JS::Latin1Char* latin1Chars(const JS::AutoCheckCannotGC& nogc) const {
+    const JS::Latin1Char* latin1Chars(const JS::AutoRequireNoGC& nogc) const {
         return rawLatin1Chars();
     }
 
     MOZ_ALWAYS_INLINE
-    const char16_t* twoByteChars(const JS::AutoCheckCannotGC& nogc) const {
+    const char16_t* twoByteChars(const JS::AutoRequireNoGC& nogc) const {
         return rawTwoByteChars();
     }
 
-    mozilla::Range<const JS::Latin1Char> latin1Range(const JS::AutoCheckCannotGC& nogc) const {
+    mozilla::Range<const JS::Latin1Char> latin1Range(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(JSString::isLinear());
         return mozilla::Range<const JS::Latin1Char>(latin1Chars(nogc), length());
     }
 
-    mozilla::Range<const char16_t> twoByteRange(const JS::AutoCheckCannotGC& nogc) const {
+    mozilla::Range<const char16_t> twoByteRange(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(JSString::isLinear());
         return mozilla::Range<const char16_t>(twoByteChars(nogc), length());
     }
@@ -724,16 +724,18 @@ class JSDependentString : public JSLinearString
     JSDependentString& asDependent() const = delete;
 
     /* The offset of this string's chars in base->chars(). */
-    size_t baseOffset() const {
+    MOZ_ALWAYS_INLINE mozilla::Maybe<size_t> baseOffset() const {
         MOZ_ASSERT(JSString::isDependent());
         JS::AutoCheckCannotGC nogc;
+        if (MOZ_UNLIKELY(base()->isUndepended()))
+            return mozilla::Nothing();
         size_t offset;
         if (hasTwoByteChars())
             offset = twoByteChars(nogc) - base()->twoByteChars(nogc);
         else
             offset = latin1Chars(nogc) - base()->latin1Chars(nogc);
         MOZ_ASSERT(offset < base()->length());
-        return offset;
+        return mozilla::Some(offset);
     }
 
   public:
@@ -862,14 +864,14 @@ class JSInlineString : public JSFlatString
 {
   public:
     MOZ_ALWAYS_INLINE
-    const JS::Latin1Char* latin1Chars(const JS::AutoCheckCannotGC& nogc) const {
+    const JS::Latin1Char* latin1Chars(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(JSString::isInline());
         MOZ_ASSERT(hasLatin1Chars());
         return d.inlineStorageLatin1;
     }
 
     MOZ_ALWAYS_INLINE
-    const char16_t* twoByteChars(const JS::AutoCheckCannotGC& nogc) const {
+    const char16_t* twoByteChars(const JS::AutoRequireNoGC& nogc) const {
         MOZ_ASSERT(JSString::isInline());
         MOZ_ASSERT(hasTwoByteChars());
         return d.inlineStorageTwoByte;
@@ -1422,28 +1424,28 @@ JSString::base() const
 
 template<>
 MOZ_ALWAYS_INLINE const char16_t*
-JSLinearString::nonInlineChars(const JS::AutoCheckCannotGC& nogc) const
+JSLinearString::nonInlineChars(const JS::AutoRequireNoGC& nogc) const
 {
     return nonInlineTwoByteChars(nogc);
 }
 
 template<>
 MOZ_ALWAYS_INLINE const JS::Latin1Char*
-JSLinearString::nonInlineChars(const JS::AutoCheckCannotGC& nogc) const
+JSLinearString::nonInlineChars(const JS::AutoRequireNoGC& nogc) const
 {
     return nonInlineLatin1Chars(nogc);
 }
 
 template<>
 MOZ_ALWAYS_INLINE const char16_t*
-JSLinearString::chars(const JS::AutoCheckCannotGC& nogc) const
+JSLinearString::chars(const JS::AutoRequireNoGC& nogc) const
 {
     return rawTwoByteChars();
 }
 
 template<>
 MOZ_ALWAYS_INLINE const JS::Latin1Char*
-JSLinearString::chars(const JS::AutoCheckCannotGC& nogc) const
+JSLinearString::chars(const JS::AutoRequireNoGC& nogc) const
 {
     return rawLatin1Chars();
 }

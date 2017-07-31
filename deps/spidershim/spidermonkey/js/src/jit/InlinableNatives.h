@@ -121,14 +121,18 @@
     _(IntrinsicIsConstructing)      \
     _(IntrinsicSubstringKernel)     \
     _(IntrinsicObjectHasPrototype)  \
+    _(IntrinsicFinishBoundFunctionInit) \
+    _(IntrinsicIsPackedArray)       \
                                     \
     _(IntrinsicIsArrayIterator)     \
     _(IntrinsicIsMapIterator)       \
     _(IntrinsicIsSetIterator)       \
     _(IntrinsicIsStringIterator)    \
                                     \
+    _(IntrinsicIsMapObject)         \
     _(IntrinsicGetNextMapEntryForIterator) \
                                     \
+    _(IntrinsicIsSetObject)         \
     _(IntrinsicGetNextSetEntryForIterator) \
                                     \
     _(IntrinsicNewArrayIterator)    \

@@ -597,6 +597,21 @@ FrameIter::Data::Data(JSContext* cx, DebuggerEvalOption debuggerEvalOption,
 {
 }
 
+FrameIter::Data::Data(JSContext* cx, const CooperatingContext& target,
+                      DebuggerEvalOption debuggerEvalOption)
+  : cx_(cx),
+    debuggerEvalOption_(debuggerEvalOption),
+    principals_(nullptr),
+    state_(DONE),
+    pc_(nullptr),
+    interpFrames_(nullptr),
+    activations_(cx, target),
+    jitFrames_(),
+    ionInlineFrameNo_(0),
+    wasmFrames_()
+{
+}
+
 FrameIter::Data::Data(const FrameIter::Data& other)
   : cx_(other.cx_),
     debuggerEvalOption_(other.debuggerEvalOption_),
@@ -609,6 +624,16 @@ FrameIter::Data::Data(const FrameIter::Data& other)
     ionInlineFrameNo_(other.ionInlineFrameNo_),
     wasmFrames_(other.wasmFrames_)
 {
+}
+
+FrameIter::FrameIter(JSContext* cx, const CooperatingContext& target,
+                     DebuggerEvalOption debuggerEvalOption)
+  : data_(cx, target, debuggerEvalOption),
+    ionInlineFrames_(cx, (js::jit::JitFrameIterator*) nullptr)
+{
+    // settleOnActivation can only GC if principals are given.
+    JS::AutoSuppressGCAnalysis nogc;
+    settleOnActivation();
 }
 
 FrameIter::FrameIter(JSContext* cx, DebuggerEvalOption debuggerEvalOption)
@@ -1652,19 +1677,25 @@ WasmActivation::unwindExitFP(wasm::Frame* exitFP)
 }
 
 void
-WasmActivation::startInterrupt(void* pc, uint8_t* fp)
+WasmActivation::startInterrupt(const JS::ProfilingFrameIterator::RegisterState& state)
 {
-    MOZ_ASSERT(pc);
-    MOZ_ASSERT(fp);
+    MOZ_ASSERT(state.pc);
+    MOZ_ASSERT(state.fp);
 
     // Execution can only be interrupted in function code. Afterwards, control
     // flow does not reenter function code and thus there should be no
     // interrupt-during-interrupt.
     MOZ_ASSERT(!interrupted());
-    MOZ_ASSERT(compartment()->wasm.lookupCode(pc)->lookupRange(pc)->isFunction());
 
-    cx_->runtime()->setWasmResumePC(pc);
-    exitFP_ = reinterpret_cast<wasm::Frame*>(fp);
+    bool ignoredUnwound;
+    wasm::UnwindState unwindState;
+    MOZ_ALWAYS_TRUE(wasm::StartUnwinding(*this, state, &unwindState, &ignoredUnwound));
+
+    void* unwindPC = unwindState.pc;
+    MOZ_ASSERT(compartment()->wasm.lookupCode(unwindPC)->lookupRange(unwindPC)->isFunction());
+
+    cx_->runtime()->startWasmInterrupt(state.pc, unwindPC);
+    exitFP_ = reinterpret_cast<wasm::Frame*>(unwindState.fp);
 
     MOZ_ASSERT(compartment() == exitFP_->tls->instance->compartment());
     MOZ_ASSERT(interrupted());
@@ -1676,14 +1707,14 @@ WasmActivation::finishInterrupt()
     MOZ_ASSERT(interrupted());
     MOZ_ASSERT(exitFP_);
 
-    cx_->runtime()->setWasmResumePC(nullptr);
+    cx_->runtime()->finishWasmInterrupt();
     exitFP_ = nullptr;
 }
 
 bool
 WasmActivation::interrupted() const
 {
-    void* pc = cx_->runtime()->wasmResumePC();
+    void* pc = cx_->runtime()->wasmUnwindPC();
     if (!pc)
         return false;
 
@@ -1697,6 +1728,13 @@ WasmActivation::interrupted() const
     DebugOnly<wasm::Frame*> fp = act->asWasm()->exitFP();
     MOZ_ASSERT(fp && fp->instance()->code().containsFunctionPC(pc));
     return true;
+}
+
+void*
+WasmActivation::unwindPC() const
+{
+    MOZ_ASSERT(interrupted());
+    return cx_->runtime()->wasmUnwindPC();
 }
 
 void*

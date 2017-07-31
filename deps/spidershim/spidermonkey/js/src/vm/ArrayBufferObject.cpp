@@ -112,6 +112,7 @@ static const ClassOps ArrayBufferObjectClassOps = {
     nullptr,        /* getProperty */
     nullptr,        /* setProperty */
     nullptr,        /* enumerate */
+    nullptr,        /* newEnumerate */
     nullptr,        /* resolve */
     nullptr,        /* mayResolve */
     ArrayBufferObject::finalize,
@@ -284,8 +285,7 @@ ArrayBufferObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
     // Step 3 (Inlined 24.1.1.1 AllocateArrayBuffer).
     // 24.1.1.1, step 1 (Inlined 9.1.14 OrdinaryCreateFromConstructor).
     RootedObject proto(cx);
-    RootedObject newTarget(cx, &args.newTarget().toObject());
-    if (!GetPrototypeFromConstructor(cx, newTarget, &proto))
+    if (!GetPrototypeFromBuiltinConstructor(cx, args, &proto))
         return false;
 
     // 24.1.1.1, step 3 (Inlined 6.2.6.1 CreateByteDataBlock, step 2).
@@ -1615,7 +1615,7 @@ JS_GetArrayBufferByteLength(JSObject* obj)
 }
 
 JS_FRIEND_API(uint8_t*)
-JS_GetArrayBufferData(JSObject* obj, bool* isSharedMemory, const JS::AutoCheckCannotGC&)
+JS_GetArrayBufferData(JSObject* obj, bool* isSharedMemory, const JS::AutoRequireNoGC&)
 {
     obj = CheckedUnwrap(obj);
     if (!obj)
@@ -1832,7 +1832,7 @@ JS_IsMappedArrayBufferObject(JSObject* obj)
 }
 
 JS_FRIEND_API(void*)
-JS_GetArrayBufferViewData(JSObject* obj, bool* isSharedMemory, const JS::AutoCheckCannotGC&)
+JS_GetArrayBufferViewData(JSObject* obj, bool* isSharedMemory, const JS::AutoRequireNoGC&)
 {
     obj = CheckedUnwrap(obj);
     if (!obj)
@@ -1874,6 +1874,17 @@ JS_GetArrayBufferViewByteLength(JSObject* obj)
     return obj->is<DataViewObject>()
            ? obj->as<DataViewObject>().byteLength()
            : obj->as<TypedArrayObject>().byteLength();
+}
+
+JS_FRIEND_API(uint32_t)
+JS_GetArrayBufferViewByteOffset(JSObject* obj)
+{
+    obj = CheckedUnwrap(obj);
+    if (!obj)
+        return 0;
+    return obj->is<DataViewObject>()
+           ? obj->as<DataViewObject>().byteOffset()
+           : obj->as<TypedArrayObject>().byteOffset();
 }
 
 JS_FRIEND_API(JSObject*)
