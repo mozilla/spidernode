@@ -512,10 +512,10 @@ void AsyncWrap::Initialize(Local<Object> target,
       static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
 
 #define FORCE_SET_TARGET_FIELD(obj, str, field)                               \
-  (obj)->ForceSet(context,                                                    \
-                  FIXED_ONE_BYTE_STRING(isolate, str),                        \
-                  field,                                                      \
-                  ReadOnlyDontDelete).FromJust()
+  (obj)->DefineOwnProperty(context,                                           \
+                           FIXED_ONE_BYTE_STRING(isolate, str),               \
+                           field,                                             \
+                           ReadOnlyDontDelete).FromJust()
 
   // Attach the uint32_t[] where each slot contains the count of the number of
   // callbacks waiting to be called on a particular event. It can then be
@@ -745,17 +745,9 @@ async_id AsyncHooksGetExecutionAsyncId(Isolate* isolate) {
   return Environment::GetCurrent(isolate)->current_async_id();
 }
 
-async_id AsyncHooksGetCurrentId(Isolate* isolate) {
-  return AsyncHooksGetExecutionAsyncId(isolate);
-}
-
 
 async_id AsyncHooksGetTriggerAsyncId(Isolate* isolate) {
   return Environment::GetCurrent(isolate)->trigger_id();
-}
-
-async_id AsyncHooksGetTriggerId(Isolate* isolate) {
-  return AsyncHooksGetTriggerAsyncId(isolate);
 }
 
 
