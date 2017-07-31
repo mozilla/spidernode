@@ -56,6 +56,7 @@
 #include "jit/JitFrames-inl.h"
 #include "vm/Debugger-inl.h"
 #include "vm/EnvironmentObject-inl.h"
+#include "vm/GeckoProfiler-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/Probes-inl.h"
 #include "vm/Stack-inl.h"
@@ -129,26 +130,24 @@ js::GetFunctionThis(JSContext* cx, AbstractFramePtr frame, MutableHandleValue re
     return BoxNonStrictThis(cx, thisv, res);
 }
 
-bool
+void
 js::GetNonSyntacticGlobalThis(JSContext* cx, HandleObject envChain, MutableHandleValue res)
 {
     RootedObject env(cx, envChain);
     while (true) {
         if (IsExtensibleLexicalEnvironment(env)) {
             res.set(env->as<LexicalEnvironmentObject>().thisValue());
-            return true;
+            return;
         }
         if (!env->enclosingEnvironment()) {
             // This can only happen in Debugger eval frames: in that case we
             // don't always have a global lexical env, see EvaluateInEnv.
             MOZ_ASSERT(env->is<GlobalObject>());
             res.set(GetThisValue(env));
-            return true;
+            return;
         }
         env = env->enclosingEnvironment();
     }
-
-    return true;
 }
 
 bool
@@ -378,7 +377,7 @@ js::RunScript(JSContext* cx, RunState& state)
     js::AutoStopwatch stopwatch(cx);
 #endif // defined(MOZ_HAVE_RDTSC)
 
-    GeckoProfilerEntryMarker marker(cx->runtime(), state.script());
+    GeckoProfilerEntryMarker marker(cx, state.script());
 
     state.script()->ensureNonLazyCanonicalFunction();
 
@@ -2017,7 +2016,7 @@ CASE(JSOP_LOOPENTRY)
 
             jit::JitExecStatus maybeOsr;
             {
-                GeckoProfilerBaselineOSRMarker osr(cx->runtime(), wasProfiler);
+                GeckoProfilerBaselineOSRMarker osr(cx, wasProfiler);
                 maybeOsr = jit::EnterBaselineAtBranch(cx, REGS.fp(), REGS.pc);
             }
 
@@ -2031,7 +2030,7 @@ CASE(JSOP_LOOPENTRY)
             // version of the function popped a copy of the frame pushed by the
             // OSR trampoline.)
             if (wasProfiler)
-                cx->runtime()->geckoProfiler().exit(script, script->functionNonDelazifying());
+                cx->geckoProfiler().exit(script, script->functionNonDelazifying());
 
             if (activation.entryFrame() != REGS.fp())
                 goto jit_return_pop_frame;
@@ -2725,8 +2724,7 @@ CASE(JSOP_GLOBALTHIS)
 {
     if (script->hasNonSyntacticScope()) {
         PUSH_NULL();
-        if (!GetNonSyntacticGlobalThis(cx, REGS.fp()->environmentChain(), REGS.stackHandleAt(-1)))
-            goto error;
+        GetNonSyntacticGlobalThis(cx, REGS.fp()->environmentChain(), REGS.stackHandleAt(-1));
     } else {
         PUSH_COPY(cx->global()->lexicalEnvironment().thisValue());
     }
@@ -2992,7 +2990,7 @@ CASE(JSOP_SPREADNEW)
 CASE(JSOP_SPREADCALL)
 CASE(JSOP_SPREADSUPERCALL)
     if (REGS.fp()->hasPushedGeckoProfilerFrame())
-        cx->runtime()->geckoProfiler().updatePC(script, REGS.pc);
+        cx->geckoProfiler().updatePC(cx, script, REGS.pc);
     /* FALL THROUGH */
 
 CASE(JSOP_SPREADEVAL)
@@ -3038,7 +3036,7 @@ CASE(JSOP_SUPERCALL)
 CASE(JSOP_FUNCALL)
 {
     if (REGS.fp()->hasPushedGeckoProfilerFrame())
-        cx->runtime()->geckoProfiler().updatePC(script, REGS.pc);
+        cx->geckoProfiler().updatePC(cx, script, REGS.pc);
 
     MaybeConstruct construct = MaybeConstruct(*REGS.pc == JSOP_NEW || *REGS.pc == JSOP_SUPERCALL);
     bool ignoresReturnValue = *REGS.pc == JSOP_CALL_IGNORES_RV;
@@ -4413,7 +4411,7 @@ js::Lambda(JSContext* cx, HandleFunction fun, HandleObject parent)
 {
     MOZ_ASSERT(!fun->isArrow());
 
-    RootedObject clone(cx, CloneFunctionObjectIfNotSingleton(cx, fun, parent));
+    JSFunction* clone = CloneFunctionObjectIfNotSingleton(cx, fun, parent);
     if (!clone)
         return nullptr;
 
@@ -4426,13 +4424,13 @@ js::LambdaArrow(JSContext* cx, HandleFunction fun, HandleObject parent, HandleVa
 {
     MOZ_ASSERT(fun->isArrow());
 
-    RootedObject clone(cx, CloneFunctionObjectIfNotSingleton(cx, fun, parent, nullptr,
-                                                             TenuredObject));
+    JSFunction* clone = CloneFunctionObjectIfNotSingleton(cx, fun, parent, nullptr,
+                                                          TenuredObject);
     if (!clone)
         return nullptr;
 
-    MOZ_ASSERT(clone->as<JSFunction>().isArrow());
-    clone->as<JSFunction>().setExtendedSlot(0, newTargetv);
+    MOZ_ASSERT(clone->isArrow());
+    clone->setExtendedSlot(0, newTargetv);
 
     MOZ_ASSERT(fun->global() == clone->global());
     return clone;

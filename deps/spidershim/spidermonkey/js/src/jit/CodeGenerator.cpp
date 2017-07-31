@@ -14,7 +14,6 @@
 #include "mozilla/EnumeratedRange.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/SizePrintfMacros.h"
 
 #include "jslibmath.h"
 #include "jsmath.h"
@@ -5028,7 +5027,7 @@ CodeGenerator::maybeCreateScriptCounts()
                 JSScript* innerScript = block->info().script();
                 description = (char*) js_calloc(200);
                 if (description) {
-                    snprintf(description, 200, "%s:%" PRIuSIZE,
+                    snprintf(description, 200, "%s:%zu",
                              innerScript->filename(), innerScript->lineno());
                 }
             }
@@ -5384,7 +5383,7 @@ CodeGenerator::generateBody()
             columnNumber = current->mir()->columnIndex();
 #endif
         }
-        JitSpew(JitSpew_Codegen, "# block%" PRIuSIZE " %s:%" PRIuSIZE ":%u%s:",
+        JitSpew(JitSpew_Codegen, "# block%zu %s:%zu:%u%s:",
                 i, filename ? filename : "?", lineNumber, columnNumber,
                 current->mir()->isLoopHeader() ? " (loop header)" : "");
 #endif
@@ -8473,10 +8472,11 @@ class OutOfLineStoreElementHole : public OutOfLineCodeBase<CodeGenerator>
 {
     LInstruction* ins_;
     Label rejoinStore_;
+    bool strict_;
 
   public:
-    explicit OutOfLineStoreElementHole(LInstruction* ins)
-      : ins_(ins)
+    explicit OutOfLineStoreElementHole(LInstruction* ins, bool strict)
+      : ins_(ins), strict_(strict)
     {
         MOZ_ASSERT(ins->isStoreElementHoleV() || ins->isStoreElementHoleT() ||
                    ins->isFallibleStoreElementV() || ins->isFallibleStoreElementT());
@@ -8490,6 +8490,9 @@ class OutOfLineStoreElementHole : public OutOfLineCodeBase<CodeGenerator>
     }
     Label* rejoinStore() {
         return &rejoinStore_;
+    }
+    bool strict() const {
+        return strict_;
     }
 };
 
@@ -8579,7 +8582,8 @@ CodeGenerator::emitStoreElementHoleT(T* lir)
     static_assert(std::is_same<T, LStoreElementHoleT>::value || std::is_same<T, LFallibleStoreElementT>::value,
                   "emitStoreElementHoleT called with unexpected argument type");
 
-    OutOfLineStoreElementHole* ool = new(alloc()) OutOfLineStoreElementHole(lir);
+    OutOfLineStoreElementHole* ool =
+        new(alloc()) OutOfLineStoreElementHole(lir, current->mir()->strict());
     addOutOfLineCode(ool, lir->mir());
 
     Register obj = ToRegister(lir->object());
@@ -8638,7 +8642,8 @@ CodeGenerator::emitStoreElementHoleV(T* lir)
     static_assert(std::is_same<T, LStoreElementHoleV>::value || std::is_same<T, LFallibleStoreElementV>::value,
                   "emitStoreElementHoleV called with unexpected parameter type");
 
-    OutOfLineStoreElementHole* ool = new(alloc()) OutOfLineStoreElementHole(lir);
+    OutOfLineStoreElementHole* ool =
+        new(alloc()) OutOfLineStoreElementHole(lir, current->mir()->strict());
     addOutOfLineCode(ool, lir->mir());
 
     Register obj = ToRegister(lir->object());
@@ -8898,7 +8903,7 @@ CodeGenerator::visitOutOfLineStoreElementHole(OutOfLineStoreElementHole* ool)
     masm.bind(&callStub);
     saveLive(ins);
 
-    pushArg(Imm32(current->mir()->strict()));
+    pushArg(Imm32(ool->strict()));
     pushArg(value);
     if (index->isConstant())
         pushArg(Imm32(ToInt32(index)));
@@ -9592,7 +9597,7 @@ CodeGenerator::generateWasm(wasm::SigIdDesc sigId, wasm::BytecodeOffset trapOffs
 bool
 CodeGenerator::generate()
 {
-    JitSpew(JitSpew_Codegen, "# Emitting code for script %s:%" PRIuSIZE,
+    JitSpew(JitSpew_Codegen, "# Emitting code for script %s:%zu",
             gen->info().script()->filename(),
             gen->info().script()->lineno());
 
@@ -10279,7 +10284,7 @@ void
 CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs,
                                    TypedOrValueRegister value, const ConstantOrRegister& id,
                                    TypedOrValueRegister output, Register maybeTemp,
-                                   bool monitoredResult, bool allowDoubleResult,
+                                   GetPropertyResultFlags resultFlags,
                                    jsbytecode* profilerLeavePc)
 {
     CacheKind kind = CacheKind::GetElem;
@@ -10289,8 +10294,7 @@ CodeGenerator::addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs,
         if (idString->isAtom() && !idString->asAtom().isIndex(&dummy))
             kind = CacheKind::GetProp;
     }
-    IonGetPropertyIC cache(kind, liveRegs, value, id, output, maybeTemp, monitoredResult,
-                           allowDoubleResult);
+    IonGetPropertyIC cache(kind, liveRegs, value, id, output, maybeTemp, resultFlags);
     addIC(ins, allocateIC(cache));
 }
 
@@ -10327,6 +10331,35 @@ CodeGenerator::toConstantOrRegister(LInstruction* lir, size_t n, MIRType type)
     return TypedOrValueRegister(type, ToAnyRegister(value));
 }
 
+static GetPropertyResultFlags
+IonGetPropertyICFlags(const MGetPropertyCache* mir)
+{
+    GetPropertyResultFlags flags = GetPropertyResultFlags::None;
+    if (mir->monitoredResult())
+        flags |= GetPropertyResultFlags::Monitored;
+
+    if (mir->type() == MIRType::Value) {
+        if (TemporaryTypeSet* types = mir->resultTypeSet()) {
+            if (types->hasType(TypeSet::UndefinedType()))
+                flags |= GetPropertyResultFlags::AllowUndefined;
+            if (types->hasType(TypeSet::Int32Type()))
+                flags |= GetPropertyResultFlags::AllowInt32;
+            if (types->hasType(TypeSet::DoubleType()))
+                flags |= GetPropertyResultFlags::AllowDouble;
+        } else {
+            flags |= GetPropertyResultFlags::AllowUndefined
+                   | GetPropertyResultFlags::AllowInt32
+                   | GetPropertyResultFlags::AllowDouble;
+        }
+    } else if (mir->type() == MIRType::Int32) {
+        flags |= GetPropertyResultFlags::AllowInt32;
+    } else if (mir->type() == MIRType::Double) {
+        flags |= GetPropertyResultFlags::AllowInt32 | GetPropertyResultFlags::AllowDouble;
+    }
+
+    return flags;
+}
+
 void
 CodeGenerator::visitGetPropertyCacheV(LGetPropertyCacheV* ins)
 {
@@ -10334,12 +10367,11 @@ CodeGenerator::visitGetPropertyCacheV(LGetPropertyCacheV* ins)
     TypedOrValueRegister value =
         toConstantOrRegister(ins, LGetPropertyCacheV::Value, ins->mir()->value()->type()).reg();
     ConstantOrRegister id = toConstantOrRegister(ins, LGetPropertyCacheV::Id, ins->mir()->idval()->type());
-    bool monitoredResult = ins->mir()->monitoredResult();
     TypedOrValueRegister output = TypedOrValueRegister(GetValueOutput(ins));
     Register maybeTemp = ins->temp()->isBogusTemp() ? InvalidReg : ToRegister(ins->temp());
 
-    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp, monitoredResult,
-                        ins->mir()->allowDoubleResult(), ins->mir()->profilerLeavePc());
+    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp,
+                        IonGetPropertyICFlags(ins->mir()), ins->mir()->profilerLeavePc());
 }
 
 void
@@ -10349,12 +10381,11 @@ CodeGenerator::visitGetPropertyCacheT(LGetPropertyCacheT* ins)
     TypedOrValueRegister value =
         toConstantOrRegister(ins, LGetPropertyCacheV::Value, ins->mir()->value()->type()).reg();
     ConstantOrRegister id = toConstantOrRegister(ins, LGetPropertyCacheT::Id, ins->mir()->idval()->type());
-    bool monitoredResult = ins->mir()->monitoredResult();
     TypedOrValueRegister output(ins->mir()->type(), ToAnyRegister(ins->getDef(0)));
     Register maybeTemp = ins->temp()->isBogusTemp() ? InvalidReg : ToRegister(ins->temp());
 
-    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp, monitoredResult,
-                        ins->mir()->allowDoubleResult(), ins->mir()->profilerLeavePc());
+    addGetPropertyCache(ins, liveRegs, value, id, output, maybeTemp,
+                        IonGetPropertyICFlags(ins->mir()), ins->mir()->profilerLeavePc());
 }
 
 void

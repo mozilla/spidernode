@@ -476,6 +476,13 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     void addUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise);
     void removeUnhandledRejectedPromise(JSContext* cx, js::HandleObject promise);
 
+    js::UnprotectedData<JS::RequestReadableStreamDataCallback> readableStreamDataRequestCallback;
+    js::UnprotectedData<JS::WriteIntoReadRequestBufferCallback> readableStreamWriteIntoReadRequestCallback;
+    js::UnprotectedData<JS::CancelReadableStreamCallback> readableStreamCancelCallback;
+    js::UnprotectedData<JS::ReadableStreamClosedCallback> readableStreamClosedCallback;
+    js::UnprotectedData<JS::ReadableStreamErroredCallback> readableStreamErroredCallback;
+    js::UnprotectedData<JS::ReadableStreamFinalizeCallback> readableStreamFinalizeCallback;
+
     /* Had an out-of-memory error which did not populate an exception. */
     mozilla::Atomic<bool> hadOutOfMemory;
 
@@ -509,9 +516,9 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
   private:
     /* Gecko profiling metadata */
-    js::UnprotectedData<js::GeckoProfiler> geckoProfiler_;
+    js::UnprotectedData<js::GeckoProfilerRuntime> geckoProfiler_;
   public:
-    js::GeckoProfiler& geckoProfiler() { return geckoProfiler_.ref(); }
+    js::GeckoProfilerRuntime& geckoProfiler() { return geckoProfiler_.ref(); }
 
     // Heap GC roots for PersistentRooted pointers.
     js::ActiveThreadData<mozilla::EnumeratedArray<JS::RootKind, JS::RootKind::Limit,

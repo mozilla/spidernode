@@ -7,7 +7,7 @@
 #include "jit/IonBuilder.h"
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/SizePrintfMacros.h"
+#include "mozilla/ScopeExit.h"
 
 #include "builtin/Eval.h"
 #include "builtin/TypedObject.h"
@@ -325,7 +325,7 @@ IonBuilder::InliningDecision
 IonBuilder::DontInline(JSScript* targetScript, const char* reason)
 {
     if (targetScript) {
-        JitSpew(JitSpew_Inlining, "Cannot inline %s:%" PRIuSIZE ": %s",
+        JitSpew(JitSpew_Inlining, "Cannot inline %s:%zu: %s",
                 targetScript->filename(), targetScript->lineno(), reason);
     } else {
         JitSpew(JitSpew_Inlining, "Cannot inline: %s", reason);
@@ -732,11 +732,11 @@ IonBuilder::build()
 
 #ifdef JS_JITSPEW
     if (info().isAnalysis()) {
-        JitSpew(JitSpew_IonScripts, "Analyzing script %s:%" PRIuSIZE " (%p) %s",
+        JitSpew(JitSpew_IonScripts, "Analyzing script %s:%zu (%p) %s",
                 script()->filename(), script()->lineno(), (void*)script(),
                 AnalysisModeString(info().analysisMode()));
     } else {
-        JitSpew(JitSpew_IonScripts, "%sompiling script %s:%" PRIuSIZE " (%p) (warmup-counter=%" PRIu32 ", level=%s)",
+        JitSpew(JitSpew_IonScripts, "%sompiling script %s:%zu (%p) (warmup-counter=%" PRIu32 ", level=%s)",
                 (script()->hasIonScript() ? "Rec" : "C"),
                 script()->filename(), script()->lineno(), (void*)script(),
                 script()->getWarmUpCount(), OptimizationLevelString(optimizationInfo().level()));
@@ -836,10 +836,12 @@ IonBuilder::build()
 
     insertRecompileCheck();
 
-    MOZ_TRY(traverseBytecode());
+    auto clearLastPriorResumePoint = mozilla::MakeScopeExit([&] {
+        // Discard unreferenced & pre-allocated resume points.
+        replaceMaybeFallbackFunctionGetter(nullptr);
+    });
 
-    // Discard unreferenced & pre-allocated resume points.
-    replaceMaybeFallbackFunctionGetter(nullptr);
+    MOZ_TRY(traverseBytecode());
 
     if (script_->hasBaselineScript() &&
         inlinedBytecodeLength_ > script_->baselineScript()->inlinedBytecodeLength())
@@ -904,7 +906,7 @@ IonBuilder::buildInline(IonBuilder* callerBuilder, MResumePoint* callerResumePoi
 
     MOZ_TRY(init());
 
-    JitSpew(JitSpew_IonScripts, "Inlining script %s:%" PRIuSIZE " (%p)",
+    JitSpew(JitSpew_IonScripts, "Inlining script %s:%zu (%p)",
             script()->filename(), script()->lineno(), (void*)script());
 
     callerBuilder_ = callerBuilder;
@@ -998,10 +1000,13 @@ IonBuilder::buildInline(IonBuilder* callerBuilder, MResumePoint* callerResumePoi
     // initialized.
     MOZ_TRY(initEnvironmentChain(callInfo.fun()));
 
+    auto clearLastPriorResumePoint = mozilla::MakeScopeExit([&] {
+        // Discard unreferenced & pre-allocated resume points.
+        replaceMaybeFallbackFunctionGetter(nullptr);
+    });
+
     MOZ_TRY(traverseBytecode());
 
-    // Discard unreferenced & pre-allocated resume points.
-    replaceMaybeFallbackFunctionGetter(nullptr);
 
     MOZ_ASSERT(iterators_.empty(), "Iterators should be added to outer builder");
 
@@ -1190,7 +1195,7 @@ IonBuilder::initEnvironmentChain(MDefinition* callee)
 void
 IonBuilder::initArgumentsObject()
 {
-    JitSpew(JitSpew_IonMIR, "%s:%" PRIuSIZE " - Emitting code to initialize arguments object! block=%p",
+    JitSpew(JitSpew_IonMIR, "%s:%zu - Emitting code to initialize arguments object! block=%p",
             script()->filename(), script()->lineno(), current);
     MOZ_ASSERT(info().needsArgsObj());
 
@@ -1402,7 +1407,7 @@ GetOrCreateControlFlowGraph(TempAllocator& tempAlloc, JSScript* script,
     }
 
     if (JitSpewEnabled(JitSpew_CFG)) {
-        JitSpew(JitSpew_CFG, "Generating graph for %s:%" PRIuSIZE,
+        JitSpew(JitSpew_CFG, "Generating graph for %s:%zu",
                              script->filename(), script->lineno());
         Fprinter& print = JitSpewPrinter();
         cfg->dump(print, script);
@@ -4009,7 +4014,7 @@ IonBuilder::makeInliningDecision(JSObject* targetArg, CallInfo& callInfo)
         info().analysisMode() != Analysis_DefiniteProperties)
     {
         trackOptimizationOutcome(TrackedOutcome::CantInlineNotHot);
-        JitSpew(JitSpew_Inlining, "Cannot inline %s:%" PRIuSIZE ": callee is insufficiently hot.",
+        JitSpew(JitSpew_Inlining, "Cannot inline %s:%zu: callee is insufficiently hot.",
                 targetScript->filename(), targetScript->lineno());
         return InliningDecision_WarmUpCountTooLow;
     }
@@ -8539,8 +8544,7 @@ IonBuilder::computeHeapType(const TemporaryTypeSet* objTypes, const jsid id)
     if (objTypes->unknownObject() || objTypes->getObjectCount() == 0)
         return nullptr;
 
-    TemporaryTypeSet empty;
-    TemporaryTypeSet* acc = &empty;
+    TemporaryTypeSet* acc = nullptr;
     LifoAlloc* lifoAlloc = alloc().lifoAlloc();
 
     Vector<HeapTypeSetKey, 4, SystemAllocPolicy> properties;
@@ -8560,7 +8564,14 @@ IonBuilder::computeHeapType(const TemporaryTypeSet* objTypes, const jsid id)
             return nullptr;
 
         properties.infallibleAppend(property);
-        acc = TypeSet::unionSets(acc, currentSet, lifoAlloc);
+
+        if (acc) {
+            acc = TypeSet::unionSets(acc, currentSet, lifoAlloc);
+        } else {
+            TemporaryTypeSet empty;
+            acc = TypeSet::unionSets(&empty, currentSet, lifoAlloc);
+        }
+
         if (!acc)
             return nullptr;
     }

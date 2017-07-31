@@ -15,7 +15,6 @@
 #include "mozilla/mozalloc.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
 
@@ -268,6 +267,7 @@ static bool enableUnboxedArrays = false;
 static bool enableSharedMemory = SHARED_MEMORY_DEFAULT;
 static bool enableWasmAlwaysBaseline = false;
 static bool enableAsyncStacks = false;
+static bool enableStreams = false;
 #ifdef JS_GC_ZEAL
 static uint32_t gZealBits = 0;
 static uint32_t gZealFrequency = 0;
@@ -1488,8 +1488,7 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
            .setFileAndLine("@evaluate", 1);
 
     global = JS_GetGlobalForObject(cx, &args.callee());
-    if (!global)
-        return false;
+    MOZ_ASSERT(global);
 
     if (args.length() == 2) {
         RootedObject opts(cx, &args[1].toObject());
@@ -1527,6 +1526,41 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
                                           "\"global\" passed to evaluate()", "not a global object");
                 return false;
             }
+        }
+
+        if (!JS_GetProperty(cx, opts, "zoneGroup", &v))
+            return false;
+        if (!v.isUndefined()) {
+            if (global != JS_GetGlobalForObject(cx, &args.callee())) {
+                JS_ReportErrorASCII(cx, "zoneGroup and global cannot both be specified.");
+                return false;
+            }
+
+            // Find all eligible globals to execute in: any global in another
+            // zone group which has not been entered by a cooperative thread.
+            JS::AutoObjectVector eligibleGlobals(cx);
+            for (CompartmentsIter c(cx->runtime(), SkipAtoms); !c.done(); c.next()) {
+                if (!c->zone()->group()->ownerContext().context() &&
+                    c->maybeGlobal() &&
+                    !cx->runtime()->isSelfHostingGlobal(c->maybeGlobal()))
+                {
+                    if (!eligibleGlobals.append(c->maybeGlobal()))
+                        return false;
+                }
+            }
+
+            if (eligibleGlobals.empty()) {
+                JS_ReportErrorASCII(cx, "zoneGroup can only be used if another"
+                                    " cooperative thread has called cooperativeYield(true).");
+                return false;
+            }
+
+            // Pick an eligible global to use based on the value of the zoneGroup property.
+            int32_t which;
+            if (!ToInt32(cx, v, &which))
+                return false;
+            which = Min<int32_t>(Max(which, 0), eligibleGlobals.length() - 1);
+            global = eligibleGlobals[which];
         }
 
         if (!JS_GetProperty(cx, opts, "catchTermination", &v))
@@ -1686,9 +1720,9 @@ Evaluate(JSContext* cx, unsigned argc, Value* vp)
         if (loadBytecode && assertEqBytecode) {
             if (saveBuffer.length() != loadBuffer.length()) {
                 char loadLengthStr[16];
-                SprintfLiteral(loadLengthStr, "%" PRIuSIZE, loadBuffer.length());
+                SprintfLiteral(loadLengthStr, "%zu", loadBuffer.length());
                 char saveLengthStr[16];
-                SprintfLiteral(saveLengthStr,"%" PRIuSIZE, saveBuffer.length());
+                SprintfLiteral(saveLengthStr,"%zu", saveBuffer.length());
 
                 JS_ReportErrorNumberASCII(cx, my_GetErrorMessage, nullptr, JSSMSG_CACHE_EQ_SIZE_FAILED,
                                           loadLengthStr, saveLengthStr);
@@ -2379,7 +2413,7 @@ SrcNotes(JSContext* cx, HandleScript script, Sprinter* sp)
     for (jssrcnote* sn = notes; !SN_IS_TERMINATOR(sn); sn = SN_NEXT(sn)) {
         unsigned delta = SN_DELTA(sn);
         offset += delta;
-        SrcNoteType type = (SrcNoteType) SN_TYPE(sn);
+        SrcNoteType type = SN_TYPE(sn);
         const char* name = js_SrcNoteSpec[type].name;
         if (!sp->jsprintf("%3u: %4u %5u [%4u] %-8s",
                           unsigned(sn - notes), lineno, offset, delta, name))
@@ -3295,9 +3329,29 @@ CooperativeYieldThread(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    CooperativeBeginWait(cx);
-    CooperativeYield();
-    CooperativeEndWait(cx);
+    // To avoid contention issues between threads, yields are not allowed while
+    // a thread has access to zone groups other than its original one, i.e. if
+    // the thread is inside an evaluate() call with a different zone group.
+    // This is not a limit which the browser has, but is necessary in the
+    // shell: the shell can have arbitrary interleavings between cooperative
+    // threads, whereas the browser has more control over which threads are
+    // running at different times.
+    for (ZoneGroupsIter group(cx->runtime()); !group.done(); group.next()) {
+        if (group->ownerContext().context() == cx && group != cx->zone()->group()) {
+            JS_ReportErrorASCII(cx, "Yielding is not allowed while owning multiple zone groups");
+            return false;
+        }
+    }
+
+    {
+        Maybe<JS::AutoRelinquishZoneGroups> artzg;
+        if ((args.length() > 0) && ToBoolean(args[0]))
+            artzg.emplace(cx);
+
+        CooperativeBeginWait(cx);
+        CooperativeYield();
+        CooperativeEndWait(cx);
+    }
 
     args.rval().setUndefined();
     return true;
@@ -3330,6 +3384,25 @@ CooperativeEndSingleThreadedExecution(JSContext* cx)
 {
     if (cooperationState)
         cooperationState->singleThreaded = false;
+}
+
+static bool
+EnsureGeckoProfilingStackInstalled(JSContext* cx, ShellContext* sc)
+{
+    if (cx->geckoProfiler().installed()) {
+        MOZ_ASSERT(sc->geckoProfilingStack);
+        return true;
+    }
+
+    MOZ_ASSERT(!sc->geckoProfilingStack);
+    sc->geckoProfilingStack = MakeUnique<PseudoStack>();
+    if (!sc->geckoProfilingStack) {
+        JS_ReportOutOfMemory(cx);
+        return false;
+    }
+
+    SetContextProfilingStack(cx, sc->geckoProfilingStack.get());
+    return true;
 }
 
 struct WorkerInput
@@ -3400,6 +3473,10 @@ WorkerMain(void* arg)
         environmentPreparer.emplace(cx);
     } else {
         JS_AddInterruptCallback(cx, ShellInterruptCallback);
+
+        // The Gecko Profiler requires that all cooperating contexts have
+        // profiling stacks installed.
+        MOZ_ALWAYS_TRUE(EnsureGeckoProfilingStackInstalled(cx, sc.get()));
     }
 
     do {
@@ -3430,11 +3507,6 @@ WorkerMain(void* arg)
 
     KillWatchdog(cx);
     JS_SetGrayGCRootsTracer(cx, nullptr, nullptr);
-
-    if (sc->geckoProfilingStack) {
-        MOZ_ALWAYS_TRUE(cx->runtime()->geckoProfiler().enable(false));
-        SetContextProfilingStack(cx, nullptr);
-    }
 }
 
 // Workers can spawn other workers, so we need a lock to access workerThreads.
@@ -4784,7 +4856,7 @@ DecompileFunction(JSContext* cx, unsigned argc, Value* vp)
         return true;
     }
     RootedFunction fun(cx, &args[0].toObject().as<JSFunction>());
-    JSString* result = JS_DecompileFunction(cx, fun, 0);
+    JSString* result = JS_DecompileFunction(cx, fun);
     if (!result)
         return false;
     args.rval().setString(result);
@@ -4806,7 +4878,7 @@ DecompileThisScript(JSContext* cx, unsigned argc, Value* vp)
         JSAutoCompartment ac(cx, iter.script());
 
         RootedScript script(cx, iter.script());
-        JSString* result = JS_DecompileScript(cx, script, "test", 0);
+        JSString* result = JS_DecompileScript(cx, script);
         if (!result)
             return false;
 
@@ -5210,26 +5282,16 @@ IsLatin1(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+// Set the profiling stack for each cooperating context in a runtime.
 static bool
-EnsureGeckoProfilingStackInstalled(JSContext* cx, ShellContext* sc)
+EnsureAllContextProfilingStacks(JSContext* cx)
 {
-    if (cx->runtime()->geckoProfiler().installed()) {
-        if (!sc->geckoProfilingStack) {
-            JS_ReportErrorASCII(cx, "Profiler already installed by another context");
+    for (const CooperatingContext& target : cx->runtime()->cooperatingContexts()) {
+        ShellContext* sc = GetShellContext(target.context());
+        if (!EnsureGeckoProfilingStackInstalled(target.context(), sc))
             return false;
-        }
-
-        return true;
     }
 
-    MOZ_ASSERT(!sc->geckoProfilingStack);
-    sc->geckoProfilingStack = MakeUnique<PseudoStack>();
-    if (!sc->geckoProfilingStack) {
-        JS_ReportOutOfMemory(cx);
-        return false;
-    }
-
-    SetContextProfilingStack(cx, sc->geckoProfilingStack.get());
     return true;
 }
 
@@ -5238,21 +5300,11 @@ EnableGeckoProfiling(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    ShellContext* sc = GetShellContext(cx);
-
-    if (!EnsureGeckoProfilingStackInstalled(cx, sc))
+    if (!EnsureAllContextProfilingStacks(cx))
         return false;
-
-    // Disable before re-enabling; see the assertion in
-    // |GeckoProfiler::setProfilingStack|.
-    if (cx->runtime()->geckoProfiler().installed())
-        MOZ_ALWAYS_TRUE(cx->runtime()->geckoProfiler().enable(false));
 
     cx->runtime()->geckoProfiler().enableSlowAssertions(false);
-    if (!cx->runtime()->geckoProfiler().enable(true)) {
-        JS_ReportErrorASCII(cx, "Cannot ensure single threaded execution in profiler");
-        return false;
-    }
+    cx->runtime()->geckoProfiler().enable(true);
 
     args.rval().setUndefined();
     return true;
@@ -5264,11 +5316,6 @@ EnableGeckoProfilingWithSlowAssertions(JSContext* cx, unsigned argc, Value* vp)
     CallArgs args = CallArgsFromVp(argc, vp);
     args.rval().setUndefined();
 
-    ShellContext* sc = GetShellContext(cx);
-
-    if (!EnsureGeckoProfilingStackInstalled(cx, sc))
-        return false;
-
     if (cx->runtime()->geckoProfiler().enabled()) {
         // If profiling already enabled with slow assertions disabled,
         // this is a no-op.
@@ -5277,18 +5324,14 @@ EnableGeckoProfilingWithSlowAssertions(JSContext* cx, unsigned argc, Value* vp)
 
         // Slow assertions are off.  Disable profiling before re-enabling
         // with slow assertions on.
-        MOZ_ALWAYS_TRUE(cx->runtime()->geckoProfiler().enable(false));
+        cx->runtime()->geckoProfiler().enable(false);
     }
 
-    // Disable before re-enabling; see the assertion in |GeckoProfiler::setProfilingStack|.
-    if (cx->runtime()->geckoProfiler().installed())
-        MOZ_ALWAYS_TRUE(cx->runtime()->geckoProfiler().enable(false));
+    if (!EnsureAllContextProfilingStacks(cx))
+        return false;
 
     cx->runtime()->geckoProfiler().enableSlowAssertions(true);
-    if (!cx->runtime()->geckoProfiler().enable(true)) {
-        JS_ReportErrorASCII(cx, "Cannot ensure single threaded execution in profiler");
-        return false;
-    }
+    cx->runtime()->geckoProfiler().enable(true);
 
     return true;
 }
@@ -5299,17 +5342,10 @@ DisableGeckoProfiling(JSContext* cx, unsigned argc, Value* vp)
     CallArgs args = CallArgsFromVp(argc, vp);
     args.rval().setUndefined();
 
-    ShellContext* sc = GetShellContext(cx);
-
-    if (!cx->runtime()->geckoProfiler().installed())
+    if (!cx->runtime()->geckoProfiler().enabled())
         return true;
 
-    if (!sc->geckoProfilingStack) {
-        JS_ReportErrorASCII(cx, "Profiler was not installed by this context");
-        return false;
-    }
-
-    MOZ_ALWAYS_TRUE(cx->runtime()->geckoProfiler().enable(false));
+    cx->runtime()->geckoProfiler().enable(false);
     return true;
 }
 
@@ -5597,7 +5633,7 @@ ReflectTrackedOptimizations(JSContext* cx, unsigned argc, Value* vp)
             uint8_t* addr = ion->method()->raw() + endOffset;
             entry.youngestFrameLocationAtAddr(rt, addr, &script, &pc);
 
-            if (!sp.jsprintf("{\"location\":\"%s:%" PRIuSIZE "\",\"offset\":%" PRIuSIZE ",\"index\":%u}%s",
+            if (!sp.jsprintf("{\"location\":\"%s:%zu\",\"offset\":%zu,\"index\":%u}%s",
                              script->filename(), script->lineno(), script->pcToOffset(pc), index,
                              iter.more() ? "," : ""))
             {
@@ -6153,6 +6189,8 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "      lineNumber: starting line number for error messages and debug info\n"
 "      columnNumber: starting column number for error messages and debug info\n"
 "      global: global in which to execute the code\n"
+"      zoneGroup: pick a global from another zone group with no current context\n"
+"         to execute the code in\n"
 "      newContext: if true, create and use a new cx (default: false)\n"
 "      catchTermination: if true, catch termination (failure without\n"
 "         an exception value, as for slow scripts or out-of-memory)\n"
@@ -6291,9 +6329,11 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "evalInCooperativeThread(str)",
 "  Evaluate 'str' in a separate cooperatively scheduled thread using the same runtime.\n"),
 
-    JS_FN_HELP("cooperativeYield", CooperativeYieldThread, 0, 0,
-"evalInCooperativeThread()",
-"  Yield execution to another cooperatively scheduled thread using the same runtime.\n"),
+    JS_FN_HELP("cooperativeYield", CooperativeYieldThread, 1, 0,
+"cooperativeYield(leaveZoneGroup)",
+"  Yield execution to another cooperatively scheduled thread using the same runtime.\n"
+"  If leaveZoneGroup is specified then other threads may execute code in the\n"
+"  current thread's zone group via evaluate(..., {zoneGroup:N}).\n"),
 
     JS_FN_HELP("getSharedArrayBuffer", GetSharedArrayBuffer, 0, 0,
 "getSharedArrayBuffer()",
@@ -7773,6 +7813,7 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
     enableUnboxedArrays = op.getBoolOption("unboxed-arrays");
     enableWasmAlwaysBaseline = op.getBoolOption("wasm-always-baseline");
     enableAsyncStacks = !op.getBoolOption("no-async-stacks");
+    enableStreams = op.getBoolOption("enable-streams");
 
     JS::ContextOptionsRef(cx).setBaseline(enableBaseline)
                              .setIon(enableIon)
@@ -7781,7 +7822,8 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
                              .setWasmAlwaysBaseline(enableWasmAlwaysBaseline)
                              .setNativeRegExp(enableNativeRegExp)
                              .setUnboxedArrays(enableUnboxedArrays)
-                             .setAsyncStack(enableAsyncStacks);
+                             .setAsyncStack(enableAsyncStacks)
+                             .setStreams(enableStreams);
 
     if (op.getBoolOption("wasm-check-bce"))
         jit::JitOptions.wasmAlwaysCheckBounds = true;
@@ -8065,7 +8107,8 @@ SetWorkerContextOptions(JSContext* cx)
                              .setWasm(enableWasm)
                              .setWasmAlwaysBaseline(enableWasmAlwaysBaseline)
                              .setNativeRegExp(enableNativeRegExp)
-                             .setUnboxedArrays(enableUnboxedArrays);
+                             .setUnboxedArrays(enableUnboxedArrays)
+                             .setStreams(enableStreams);
     cx->runtime()->setOffthreadIonCompilationEnabled(offthreadCompilation);
     cx->runtime()->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
 
@@ -8265,6 +8308,7 @@ main(int argc, char** argv, char** envp)
         || !op.addBoolOption('\0', "wasm-check-bce", "Always generate wasm bounds check, even redundant ones.")
         || !op.addBoolOption('\0', "wasm-test-mode", "Enable wasm testing mode, creating synthetic "
                                    "objects for non-canonical NaNs and i64 returned from wasm.")
+        || !op.addBoolOption('\0', "enable-streams", "Enable WHATWG Streams")
 #ifdef ENABLE_SHARED_ARRAY_BUFFER
         || !op.addStringOption('\0', "shared-memory", "on/off",
                                "SharedArrayBuffer and Atomics "

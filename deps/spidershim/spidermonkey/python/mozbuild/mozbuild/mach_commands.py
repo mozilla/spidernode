@@ -7,6 +7,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 import argparse
 import collections
 import errno
+import hashlib
 import itertools
 import json
 import logging
@@ -24,6 +25,7 @@ from mach.decorators import (
     CommandArgumentGroup,
     CommandProvider,
     Command,
+    SettingsProvider,
     SubCommand,
 )
 
@@ -38,6 +40,7 @@ from mozbuild.base import (
     MozconfigLoadException,
     ObjdirMismatchException,
 )
+from mozbuild.util import ensureParentDir
 
 from mozbuild.backend import (
     backends,
@@ -302,6 +305,45 @@ class StoreDebugParamsAndWarnAction(argparse.Action):
         sys.stderr.write('The --debugparams argument is deprecated. Please ' +
                          'use --debugger-args instead.\n\n')
         setattr(namespace, self.dest, values)
+
+
+@CommandProvider
+class Watch(MachCommandBase):
+    """Interface to watch and re-build the tree."""
+
+    @Command('watch', category='post-build', description='Watch and re-build the tree.',
+             conditions=[conditions.is_firefox])
+    @CommandArgument('-v', '--verbose', action='store_true',
+                     help='Verbose output for what commands the watcher is running.')
+    def watch(self, verbose=False):
+        """Watch and re-build the source tree."""
+
+        if not conditions.is_artifact_build(self):
+            print('mach watch requires an artifact build. See '
+                  'https://developer.mozilla.org/docs/Mozilla/Developer_guide/Build_Instructions/Simple_Firefox_build')
+            return 1
+
+        if not self.substs.get('WATCHMAN', None):
+            print('mach watch requires watchman to be installed. See '
+                  'https://developer.mozilla.org/docs/Mozilla/Developer_guide/Build_Instructions/Incremental_builds_with_filesystem_watching')
+            return 1
+
+        self._activate_virtualenv()
+        try:
+            self.virtualenv_manager.install_pip_package('pywatchman==1.3.0')
+        except Exception:
+            print('Could not install pywatchman from pip. See '
+                  'https://developer.mozilla.org/docs/Mozilla/Developer_guide/Build_Instructions/Incremental_builds_with_filesystem_watching')
+            return 1
+
+        from mozbuild.faster_daemon import Daemon
+        daemon = Daemon(self.config_environment)
+
+        try:
+            return daemon.watch()
+        except KeyboardInterrupt:
+            # Suppress ugly stack trace when user hits Ctrl-C.
+            sys.exit(3)
 
 
 @CommandProvider
@@ -1234,6 +1276,12 @@ class Install(MachCommandBase):
             self.notify('Install complete')
         return ret
 
+@SettingsProvider
+class RunSettings():
+    config_settings = [
+        ('runprefs.*', 'string'),
+    ]
+
 @CommandProvider
 class RunProgram(MachCommandBase):
     """Run the compiled program."""
@@ -1255,6 +1303,8 @@ class RunProgram(MachCommandBase):
         help='Run the program with electrolysis disabled.')
     @CommandArgument('--enable-crash-reporter', action='store_true', group=prog_group,
         help='Run the program with the crash reporter enabled.')
+    @CommandArgument('--setpref', action='append', default=[], group=prog_group,
+        help='Set the specified pref before starting the program. Can be set multiple times. Prefs can also be set in ~/.mozbuild/machrc in the [runprefs] section - see `./mach settings` for more information.')
 
     @CommandArgumentGroup('debugging')
     @CommandArgument('--debug', action='store_true', group='debugging',
@@ -1278,8 +1328,8 @@ class RunProgram(MachCommandBase):
     @CommandArgument('--show-dump-stats', action='store_true', group='DMD',
         help='Show stats when doing dumps.')
     def run(self, params, remote, background, noprofile, disable_e10s,
-        enable_crash_reporter, debug, debugger, debugger_args,
-        dmd, mode, stacks, show_dump_stats):
+        enable_crash_reporter, setpref, debug, debugger,
+        debugger_args, dmd, mode, stacks, show_dump_stats):
 
         if conditions.is_android(self):
             # Running Firefox for Android is completely different
@@ -1294,6 +1344,7 @@ class RunProgram(MachCommandBase):
             args = ['']
 
         else:
+            from mozprofile import Profile, Preferences
 
             try:
                 binpath = self.get_binary_path('app')
@@ -1317,11 +1368,23 @@ class RunProgram(MachCommandBase):
             no_profile_option_given = \
                 all(p not in params for p in ['-profile', '--profile', '-P'])
             if no_profile_option_given and not noprofile:
+                prefs = {
+                   'browser.shell.checkDefaultBrowser': False,
+                   'general.warnOnAboutConfig': False,
+                }
+                prefs.update(self._mach_context.settings.runprefs)
+                prefs.update([p.split('=', 1) for p in setpref])
+                for pref in prefs:
+                    prefs[pref] = Preferences.cast(prefs[pref])
+
                 path = os.path.join(self.topobjdir, 'tmp', 'scratch_user')
-                if not os.path.isdir(path):
-                    os.makedirs(path)
+                profile = Profile(path, preferences=prefs)
                 args.append('-profile')
-                args.append(path)
+                args.append(profile.profile)
+
+            if not no_profile_option_given and setpref:
+                print("setpref is only supported if a profile is not specified")
+                return 1
 
         extra_env = {
             'MOZ_DEVELOPER_REPO_DIR': self.topsrcdir,
@@ -1691,6 +1754,8 @@ class PackageFrontend(MachCommandBase):
         help='Do not unpack any downloaded file')
     @CommandArgument('--retry', type=int, default=0,
         help='Number of times to retry failed downloads')
+    @CommandArgument('--artifact-manifest', metavar='FILE',
+        help='Store a manifest about the downloaded taskcluster artifacts')
     @CommandArgument('files', nargs='*',
         help='A list of files to download, in the form path@task-id, in '
              'addition to the files listed in the tooltool manifest.')
@@ -1698,7 +1763,7 @@ class PackageFrontend(MachCommandBase):
                           skip_cache=False, from_build=(),
                           tooltool_manifest=None, authentication_file=None,
                           tooltool_url=None, no_unpack=False, retry=None,
-                          files=()):
+                          artifact_manifest=None, files=()):
         '''Download, cache and install pre-built toolchains.
         '''
         from mozbuild.artifacts import ArtifactCache
@@ -1825,45 +1890,31 @@ class PackageFrontend(MachCommandBase):
                     return 1
 
                 task_id = optimize_task(task, {})
-                if task_id in (True, False):
+                artifact_name = task.attributes.get('toolchain-artifact')
+                if task_id in (True, False) or not artifact_name:
                     self.log(logging.ERROR, 'artifact', {'build': user_value},
                              'Could not find artifacts for a toolchain build '
                              'named `{build}`')
                     return 1
 
-                for artifact in list_artifacts(task_id):
-                    name = artifact['name']
-                    if not name.startswith('public/'):
-                        continue
-                    name = name[len('public/'):]
-                    if name.startswith('logs/'):
-                        continue
-                    name = os.path.basename(name)
-                    records[name] = DownloadRecord(
-                        get_artifact_url(task_id, artifact['name']),
-                        name, None, None, None, unpack=True)
+                name = os.path.basename(artifact_name)
+                records[name] = DownloadRecord(
+                    get_artifact_url(task_id, artifact_name),
+                    name, None, None, None, unpack=True)
 
         # Handle the list of files of the form path@task-id on the command
         # line. Each of those give a path to an artifact to download.
-        # For backwards compatibility with mozboot's
-        # install_tooltool_clang_package (until that is migrated to use
-        # --from-build), files without a @ are considered as a filter over the
-        # tooltool manifest contents.
         for f in files:
-            if '@' in f:
-                name, task_id = f.rsplit('@', 1)
-                records[name] = DownloadRecord(
-                    get_artifact_url(task_id, name), os.path.basename(name),
-                    None, None, None, unpack=True)
-
-        files = tuple(f for f in files if '@' not in f)
+            if '@' not in f:
+                self.log(logging.ERROR, 'artifact', {},
+                         'Expected a list of files of the form path@task-id')
+                return 1
+            name, task_id = f.rsplit('@', 1)
+            records[name] = DownloadRecord(
+                get_artifact_url(task_id, name), os.path.basename(name),
+                None, None, None, unpack=True)
 
         for record in records.itervalues():
-            if files and not any(record.basename == f or
-                                      record.basename.startswith('%s.' % f)
-                                      for f in files):
-                continue
-
             self.log(logging.INFO, 'artifact', {'name': record.basename},
                      'Downloading {name}')
             valid = False
@@ -1916,6 +1967,8 @@ class PackageFrontend(MachCommandBase):
                          'Failed to download {name}')
                 return 1
 
+        artifacts = {} if artifact_manifest else None
+
         for record in downloaded:
             local = os.path.join(os.getcwd(), record.basename)
             if os.path.exists(local):
@@ -1928,6 +1981,19 @@ class PackageFrontend(MachCommandBase):
                 os.link(record.filename, local)
             except Exception:
                 shutil.copy(record.filename, local)
+            # Keep a sha256 of each downloaded file, for the chain-of-trust
+            # validation.
+            if artifact_manifest is not None:
+                with open(local) as fh:
+                    h = hashlib.sha256()
+                    while True:
+                        data = fh.read(1024 * 1024)
+                        if not data:
+                            break
+                        h.update(data)
+                artifacts[record.url] = {
+                    'sha256': h.hexdigest(),
+                }
             if record.unpack and not no_unpack:
                 unpack_file(local, record.setup)
                 os.unlink(local)
@@ -1936,6 +2002,11 @@ class PackageFrontend(MachCommandBase):
             self.log(logging.ERROR, 'artifact', {}, 'Nothing to download')
             if files:
                 return 1
+
+        if artifacts:
+            ensureParentDir(artifact_manifest)
+            with open(artifact_manifest, 'w') as fh:
+                json.dump(artifacts, fh, indent=4, sort_keys=True)
 
         return 0
 

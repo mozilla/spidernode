@@ -279,9 +279,7 @@ def mozconfig_options(mozconfig, automation, help):
             add(key, value)
             os.environ[key] = value
         for key, value in mozconfig['vars']['added'].iteritems():
-            # mozconfig_loader adds _IS_SET variables that are irrelevant
-            if not key.endswith('_IS_SET'):
-                add(key, value)
+            add(key, value)
         for key, (_, value) in mozconfig['vars']['modified'].iteritems():
             add(key, value)
 
@@ -354,6 +352,39 @@ def hg_version(hg):
     # source checkout or for bad builds. But LooseVersion handles it.
 
     return Version(match.group(1))
+
+# Resolve Mercurial config items so other checks have easy access.
+# Do NOT set this in the config because it may contain sensitive data
+# like API keys.
+@depends_all(check_build_environment, hg, hg_version)
+@imports('os')
+def hg_config(build_env, hg, version):
+    env = dict(os.environ)
+    env['HGPLAIN'] = '1'
+
+    # Warnings may get sent to stderr. But check_cmd_output() ignores
+    # stderr if exit code is 0. And the command should always succeed if
+    # `hg version` worked.
+    out = check_cmd_output(hg, 'config', env=env, cwd=build_env.topsrcdir)
+
+    # out is bytes. However, unicode literals are in effect, so implicit
+    # type coercion can occur. The underlying Mercurial config file may be
+    # in a user-defined encoding. However, HGPLAIN both overrides the decoding
+    # inside Mercurial *and* ensures output is utf-8. Because moz.configure
+    # is using unicode literals, our returned config object uses unicode
+    # keys and values to limit potential for coercion.
+
+    # Mercurial should emit utf-8. But be paranoid and ignore invalid utf-8
+    # byte sequences.
+    out = out.decode('utf-8', 'replace')
+
+    config = {}
+
+    for line in out.strip().splitlines():
+        key, value = [s.strip() for s in line.split('=', 1)]
+        config[key] = value
+
+    return config
 
 @depends_if(git)
 @checking('for Git version')
@@ -903,19 +934,9 @@ set_config('MOZ_CONFIGURE_OPTIONS', all_configure_options)
 def js_option(*args, **kwargs):
     opt = option(*args, **kwargs)
 
-    @depends(opt.option, build_project)
+    @depends(opt.option, build_project, when=kwargs.get('when'))
     def js_option(value, build_project):
         if build_project != 'js':
             return value.format(opt.option)
 
     add_old_configure_arg(js_option)
-
-
-# Bug 1278542: This function is a workaround to resolve
-# |android_ndk_include|'s dependency on 'gonkdir.' The
-# actual implementation is located in b2g/moz.configure.
-# Remove this function as soon as 'android_ndk_include'
-# depends on 'target.'
-@depends('--help')
-def gonkdir(_):
-    return None

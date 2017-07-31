@@ -108,6 +108,12 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     startAsyncTaskCallback(nullptr),
     finishAsyncTaskCallback(nullptr),
     promiseTasksToDestroy(mutexid::PromiseTaskPtrVector),
+    readableStreamDataRequestCallback(nullptr),
+    readableStreamWriteIntoReadRequestCallback(nullptr),
+    readableStreamCancelCallback(nullptr),
+    readableStreamClosedCallback(nullptr),
+    readableStreamErroredCallback(nullptr),
+    readableStreamFinalizeCallback(nullptr),
     hadOutOfMemory(false),
     allowRelazificationForTesting(false),
     destroyCompartmentCallback(nullptr),
@@ -316,8 +322,6 @@ JSRuntime::destroyRuntime()
     }
 
     AutoNoteSingleThreadedRegion anstr;
-
-    MOZ_ASSERT_IF(!geckoProfiler().enabled(), !singleThreadedExecutionRequired_);
 
     MOZ_ASSERT(!hasHelperThreadZones());
     AutoLockForExclusiveAccess lock(this);
@@ -887,8 +891,9 @@ JSRuntime::clearUsedByHelperThread(Zone* zone)
     MOZ_ASSERT(zone->group()->usedByHelperThread);
     zone->group()->usedByHelperThread = false;
     numHelperThreadZones--;
-    if (gc.fullGCForAtomsRequested() && !TlsContext.get())
-        gc.triggerFullGCForAtoms();
+    JSContext* cx = TlsContext.get();
+    if (gc.fullGCForAtomsRequested() && cx->canCollectAtoms())
+        gc.triggerFullGCForAtoms(cx);
 }
 
 bool

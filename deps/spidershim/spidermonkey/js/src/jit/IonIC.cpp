@@ -7,7 +7,6 @@
 #include "jit/IonIC.h"
 
 #include "mozilla/Maybe.h"
-#include "mozilla/SizePrintfMacros.h"
 
 #include "jit/CacheIRCompiler.h"
 #include "jit/Linker.h"
@@ -135,12 +134,11 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
         // needs a type barrier. Unfortunately, PropertyReadNeedsTypeBarrier
         // does not account for getters, so we should only attach a getter
         // stub if we inserted a type barrier.
-        CanAttachGetter canAttachGetter =
-            ic->monitoredResult() ? CanAttachGetter::Yes : CanAttachGetter::No;
         jsbytecode* pc = ic->idempotent() ? nullptr : ic->pc();
         bool isTemporarilyUnoptimizable = false;
         GetPropIRGenerator gen(cx, outerScript, pc, ic->kind(), ic->state().mode(),
-                               &isTemporarilyUnoptimizable, val, idVal, val, canAttachGetter);
+                               &isTemporarilyUnoptimizable, val, idVal, val,
+                               ic->resultFlags());
         if (ic->idempotent() ? gen.tryAttachIdempotentStub() : gen.tryAttachStub())
             ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript, &attached);
 
@@ -155,7 +153,7 @@ IonGetPropertyIC::update(JSContext* cx, HandleScript outerScript, IonGetProperty
         // 2) There's no need to dynamically monitor the return type. This would
         //    be complicated since (due to GVN) there can be multiple pc's
         //    associated with a single idempotent cache.
-        JitSpew(JitSpew_IonIC, "Invalidating from idempotent cache %s:%" PRIuSIZE,
+        JitSpew(JitSpew_IonIC, "Invalidating from idempotent cache %s:%zu",
                 outerScript->filename(), outerScript->lineno());
 
         outerScript->setInvalidatedIdempotentCache();

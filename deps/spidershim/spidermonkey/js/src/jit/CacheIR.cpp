@@ -9,6 +9,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/FloatingPoint.h"
 
+#include "jit/BaselineCacheIRCompiler.h"
 #include "jit/BaselineIC.h"
 #include "jit/CacheIRSpewer.h"
 #include "jit/IonCaches.h"
@@ -47,13 +48,13 @@ GetPropIRGenerator::GetPropIRGenerator(JSContext* cx, HandleScript script, jsbyt
                                        CacheKind cacheKind, ICState::Mode mode,
                                        bool* isTemporarilyUnoptimizable, HandleValue val,
                                        HandleValue idVal, HandleValue receiver,
-                                       CanAttachGetter canAttachGetter)
+                                       GetPropertyResultFlags resultFlags)
   : IRGenerator(cx, script, pc, cacheKind, mode),
     val_(val),
     idVal_(idVal),
     receiver_(receiver),
     isTemporarilyUnoptimizable_(isTemporarilyUnoptimizable),
-    canAttachGetter_(canAttachGetter),
+    resultFlags_(resultFlags),
     preliminaryObjectAction_(PreliminaryObjectAction::None)
 {}
 
@@ -246,11 +247,9 @@ GetPropIRGenerator::tryAttachStub()
 bool
 GetPropIRGenerator::tryAttachIdempotentStub()
 {
-    // For idempotent ICs, only attach stubs for plain data properties.
-    // This ensures (1) the lookup has no side-effects and (2) Ion has complete
-    // static type information and we don't have to monitor the result. Because
-    // of (2), we don't support for instance missing properties or array
-    // lengths, as TI does not account for these cases.
+    // For idempotent ICs, only attach stubs which we can be sure have no side
+    // effects and produce a result which the MIR in the calling code is able
+    // to handle, since we do not have a pc to explicitly monitor the result.
 
     MOZ_ASSERT(idempotent());
 
@@ -262,6 +261,10 @@ GetPropIRGenerator::tryAttachIdempotentStub()
     if (tryAttachNative(obj, objId, id))
         return true;
 
+    // Object lengths are supported only if int32 results are allowed.
+    if ((resultFlags_ & GetPropertyResultFlags::AllowInt32) && tryAttachObjectLength(obj, objId, id))
+        return true;
+
     // Also support native data properties on DOMProxy prototypes.
     if (GetProxyStubType(cx_, obj, id) == ProxyStubType::DOMUnshadowed)
         return tryAttachDOMProxyUnshadowed(obj, objId, id);
@@ -271,22 +274,23 @@ GetPropIRGenerator::tryAttachIdempotentStub()
 
 static bool
 IsCacheableNoProperty(JSContext* cx, JSObject* obj, JSObject* holder, Shape* shape, jsid id,
-                      jsbytecode* pc)
+                      jsbytecode* pc, GetPropertyResultFlags resultFlags)
 {
     if (shape)
         return false;
 
     MOZ_ASSERT(!holder);
 
-    if (!pc) {
-        // This is an idempotent IC, don't attach a missing-property stub.
-        // See tryAttachStub.
+    // Idempotent ICs may only attach missing-property stubs if undefined
+    // results are explicitly allowed, since no monitoring is done of the
+    // cache result.
+    if (!pc && !(resultFlags & GetPropertyResultFlags::AllowUndefined))
         return false;
-    }
 
     // If we're doing a name lookup, we have to throw a ReferenceError. If
     // extra warnings are enabled, we may have to report a warning.
-    if (*pc == JSOP_GETBOUNDNAME || cx->compartment()->behaviors().extraWarnings(cx))
+    // Note that Ion does not generate idempotent caches for JSOP_GETBOUNDNAME.
+    if ((pc && *pc == JSOP_GETBOUNDNAME) || cx->compartment()->behaviors().extraWarnings(cx))
         return false;
 
     return CheckHasNoSuchProperty(cx, obj, id);
@@ -301,7 +305,7 @@ enum NativeGetPropCacheability {
 static NativeGetPropCacheability
 CanAttachNativeGetProp(JSContext* cx, HandleObject obj, HandleId id,
                        MutableHandleNativeObject holder, MutableHandleShape shape,
-                       jsbytecode* pc, CanAttachGetter canAttachGetter,
+                       jsbytecode* pc, GetPropertyResultFlags resultFlags,
                        bool* isTemporarilyUnoptimizable)
 {
     MOZ_ASSERT(JSID_IS_STRING(id) || JSID_IS_SYMBOL(id));
@@ -326,22 +330,17 @@ CanAttachNativeGetProp(JSContext* cx, HandleObject obj, HandleId id,
     if (IsCacheableGetPropReadSlotForIonOrCacheIR(obj, holder, prop))
         return CanAttachReadSlot;
 
-    // Idempotent ICs only support plain data properties, see
-    // tryAttachIdempotentStub.
-    if (!pc)
-        return CanAttachNone;
-
-    if (IsCacheableNoProperty(cx, obj, holder, shape, id, pc))
+    if (IsCacheableNoProperty(cx, obj, holder, shape, id, pc, resultFlags))
         return CanAttachReadSlot;
 
-    if (canAttachGetter == CanAttachGetter::No)
-        return CanAttachNone;
+    // Idempotent ICs cannot call getters, see tryAttachIdempotentStub.
+    if (pc && (resultFlags & GetPropertyResultFlags::Monitored)) {
+        if (IsCacheableGetPropCallScripted(obj, holder, shape, isTemporarilyUnoptimizable))
+            return CanAttachCallGetter;
 
-    if (IsCacheableGetPropCallScripted(obj, holder, shape, isTemporarilyUnoptimizable))
-        return CanAttachCallGetter;
-
-    if (IsCacheableGetPropCallNative(obj, holder, shape))
-        return CanAttachCallGetter;
+        if (IsCacheableGetPropCallNative(obj, holder, shape))
+            return CanAttachCallGetter;
+    }
 
     return CanAttachNone;
 }
@@ -581,10 +580,8 @@ GetPropIRGenerator::tryAttachNative(HandleObject obj, ObjOperandId objId, Handle
     RootedNativeObject holder(cx_);
 
     NativeGetPropCacheability type = CanAttachNativeGetProp(cx_, obj, id, &holder, &shape, pc_,
-                                                            canAttachGetter_,
+                                                            resultFlags_,
                                                             isTemporarilyUnoptimizable_);
-    MOZ_ASSERT_IF(idempotent(),
-                  type == CanAttachNone || (type == CanAttachReadSlot && holder));
     switch (type) {
       case CanAttachNone:
         return false;
@@ -612,6 +609,7 @@ GetPropIRGenerator::tryAttachNative(HandleObject obj, ObjOperandId objId, Handle
         return true;
       case CanAttachCallGetter: {
         // |super.prop| accesses use a |this| value that differs from lookup object
+        MOZ_ASSERT(!idempotent());
         ObjOperandId receiverId = isSuper() ? writer.guardIsObject(getSuperReceiverValueId())
                                             : objId;
         maybeEmitIdGuard(id);
@@ -650,7 +648,7 @@ GetPropIRGenerator::tryAttachWindowProxy(HandleObject obj, ObjOperandId objId, H
     RootedShape shape(cx_);
     RootedNativeObject holder(cx_);
     NativeGetPropCacheability type = CanAttachNativeGetProp(cx_, windowObj, id, &holder, &shape, pc_,
-                                                            canAttachGetter_,
+                                                            resultFlags_,
                                                             isTemporarilyUnoptimizable_);
     switch (type) {
       case CanAttachNone:
@@ -737,8 +735,8 @@ GetPropIRGenerator::tryAttachCrossCompartmentWrapper(HandleObject obj, ObjOperan
     RootedShape shape(cx_);
     RootedNativeObject holder(cx_);
     NativeGetPropCacheability canCache =
-        CanAttachNativeGetProp(cx_, unwrapped, id, &holder, &shape, pc_, canAttachGetter_,
-                               isTemporarilyUnoptimizable_);
+        CanAttachNativeGetProp(cx_, unwrapped, id, &holder, &shape, pc_,
+                               resultFlags_, isTemporarilyUnoptimizable_);
     if (canCache != CanAttachReadSlot)
         return false;
 
@@ -962,7 +960,7 @@ GetPropIRGenerator::tryAttachDOMProxyExpando(HandleObject obj, ObjOperandId objI
     RootedShape propShape(cx_);
     NativeGetPropCacheability canCache =
         CanAttachNativeGetProp(cx_, expandoObj, id, &holder, &propShape, pc_,
-                               canAttachGetter_, isTemporarilyUnoptimizable_);
+                               resultFlags_, isTemporarilyUnoptimizable_);
     if (canCache != CanAttachReadSlot && canCache != CanAttachCallGetter)
         return false;
     if (!holder)
@@ -1053,10 +1051,8 @@ GetPropIRGenerator::tryAttachDOMProxyUnshadowed(HandleObject obj, ObjOperandId o
     RootedNativeObject holder(cx_);
     RootedShape shape(cx_);
     NativeGetPropCacheability canCache = CanAttachNativeGetProp(cx_, checkObj, id, &holder, &shape,
-                                                                pc_, canAttachGetter_,
+                                                                pc_, resultFlags_,
                                                                 isTemporarilyUnoptimizable_);
-    MOZ_ASSERT_IF(idempotent(),
-                  canCache == CanAttachNone || (canCache == CanAttachReadSlot && holder));
     if (canCache == CanAttachNone)
         return false;
 
@@ -1393,7 +1389,7 @@ GetPropIRGenerator::tryAttachPrimitive(ValOperandId valId, HandleId id)
     RootedShape shape(cx_);
     RootedNativeObject holder(cx_);
     NativeGetPropCacheability type = CanAttachNativeGetProp(cx_, proto, id, &holder, &shape, pc_,
-                                                            canAttachGetter_,
+                                                            resultFlags_,
                                                             isTemporarilyUnoptimizable_);
     if (type != CanAttachReadSlot)
         return false;
@@ -3747,62 +3743,34 @@ GetIteratorIRGenerator::tryAttachNativeIterator(ObjOperandId objId, HandleObject
 }
 
 CallIRGenerator::CallIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
-                                 ICState::Mode mode, uint32_t argc,
+                                 ICCall_Fallback* stub, ICState::Mode mode, uint32_t argc,
                                  HandleValue callee, HandleValue thisval, HandleValueArray args)
   : IRGenerator(cx, script, pc, CacheKind::Call, mode),
     argc_(argc),
     callee_(callee),
     thisval_(thisval),
     args_(args),
-    cachedStrategy_()
+    typeCheckInfo_(cx, /* needsTypeBarrier = */ true),
+    cacheIRStubKind_(BaselineCacheIRStubKind::Regular)
 { }
 
-CallIRGenerator::OptStrategy
-CallIRGenerator::canOptimize()
+bool
+CallIRGenerator::tryAttachStringSplit()
 {
-    // Ensure callee is a function.
-    if (!callee_.isObject() || !callee_.toObject().is<JSFunction>())
-        return OptStrategy::None;
-
-    RootedFunction calleeFunc(cx_, &callee_.toObject().as<JSFunction>());
-
-    OptStrategy strategy;
-    if ((strategy = canOptimizeStringSplit(calleeFunc)) != OptStrategy::None) {
-        return strategy;
-    }
-
-    return OptStrategy::None;
-}
-
-CallIRGenerator::OptStrategy
-CallIRGenerator::canOptimizeStringSplit(HandleFunction calleeFunc)
-{
+    // Only optimize StringSplitString(str, str)
     if (argc_ != 2 || !args_[0].isString() || !args_[1].isString())
-        return OptStrategy::None;
+        return false;
 
     // Just for now: if they're both atoms, then do not optimize using
     // CacheIR and allow the legacy "ConstStringSplit" BaselineIC optimization
     // to proceed.
     if (args_[0].toString()->isAtom() && args_[1].toString()->isAtom())
-        return OptStrategy::None;
+        return false;
 
-    if (!calleeFunc->isNative())
-        return OptStrategy::None;
-
-    if (calleeFunc->native() != js::intrinsic_StringSplitString)
-        return OptStrategy::None;
-
-    return OptStrategy::StringSplit;
-}
-
-bool
-CallIRGenerator::tryAttachStringSplit()
-{
     // Get the object group to use for this location.
     RootedObjectGroup group(cx_, ObjectGroupCompartment::getStringSplitStringGroup(cx_));
-    if (!group) {
+    if (!group)
         return false;
-    }
 
     AutoAssertNoPendingException aanpe(cx_);
     Int32OperandId argcId(writer.setInputOperandId(0));
@@ -3810,15 +3778,14 @@ CallIRGenerator::tryAttachStringSplit()
     // Ensure argc == 1.
     writer.guardSpecificInt32Immediate(argcId, 2);
 
-    // 1 argument only.  Stack-layout here is (bottom to top):
+    // 2 arguments.  Stack-layout here is (bottom to top):
     //
     //  3: Callee
     //  2: ThisValue
     //  1: Arg0
     //  0: Arg1 <-- Top of stack
 
-    // Ensure callee is an object and is the function that matches the callee optimized
-    // against during stub generation (i.e. the String_split function object).
+    // Ensure callee is the |String_split| native function.
     ValOperandId calleeValId = writer.loadStackValue(3);
     ObjOperandId calleeObjId = writer.guardIsObject(calleeValId);
     writer.guardIsNativeFunction(calleeObjId, js::intrinsic_StringSplitString);
@@ -3835,40 +3802,162 @@ CallIRGenerator::tryAttachStringSplit()
     writer.callStringSplitResult(arg0StrId, arg1StrId, group);
     writer.typeMonitorResult();
 
+    cacheIRStubKind_ = BaselineCacheIRStubKind::Monitored;
+    trackAttached("StringSplitString");
+
+    TypeScript::Monitor(cx_, script_, pc_, TypeSet::ObjectType(group));
+
     return true;
 }
 
-CallIRGenerator::OptStrategy
-CallIRGenerator::getOptStrategy(bool* optimizeAfterCall)
+bool
+CallIRGenerator::tryAttachArrayPush()
 {
-    if (!cachedStrategy_) {
-        cachedStrategy_ = mozilla::Some(canOptimize());
-    }
-    if (optimizeAfterCall != nullptr) {
-        MOZ_ASSERT(cachedStrategy_.isSome());
-        switch (cachedStrategy_.value()) {
-          case OptStrategy::StringSplit:
-            *optimizeAfterCall = true;
-            break;
+    // Only optimize on obj.push(val);
+    if (argc_ != 1 || !thisval_.isObject())
+        return false;
 
-          default:
-            *optimizeAfterCall = false;
-        }
-    }
-    return cachedStrategy_.value();
+    // Where |obj| is a native array.
+    RootedObject thisobj(cx_, &thisval_.toObject());
+    if (!thisobj->is<ArrayObject>())
+        return false;
+
+    RootedArrayObject thisarray(cx_, &thisobj->as<ArrayObject>());
+
+    // And the object group for the array is not collecting preliminary objects.
+    if (thisobj->group()->maybePreliminaryObjects())
+        return false;
+
+    // Check for other indexed properties or class hooks.
+    if (!CanAttachAddElement(thisobj, /* isInit = */ false))
+        return false;
+
+    // Can't add new elements to arrays with non-writable length.
+    if (!thisarray->lengthIsWritable())
+        return false;
+
+    // Check that array is extensible.
+    if (!thisarray->nonProxyIsExtensible())
+        return false;
+
+    MOZ_ASSERT(!thisarray->getElementsHeader()->isFrozen(),
+               "Extensible arrays should not have frozen elements");
+    MOZ_ASSERT(thisarray->lengthIsWritable());
+
+    // After this point, we can generate code fine.
+
+    // Generate code.
+    AutoAssertNoPendingException aanpe(cx_);
+    Int32OperandId argcId(writer.setInputOperandId(0));
+
+    // Ensure argc == 1.
+    writer.guardSpecificInt32Immediate(argcId, 1);
+
+    // 1 argument only.  Stack-layout here is (bottom to top):
+    //
+    //  2: Callee
+    //  1: ThisValue
+    //  0: Arg0 <-- Top of stack.
+
+    // Guard callee is the |js::array_push| native function.
+    ValOperandId calleeValId = writer.loadStackValue(2);
+    ObjOperandId calleeObjId = writer.guardIsObject(calleeValId);
+    writer.guardIsNativeFunction(calleeObjId, js::array_push);
+
+    // Guard this is an array object.
+    ValOperandId thisValId = writer.loadStackValue(1);
+    ObjOperandId thisObjId = writer.guardIsObject(thisValId);
+    writer.guardClass(thisObjId, GuardClassKind::Array);
+
+    // This is a soft assert, documenting the fact that we pass 'true'
+    // for needsTypeBarrier when constructing typeCheckInfo_ for CallIRGenerator.
+    // Can be removed safely if the assumption becomes false.
+    MOZ_ASSERT(typeCheckInfo_.needsTypeBarrier());
+
+    // Guard that the group and shape matches.
+    if (typeCheckInfo_.needsTypeBarrier())
+        writer.guardGroup(thisObjId, thisobj->group());
+    writer.guardShape(thisObjId, thisarray->shape());
+
+    // Guard proto chain shapes.
+    ShapeGuardProtoChain(writer, thisobj, thisObjId);
+
+    // arr.push(x) is equivalent to arr[arr.length] = x for regular arrays.
+    ValOperandId argId = writer.loadStackValue(0);
+    writer.arrayPush(thisObjId, argId);
+
+    writer.returnFromIC();
+
+    // Set the type-check info, and the stub kind to Updated
+    typeCheckInfo_.set(thisobj->group(), JSID_VOID);
+
+    cacheIRStubKind_ = BaselineCacheIRStubKind::Updated;
+
+    trackAttached("ArrayPush");
+    return true;
 }
 
 bool
 CallIRGenerator::tryAttachStub()
 {
-    OptStrategy strategy = getOptStrategy();
+    // Only optimize when the mode is Specialized.
+    if (mode_ != ICState::Mode::Specialized)
+        return false;
 
-    if (strategy == OptStrategy::StringSplit) {
-        return tryAttachStringSplit();
+    // Ensure callee is a function.
+    if (!callee_.isObject() || !callee_.toObject().is<JSFunction>())
+        return false;
+
+    RootedFunction calleeFunc(cx_, &callee_.toObject().as<JSFunction>());
+
+    // Check for native-function optimizations.
+    if (calleeFunc->isNative()) {
+
+        if (calleeFunc->native() == js::intrinsic_StringSplitString) {
+            if (tryAttachStringSplit())
+                return true;
+        }
+
+        if (calleeFunc->native() == js::array_push) {
+            if (tryAttachArrayPush())
+                return true;
+        }
     }
 
-    MOZ_ASSERT(strategy == OptStrategy::None);
     return false;
+}
+
+void
+CallIRGenerator::trackAttached(const char* name)
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "callee", callee_);
+        sp.valueProperty(guard, "thisval", thisval_);
+        sp.valueProperty(guard, "argc", Int32Value(argc_));
+        sp.attached(guard, name);
+        sp.endCache(guard);
+    }
+#endif
+}
+
+void
+CallIRGenerator::trackNotAttached()
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "callee", callee_);
+        sp.valueProperty(guard, "thisval", thisval_);
+        sp.valueProperty(guard, "argc", Int32Value(argc_));
+        sp.endCache(guard);
+    }
+#endif
 }
 
 CompareIRGenerator::CompareIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,

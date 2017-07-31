@@ -19,6 +19,9 @@
 namespace js {
 namespace jit {
 
+
+enum class BaselineCacheIRStubKind;
+
 // CacheIR is an (extremely simple) linear IR language for inline caches.
 // From this IR, we can generate machine code for Baseline or Ion IC stubs.
 //
@@ -218,6 +221,7 @@ extern const char* CacheKindNames[];
     _(StoreUnboxedProperty)               \
     _(StoreDenseElement)                  \
     _(StoreDenseElementHole)              \
+    _(ArrayPush)                          \
     _(StoreTypedElement)                  \
     _(StoreUnboxedArrayElement)           \
     _(StoreUnboxedArrayElementHole)       \
@@ -820,6 +824,10 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
         writeOperandId(rhs);
         buffer_.writeByte(handleAdd);
     }
+    void arrayPush(ObjOperandId obj, ValOperandId rhs) {
+        writeOpWithOperandId(CacheOp::ArrayPush, obj);
+        writeOperandId(rhs);
+    }
     void callScriptedSetter(ObjOperandId obj, JSFunction* setter, ValOperandId rhs) {
         writeOpWithOperandId(CacheOp::CallScriptedSetter, obj);
         addStubField(uintptr_t(setter), StubField::Type::JSObject);
@@ -1139,7 +1147,38 @@ class MOZ_RAII IRGenerator
     CacheKind cacheKind() const { return cacheKind_; }
 };
 
-enum class CanAttachGetter { Yes, No };
+// Flags used to describe what values a GetProperty cache may produce.
+enum class GetPropertyResultFlags {
+    None            = 0,
+
+    // Values produced by this cache will go through a type barrier,
+    // so the cache may produce any type of value that is compatible with its
+    // result operand.
+    Monitored       = 1 << 0,
+
+    // Whether particular primitives may be produced by this cache.
+    AllowUndefined  = 1 << 1,
+    AllowInt32      = 1 << 2,
+    AllowDouble     = 1 << 3,
+
+    All             = Monitored | AllowUndefined | AllowInt32 | AllowDouble
+};
+
+static inline bool operator&(GetPropertyResultFlags a, GetPropertyResultFlags b)
+{
+    return static_cast<int>(a) & static_cast<int>(b);
+}
+
+static inline GetPropertyResultFlags operator|(GetPropertyResultFlags a, GetPropertyResultFlags b)
+{
+    return static_cast<GetPropertyResultFlags>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+static inline GetPropertyResultFlags& operator|=(GetPropertyResultFlags& lhs, GetPropertyResultFlags b)
+{
+    lhs = lhs | b;
+    return lhs;
+}
 
 // GetPropIRGenerator generates CacheIR for a GetProp IC.
 class MOZ_RAII GetPropIRGenerator : public IRGenerator
@@ -1148,7 +1187,7 @@ class MOZ_RAII GetPropIRGenerator : public IRGenerator
     HandleValue idVal_;
     HandleValue receiver_;
     bool* isTemporarilyUnoptimizable_;
-    CanAttachGetter canAttachGetter_;
+    GetPropertyResultFlags resultFlags_;
 
     enum class PreliminaryObjectAction { None, Unlink, NotePreliminary };
     PreliminaryObjectAction preliminaryObjectAction_;
@@ -1225,7 +1264,8 @@ class MOZ_RAII GetPropIRGenerator : public IRGenerator
   public:
     GetPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc, CacheKind cacheKind,
                        ICState::Mode mode, bool* isTemporarilyUnoptimizable, HandleValue val,
-                       HandleValue idVal, HandleValue receiver, CanAttachGetter canAttachGetter);
+                       HandleValue idVal, HandleValue receiver,
+                       GetPropertyResultFlags resultFlags);
 
     bool tryAttachStub();
     bool tryAttachIdempotentStub();
@@ -1460,31 +1500,35 @@ class MOZ_RAII GetIteratorIRGenerator : public IRGenerator
 
 class MOZ_RAII CallIRGenerator : public IRGenerator
 {
-  public:
-    enum class OptStrategy {
-        None = 0,
-        StringSplit
-    };
-
   private:
     uint32_t argc_;
     HandleValue callee_;
     HandleValue thisval_;
     HandleValueArray args_;
+    PropertyTypeCheckInfo typeCheckInfo_;
+    BaselineCacheIRStubKind cacheIRStubKind_;
 
-    mozilla::Maybe<OptStrategy> cachedStrategy_;
-
-    OptStrategy canOptimize();
-    OptStrategy canOptimizeStringSplit(HandleFunction calleeFunc);
     bool tryAttachStringSplit();
+    bool tryAttachArrayPush();
+
+    void trackAttached(const char* name);
+    void trackNotAttached();
 
   public:
-    CallIRGenerator(JSContext* cx, HandleScript, jsbytecode* pc, ICState::Mode mode,
+    CallIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                    ICCall_Fallback* stub, ICState::Mode mode,
                     uint32_t argc, HandleValue callee, HandleValue thisval,
                     HandleValueArray args);
 
-    OptStrategy getOptStrategy(bool* optimizeAfterCall = nullptr);
     bool tryAttachStub();
+
+    BaselineCacheIRStubKind cacheIRStubKind() const {
+        return cacheIRStubKind_;
+    }
+
+    const PropertyTypeCheckInfo* typeCheckInfo() const {
+        return &typeCheckInfo_;
+    }
 };
 
 class MOZ_RAII CompareIRGenerator : public IRGenerator

@@ -107,6 +107,31 @@ class MOZ_NON_TEMPORARY_CLASS ExternalStringCache
     MOZ_ALWAYS_INLINE void put(JSString* s);
 };
 
+class MOZ_NON_TEMPORARY_CLASS FunctionToStringCache
+{
+    struct Entry {
+        JSScript* script;
+        JSString* string;
+
+        void set(JSScript* scriptArg, JSString* stringArg) {
+            script = scriptArg;
+            string = stringArg;
+        }
+    };
+    static const size_t NumEntries = 2;
+    mozilla::Array<Entry, NumEntries> entries_;
+
+    FunctionToStringCache(const FunctionToStringCache&) = delete;
+    void operator=(const FunctionToStringCache&) = delete;
+
+  public:
+    FunctionToStringCache() { purge(); }
+    void purge() { mozilla::PodArrayZero(entries_); }
+
+    MOZ_ALWAYS_INLINE JSString* lookup(JSScript* script) const;
+    MOZ_ALWAYS_INLINE void put(JSScript* script, JSString* string);
+};
+
 } // namespace js
 
 namespace JS {
@@ -161,6 +186,7 @@ struct Zone : public JS::shadow::Zone,
     explicit Zone(JSRuntime* rt, js::ZoneGroup* group);
     ~Zone();
     MOZ_MUST_USE bool init(bool isSystem);
+    void destroy(js::FreeOp *fop);
 
   private:
     js::ZoneGroup* const group_;
@@ -209,11 +235,13 @@ struct Zone : public JS::shadow::Zone,
 
     void scheduleGC() { MOZ_ASSERT(!CurrentThreadIsHeapBusy()); gcScheduled_ = true; }
     void unscheduleGC() { gcScheduled_ = false; }
-    bool isGCScheduled() { return gcScheduled_ && canCollect(); }
+    bool isGCScheduled() { return gcScheduled_; }
 
     void setPreservingCode(bool preserving) { gcPreserveCode_ = preserving; }
     bool isPreservingCode() const { return gcPreserveCode_; }
 
+    // Whether this zone can currently be collected. This doesn't take account
+    // of AutoKeepAtoms for the atoms zone.
     bool canCollect();
 
     void changeGCState(GCState prev, GCState next) {
@@ -442,12 +470,17 @@ struct Zone : public JS::shadow::Zone,
     // Cache storing allocated external strings. Purged on GC.
     js::ZoneGroupOrGCTaskData<js::ExternalStringCache> externalStringCache_;
 
+    // Cache for Function.prototype.toString. Purged on GC.
+    js::ZoneGroupOrGCTaskData<js::FunctionToStringCache> functionToStringCache_;
+
   public:
     js::SparseBitmap& markedAtoms() { return markedAtoms_.ref(); }
 
     js::AtomSet& atomCache() { return atomCache_.ref(); }
 
     js::ExternalStringCache& externalStringCache() { return externalStringCache_.ref(); };
+
+    js::FunctionToStringCache& functionToStringCache() { return functionToStringCache_.ref(); }
 
     // Track heap usage under this Zone.
     js::gc::HeapUsage usage;
@@ -622,6 +655,9 @@ struct Zone : public JS::shadow::Zone,
         keepShapeTables_ = b;
     }
 
+    // Delete an empty compartment after its contents have been merged.
+    void deleteEmptyCompartment(JSCompartment* comp);
+
   private:
     js::ZoneGroupData<js::jit::JitZone*> jitZone_;
 
@@ -654,8 +690,8 @@ class ZoneGroupsIter
 
   public:
     explicit ZoneGroupsIter(JSRuntime* rt) : iterMarker(&rt->gc) {
-        it = rt->gc.groups.ref().begin();
-        end = rt->gc.groups.ref().end();
+        it = rt->gc.groups().begin();
+        end = rt->gc.groups().end();
 
         if (!done() && (*it)->usedByHelperThread)
             next();
