@@ -33,6 +33,10 @@
 #define NODE_STRINGIFY_HELPER(n) #n
 #endif
 
+#ifndef NODE_RELEASE
+#define NODE_RELEASE "node"
+#endif
+
 #ifndef NODE_TAG
 # if NODE_VERSION_IS_RELEASE
 #  define NODE_TAG ""
@@ -73,6 +77,6 @@
  * an API is broken in the C++ side, including in v8 or
  * other dependencies.
  */
-#define NODE_MODULE_VERSION 56 /* Node.js v8.0.0 */
+#define NODE_MODULE_VERSION 57 /* Node.js v8.0.0 */
 
 #endif  // SRC_NODE_VERSION_H_

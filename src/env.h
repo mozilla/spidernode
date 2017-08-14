@@ -43,6 +43,10 @@
 
 namespace node {
 
+namespace http2 {
+struct http2_state;
+}
+
 // Pick an index that's hopefully out of the way when we're embedded inside
 // another application. Performance-wise or memory-wise it doesn't matter:
 // Context::SetAlignedPointerInEmbedderData() is backed by a FixedArray,
@@ -97,12 +101,14 @@ namespace node {
   V(cached_data_rejected_string, "cachedDataRejected")                        \
   V(callback_string, "callback")                                              \
   V(change_string, "change")                                                  \
+  V(channel_string, "channel")                                                \
   V(oncertcb_string, "oncertcb")                                              \
   V(onclose_string, "_onclose")                                               \
   V(code_string, "code")                                                      \
   V(configurable_string, "configurable")                                      \
   V(cwd_string, "cwd")                                                        \
   V(dest_string, "dest")                                                      \
+  V(destroy_string, "destroy")                                                \
   V(detached_string, "detached")                                              \
   V(disposed_string, "_disposed")                                             \
   V(dns_a_string, "A")                                                        \
@@ -116,11 +122,13 @@ namespace node {
   V(dns_srv_string, "SRV")                                                    \
   V(dns_txt_string, "TXT")                                                    \
   V(domain_string, "domain")                                                  \
+  V(emit_string, "emit")                                                      \
   V(emitting_top_level_domain_error_string, "_emittingTopLevelDomainError")   \
   V(exchange_string, "exchange")                                              \
   V(enumerable_string, "enumerable")                                          \
   V(idle_string, "idle")                                                      \
   V(irq_string, "irq")                                                        \
+  V(enablepush_string, "enablePush")                                          \
   V(encoding_string, "encoding")                                              \
   V(enter_string, "enter")                                                    \
   V(entries_string, "entries")                                                \
@@ -147,8 +155,11 @@ namespace node {
   V(get_shared_array_buffer_id_string, "_getSharedArrayBufferId")             \
   V(gid_string, "gid")                                                        \
   V(handle_string, "handle")                                                  \
+  V(heap_total_string, "heapTotal")                                           \
+  V(heap_used_string, "heapUsed")                                             \
   V(homedir_string, "homedir")                                                \
   V(hostmaster_string, "hostmaster")                                          \
+  V(id_string, "id")                                                          \
   V(ignore_string, "ignore")                                                  \
   V(immediate_callback_string, "_immediateCallback")                          \
   V(infoaccess_string, "infoAccess")                                          \
@@ -173,6 +184,7 @@ namespace node {
   V(netmask_string, "netmask")                                                \
   V(nice_string, "nice")                                                      \
   V(nsname_string, "nsname")                                                  \
+  V(nexttick_string, "nextTick")                                              \
   V(ocsp_request_string, "OCSPRequest")                                       \
   V(onchange_string, "onchange")                                              \
   V(onclienthello_string, "onclienthello")                                    \
@@ -181,19 +193,27 @@ namespace node {
   V(ondone_string, "ondone")                                                  \
   V(onerror_string, "onerror")                                                \
   V(onexit_string, "onexit")                                                  \
+  V(onframeerror_string, "onframeerror")                                      \
+  V(ongetpadding_string, "ongetpadding")                                      \
   V(onhandshakedone_string, "onhandshakedone")                                \
   V(onhandshakestart_string, "onhandshakestart")                              \
+  V(onheaders_string, "onheaders")                                            \
   V(onmessage_string, "onmessage")                                            \
   V(onnewsession_string, "onnewsession")                                      \
   V(onnewsessiondone_string, "onnewsessiondone")                              \
   V(onocspresponse_string, "onocspresponse")                                  \
+  V(ongoawaydata_string, "ongoawaydata")                                      \
+  V(onpriority_string, "onpriority")                                          \
   V(onread_string, "onread")                                                  \
   V(onreadstart_string, "onreadstart")                                        \
   V(onreadstop_string, "onreadstop")                                          \
   V(onselect_string, "onselect")                                              \
+  V(onsettings_string, "onsettings")                                          \
   V(onshutdown_string, "onshutdown")                                          \
   V(onsignal_string, "onsignal")                                              \
   V(onstop_string, "onstop")                                                  \
+  V(onstreamclose_string, "onstreamclose")                                    \
+  V(ontrailers_string, "ontrailers")                                          \
   V(onwrite_string, "onwrite")                                                \
   V(output_string, "output")                                                  \
   V(order_string, "order")                                                    \
@@ -233,6 +253,7 @@ namespace node {
   V(stack_string, "stack")                                                    \
   V(status_string, "status")                                                  \
   V(stdio_string, "stdio")                                                    \
+  V(stream_string, "stream")                                                  \
   V(subject_string, "subject")                                                \
   V(subjectaltname_string, "subjectaltname")                                  \
   V(sys_string, "sys")                                                        \
@@ -261,7 +282,7 @@ namespace node {
   V(write_host_object_string, "_writeHostObject")                             \
   V(write_queue_size_string, "writeQueueSize")                                \
   V(x_forwarded_string, "x-forwarded-for")                                    \
-  V(zero_return_string, "ZERO_RETURN")                                        \
+  V(zero_return_string, "ZERO_RETURN")
 
 #define ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)                           \
   V(as_external, v8::External)                                                \
@@ -275,6 +296,7 @@ namespace node {
   V(context, v8::Context)                                                     \
   V(domain_array, v8::Array)                                                  \
   V(domains_stack_array, v8::Array)                                           \
+  V(inspector_console_api_object, v8::Object)                                 \
   V(jsstream_constructor_template, v8::FunctionTemplate)                      \
   V(module_load_list_array, v8::Array)                                        \
   V(pbkdf2_constructor_template, v8::ObjectTemplate)                          \
@@ -298,19 +320,10 @@ namespace node {
 
 class Environment;
 
-struct node_ares_task {
-  Environment* env;
-  ares_socket_t sock;
-  uv_poll_t poll_watcher;
-  RB_ENTRY(node_ares_task) node;
-};
-
 struct node_async_ids {
   double async_id;
   double trigger_id;
 };
-
-RB_HEAD(node_ares_task_list, node_ares_task);
 
 class IsolateData {
  public:
@@ -557,15 +570,6 @@ class Environment {
   inline TickInfo* tick_info();
   inline uint64_t timer_base() const;
 
-  static inline Environment* from_cares_timer_handle(uv_timer_t* handle);
-  inline uv_timer_t* cares_timer_handle();
-  inline ares_channel cares_channel();
-  inline ares_channel* cares_channel_ptr();
-  inline bool cares_query_last_ok();
-  inline void set_cares_query_last_ok(bool ok);
-  inline bool cares_is_servers_default();
-  inline void set_cares_is_servers_default(bool is_default);
-  inline node_ares_task_list* cares_task_list();
   inline IsolateData* isolate_data() const;
 
   inline bool using_domains() const;
@@ -598,6 +602,9 @@ class Environment {
 
   inline char* http_parser_buffer() const;
   inline void set_http_parser_buffer(char* buffer);
+
+  inline http2::http2_state* http2_state_buffer() const;
+  inline void set_http2_state_buffer(http2::http2_state* buffer);
 
   inline double* fs_stats_field_array() const;
   inline void set_fs_stats_field_array(double* fields);
@@ -685,11 +692,6 @@ class Environment {
   DomainFlag domain_flag_;
   TickInfo tick_info_;
   const uint64_t timer_base_;
-  uv_timer_t cares_timer_handle_;
-  ares_channel cares_channel_;
-  bool cares_query_last_ok_;
-  bool cares_is_servers_default_;
-  node_ares_task_list cares_task_list_;
   bool using_domains_;
   bool printed_error_;
   bool trace_sync_io_;
@@ -710,6 +712,7 @@ class Environment {
   double* heap_space_statistics_buffer_ = nullptr;
 
   char* http_parser_buffer_;
+  http2::http2_state* http2_state_buffer_ = nullptr;
 
   double* fs_stats_field_array_;
 
