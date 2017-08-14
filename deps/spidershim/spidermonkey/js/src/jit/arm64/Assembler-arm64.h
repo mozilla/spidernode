@@ -221,12 +221,6 @@ class Assembler : public vixl::Assembler
             dataRelocations_.oom();
     }
 
-    void disableProtection() {}
-    void enableProtection() {}
-    void setLowerBoundForProtection(size_t) {}
-    void unprotectRegion(unsigned char*, size_t) {}
-    void reprotectRegion(unsigned char*, size_t) {}
-
     void copyJumpRelocationTable(uint8_t* dest) const {
         if (jumpRelocations_.length())
             memcpy(dest, jumpRelocations_.buffer(), jumpRelocations_.length());
@@ -374,19 +368,12 @@ class Assembler : public vixl::Assembler
     static const size_t OffsetOfJumpTableEntryPointer = 8;
 
   public:
-    void writeCodePointer(AbsoluteLabel* absoluteLabel) {
-        MOZ_ASSERT(!absoluteLabel->bound());
-        uintptr_t x = LabelBase::INVALID_OFFSET;
+    void writeCodePointer(CodeOffset* label) {
+        uintptr_t x = uintptr_t(-1);
         BufferOffset off = EmitData(&x, sizeof(uintptr_t));
-
-        // The x86/x64 makes general use of AbsoluteLabel and weaves a linked list
-        // of uses of an AbsoluteLabel through the assembly. ARM only uses labels
-        // for the case statements of switch jump tables. Thus, for simplicity, we
-        // simply treat the AbsoluteLabel as a label and bind it to the offset of
-        // the jump table entry that needs to be patched.
-        LabelBase* label = absoluteLabel;
         label->bind(off.getOffset());
     }
+
 
     void verifyHeapAccessDisassembly(uint32_t begin, uint32_t end,
                                      const Disassembler::HeapAccess& heapAccess)

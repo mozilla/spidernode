@@ -6,7 +6,6 @@
 
 #include "jit/IonAnalysis.h"
 
-#include "mozilla/SizePrintfMacros.h"
 
 #include "jit/AliasAnalysis.h"
 #include "jit/BaselineInspector.h"
@@ -445,10 +444,10 @@ jit::PruneUnusedBranches(MIRGenerator* mir, MIRGraph& graph)
                 shouldBailout = false;
 
             JitSpew(JitSpew_Prune, "info: block %d,"
-                    " predCount: %" PRIuSIZE ", domInst: %" PRIuSIZE
-                    ", span: %" PRIuSIZE ", effectful: %" PRIuSIZE ", "
-                    " isLoopExit: %s, numSuccessorsOfPred: %" PRIuSIZE "."
-                    " (score: %" PRIuSIZE ", shouldBailout: %s)",
+                    " predCount: %zu, domInst: %zu"
+                    ", span: %zu, effectful: %zu, "
+                    " isLoopExit: %s, numSuccessorsOfPred: %zu."
+                    " (score: %zu, shouldBailout: %s)",
                     block->id(), predCount, numDominatedInst, branchSpan, numEffectfulInst,
                     isLoopExit ? "true" : "false", numSuccessorsOfPreds,
                     score, shouldBailout ? "true" : "false");
@@ -1736,6 +1735,9 @@ TypeAnalyzer::insertConversions()
                 phi->type() == MIRType::MagicOptimizedOut ||
                 phi->type() == MIRType::MagicUninitializedLexical)
             {
+                if (!alloc().ensureBallast())
+                    return false;
+
                 replaceRedundantPhi(phi);
                 block->discardPhi(phi);
             } else {
@@ -2046,7 +2048,7 @@ IsExclusiveFirstArg(MCall* call, MDefinition* def)
 }
 
 static bool
-IsRegExpHoistableCall(MCall* call, MDefinition* def)
+IsRegExpHoistableCall(CompileRuntime* runtime, MCall* call, MDefinition* def)
 {
     if (call->isConstructing())
         return false;
@@ -2069,7 +2071,6 @@ IsRegExpHoistableCall(MCall* call, MDefinition* def)
     }
 
     // Hoistable only if the RegExp is the first argument of RegExpBuiltinExec.
-    CompileRuntime* runtime = GetJitContext()->runtime;
     if (name == runtime->names().RegExpBuiltinExec ||
         name == runtime->names().UnwrapAndCallRegExpBuiltinExec ||
         name == runtime->names().RegExpMatcher ||
@@ -2197,7 +2198,7 @@ IsRegExpHoistable(MIRGenerator* mir, MDefinition* regexp, MDefinitionVector& wor
                     if (setProp->idval()->isConstant()) {
                         Value propIdVal = setProp->idval()->toConstant()->toJSValue();
                         if (propIdVal.isString()) {
-                            CompileRuntime* runtime = GetJitContext()->runtime;
+                            CompileRuntime* runtime = mir->runtime;
                             if (propIdVal.toString() == runtime->names().lastIndex)
                                 continue;
                         }
@@ -2206,7 +2207,7 @@ IsRegExpHoistable(MIRGenerator* mir, MDefinition* regexp, MDefinitionVector& wor
             }
             // MCall is safe only for some known safe functions.
             else if (useDef->isCall()) {
-                if (IsRegExpHoistableCall(useDef->toCall(), def))
+                if (IsRegExpHoistableCall(mir->runtime, useDef->toCall(), def))
                     continue;
             }
 
@@ -2649,7 +2650,7 @@ CheckOperand(const MNode* consumer, const MUse* use, int32_t* usesBalance)
     Fprinter print(stderr);
     print.printf("==Check Operand\n");
     use->producer()->dump(print);
-    print.printf("  index: %" PRIuSIZE "\n", use->consumer()->indexOf(use));
+    print.printf("  index: %zu\n", use->consumer()->indexOf(use));
     use->consumer()->dump(print);
     print.printf("==End\n");
 #endif
@@ -2668,7 +2669,7 @@ CheckUse(const MDefinition* producer, const MUse* use, int32_t* usesBalance)
     Fprinter print(stderr);
     print.printf("==Check Use\n");
     use->producer()->dump(print);
-    print.printf("  index: %" PRIuSIZE "\n", use->consumer()->indexOf(use));
+    print.printf("  index: %zu\n", use->consumer()->indexOf(use));
     use->consumer()->dump(print);
     print.printf("==End\n");
 #endif
@@ -4207,7 +4208,7 @@ jit::AnalyzeNewScriptDefiniteProperties(JSContext* cx, HandleFunction fun,
     if (!inlineScriptTree)
         return false;
 
-    CompileInfo info(script, fun,
+    CompileInfo info(CompileRuntime::get(cx->runtime()), script, fun,
                      /* osrPc = */ nullptr,
                      Analysis_DefiniteProperties,
                      script->needsArgsObj(),
@@ -4453,7 +4454,7 @@ jit::AnalyzeArgumentsUsage(JSContext* cx, JSScript* scriptArg)
         return false;
     }
 
-    CompileInfo info(script, script->functionNonDelazifying(),
+    CompileInfo info(CompileRuntime::get(cx->runtime()), script, script->functionNonDelazifying(),
                      /* osrPc = */ nullptr,
                      Analysis_ArgumentsUsage,
                      /* needsArgsObj = */ true,

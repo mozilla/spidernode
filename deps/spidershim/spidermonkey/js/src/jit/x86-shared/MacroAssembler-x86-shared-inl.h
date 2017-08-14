@@ -582,6 +582,12 @@ MacroAssembler::branchPtr(Condition cond, const Address& lhs, ImmWord rhs, Label
     branchPtrImpl(cond, lhs, rhs, label);
 }
 
+void
+MacroAssembler::branchPtr(Condition cond, const BaseIndex& lhs, ImmWord rhs, Label* label)
+{
+    branchPtrImpl(cond, lhs, rhs, label);
+}
+
 template <typename T, typename S, typename L>
 void
 MacroAssembler::branchPtrImpl(Condition cond, const T& lhs, const S& rhs, L label)
@@ -890,6 +896,12 @@ void
 MacroAssembler::branchTestString(Condition cond, Register tag, Label* label)
 {
     branchTestStringImpl(cond, tag, label);
+}
+
+void
+MacroAssembler::branchTestString(Condition cond, const Address& address, Label* label)
+{
+    branchTestStringImpl(cond, address, label);
 }
 
 void

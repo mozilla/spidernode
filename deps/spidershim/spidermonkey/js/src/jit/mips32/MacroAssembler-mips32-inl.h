@@ -1003,8 +1003,34 @@ MacroAssembler::branchTestMagic(Condition cond, const ValueOperand& value, L lab
 void
 MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr, JSWhyMagic why, Label* label)
 {
-    branchTestMagic(cond, valaddr, label);
+    MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
+
+    Label notMagic;
+    if (cond == Assembler::Equal)
+        branchTestMagic(Assembler::NotEqual, valaddr, &notMagic);
+    else
+        branchTestMagic(Assembler::NotEqual, valaddr, label);
+
     branch32(cond, ToPayload(valaddr), Imm32(why), label);
+    bind(&notMagic);
+}
+
+void
+MacroAssembler::branchToComputedAddress(const BaseIndex& addr)
+{
+    int32_t shift = Imm32::ShiftOf(addr.scale).value;
+    if (shift) {
+        // 4 instructions : lui ori jr nop
+        ma_mul(ScratchRegister, addr.index, Imm32(4 * 4));
+        as_addu(ScratchRegister, addr.base, ScratchRegister);
+    } else {
+        as_addu(ScratchRegister, addr.base, addr.index);
+    }
+
+    if (addr.offset)
+        asMasm().addPtr(Imm32(addr.offset), ScratchRegister);
+    as_jr(ScratchRegister);
+    as_nop();
 }
 
 // ========================================================================

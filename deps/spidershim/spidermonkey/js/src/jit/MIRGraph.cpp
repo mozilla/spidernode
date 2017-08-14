@@ -21,6 +21,7 @@ MIRGenerator::MIRGenerator(CompileCompartment* compartment, const JitCompileOpti
                            TempAllocator* alloc, MIRGraph* graph, const CompileInfo* info,
                            const OptimizationInfo* optimizationInfo)
   : compartment(compartment),
+    runtime(compartment ? compartment->runtime() : nullptr),
     info_(info),
     optimizationInfo_(optimizationInfo),
     alloc_(alloc),
@@ -286,8 +287,8 @@ MIRGraph::unmarkBlocks()
 }
 
 MBasicBlock*
-MBasicBlock::New(MIRGraph& graph, BytecodeAnalysis* analysis, const CompileInfo& info,
-                 MBasicBlock* pred, BytecodeSite* site, Kind kind)
+MBasicBlock::New(MIRGraph& graph, size_t stackDepth, const CompileInfo& info,
+                 MBasicBlock* maybePred, BytecodeSite* site, Kind kind)
 {
     MOZ_ASSERT(site->pc() != nullptr);
 
@@ -295,7 +296,7 @@ MBasicBlock::New(MIRGraph& graph, BytecodeAnalysis* analysis, const CompileInfo&
     if (!block->init())
         return nullptr;
 
-    if (!block->inherit(graph.alloc(), analysis, pred, 0))
+    if (!block->inherit(graph.alloc(), stackDepth, maybePred, 0))
         return nullptr;
 
     return block;
@@ -309,7 +310,7 @@ MBasicBlock::NewPopN(MIRGraph& graph, const CompileInfo& info,
     if (!block->init())
         return nullptr;
 
-    if (!block->inherit(graph.alloc(), nullptr, pred, popped))
+    if (!block->inherit(graph.alloc(), pred->stackDepth(), pred, popped))
         return nullptr;
 
     return block;
@@ -348,7 +349,7 @@ MBasicBlock::NewPendingLoopHeader(MIRGraph& graph, const CompileInfo& info,
     if (!block->init())
         return nullptr;
 
-    if (!block->inherit(graph.alloc(), nullptr, pred, 0, stackPhiCount))
+    if (!block->inherit(graph.alloc(), pred->stackDepth(), pred, 0, stackPhiCount))
         return nullptr;
 
     return block;
@@ -546,35 +547,31 @@ MBasicBlock::copySlots(MBasicBlock* from)
 }
 
 bool
-MBasicBlock::inherit(TempAllocator& alloc, BytecodeAnalysis* analysis, MBasicBlock* pred,
+MBasicBlock::inherit(TempAllocator& alloc, size_t stackDepth, MBasicBlock* maybePred,
                      uint32_t popped, unsigned stackPhiCount)
 {
-    if (pred) {
-        stackPosition_ = pred->stackPosition_;
-        MOZ_ASSERT(stackPosition_ >= popped);
-        stackPosition_ -= popped;
-        if (kind_ != PENDING_LOOP_HEADER)
-            copySlots(pred);
-    } else {
-        uint32_t stackDepth = analysis->info(pc()).stackDepth;
-        stackPosition_ = info().firstStackSlot() + stackDepth;
-        MOZ_ASSERT(stackPosition_ >= popped);
-        stackPosition_ -= popped;
-    }
+    MOZ_ASSERT_IF(maybePred, maybePred->stackDepth() == stackDepth);
+
+    MOZ_ASSERT(stackDepth >= popped);
+    stackDepth -= popped;
+    stackPosition_ = stackDepth;
+
+    if (maybePred && kind_ != PENDING_LOOP_HEADER)
+        copySlots(maybePred);
 
     MOZ_ASSERT(info_.nslots() >= stackPosition_);
     MOZ_ASSERT(!entryResumePoint_);
 
     // Propagate the caller resume point from the inherited block.
-    callerResumePoint_ = pred ? pred->callerResumePoint() : nullptr;
+    callerResumePoint_ = maybePred ? maybePred->callerResumePoint() : nullptr;
 
     // Create a resume point using our initial stack state.
     entryResumePoint_ = new(alloc) MResumePoint(this, pc(), MResumePoint::ResumeAt);
     if (!entryResumePoint_->init(alloc))
         return false;
 
-    if (pred) {
-        if (!predecessors_.append(pred))
+    if (maybePred) {
+        if (!predecessors_.append(maybePred))
             return false;
 
         if (kind_ == PENDING_LOOP_HEADER) {
@@ -583,35 +580,35 @@ MBasicBlock::inherit(TempAllocator& alloc, BytecodeAnalysis* analysis, MBasicBlo
                 MPhi* phi = MPhi::New(alloc.fallible());
                 if (!phi)
                     return false;
-                phi->addInlineInput(pred->getSlot(i));
+                phi->addInlineInput(maybePred->getSlot(i));
                 addPhi(phi);
                 setSlot(i, phi);
                 entryResumePoint()->initOperand(i, phi);
             }
 
-            MOZ_ASSERT(stackPhiCount <= stackDepth());
-            MOZ_ASSERT(info().firstStackSlot() <= stackDepth() - stackPhiCount);
+            MOZ_ASSERT(stackPhiCount <= stackDepth);
+            MOZ_ASSERT(info().firstStackSlot() <= stackDepth - stackPhiCount);
 
             // Avoid creating new phis for stack values that aren't part of the
             // loop.  Note that for loop headers that can OSR, all values on the
             // stack are part of the loop.
-            for (; i < stackDepth() - stackPhiCount; i++) {
-                MDefinition* val = pred->getSlot(i);
+            for (; i < stackDepth - stackPhiCount; i++) {
+                MDefinition* val = maybePred->getSlot(i);
                 setSlot(i, val);
                 entryResumePoint()->initOperand(i, val);
             }
 
-            for (; i < stackDepth(); i++) {
+            for (; i < stackDepth; i++) {
                 MPhi* phi = MPhi::New(alloc.fallible());
                 if (!phi)
                     return false;
-                phi->addInlineInput(pred->getSlot(i));
+                phi->addInlineInput(maybePred->getSlot(i));
                 addPhi(phi);
                 setSlot(i, phi);
                 entryResumePoint()->initOperand(i, phi);
             }
         } else {
-            for (size_t i = 0; i < stackDepth(); i++)
+            for (size_t i = 0; i < stackDepth; i++)
                 entryResumePoint()->initOperand(i, getSlot(i));
         }
     } else {
@@ -619,7 +616,7 @@ MBasicBlock::inherit(TempAllocator& alloc, BytecodeAnalysis* analysis, MBasicBlo
          * Don't leave the operands uninitialized for the caller, as it may not
          * initialize them later on.
          */
-        for (size_t i = 0; i < stackDepth(); i++)
+        for (size_t i = 0; i < stackDepth; i++)
             entryResumePoint()->clearOperand(i);
     }
 
@@ -664,21 +661,6 @@ MBasicBlock::initEntrySlots(TempAllocator& alloc)
     if (!entryResumePoint_)
         return false;
     return true;
-}
-
-MDefinition*
-MBasicBlock::getSlot(uint32_t index)
-{
-    MOZ_ASSERT(index < stackPosition_);
-    return slots_[index];
-}
-
-void
-MBasicBlock::initSlot(uint32_t slot, MDefinition* ins)
-{
-    slots_[slot] = ins;
-    if (entryResumePoint())
-        entryResumePoint()->initOperand(slot, ins);
 }
 
 void
@@ -744,94 +726,11 @@ MBasicBlock::linkOsrValues(MStart* start)
 }
 
 void
-MBasicBlock::setSlot(uint32_t slot, MDefinition* ins)
-{
-    slots_[slot] = ins;
-}
-
-void
-MBasicBlock::setVariable(uint32_t index)
-{
-    MOZ_ASSERT(stackPosition_ > info_.firstStackSlot());
-    setSlot(index, slots_[stackPosition_ - 1]);
-}
-
-void
-MBasicBlock::setArg(uint32_t arg)
-{
-    setVariable(info_.argSlot(arg));
-}
-
-void
-MBasicBlock::setLocal(uint32_t local)
-{
-    setVariable(info_.localSlot(local));
-}
-
-void
-MBasicBlock::setSlot(uint32_t slot)
-{
-    setVariable(slot);
-}
-
-void
-MBasicBlock::rewriteSlot(uint32_t slot, MDefinition* ins)
-{
-    setSlot(slot, ins);
-}
-
-void
 MBasicBlock::rewriteAtDepth(int32_t depth, MDefinition* ins)
 {
     MOZ_ASSERT(depth < 0);
     MOZ_ASSERT(stackPosition_ + depth >= info_.firstStackSlot());
     rewriteSlot(stackPosition_ + depth, ins);
-}
-
-void
-MBasicBlock::push(MDefinition* ins)
-{
-    MOZ_ASSERT(stackPosition_ < nslots());
-    slots_[stackPosition_++] = ins;
-}
-
-void
-MBasicBlock::pushVariable(uint32_t slot)
-{
-    push(slots_[slot]);
-}
-
-void
-MBasicBlock::pushArg(uint32_t arg)
-{
-    pushVariable(info_.argSlot(arg));
-}
-
-void
-MBasicBlock::pushLocal(uint32_t local)
-{
-    pushVariable(info_.localSlot(local));
-}
-
-void
-MBasicBlock::pushSlot(uint32_t slot)
-{
-    pushVariable(slot);
-}
-
-MDefinition*
-MBasicBlock::pop()
-{
-    MOZ_ASSERT(stackPosition_ > info_.firstStackSlot());
-    return slots_[--stackPosition_];
-}
-
-void
-MBasicBlock::popn(uint32_t n)
-{
-    MOZ_ASSERT(stackPosition_ - n >= info_.firstStackSlot());
-    MOZ_ASSERT(stackPosition_ >= stackPosition_ - n);
-    stackPosition_ -= n;
 }
 
 MDefinition*
@@ -892,14 +791,6 @@ MBasicBlock::swapAt(int32_t depth)
     MDefinition* temp = slots_[lhsDepth];
     slots_[lhsDepth] = slots_[rhsDepth];
     slots_[rhsDepth] = temp;
-}
-
-MDefinition*
-MBasicBlock::peek(int32_t depth)
-{
-    MOZ_ASSERT(depth < 0);
-    MOZ_ASSERT(stackPosition_ + depth >= info_.firstStackSlot());
-    return getSlot(stackPosition_ + depth);
 }
 
 void
@@ -1139,24 +1030,6 @@ MBasicBlock::insertAtEnd(MInstruction* ins)
         insertBefore(lastIns(), ins);
     else
         add(ins);
-}
-
-void
-MBasicBlock::add(MInstruction* ins)
-{
-    MOZ_ASSERT(!hasLastIns());
-    ins->setBlock(this);
-    graph().allocDefinitionId(ins);
-    instructions_.pushBack(ins);
-    ins->setTrackedSite(trackedSite_);
-}
-
-void
-MBasicBlock::end(MControlInstruction* ins)
-{
-    MOZ_ASSERT(!hasLastIns()); // Existing control instructions should be removed first.
-    MOZ_ASSERT(ins);
-    add(ins);
 }
 
 void
@@ -1462,20 +1335,6 @@ MBasicBlock::setLoopHeader(MBasicBlock* newBackedge)
 
     MOZ_ASSERT(newBackedge->loopHeaderOfBackedge() == this);
     MOZ_ASSERT(backedge() == newBackedge);
-}
-
-size_t
-MBasicBlock::numSuccessors() const
-{
-    MOZ_ASSERT(lastIns());
-    return lastIns()->numSuccessors();
-}
-
-MBasicBlock*
-MBasicBlock::getSuccessor(size_t index) const
-{
-    MOZ_ASSERT(lastIns());
-    return lastIns()->getSuccessor(index);
 }
 
 size_t

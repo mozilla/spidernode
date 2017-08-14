@@ -9,9 +9,25 @@
 
 #include "vm/GeckoProfiler.h"
 
+#include "jscntxt.h"
+
 #include "vm/Runtime.h"
 
 namespace js {
+
+inline void
+GeckoProfilerThread::updatePC(JSContext* cx, JSScript* script, jsbytecode* pc)
+{
+    if (!cx->runtime()->geckoProfiler().enabled())
+        return;
+
+    uint32_t sp = pseudoStack_->stackPointer;
+    if (sp - 1 < PseudoStack::MaxEntries) {
+        MOZ_ASSERT(sp > 0);
+        MOZ_ASSERT(pseudoStack_->entries[sp - 1].rawScript() == script);
+        pseudoStack_->entries[sp - 1].setPC(pc);
+    }
+}
 
 /*
  * This class is used to suppress profiler sampling during
@@ -30,6 +46,38 @@ class MOZ_RAII AutoSuppressProfilerSampling
     JSRuntime::AutoProhibitActiveContextChange prohibitContextChange_;
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
+
+MOZ_ALWAYS_INLINE
+AutoGeckoProfilerEntry::AutoGeckoProfilerEntry(JSContext* cx, const char* label,
+                                               ProfileEntry::Category category
+                                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM_IN_IMPL)
+  : profiler_(&cx->geckoProfiler())
+{
+    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    if (MOZ_LIKELY(!profiler_->installed())) {
+        profiler_ = nullptr;
+        return;
+    }
+#ifdef DEBUG
+    spBefore_ = profiler_->stackPointer();
+#endif
+    profiler_->pseudoStack_->pushCppFrame(label,
+                                          /* dynamicString = */ nullptr,
+                                          /* sp = */ this,
+                                          /* line = */ 0,
+                                          ProfileEntry::Kind::CPP_NORMAL,
+                                          category);
+}
+
+MOZ_ALWAYS_INLINE
+AutoGeckoProfilerEntry::~AutoGeckoProfilerEntry()
+{
+    if (MOZ_LIKELY(!profiler_))
+        return;
+
+    profiler_->pseudoStack_->pop();
+    MOZ_ASSERT(spBefore_ == profiler_->stackPointer());
+}
 
 } // namespace js
 

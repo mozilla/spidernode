@@ -27,6 +27,7 @@ namespace js {
 
 class TypedArrayObject;
 class WasmFunctionScope;
+class WasmInstanceScope;
 
 namespace wasm {
 
@@ -147,6 +148,7 @@ class WasmInstanceObject : public NativeObject
     static const unsigned EXPORTS_OBJ_SLOT = 1;
     static const unsigned EXPORTS_SLOT = 2;
     static const unsigned SCOPES_SLOT = 3;
+    static const unsigned INSTANCE_SCOPE_SLOT = 4;
     static const ClassOps classOps_;
     static bool exportsGetterImpl(JSContext* cx, const CallArgs& args);
     static bool exportsGetter(JSContext* cx, unsigned argc, Value* vp);
@@ -167,15 +169,14 @@ class WasmInstanceObject : public NativeObject
     // WeakScopeMap maps from function index to js::Scope. This maps is weak
     // to avoid holding scope objects alive. The scopes are normally created
     // during debugging.
-    using ScopeMap = GCHashMap<uint32_t,
-                               ReadBarriered<WasmFunctionScope*>,
-                               DefaultHasher<uint32_t>,
-                               SystemAllocPolicy>;
-    using WeakScopeMap = JS::WeakCache<ScopeMap>;
-    WeakScopeMap& scopes() const;
+    using ScopeMap = JS::WeakCache<GCHashMap<uint32_t,
+                                             ReadBarriered<WasmFunctionScope*>,
+                                             DefaultHasher<uint32_t>,
+                                             SystemAllocPolicy>>;
+    ScopeMap& scopes() const;
 
   public:
-    static const unsigned RESERVED_SLOTS = 4;
+    static const unsigned RESERVED_SLOTS = 5;
     static const Class class_;
     static const JSPropertySpec properties[];
     static const JSFunctionSpec methods[];
@@ -203,6 +204,7 @@ class WasmInstanceObject : public NativeObject
 
     const wasm::CodeRange& getExportedFunctionCodeRange(HandleFunction fun, wasm::Tier tier);
 
+    static WasmInstanceScope* getScope(JSContext* cx, HandleWasmInstanceObject instanceObj);
     static WasmFunctionScope* getFunctionScope(JSContext* cx,
                                                HandleWasmInstanceObject instanceObj,
                                                uint32_t funcIndex);
@@ -222,13 +224,12 @@ class WasmMemoryObject : public NativeObject
     static bool growImpl(JSContext* cx, const CallArgs& args);
     static bool grow(JSContext* cx, unsigned argc, Value* vp);
 
-    using InstanceSet = GCHashSet<ReadBarrieredWasmInstanceObject,
-                                  MovableCellHasher<ReadBarrieredWasmInstanceObject>,
-                                  SystemAllocPolicy>;
-    using WeakInstanceSet = JS::WeakCache<InstanceSet>;
+    using InstanceSet = JS::WeakCache<GCHashSet<ReadBarrieredWasmInstanceObject,
+                                                MovableCellHasher<ReadBarrieredWasmInstanceObject>,
+                                                SystemAllocPolicy>>;
     bool hasObservers() const;
-    WeakInstanceSet& observers() const;
-    WeakInstanceSet* getOrCreateObservers(JSContext* cx);
+    InstanceSet& observers() const;
+    InstanceSet* getOrCreateObservers(JSContext* cx);
 
   public:
     static const unsigned RESERVED_SLOTS = 2;

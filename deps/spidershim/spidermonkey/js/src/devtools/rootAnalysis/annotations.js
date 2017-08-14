@@ -170,6 +170,7 @@ var ignoreFunctions = {
 
     // Bug 1056410 - devirtualization prevents the standard nsISupports::Release heuristic from working
     "uint32 nsXPConnect::Release()" : true,
+    "uint32 nsIAtom::Release()" : true,
 
     // Allocation API
     "malloc": true,
@@ -233,6 +234,8 @@ var ignoreFunctions = {
     "calloc" : true,
 
     "uint8 nsContentUtils::IsExpandedPrincipal(nsIPrincipal*)" : true,
+
+    "void mozilla::AutoProfilerLabel::~AutoProfilerLabel(int32)" : true,
 };
 
 function extraGCFunctions() {

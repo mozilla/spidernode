@@ -189,17 +189,6 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         push(Operand(addr));
     }
 
-    void moveValue(const Value& val, Register dest) {
-        movWithPatch(ImmWord(val.asRawBits()), dest);
-        writeDataRelocation(val);
-    }
-    void moveValue(const Value& src, const ValueOperand& dest) {
-        moveValue(src, dest.valueReg());
-    }
-    void moveValue(const ValueOperand& src, const ValueOperand& dest) {
-        if (src.valueReg() != dest.valueReg())
-            movq(src.valueReg(), dest.valueReg());
-    }
     void boxValue(JSValueType type, Register src, Register dest);
 
     Condition testUndefined(Condition cond, Register tag) {
@@ -707,7 +696,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         emitSet(cond, dest);
     }
 
-    void boxDouble(FloatRegister src, const ValueOperand& dest) {
+    void boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister) {
         vmovq(src, dest.valueReg());
     }
     void boxNonDouble(JSValueType type, Register src, const ValueOperand& dest) {
@@ -800,6 +789,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
 
     void unboxString(const ValueOperand& src, Register dest) { unboxNonDouble(src, dest); }
     void unboxString(const Operand& src, Register dest) { unboxNonDouble(src, dest); }
+    void unboxString(const Address& src, Register dest) { unboxNonDouble(src, dest); }
 
     void unboxSymbol(const ValueOperand& src, Register dest) { unboxNonDouble(src, dest); }
     void unboxSymbol(const Operand& src, Register dest) { unboxNonDouble(src, dest); }

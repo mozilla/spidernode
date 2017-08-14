@@ -1347,7 +1347,6 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
     dtoaState(nullptr),
     heapState(JS::HeapState::Idle),
     suppressGC(0),
-    allowGCBarriers(true),
 #ifdef DEBUG
     ionCompiling(false),
     ionCompilingSafeForMinorGC(false),
@@ -1389,6 +1388,7 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
     asyncCallIsExplicit(false),
     interruptCallbackDisabled(false),
     interrupt_(false),
+    interruptRegExpJit_(false),
     handlingJitInterrupt_(false),
     osrTempData_(nullptr),
     ionReturnOverride_(MagicValue(JS_ARG_POISON)),
@@ -1591,6 +1591,7 @@ void
 JSContext::trace(JSTracer* trc)
 {
     cycleDetectorVector().trace(trc);
+    geckoProfiler().trace(trc);
 
     if (trc->isMarkingTracer() && compartment_)
         compartment_->mark();

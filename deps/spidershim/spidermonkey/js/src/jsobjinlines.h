@@ -273,7 +273,6 @@ js::MaybeHasInterestingSymbolProperty(JSContext* cx, JSObject* obj, Symbol* symb
     jsid id = SYMBOL_TO_JSID(symbol);
     do {
         if (obj->maybeHasInterestingSymbolProperty() ||
-            obj->hasDynamicPrototype() ||
             MOZ_UNLIKELY(ClassMayResolveId(cx->names(), obj->getClass(), id, obj) ||
                          obj->getClass()->getGetProperty()))
         {
@@ -584,17 +583,17 @@ HasNoToPrimitiveMethodPure(JSObject* obj, JSContext* cx)
     return !prop;
 }
 
+extern bool
+ToPropertyKeySlow(JSContext* cx, HandleValue argument, MutableHandleId result);
+
 /* ES6 draft rev 28 (2014 Oct 14) 7.1.14 */
-inline bool
+MOZ_ALWAYS_INLINE bool
 ToPropertyKey(JSContext* cx, HandleValue argument, MutableHandleId result)
 {
-    // Steps 1-2.
-    RootedValue key(cx, argument);
-    if (!ToPrimitive(cx, JSTYPE_STRING, &key))
-        return false;
+    if (MOZ_LIKELY(argument.isPrimitive()))
+        return ValueToId<CanGC>(cx, argument, result);
 
-    // Steps 3-4.
-    return ValueToId<CanGC>(cx, key, result);
+    return ToPropertyKeySlow(cx, argument, result);
 }
 
 /*
@@ -823,6 +822,80 @@ InitClass(JSContext* cx, HandleObject obj, HandleObject parent_proto,
           NativeObject** ctorp = nullptr,
           gc::AllocKind ctorKind = gc::AllocKind::FUNCTION);
 
+MOZ_ALWAYS_INLINE const char*
+GetObjectClassName(JSContext* cx, HandleObject obj)
+{
+    assertSameCompartment(cx, obj);
+
+    if (obj->is<ProxyObject>())
+        return Proxy::className(cx, obj);
+
+    return obj->getClass()->name;
+}
+
+inline bool
+IsCallable(const Value& v)
+{
+    return v.isObject() && v.toObject().isCallable();
+}
+
+// ES6 rev 24 (2014 April 27) 7.2.5 IsConstructor
+inline bool
+IsConstructor(const Value& v)
+{
+    return v.isObject() && v.toObject().isConstructor();
+}
+
 } /* namespace js */
+
+MOZ_ALWAYS_INLINE bool
+JSObject::isCallable() const
+{
+    if (is<JSFunction>())
+        return true;
+    return callHook() != nullptr;
+}
+
+MOZ_ALWAYS_INLINE bool
+JSObject::isConstructor() const
+{
+    if (is<JSFunction>()) {
+        const JSFunction& fun = as<JSFunction>();
+        return fun.isConstructor();
+    }
+    return constructHook() != nullptr;
+}
+
+MOZ_ALWAYS_INLINE JSNative
+JSObject::callHook() const
+{
+    const js::Class* clasp = getClass();
+
+    if (JSNative call = clasp->getCall())
+        return call;
+
+    if (is<js::ProxyObject>()) {
+        const js::ProxyObject& p = as<js::ProxyObject>();
+        if (p.handler()->isCallable(const_cast<JSObject*>(this)))
+            return js::proxy_Call;
+    }
+    return nullptr;
+}
+
+MOZ_ALWAYS_INLINE JSNative
+JSObject::constructHook() const
+{
+    const js::Class* clasp = getClass();
+
+    if (JSNative construct = clasp->getConstruct())
+        return construct;
+
+    if (is<js::ProxyObject>()) {
+        const js::ProxyObject& p = as<js::ProxyObject>();
+        if (p.handler()->isConstructor(const_cast<JSObject*>(this)))
+            return js::proxy_Construct;
+    }
+    return nullptr;
+}
 
 #endif /* jsobjinlines_h */

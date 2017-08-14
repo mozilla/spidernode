@@ -55,6 +55,7 @@ using mozilla::Nothing;
 using mozilla::NumberIsInt32;
 using mozilla::PodCopy;
 using mozilla::Some;
+using mozilla::Unused;
 
 class BreakableControl;
 class LabelControl;
@@ -757,6 +758,7 @@ BytecodeEmitter::EmitterScope::searchInEnclosingScope(JSAtom* name, Scope* scope
           case ScopeKind::NonSyntactic:
             return NameLocation::Dynamic();
 
+          case ScopeKind::WasmInstance:
           case ScopeKind::WasmFunction:
             MOZ_CRASH("No direct eval inside wasm functions");
         }
@@ -1457,6 +1459,7 @@ BytecodeEmitter::EmitterScope::leave(BytecodeEmitter* bce, bool nonLocal)
       case ScopeKind::Module:
         break;
 
+      case ScopeKind::WasmInstance:
       case ScopeKind::WasmFunction:
         MOZ_CRASH("No wasm function scopes in JS");
     }
@@ -2297,8 +2300,8 @@ BytecodeEmitter::updateDepth(ptrdiff_t target)
 {
     jsbytecode* pc = code(target);
 
-    int nuses = StackUses(nullptr, pc);
-    int ndefs = StackDefs(nullptr, pc);
+    int nuses = StackUses(pc);
+    int ndefs = StackDefs(pc);
 
     stackDepth -= nuses;
     MOZ_ASSERT(stackDepth >= 0);
@@ -4987,6 +4990,9 @@ BytecodeEmitter::emitScript(ParseNode* body)
             return false;
     }
 
+    if (!updateSourceCoordNotes(body->pn_pos.end))
+        return false;
+
     if (!emit1(JSOP_RETRVAL))
         return false;
 
@@ -6224,6 +6230,7 @@ BytecodeEmitter::emitSingleDeclaration(ParseNode* declList, ParseNode* decl,
             MOZ_ASSERT(declList->isKind(PNK_LET),
                        "var declarations without initializers handled above, "
                        "and const declarations must have initializers");
+            Unused << declList; // silence clang -Wunused-lambda-capture in opt builds
             return bce->emit1(JSOP_UNDEFINED);
         }
 
@@ -7239,8 +7246,10 @@ BytecodeEmitter::emitForOf(ParseNode* forOfLoop, EmitterScope* headLexicalEmitte
         allowSelfHostedIter = true;
     }
 
-    // Evaluate the expression being iterated.
-    if (!emitTree(forHeadExpr))                           // ITERABLE
+    // Evaluate the expression being iterated. The forHeadExpr should use a
+    // distinct TDZCheckCache to evaluate since (abstractly) it runs in its own
+    // LexicalEnvironment.
+    if (!emitTreeInBranch(forHeadExpr))                   // ITERABLE
         return false;
     if (iterKind == IteratorKind::Async) {
         if (!emitAsyncIterator())                         // ITER
@@ -7439,7 +7448,7 @@ BytecodeEmitter::emitForIn(ParseNode* forInLoop, EmitterScope* headLexicalEmitte
 
     // Evaluate the expression being iterated.
     ParseNode* expr = forInHead->pn_kid3;
-    if (!emitTree(expr))                                  // EXPR
+    if (!emitTreeInBranch(expr))                          // EXPR
         return false;
 
     // Convert the value to the appropriate sort of iterator object for the
@@ -8605,6 +8614,13 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
     if (ParseNode* pn2 = pn->pn_kid) {
         if (!emitTree(pn2))
             return false;
+
+        bool isAsyncGenerator = sc->asFunctionBox()->isAsync() &&
+                                sc->asFunctionBox()->isStarGenerator();
+        if (isAsyncGenerator) {
+            if (!emitAwait())
+                return false;
+        }
     } else {
         /* No explicit return value provided */
         if (!emit1(JSOP_UNDEFINED))
@@ -8717,6 +8733,14 @@ BytecodeEmitter::emitYield(ParseNode* pn)
         if (!emit1(JSOP_UNDEFINED))
             return false;
     }
+
+    // 11.4.3.7 AsyncGeneratorYield step 5.
+    bool isAsyncGenerator = sc->asFunctionBox()->isAsync();
+    if (isAsyncGenerator) {
+        if (!emitAwait())                                 // RESULT
+            return false;
+    }
+
     if (needsIteratorResult) {
         if (!emitFinishIteratorResult(false))
             return false;
@@ -8788,6 +8812,12 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
         return false;
 
     MOZ_ASSERT(this->stackDepth == startDepth);
+
+    // 11.4.3.7 AsyncGeneratorYield step 5.
+    if (isAsyncGenerator) {
+        if (!emitAwait())                                 // ITER RESULT
+            return false;
+    }
 
     // Load the generator object.
     if (!emitGetDotGenerator())                           // ITER RESULT GENOBJ
@@ -8938,11 +8968,6 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
     if (!emitAtomOp(cx->names().value, JSOP_GETPROP))     // ITER OLDRESULT FTYPE FVALUE VALUE
         return false;
 
-    if (isAsyncGenerator) {
-        if (!emitAwait())                                 // ITER OLDRESULT FTYPE FVALUE VALUE
-            return false;
-    }
-
     if (!emitPrepareIteratorResult())                     // ITER OLDRESULT FTYPE FVALUE VALUE RESULT
         return false;
     if (!emit1(JSOP_SWAP))                                // ITER OLDRESULT FTYPE FVALUE RESULT VALUE
@@ -9032,11 +9057,6 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
         return false;
     if (!emitAtomOp(cx->names().value, JSOP_GETPROP))            // VALUE
         return false;
-
-    if (isAsyncGenerator) {
-        if (!emitAwait())                                        // VALUE
-            return false;
-    }
 
     MOZ_ASSERT(this->stackDepth == startDepth - 1);
 
@@ -10776,14 +10796,8 @@ BytecodeEmitter::emitClass(ParseNode* pn)
         // offsets in the source buffer as source notes so that when we
         // actually make the constructor during execution, we can give it the
         // correct toString output.
-        //
-        // Token positions are already offset from the start column. Since
-        // toString offsets are absolute offsets into the ScriptSource,
-        // de-offset from the starting column.
-        ptrdiff_t classStart = ptrdiff_t(pn->pn_pos.begin) -
-                               tokenStream().options().sourceStartColumn;
-        ptrdiff_t classEnd = ptrdiff_t(pn->pn_pos.end) -
-                             tokenStream().options().sourceStartColumn;
+        ptrdiff_t classStart = ptrdiff_t(pn->pn_pos.begin);
+        ptrdiff_t classEnd = ptrdiff_t(pn->pn_pos.end);
         if (!newSrcNote3(SRC_CLASS_SPAN, classStart, classEnd))
             return false;
 
