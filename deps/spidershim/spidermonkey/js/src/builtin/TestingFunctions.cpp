@@ -48,7 +48,6 @@
 #include "vm/StringBuffer.h"
 #include "vm/TraceLogging.h"
 #include "wasm/AsmJS.h"
-#include "wasm/WasmBinaryToExperimentalText.h"
 #include "wasm/WasmBinaryToText.h"
 #include "wasm/WasmJS.h"
 #include "wasm/WasmModule.h"
@@ -323,7 +322,7 @@ GC(JSContext* cx, unsigned argc, Value* vp)
 
     char buf[256] = { '\0' };
 #ifndef JS_MORE_DETERMINISTIC
-    SprintfLiteral(buf, "before %" PRIuSIZE ", after %" PRIuSIZE "\n",
+    SprintfLiteral(buf, "before %zu, after %zu\n",
                    preBytes, cx->runtime()->gc.usage.gcBytes());
 #endif
     JSString* str = JS_NewStringCopyZ(cx, buf);
@@ -338,7 +337,7 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     if (args.get(0) == BooleanValue(true))
-        cx->zone()->group()->storeBuffer().setAboutToOverflow();
+        cx->zone()->group()->storeBuffer().setAboutToOverflow(JS::gcreason::FULL_GENERIC_BUFFER);
 
     cx->minorGC(JS::gcreason::API);
     args.rval().setUndefined();
@@ -576,7 +575,11 @@ WasmTextToBinary(JSContext* cx, unsigned argc, Value* vp)
 static bool
 WasmBinaryToText(JSContext* cx, unsigned argc, Value* vp)
 {
-    MOZ_ASSERT(cx->options().wasm());
+    if (!cx->options().wasm()) {
+        JS_ReportErrorASCII(cx, "wasm support unavailable");
+        return false;
+    }
+
     CallArgs args = CallArgsFromVp(argc, vp);
 
     if (!args.get(0).isObject() || !args.get(0).toObject().is<TypedArrayObject>()) {
@@ -605,24 +608,13 @@ WasmBinaryToText(JSContext* cx, unsigned argc, Value* vp)
         bytes = copy.begin();
     }
 
-    bool experimental = false;
     if (args.length() > 1) {
-        JSString* opt = JS::ToString(cx, args[1]);
-        if (!opt)
-            return false;
-        bool match;
-        if (!JS_StringEqualsAscii(cx, opt, "experimental", &match))
-            return false;
-        experimental = match;
+        JS_ReportErrorASCII(cx, "wasm text format selection is not supported");
+        return false;
     }
 
     StringBuffer buffer(cx);
-    bool ok;
-    if (experimental)
-        ok = wasm::BinaryToExperimentalText(cx, bytes, length, buffer);
-    else
-        ok = wasm::BinaryToText(cx, bytes, length, buffer);
-
+    bool ok = wasm::BinaryToText(cx, bytes, length, buffer);
     if (!ok) {
         if (!cx->isExceptionPending())
             JS_ReportErrorASCII(cx, "wasm binary to text print error");
@@ -640,7 +632,11 @@ WasmBinaryToText(JSContext* cx, unsigned argc, Value* vp)
 static bool
 WasmExtractCode(JSContext* cx, unsigned argc, Value* vp)
 {
-    MOZ_ASSERT(cx->options().wasm());
+    if (!cx->options().wasm()) {
+        JS_ReportErrorASCII(cx, "wasm support unavailable");
+        return false;
+    }
+
     CallArgs args = CallArgsFromVp(argc, vp);
 
     if (!args.get(0).isObject()) {
@@ -787,9 +783,9 @@ ScheduleGC(JSContext* cx, unsigned argc, Value* vp)
 
     if (args.length() == 0) {
         /* Fetch next zeal trigger only. */
-    } else if (args[0].isInt32()) {
+    } else if (args[0].isNumber()) {
         /* Schedule a GC to happen after |arg| allocations. */
-        JS_ScheduleGC(cx, args[0].toInt32());
+        JS_ScheduleGC(cx, std::max(int(args[0].toNumber()), 0));
     } else if (args[0].isObject()) {
         /* Ensure that |zone| is collected during the next GC. */
         Zone* zone = UncheckedUnwrap(&args[0].toObject())->zone();
@@ -805,7 +801,7 @@ ScheduleGC(JSContext* cx, unsigned argc, Value* vp)
         PrepareZoneForGC(zone);
     } else {
         RootedObject callee(cx, &args.callee());
-        ReportUsageErrorASCII(cx, callee, "Bad argument - expecting integer, object or string");
+        ReportUsageErrorASCII(cx, callee, "Bad argument - expecting number, object or string");
         return false;
     }
 
@@ -1262,13 +1258,13 @@ DisableTrackAllocations(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static void
-FinalizeExternalString(Zone* zone, const JSStringFinalizer* fin, char16_t* chars);
+FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars);
 
 static const JSStringFinalizer ExternalStringFinalizer =
     { FinalizeExternalString };
 
 static void
-FinalizeExternalString(Zone* zone, const JSStringFinalizer* fin, char16_t* chars)
+FinalizeExternalString(const JSStringFinalizer* fin, char16_t* chars)
 {
     MOZ_ASSERT(fin == &ExternalStringFinalizer);
     js_free(chars);
@@ -1516,7 +1512,9 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
 
     size_t compartmentCount = CountCompartments(cx);
 
+#ifdef JS_GC_ZEAL
     JS_SetGCZeal(cx, 0, JS_DEFAULT_ZEAL_FREQ);
+#endif
 
     for (unsigned thread = threadStart; thread < threadEnd; thread++) {
         if (verbose)
@@ -1705,6 +1703,14 @@ RejectPromise(JSContext* cx, unsigned argc, Value* vp)
     return result;
 }
 
+static bool
+StreamsAreEnabled(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setBoolean(cx->options().streams());
+    return true;
+}
+
 static unsigned finalizeCount = 0;
 
 static void
@@ -1719,6 +1725,7 @@ static const JSClassOps FinalizeCounterClassOps = {
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     finalize_counter_finalize
@@ -2140,7 +2147,7 @@ testingFunc_inIon(JSContext* cx, unsigned argc, Value* vp)
     }
 
     ScriptFrameIter iter(cx);
-    if (iter.isIon()) {
+    if (!iter.done() && iter.isIon()) {
         // Reset the counter of the IonScript's script.
         jit::JitFrameIterator jitIter(cx);
         ++jitIter;
@@ -2158,7 +2165,7 @@ testingFunc_inIon(JSContext* cx, unsigned argc, Value* vp)
         }
     }
 
-    args.rval().setBoolean(iter.isIon());
+    args.rval().setBoolean(!iter.done() && iter.isIon());
     return true;
 }
 
@@ -2376,7 +2383,11 @@ class CloneBufferObject : public NativeObject {
             return false;
         size_t nbytes = JS_GetStringLength(args[0].toString());
         MOZ_ASSERT(nbytes % sizeof(uint64_t) == 0);
-        auto buf = js::MakeUnique<JSStructuredCloneData>(nbytes, nbytes, nbytes);
+        auto buf = js::MakeUnique<JSStructuredCloneData>(0, 0, nbytes);
+        if (!buf->Init(nbytes, nbytes)) {
+            JS_free(cx, str);
+            return false;
+        }
         js_memcpy(buf->Start(), str, nbytes);
         JS_free(cx, str);
         obj->setData(buf.release());
@@ -2447,6 +2458,7 @@ static const ClassOps CloneBufferObjectClassOps = {
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     CloneBufferObject::Finalize
@@ -4508,6 +4520,10 @@ JS_FN_HELP("resolvePromise", ResolvePromise, 2, 0,
 JS_FN_HELP("rejectPromise", RejectPromise, 2, 0,
 "rejectPromise(promise, reason)",
 "  Reject a Promise by calling the JSAPI function JS::RejectPromise."),
+
+JS_FN_HELP("streamsAreEnabled", StreamsAreEnabled, 0, 0,
+"streamsAreEnabled()",
+"  Returns a boolean indicating whether WHATWG Streams are enabled for the current compartment."),
 
     JS_FN_HELP("makeFinalizeObserver", MakeFinalizeObserver, 0, 0,
 "makeFinalizeObserver()",

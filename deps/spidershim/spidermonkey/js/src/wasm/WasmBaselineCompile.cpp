@@ -2341,6 +2341,10 @@ class BaseCompiler
         // frame size. Flush the constant pool in case it needs to be patched.
         MOZ_ASSERT(maxFramePushed_ >= localSize_);
         masm.flush();
+
+        // Precondition for patching.
+        if (masm.oom())
+            return false;
         masm.patchAdd32ToPtr(stackAddOffset_, Imm32(-int32_t(maxFramePushed_ - localSize_)));
 
         // Since we just overflowed the stack, to be on the safe side, pop the
@@ -2747,15 +2751,7 @@ class BaseCompiler
         RegF32 rv = RegF32(ReturnFloat32Reg);
         MOZ_ASSERT(isAvailable(rv));
         needF32(rv);
-#if defined(JS_CODEGEN_X86)
-        if (call.usesSystemAbi) {
-            masm.reserveStack(sizeof(float));
-            Operand op(esp, 0);
-            masm.fstp32(op);
-            masm.loadFloat32(op, rv);
-            masm.freeStack(sizeof(float));
-        }
-#elif defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM)
         if (call.usesSystemAbi && !call.hardFP)
             masm.ma_vxfer(r0, rv);
 #endif
@@ -2766,15 +2762,7 @@ class BaseCompiler
         RegF64 rv = RegF64(ReturnDoubleReg);
         MOZ_ASSERT(isAvailable(rv));
         needF64(rv);
-#if defined(JS_CODEGEN_X86)
-        if (call.usesSystemAbi) {
-            masm.reserveStack(sizeof(double));
-            Operand op(esp, 0);
-            masm.fstp(op);
-            masm.loadDouble(op, rv);
-            masm.freeStack(sizeof(double));
-        }
-#elif defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM)
         if (call.usesSystemAbi && !call.hardFP)
             masm.ma_vxfer(r0, r1, rv);
 #endif
@@ -5158,7 +5146,9 @@ BaseCompiler::sniffConditionalControlCmp(Cond compareOp, ValType operandType)
 {
     MOZ_ASSERT(latentOp_ == LatentOp::None, "Latent comparison state not properly reset");
 
-    switch (iter_.peekOp()) {
+    OpBytes op;
+    iter_.peekOp(&op);
+    switch (op.b0) {
       case uint16_t(Op::Select):
 #ifdef JS_CODEGEN_X86
         // On x86, with only 5 available registers, a latent i64 binary
@@ -5181,7 +5171,9 @@ BaseCompiler::sniffConditionalControlEqz(ValType operandType)
 {
     MOZ_ASSERT(latentOp_ == LatentOp::None, "Latent comparison state not properly reset");
 
-    switch (iter_.peekOp()) {
+    OpBytes op;
+    iter_.peekOp(&op);
+    switch (op.b0) {
       case uint16_t(Op::BrIf):
       case uint16_t(Op::Select):
       case uint16_t(Op::If):
@@ -6897,11 +6889,11 @@ BaseCompiler::emitBody()
 
         overhead--;
 
-        uint16_t op;
+        OpBytes op;
         CHECK(iter_.readOp(&op));
 
         // When debugEnabled_, every operator has breakpoint site but Op::End.
-        if (debugEnabled_ && op != (uint16_t)Op::End) {
+        if (debugEnabled_ && op.b0 != (uint16_t)Op::End) {
             // TODO sync only registers that can be clobbered by the exit
             // prologue/epilogue or disable these registers for use in
             // baseline compiler when debugEnabled_ is set.
@@ -6910,7 +6902,7 @@ BaseCompiler::emitBody()
             insertBreakablePoint(CallSiteDesc::Breakpoint);
         }
 
-        switch (op) {
+        switch (op.b0) {
           case uint16_t(Op::End):
             if (!emitEnd())
                 return false;
@@ -7378,7 +7370,7 @@ BaseCompiler::emitBody()
             CHECK_NEXT(emitCurrentMemory());
 
           default:
-            return iter_.unrecognizedOpcode(op);
+            return iter_.unrecognizedOpcode(&op);
         }
 
 #undef CHECK

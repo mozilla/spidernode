@@ -387,6 +387,7 @@ class ModuleEnvironmentObject : public EnvironmentObject
     static const uint32_t MODULE_SLOT = 1;
 
     static const ObjectOps objectOps_;
+    static const ClassOps classOps_;
 
   public:
     static const Class class_;
@@ -418,13 +419,35 @@ class ModuleEnvironmentObject : public EnvironmentObject
                                          MutableHandle<PropertyDescriptor> desc);
     static bool deleteProperty(JSContext* cx, HandleObject obj, HandleId id,
                                ObjectOpResult& result);
-    static bool enumerate(JSContext* cx, HandleObject obj, AutoIdVector& properties,
-                          bool enumerableOnly);
+    static bool newEnumerate(JSContext* cx, HandleObject obj, AutoIdVector& properties,
+                             bool enumerableOnly);
 };
 
 typedef Rooted<ModuleEnvironmentObject*> RootedModuleEnvironmentObject;
 typedef Handle<ModuleEnvironmentObject*> HandleModuleEnvironmentObject;
 typedef MutableHandle<ModuleEnvironmentObject*> MutableHandleModuleEnvironmentObject;
+
+class WasmInstanceEnvironmentObject : public EnvironmentObject
+{
+    // Currently WasmInstanceScopes do not use their scopes in a
+    // meaningful way. However, it is an invariant of DebugEnvironments that
+    // environments kept in those maps have live scopes, thus this strong
+    // reference.
+    static const uint32_t SCOPE_SLOT = 1;
+
+  public:
+    static const Class class_;
+
+    static const uint32_t RESERVED_SLOTS = 2;
+
+    static WasmInstanceEnvironmentObject* createHollowForDebug(JSContext* cx,
+                                                               Handle<WasmInstanceScope*> scope);
+    WasmInstanceScope& scope() const {
+        Value v = getReservedSlot(SCOPE_SLOT);
+        MOZ_ASSERT(v.isPrivateGCThing());
+        return *static_cast<WasmInstanceScope*>(v.toGCThing());
+    }
+};
 
 class WasmFunctionCallObject : public EnvironmentObject
 {
@@ -439,7 +462,7 @@ class WasmFunctionCallObject : public EnvironmentObject
 
     static const uint32_t RESERVED_SLOTS = 2;
 
-    static WasmFunctionCallObject* createHollowForDebug(JSContext* cx,
+    static WasmFunctionCallObject* createHollowForDebug(JSContext* cx, HandleObject enclosing,
                                                         Handle<WasmFunctionScope*> scope);
     WasmFunctionScope& scope() const {
         Value v = getReservedSlot(SCOPE_SLOT);
@@ -1014,6 +1037,7 @@ JSObject::is<js::EnvironmentObject>() const
     return is<js::CallObject>() ||
            is<js::VarEnvironmentObject>() ||
            is<js::ModuleEnvironmentObject>() ||
+           is<js::WasmInstanceEnvironmentObject>() ||
            is<js::WasmFunctionCallObject>() ||
            is<js::LexicalEnvironmentObject>() ||
            is<js::WithEnvironmentObject>() ||

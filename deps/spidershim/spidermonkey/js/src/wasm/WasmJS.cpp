@@ -483,6 +483,7 @@ const ClassOps WasmModuleObject::classOps_ =
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     WasmModuleObject::finalize
@@ -928,6 +929,7 @@ const ClassOps WasmInstanceObject::classOps_ =
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     WasmInstanceObject::finalize,
@@ -1020,7 +1022,7 @@ WasmInstanceObject::create(JSContext* cx,
         return nullptr;
     }
 
-    UniquePtr<WeakScopeMap> scopes = js::MakeUnique<WeakScopeMap>(cx->zone(), ScopeMap());
+    UniquePtr<ScopeMap> scopes = js::MakeUnique<ScopeMap>(cx->zone());
     if (!scopes || !scopes->init()) {
         ReportOutOfMemory(cx);
         return nullptr;
@@ -1033,6 +1035,7 @@ WasmInstanceObject::create(JSContext* cx,
 
     obj->setReservedSlot(EXPORTS_SLOT, PrivateValue(exports.release()));
     obj->setReservedSlot(SCOPES_SLOT, PrivateValue(scopes.release()));
+    obj->setReservedSlot(INSTANCE_SCOPE_SLOT, UndefinedValue());
     MOZ_ASSERT(obj->isNewborn());
 
     MOZ_ASSERT(obj->isTenured(), "assumed by WasmTableObject write barriers");
@@ -1141,10 +1144,10 @@ WasmInstanceObject::exports() const
     return *(ExportMap*)getReservedSlot(EXPORTS_SLOT).toPrivate();
 }
 
-WasmInstanceObject::WeakScopeMap&
+WasmInstanceObject::ScopeMap&
 WasmInstanceObject::scopes() const
 {
-    return *(WeakScopeMap*)getReservedSlot(SCOPES_SLOT).toPrivate();
+    return *(ScopeMap*)getReservedSlot(SCOPES_SLOT).toPrivate();
 }
 
 static bool
@@ -1211,6 +1214,21 @@ WasmInstanceObject::getExportedFunctionCodeRange(HandleFunction fun, Tier tier)
     return instance().metadata(tier).codeRanges[funcExport.codeRangeIndex()];
 }
 
+/* static */ WasmInstanceScope*
+WasmInstanceObject::getScope(JSContext* cx, HandleWasmInstanceObject instanceObj)
+{
+    if (!instanceObj->getReservedSlot(INSTANCE_SCOPE_SLOT).isUndefined())
+        return (WasmInstanceScope*)instanceObj->getReservedSlot(INSTANCE_SCOPE_SLOT).toGCThing();
+
+    Rooted<WasmInstanceScope*> instanceScope(cx, WasmInstanceScope::create(cx, instanceObj));
+    if (!instanceScope)
+        return nullptr;
+
+    instanceObj->setReservedSlot(INSTANCE_SCOPE_SLOT, PrivateGCThingValue(instanceScope));
+
+    return instanceScope;
+}
+
 /* static */ WasmFunctionScope*
 WasmInstanceObject::getFunctionScope(JSContext* cx, HandleWasmInstanceObject instanceObj,
                                      uint32_t funcIndex)
@@ -1218,7 +1236,11 @@ WasmInstanceObject::getFunctionScope(JSContext* cx, HandleWasmInstanceObject ins
     if (ScopeMap::Ptr p = instanceObj->scopes().lookup(funcIndex))
         return p->value();
 
-    Rooted<WasmFunctionScope*> funcScope(cx, WasmFunctionScope::create(cx, instanceObj, funcIndex));
+    Rooted<WasmInstanceScope*> instanceScope(cx, WasmInstanceObject::getScope(cx, instanceObj));
+    if (!instanceScope)
+        return nullptr;
+
+    Rooted<WasmFunctionScope*> funcScope(cx, WasmFunctionScope::create(cx, instanceScope, funcIndex));
     if (!funcScope)
         return nullptr;
 
@@ -1288,6 +1310,7 @@ const ClassOps WasmMemoryObject::classOps_ =
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     WasmMemoryObject::finalize
@@ -1437,18 +1460,18 @@ WasmMemoryObject::hasObservers() const
     return !getReservedSlot(OBSERVERS_SLOT).isUndefined();
 }
 
-WasmMemoryObject::WeakInstanceSet&
+WasmMemoryObject::InstanceSet&
 WasmMemoryObject::observers() const
 {
     MOZ_ASSERT(hasObservers());
-    return *reinterpret_cast<WeakInstanceSet*>(getReservedSlot(OBSERVERS_SLOT).toPrivate());
+    return *reinterpret_cast<InstanceSet*>(getReservedSlot(OBSERVERS_SLOT).toPrivate());
 }
 
-WasmMemoryObject::WeakInstanceSet*
+WasmMemoryObject::InstanceSet*
 WasmMemoryObject::getOrCreateObservers(JSContext* cx)
 {
     if (!hasObservers()) {
-        auto observers = MakeUnique<WeakInstanceSet>(cx->zone(), InstanceSet());
+        auto observers = MakeUnique<InstanceSet>(cx->zone());
         if (!observers || !observers->init()) {
             ReportOutOfMemory(cx);
             return nullptr;
@@ -1475,7 +1498,7 @@ WasmMemoryObject::addMovingGrowObserver(JSContext* cx, WasmInstanceObject* insta
 {
     MOZ_ASSERT(movingGrowable());
 
-    WeakInstanceSet* observers = getOrCreateObservers(cx);
+    InstanceSet* observers = getOrCreateObservers(cx);
     if (!observers)
         return false;
 
@@ -1545,6 +1568,7 @@ const ClassOps WasmTableObject::classOps_ =
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     nullptr, /* enumerate */
+    nullptr, /* newEnumerate */
     nullptr, /* resolve */
     nullptr, /* mayResolve */
     WasmTableObject::finalize,

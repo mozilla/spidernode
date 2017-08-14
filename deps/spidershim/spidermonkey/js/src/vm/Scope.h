@@ -73,6 +73,9 @@ enum class ScopeKind : uint8_t
     // ModuleScope
     Module,
 
+    // WasmInstanceScope
+    WasmInstance,
+
     // WasmFunctionScope
     WasmFunction
 };
@@ -248,8 +251,7 @@ class Scope : public js::gc::TenuredCell
 
     template <typename ConcreteScope, XDRMode mode>
     static bool XDRSizedBindingNames(XDRState<mode>* xdr, Handle<ConcreteScope*> scope,
-                                     MutableHandle<typename ConcreteScope::Data*> data,
-                                     uint32_t* lengthOut);
+                                     MutableHandle<typename ConcreteScope::Data*> data);
 
     Shape* maybeCloneEnvironmentShape(JSContext* cx);
 
@@ -398,7 +400,11 @@ class LexicalScope : public Scope
     static bool XDR(XDRState<mode>* xdr, ScopeKind kind, HandleScope enclosing,
                     MutableHandleScope scope);
 
-  protected:
+  private:
+    static LexicalScope* createWithData(JSContext* cx, ScopeKind kind,
+                                        MutableHandle<UniquePtr<Data>> data,
+                                        uint32_t firstFrameSlot, HandleScope enclosing);
+
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
     }
@@ -522,8 +528,9 @@ class FunctionScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
-                                    bool hasParameterExprs, MutableHandleShape envShape);
+    static FunctionScope* createWithData(JSContext* cx, MutableHandle<UniquePtr<Data>> data,
+                                         bool hasParameterExprs, bool needsEnvironment,
+                                         HandleFunction fun, HandleScope enclosing);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -619,8 +626,9 @@ class VarScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
-                                    uint32_t firstFrameSlot, MutableHandleShape envShape);
+    static VarScope* createWithData(JSContext* cx, ScopeKind kind, MutableHandle<UniquePtr<Data>> data,
+                                    uint32_t firstFrameSlot, bool needsEnvironment,
+                                    HandleScope enclosing);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -715,7 +723,8 @@ class GlobalScope : public Scope
     static bool XDR(XDRState<mode>* xdr, ScopeKind kind, MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data);
+    static GlobalScope* createWithData(JSContext* cx, ScopeKind kind,
+                                       MutableHandle<UniquePtr<Data>> data);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -815,8 +824,8 @@ class EvalScope : public Scope
                     MutableHandleScope scope);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, ScopeKind scopeKind,
-                                    Handle<Data*> data, MutableHandleShape envShape);
+    static EvalScope* createWithData(JSContext* cx, ScopeKind kind, MutableHandle<UniquePtr<Data>> data,
+                                     HandleScope enclosing);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -918,8 +927,8 @@ class ModuleScope : public Scope
                                Handle<ModuleObject*> module, HandleScope enclosing);
 
   private:
-    static UniquePtr<Data> copyData(JSContext* cx, Handle<Data*> data,
-                                    MutableHandleShape envShape);
+    static ModuleScope* createWithData(JSContext* cx, MutableHandle<UniquePtr<Data>> data,
+                                       Handle<ModuleObject*> module, HandleScope enclosing);
 
     Data& data() {
         return *reinterpret_cast<Data*>(data_);
@@ -943,21 +952,19 @@ class ModuleScope : public Scope
     static Shape* getEmptyEnvironmentShape(JSContext* cx);
 };
 
-// Scope corresponding to the wasm function. A WasmFunctionScope is used by
-// Debugger only, and not for wasm execution.
-//
-class WasmFunctionScope : public Scope
+class WasmInstanceScope : public Scope
 {
     friend class BindingIter;
     friend class Scope;
-    static const ScopeKind classScopeKind_ = ScopeKind::WasmFunction;
+    static const ScopeKind classScopeKind_ = ScopeKind::WasmInstance;
 
   public:
     struct Data
     {
+        uint32_t memoriesStart;
+        uint32_t globalsStart;
         uint32_t length;
         uint32_t nextFrameSlot;
-        uint32_t funcIndex;
 
         // The wasm instance of the scope.
         GCPtr<WasmInstanceObject*> instance;
@@ -967,7 +974,7 @@ class WasmFunctionScope : public Scope
         void trace(JSTracer* trc);
     };
 
-    static WasmFunctionScope* create(JSContext* cx, WasmInstanceObject* instance, uint32_t funcIndex);
+    static WasmInstanceScope* create(JSContext* cx, WasmInstanceObject* instance);
 
     static size_t sizeOfData(uint32_t length) {
         return sizeof(Data) + (length ? length - 1 : 0) * sizeof(BindingName);
@@ -987,6 +994,58 @@ class WasmFunctionScope : public Scope
         return data().instance;
     }
 
+    uint32_t memoriesStart() const {
+        return data().memoriesStart;
+    }
+
+    uint32_t globalsStart() const {
+        return data().globalsStart;
+    }
+
+    uint32_t namesCount() const {
+        return data().length;
+    }
+
+    static Shape* getEmptyEnvironmentShape(JSContext* cx);
+};
+
+// Scope corresponding to the wasm function. A WasmFunctionScope is used by
+// Debugger only, and not for wasm execution.
+//
+class WasmFunctionScope : public Scope
+{
+    friend class BindingIter;
+    friend class Scope;
+    static const ScopeKind classScopeKind_ = ScopeKind::WasmFunction;
+
+  public:
+    struct Data
+    {
+        uint32_t length;
+        uint32_t nextFrameSlot;
+        uint32_t funcIndex;
+
+        BindingName names[1];
+
+        void trace(JSTracer* trc);
+    };
+
+    static WasmFunctionScope* create(JSContext* cx, HandleScope enclosing, uint32_t funcIndex);
+
+    static size_t sizeOfData(uint32_t length) {
+        return sizeof(Data) + (length ? length - 1 : 0) * sizeof(BindingName);
+    }
+
+  private:
+    Data& data() {
+        return *reinterpret_cast<Data*>(data_);
+    }
+
+    const Data& data() const {
+        return *reinterpret_cast<Data*>(data_);
+    }
+
+  public:
     uint32_t funcIndex() const {
         return data().funcIndex;
     }
@@ -1103,6 +1162,7 @@ class BindingIter
     void init(GlobalScope::Data& data);
     void init(EvalScope::Data& data, bool strict);
     void init(ModuleScope::Data& data);
+    void init(WasmInstanceScope::Data& data);
     void init(WasmFunctionScope::Data& data);
 
     bool hasFormalParameterExprs() const {

@@ -5,8 +5,8 @@
 #ifndef Utils_h__
 #define Utils_h__
 
-#include "plugin.h"
 #include "ThirdPartyPaths.h"
+#include "plugin.h"
 
 // Check if the given expression contains an assignment expression.
 // This can either take the form of a Binary Operator or a
@@ -34,7 +34,8 @@ inline bool hasSideEffectAssignment(const Expr *Expression) {
   return false;
 }
 
-template <class T> inline bool ASTIsInSystemHeader(const ASTContext &AC, const T &D) {
+template <class T>
+inline bool ASTIsInSystemHeader(const ASTContext &AC, const T &D) {
   auto &SourceManager = AC.getSourceManager();
   auto ExpansionLoc = SourceManager.getExpansionLoc(D.getLocStart());
   if (ExpansionLoc.isInvalid()) {
@@ -43,8 +44,7 @@ template <class T> inline bool ASTIsInSystemHeader(const ASTContext &AC, const T
   return SourceManager.isInSystemHeader(ExpansionLoc);
 }
 
-template<typename T>
-inline StringRef getNameChecked(const T& D) {
+template <typename T> inline StringRef getNameChecked(const T &D) {
   return D->getIdentifier() ? D->getName() : "";
 }
 
@@ -161,7 +161,8 @@ inline bool isInIgnoredNamespaceForImplicitCtor(const Decl *Declaration) {
          Name == "dwarf2reader" ||      // dwarf2reader
          Name == "arm_ex_to_module" ||  // arm_ex_to_module
          Name == "testing" ||           // gtest
-         Name == "Json";                // jsoncpp
+         Name == "Json" ||              // jsoncpp
+         Name == "pdfium";              // upstream pdfium 'base' package
 }
 
 inline bool isInIgnoredNamespaceForImplicitConversion(const Decl *Declaration) {
@@ -194,7 +195,8 @@ inline bool isIgnoredPathForImplicitCtor(const Decl *Declaration) {
         Begin->compare_lower(StringRef("icu")) == 0 ||
         Begin->compare_lower(StringRef("libcubeb")) == 0 ||
         Begin->compare_lower(StringRef("libstagefright")) == 0 ||
-        Begin->compare_lower(StringRef("cairo")) == 0) {
+        Begin->compare_lower(StringRef("cairo")) == 0 ||
+        Begin->compare_lower(StringRef("pdfium")) == 0) {
       return true;
     }
     if (Begin->compare_lower(StringRef("chromium")) == 0) {
@@ -227,7 +229,8 @@ inline bool isIgnoredPathForImplicitConversion(const Decl *Declaration) {
   return false;
 }
 
-inline bool isIgnoredPathForSprintfLiteral(const CallExpr *Call, const SourceManager &SM) {
+inline bool isIgnoredPathForSprintfLiteral(const CallExpr *Call,
+                                           const SourceManager &SM) {
   SourceLocation Loc = Call->getLocStart();
   SmallString<1024> FileName = SM.getFilename(Loc);
   llvm::sys::fs::make_absolute(FileName);
@@ -247,7 +250,8 @@ inline bool isIgnoredPathForSprintfLiteral(const CallExpr *Call, const SourceMan
         Begin->compare_lower(StringRef("skia")) == 0 ||
         Begin->compare_lower(StringRef("sfntly")) == 0 ||
         // Gtest uses snprintf as GTEST_SNPRINTF_ with sizeof
-        Begin->compare_lower(StringRef("testing")) == 0) {
+        Begin->compare_lower(StringRef("testing")) == 0 ||
+        Begin->compare_lower(StringRef("pdfium")) == 0) {
       return true;
     }
     if (Begin->compare_lower(StringRef("webrtc")) == 0) {
@@ -317,8 +321,8 @@ inline const Stmt *IgnoreTrivials(const Stmt *s) {
       s = mte->GetTemporaryExpr();
     } else if (auto *bte = dyn_cast<CXXBindTemporaryExpr>(s)) {
       s = bte->getSubExpr();
-    } else if (auto *ice = dyn_cast<ImplicitCastExpr>(s)) {
-      s = ice->getSubExpr();
+    } else if (auto *ce = dyn_cast<CastExpr>(s)) {
+      s = ce->getSubExpr();
     } else if (auto *pe = dyn_cast<ParenExpr>(s)) {
       s = pe->getSubExpr();
     } else {
@@ -377,8 +381,7 @@ inline bool isPlacementNew(const CXXNewExpr *Expression) {
   if (Expression->getNumPlacementArgs() == 0)
     return false;
   const FunctionDecl *Declaration = Expression->getOperatorNew();
-  if (Declaration && hasCustomAnnotation(Declaration,
-                 "moz_heap_allocator")) {
+  if (Declaration && hasCustomAnnotation(Declaration, "moz_heap_allocator")) {
     return false;
   }
   return true;
@@ -417,12 +420,42 @@ inline bool inThirdPartyPath(SourceLocation Loc, const SourceManager &SM) {
   return false;
 }
 
-inline bool inThirdPartyPath(const Decl *D) {
+inline bool inThirdPartyPath(const Decl *D, ASTContext *context) {
   D = D->getCanonicalDecl();
   SourceLocation Loc = D->getLocation();
-  const SourceManager &SM = D->getASTContext().getSourceManager();
+  const SourceManager &SM = context->getSourceManager();
 
   return inThirdPartyPath(Loc, SM);
 }
+
+inline bool inThirdPartyPath(const Decl *D) {
+  return inThirdPartyPath(D, &D->getASTContext());
+}
+
+inline bool inThirdPartyPath(const Stmt *S, ASTContext *context) {
+  SourceLocation Loc = S->getLocStart();
+  const SourceManager &SM = context->getSourceManager();
+
+  return inThirdPartyPath(Loc, SM);
+}
+
+/// Polyfill for CXXOperatorCallExpr::isInfixBinaryOp()
+inline bool isInfixBinaryOp(const CXXOperatorCallExpr* OpCall) {
+#if CLANG_VERSION_FULL >= 400
+  return OpCall->isInfixBinaryOp();
+#else
+  // Taken from clang source.
+  if (OpCall->getNumArgs() != 2)
+     return false;
+
+  switch (OpCall->getOperator()) {
+   case OO_Call: case OO_Subscript:
+     return false;
+   default:
+     return true;
+  }
+#endif
+}
+
 
 #endif

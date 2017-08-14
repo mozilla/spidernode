@@ -32,6 +32,7 @@
 #include "mozilla/WindowsVersion.h"
 #include "nsWindowsHelpers.h"
 #include "WindowsDllBlocklist.h"
+#include "mozilla/AutoProfilerLabel.h"
 
 using namespace mozilla;
 
@@ -763,6 +764,12 @@ continue_loading:
   printf_stderr("LdrLoadDll: continuing load... ('%S')\n", moduleFileName->Buffer);
 #endif
 
+  // A few DLLs such as xul.dll and nss3.dll get loaded before mozglue's
+  // AutoProfilerLabel is initialized, and this is a no-op in those cases. But
+  // the vast majority of DLLs do get labelled here.
+  AutoProfilerLabel label("WindowsDllBlocklist::patched_LdrLoadDll", dllName,
+                          __LINE__);
+
 #ifdef _M_AMD64
   // Prevent the stack walker from suspending this thread when LdrLoadDll
   // holds the RtlLookupFunctionEntry lock.
@@ -771,7 +778,6 @@ continue_loading:
 
   return stub_LdrLoadDll(filePath, flags, moduleFileName, handle);
 }
-
 
 #ifdef _M_IX86
 static bool
@@ -803,7 +809,7 @@ patched_BaseThreadInitThunk(BOOL aIsInitialThread, void* aStartAddress,
                             void* aThreadParam)
 {
   if (ShouldBlockThread(aStartAddress)) {
-    aStartAddress = NopThreadProc;
+    aStartAddress = (void*)NopThreadProc;
   }
 
   stub_BaseThreadInitThunk(aIsInitialThread, aStartAddress, aThreadParam);

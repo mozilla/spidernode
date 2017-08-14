@@ -373,9 +373,6 @@ class MacroAssembler : public MacroAssemblerSpecific
         initWithAllocator();
         armbuffer_.id = 0;
 #endif
-
-        // Disable page protection for WASM.
-        disableProtection();
     }
 
     void constructRoot(JSContext* cx) {
@@ -432,7 +429,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     // |dest|. |dest| should point to the end of the reserved space, so the
     // first register will be stored at |dest.offset - sizeof(register)|.
     void storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
-        DEFINED_ON(arm, arm64, x86_shared);
+        DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
 
     void PopRegsInMask(LiveRegisterSet set);
     void PopRegsInMask(LiveGeneralRegisterSet set);
@@ -491,7 +488,7 @@ class MacroAssembler : public MacroAssemblerSpecific
 
     CodeOffset call(Register reg) PER_SHARED_ARCH;
     CodeOffset call(Label* label) PER_SHARED_ARCH;
-    void call(const Address& addr) DEFINED_ON(x86_shared, arm, arm64);
+    void call(const Address& addr) DEFINED_ON(x86_shared, arm, arm64, mips32, mips64);
     void call(ImmWord imm) PER_SHARED_ARCH;
     // Call a target native function, which is neither traceable nor movable.
     void call(ImmPtr imm) PER_SHARED_ARCH;
@@ -736,6 +733,14 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void move8SignExtend(Register src, Register dest) PER_SHARED_ARCH;
     inline void move16SignExtend(Register src, Register dest) PER_SHARED_ARCH;
 
+    // Copy a constant, typed-register, or a ValueOperand into a ValueOperand
+    // destination.
+    inline void moveValue(const ConstantOrRegister& src, const ValueOperand& dest);
+    void moveValue(const TypedOrValueRegister& src, const ValueOperand& dest) PER_ARCH;
+    void moveValue(const ValueOperand& src, const ValueOperand& dest) PER_ARCH;
+    void moveValue(const Value& src, const ValueOperand& dest) PER_ARCH;
+
+  public:
     // ===============================================================
     // Logical instructions
 
@@ -1037,6 +1042,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void branchPtr(Condition cond, const Address& lhs, ImmGCPtr rhs, Label* label) PER_SHARED_ARCH;
     inline void branchPtr(Condition cond, const Address& lhs, ImmWord rhs, Label* label) PER_SHARED_ARCH;
 
+    inline void branchPtr(Condition cond, const BaseIndex& lhs, ImmWord rhs, Label* label) PER_SHARED_ARCH;
+
     inline void branchPtr(Condition cond, const AbsoluteAddress& lhs, Register rhs, Label* label)
         DEFINED_ON(arm, arm64, mips_shared, x86, x64);
     inline void branchPtr(Condition cond, const AbsoluteAddress& lhs, ImmWord rhs, Label* label)
@@ -1208,6 +1215,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void branchTestBoolean(Condition cond, const ValueOperand& value, Label* label)
         DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
 
+    inline void branchTestString(Condition cond, const Address& address, Label* label) PER_SHARED_ARCH;
     inline void branchTestString(Condition cond, const BaseIndex& address, Label* label) PER_SHARED_ARCH;
     inline void branchTestString(Condition cond, const ValueOperand& value, Label* label)
         DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
@@ -1255,6 +1263,9 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void branchTestBooleanTruthy(bool truthy, const ValueOperand& value, Label* label) PER_ARCH;
     inline void branchTestStringTruthy(bool truthy, const ValueOperand& value, Label* label)
         DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
+
+    // Create an unconditional branch to the address given as argument.
+    inline void branchToComputedAddress(const BaseIndex& address) PER_ARCH;
 
   private:
 
@@ -1654,6 +1665,8 @@ class MacroAssembler : public MacroAssemblerSpecific
 
         if (type == MIRType::Value)
             branchTestGCThing(Assembler::NotEqual, address, &done);
+        else if (type == MIRType::Object || type == MIRType::String)
+            branchPtr(Assembler::Equal, address, ImmWord(0), &done);
 
         Push(PreBarrierReg);
         computeEffectiveAddress(address, PreBarrierReg);

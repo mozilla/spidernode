@@ -571,6 +571,13 @@ MacroAssembler::branchPtr(Condition cond, wasm::SymbolicAddress lhs, Register rh
     branchPtr(cond, SecondScratchReg, rhs, label);
 }
 
+void
+MacroAssembler::branchPtr(Condition cond, const BaseIndex& lhs, ImmWord rhs, Label* label)
+{
+    loadPtr(lhs, SecondScratchReg);
+    branchPtr(cond, SecondScratchReg, rhs, label);
+}
+
 template <typename T>
 CodeOffsetJump
 MacroAssembler::branchPtrWithPatch(Condition cond, Register lhs, T rhs, RepatchLabel* label)
@@ -858,6 +865,14 @@ MacroAssembler::branchTestString(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     ma_b(tag, ImmTag(JSVAL_TAG_STRING), label, cond);
+}
+
+void
+MacroAssembler::branchTestString(Condition cond, const Address& address, Label* label)
+{
+    SecondScratchRegisterScope scratch2(*this);
+    extractTag(address, scratch2);
+    branchTestString(cond, scratch2, label);
 }
 
 void

@@ -1350,7 +1350,7 @@ MacroAssemblerMIPSCompat::unboxPrivate(const ValueOperand& src, Register dest)
 }
 
 void
-MacroAssemblerMIPSCompat::boxDouble(FloatRegister src, const ValueOperand& dest)
+MacroAssemblerMIPS64Compat::boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister)
 {
     moveFromDoubleLo(src, dest.payloadReg());
     moveFromDoubleHi(src, dest.typeReg());
@@ -1486,19 +1486,6 @@ MacroAssemblerMIPSCompat::moveData(const Value& val, Register data)
         ma_li(data, ImmGCPtr(val.toGCThing()));
     else
         ma_li(data, Imm32(val.toNunboxPayload()));
-}
-
-void
-MacroAssemblerMIPSCompat::moveValue(const Value& val, Register type, Register data)
-{
-    MOZ_ASSERT(type != data);
-    ma_li(type, Imm32(getType(val)));
-    moveData(val, data);
-}
-void
-MacroAssemblerMIPSCompat::moveValue(const Value& val, const ValueOperand& dest)
-{
-    moveValue(val, dest.typeReg(), dest.payloadReg());
 }
 
 /* There are 3 paths trough backedge jump. They are listed here in the order
@@ -1866,7 +1853,7 @@ MacroAssemblerMIPSCompat::handleFailureWithHandlerTail(void* handler)
     // No exception handler. Load the error value, load the new stack pointer
     // and return from the entry frame.
     bind(&entryFrame);
-    moveValue(MagicValue(JS_ION_ERROR), JSReturnOperand);
+    asMasm().moveValue(MagicValue(JS_ION_ERROR), JSReturnOperand);
     loadPtr(Address(StackPointer, offsetof(ResumeFromException, stackPointer)), StackPointer);
 
     // We're going to be returning by the ion calling convention
@@ -2132,6 +2119,39 @@ MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set, LiveRegisterSet ignore)
     MOZ_ASSERT(diffG == 0);
 }
 
+void
+MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register)
+{
+    FloatRegisterSet fpuSet(set.fpus().reduceSetForPush());
+    unsigned numFpu = fpuSet.size();
+    int32_t diffF = fpuSet.getPushSizeInBytes();
+    int32_t diffG = set.gprs().size() * sizeof(intptr_t);
+
+    MOZ_ASSERT(dest.offset >= diffG + diffF);
+
+    for (GeneralRegisterBackwardIterator iter(set.gprs()); iter.more(); ++iter) {
+        diffG -= sizeof(intptr_t);
+        dest.offset -= sizeof(intptr_t);
+        storePtr(*iter, dest);
+    }
+    MOZ_ASSERT(diffG == 0);
+
+    for (FloatRegisterBackwardIterator iter(fpuSet); iter.more(); ++iter) {
+        FloatRegister reg = *iter;
+        diffF -= reg.size();
+        numFpu -= 1;
+        dest.offset -= reg.size();
+        if (reg.isDouble())
+            storeDouble(reg, dest);
+        else if (reg.isSingle())
+            storeFloat32(reg, dest);
+        else
+            MOZ_CRASH("Unknown register type.");
+    }
+    MOZ_ASSERT(numFpu == 0);
+    diffF -= diffF % sizeof(uintptr_t);
+    MOZ_ASSERT(diffF == 0);
+}
 // ===============================================================
 // ABI function calls.
 

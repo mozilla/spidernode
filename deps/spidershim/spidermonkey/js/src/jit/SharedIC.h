@@ -939,7 +939,7 @@ class ICUpdatedStub : public ICStub
     MOZ_MUST_USE bool initUpdatingChain(JSContext* cx, ICStubSpace* space);
 
     MOZ_MUST_USE bool addUpdateStubForValue(JSContext* cx, HandleScript script, HandleObject obj,
-                                            HandleId id, HandleValue val);
+                                            HandleObjectGroup group, HandleId id, HandleValue val);
 
     void addOptimizedUpdateStub(ICStub* stub) {
         if (firstUpdateStub_->isTypeUpdate_Fallback()) {
@@ -2378,12 +2378,20 @@ class ICGetProp_Fallback : public ICMonitoredFallbackStub
     class Compiler : public ICStubCompiler {
       protected:
         CodeOffset bailoutReturnOffset_;
+        bool hasReceiver_;
         MOZ_MUST_USE bool generateStubCode(MacroAssembler& masm);
         void postGenerateStubCode(MacroAssembler& masm, Handle<JitCode*> code);
 
+        virtual int32_t getKey() const {
+            return static_cast<int32_t>(engine_) |
+                  (static_cast<int32_t>(kind) << 1) |
+                  (static_cast<int32_t>(hasReceiver_) << 17);
+        }
+
       public:
-        explicit Compiler(JSContext* cx, Engine engine)
-          : ICStubCompiler(cx, ICStub::GetProp_Fallback, engine)
+        explicit Compiler(JSContext* cx, Engine engine, bool hasReceiver = false)
+          : ICStubCompiler(cx, ICStub::GetProp_Fallback, engine),
+            hasReceiver_(hasReceiver)
         { }
 
         ICStub* getStub(ICStubSpace* space) {

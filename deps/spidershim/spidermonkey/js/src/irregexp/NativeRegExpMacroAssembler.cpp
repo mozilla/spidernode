@@ -65,10 +65,11 @@ using namespace js::jit;
  * The tempN registers are free to use for computations.
  */
 
-NativeRegExpMacroAssembler::NativeRegExpMacroAssembler(JSContext* cx, LifoAlloc* alloc, RegExpShared* shared,
-                                                       Mode mode, int registers_to_save)
-  : RegExpMacroAssembler(cx, *alloc, shared, registers_to_save),
-    cx(cx), mode_(mode)
+NativeRegExpMacroAssembler::NativeRegExpMacroAssembler(JSContext* cx, LifoAlloc* alloc,
+                                                       Mode mode, int registers_to_save,
+                                                       RegExpShared::JitCodeTables& tables)
+  : RegExpMacroAssembler(cx, *alloc, registers_to_save),
+    tables(tables), cx(cx), mode_(mode)
 {
     // Find physical registers for each compiler register.
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
@@ -555,7 +556,9 @@ NativeRegExpMacroAssembler::Backtrack()
     Label noInterrupt;
     void* contextAddr = cx->zone()->group()->addressOfOwnerContext();
     masm.loadPtr(AbsoluteAddress(contextAddr), temp0);
-    masm.branch32(Assembler::Equal, Address(temp0, offsetof(JSContext, interrupt_)), Imm32(0),
+    masm.branch32(Assembler::Equal,
+                  Address(temp0, offsetof(JSContext, interruptRegExpJit_)),
+                  Imm32(0),
                   &noInterrupt);
     masm.movePtr(ImmWord(RegExpRunStatus_Error), temp0);
     masm.jump(&exit_label_);
@@ -931,11 +934,11 @@ NativeRegExpMacroAssembler::CheckCharacterNotInRange(char16_t from, char16_t to,
 }
 
 void
-NativeRegExpMacroAssembler::CheckBitInTable(uint8_t* table, Label* on_bit_set)
+NativeRegExpMacroAssembler::CheckBitInTable(RegExpShared::JitCodeTable table, Label* on_bit_set)
 {
     JitSpew(SPEW_PREFIX "CheckBitInTable");
 
-    masm.movePtr(ImmPtr(table), temp0);
+    masm.movePtr(ImmPtr(table.get()), temp0);
 
     // kTableMask is currently 127, so we need to mask even if the input is
     // Latin1. V8 has the same issue.
@@ -946,6 +949,13 @@ NativeRegExpMacroAssembler::CheckBitInTable(uint8_t* table, Label* on_bit_set)
 
     masm.load8ZeroExtend(BaseIndex(temp0, temp1, TimesOne), temp0);
     masm.branchTest32(Assembler::NonZero, temp0, temp0, BranchOrBacktrack(on_bit_set));
+
+    // Transfer ownership of |table| to the |tables| Vector.
+    {
+        AutoEnterOOMUnsafeRegion oomUnsafe;
+        if (!tables.append(Move(table)))
+            oomUnsafe.crash("RegExp table append");
+    }
 }
 
 void

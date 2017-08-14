@@ -76,22 +76,21 @@ class IonBuilder
 
     AbortReasonOr<Ok> analyzeNewLoopTypes(const CFGBlock* loopEntryBlock);
 
-    AbortReasonOr<MBasicBlock*> newBlock(MBasicBlock* predecessor, jsbytecode* pc);
+    AbortReasonOr<MBasicBlock*> newBlock(size_t stackDepth, jsbytecode* pc,
+                                         MBasicBlock* maybePredecessor = nullptr);
     AbortReasonOr<MBasicBlock*> newBlock(MBasicBlock* predecessor, jsbytecode* pc,
                                          MResumePoint* priorResumePoint);
     AbortReasonOr<MBasicBlock*> newBlockPopN(MBasicBlock* predecessor, jsbytecode* pc,
                                              uint32_t popped);
-    AbortReasonOr<MBasicBlock*> newBlockAfter(MBasicBlock* at, MBasicBlock* predecessor,
-                                              jsbytecode* pc);
+    AbortReasonOr<MBasicBlock*> newBlockAfter(MBasicBlock* at, size_t stackDepth,
+                                              jsbytecode* pc, MBasicBlock* maybePredecessor = nullptr);
     AbortReasonOr<MBasicBlock*> newOsrPreheader(MBasicBlock* header, jsbytecode* loopEntry,
                                                 jsbytecode* beforeLoopEntry);
     AbortReasonOr<MBasicBlock*> newPendingLoopHeader(MBasicBlock* predecessor, jsbytecode* pc,
                                                      bool osr, bool canOsr, unsigned stackPhiCount);
-    AbortReasonOr<MBasicBlock*> newBlock(jsbytecode* pc) {
-        return newBlock(nullptr, pc);
-    }
-    AbortReasonOr<MBasicBlock*> newBlockAfter(MBasicBlock* at, jsbytecode* pc) {
-        return newBlockAfter(at, nullptr, pc);
+
+    AbortReasonOr<MBasicBlock*> newBlock(MBasicBlock* predecessor, jsbytecode* pc) {
+        return newBlock(predecessor->stackDepth(), pc, predecessor);
     }
 
     AbortReasonOr<Ok> visitBlock(const CFGBlock* hblock, MBasicBlock* mblock);
@@ -136,6 +135,8 @@ class IonBuilder
 
     void insertRecompileCheck();
 
+    bool usesEnvironmentChain();
+
     AbortReasonOr<Ok> initParameters();
     void initLocals();
     void rewriteParameter(uint32_t slotIdx, MDefinition* param, int32_t argIndex);
@@ -179,9 +180,6 @@ class IonBuilder
     // type, infallibly unboxing ins as needed.  The new instruction will be
     // added to |current| in this case.
     MDefinition* ensureDefiniteType(MDefinition* def, MIRType definiteType);
-
-    // Creates a MDefinition based on the given def improved with type as TypeSet.
-    MDefinition* ensureDefiniteTypeSet(MDefinition* def, TemporaryTypeSet* types);
 
     void maybeMarkEmpty(MDefinition* ins);
 
@@ -427,8 +425,10 @@ class IonBuilder
     AbortReasonOr<Ok> getElemTryTypedObject(bool* emitted, MDefinition* obj, MDefinition* index);
     AbortReasonOr<Ok> getElemTryString(bool* emitted, MDefinition* obj, MDefinition* index);
     AbortReasonOr<Ok> getElemTryArguments(bool* emitted, MDefinition* obj, MDefinition* index);
-    AbortReasonOr<Ok> getElemTryArgumentsInlined(bool* emitted, MDefinition* obj,
-                                                 MDefinition* index);
+    AbortReasonOr<Ok> getElemTryArgumentsInlinedConstant(bool* emitted, MDefinition* obj,
+                                                         MDefinition* index);
+    AbortReasonOr<Ok> getElemTryArgumentsInlinedIndex(bool* emitted, MDefinition* obj,
+                                                      MDefinition* index);
     AbortReasonOr<Ok> getElemAddCache(MDefinition* obj, MDefinition* index);
     AbortReasonOr<Ok> getElemTryScalarElemOfTypedObject(bool* emitted,
                                                         MDefinition* obj,
@@ -561,6 +561,7 @@ class IonBuilder
     AbortReasonOr<Ok> jsop_initprop_getter_setter(PropertyName* name);
     AbortReasonOr<Ok> jsop_regexp(RegExpObject* reobj);
     AbortReasonOr<Ok> jsop_object(JSObject* obj);
+    AbortReasonOr<Ok> jsop_classconstructor();
     AbortReasonOr<Ok> jsop_lambda(JSFunction* fun);
     AbortReasonOr<Ok> jsop_lambda_arrow(JSFunction* fun);
     AbortReasonOr<Ok> jsop_setfunname(uint8_t prefixKind);
@@ -662,11 +663,15 @@ class IonBuilder
     InliningResult inlineStrFromCharCode(CallInfo& callInfo);
     InliningResult inlineStrFromCodePoint(CallInfo& callInfo);
     InliningResult inlineStrCharAt(CallInfo& callInfo);
+    InliningResult inlineStringConvertCase(CallInfo& callInfo, MStringConvertCase::Mode mode);
 
     // String intrinsics.
     InliningResult inlineStringReplaceString(CallInfo& callInfo);
     InliningResult inlineConstantStringSplitString(CallInfo& callInfo);
     InliningResult inlineStringSplitString(CallInfo& callInfo);
+
+    // Reflect natives.
+    InliningResult inlineReflectGetPrototypeOf(CallInfo& callInfo);
 
     // RegExp intrinsics.
     InliningResult inlineRegExpMatcher(CallInfo& callInfo);
@@ -679,6 +684,7 @@ class IonBuilder
 
     // Object natives and intrinsics.
     InliningResult inlineObjectCreate(CallInfo& callInfo);
+    InliningResult inlineObjectToString(CallInfo& callInfo);
     InliningResult inlineDefineDataProperty(CallInfo& callInfo);
 
     // Atomics natives.
@@ -778,6 +784,8 @@ class IonBuilder
     InliningResult inlineIsConstructing(CallInfo& callInfo);
     InliningResult inlineSubstringKernel(CallInfo& callInfo);
     InliningResult inlineObjectHasPrototype(CallInfo& callInfo);
+    InliningResult inlineFinishBoundFunctionInit(CallInfo& callInfo);
+    InliningResult inlineIsPackedArray(CallInfo& callInfo);
 
     // Testing functions.
     InliningResult inlineBailout(CallInfo& callInfo);
@@ -980,19 +988,12 @@ class IonBuilder
     // Constraints for recording dependencies on type information.
     CompilerConstraintList* constraints_;
 
-    // Basic analysis information about the script.
-    BytecodeAnalysis analysis_;
-    BytecodeAnalysis& analysis() {
-        return analysis_;
-    }
-
     TemporaryTypeSet* thisTypes;
     TemporaryTypeSet* argTypes;
     TemporaryTypeSet* typeArray;
     uint32_t typeArrayHint;
     uint32_t* bytecodeTypeMap;
 
-    GSNCache gsn;
     EnvironmentCoordinateNameCache envCoordinateNameCache;
 
     jsbytecode* pc;
@@ -1121,6 +1122,8 @@ class IonBuilder
     }
 
     MGetPropertyCache* maybeFallbackFunctionGetter_;
+
+    bool needsPostBarrier(MDefinition* value);
 
     // Used in tracking outcomes of optimization strategies for devtools.
     void startTrackingOptimizations();
@@ -1345,8 +1348,6 @@ class CallInfo
             getArg(i)->setImplicitlyUsedUnchecked();
     }
 };
-
-bool NeedsPostBarrier(MDefinition* value);
 
 } // namespace jit
 } // namespace js

@@ -906,12 +906,6 @@ class AssemblerMIPSShared : public AssemblerShared
   public:
     bool oom() const;
 
-    void disableProtection() {}
-    void enableProtection() {}
-    void setLowerBoundForProtection(size_t) {}
-    void unprotectRegion(unsigned char*, size_t) {}
-    void reprotectRegion(unsigned char*, size_t) {}
-
     void setPrinter(Sprinter* sp) {
     }
 
@@ -1200,6 +1194,9 @@ class AssemblerMIPSShared : public AssemblerShared
     virtual void bind(InstImm* inst, uintptr_t branch, uintptr_t target) = 0;
     virtual void Bind(uint8_t* rawCode, CodeOffset* label, const void* address) = 0;
     void bind(CodeOffset* label) {
+        label->bind(currentOffset());
+    }
+    void use(CodeOffset* label) {
         label->bind(currentOffset());
     }
     uint32_t currentOffset() {

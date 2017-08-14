@@ -523,6 +523,12 @@ Instance::trace(JSTracer* trc)
     TraceEdge(trc, &object_, "wasm instance object");
 }
 
+WasmMemoryObject*
+Instance::memory() const
+{
+    return memory_;
+}
+
 SharedMem<uint8_t*>
 Instance::memoryBase() const
 {
@@ -848,6 +854,9 @@ Instance::addSizeOfMisc(MallocSizeOf mallocSizeOf,
     code_->addSizeOfMiscIfNotSeen(mallocSizeOf, seenMetadata, seenCode, code, data);
 }
 
+// We will emit SIMD memory accesses that require 16-byte alignment.
+static const size_t TlsAlign = Simd128DataSize;
+
 /* static */ UniqueGlobalSegment
 GlobalSegment::create(uint32_t globalDataLength)
 {
@@ -857,15 +866,12 @@ GlobalSegment::create(uint32_t globalDataLength)
     if (!gs)
         return nullptr;
 
-    TlsData* tlsData =
-        reinterpret_cast<TlsData*>(js_calloc(offsetof(TlsData, globalArea) + globalDataLength));
-    if (!tlsData)
+    void* allocatedBase = js_calloc(TlsAlign + offsetof(TlsData, globalArea) + globalDataLength);
+    if (!allocatedBase)
         return nullptr;
 
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-    // We will emit SIMD memory accesses that require 16-byte alignment.
-    MOZ_RELEASE_ASSERT((uintptr_t(tlsData) % 16) == 0);
-#endif
+    TlsData* tlsData = reinterpret_cast<TlsData*>(AlignBytes(size_t(allocatedBase), TlsAlign));
+    tlsData->allocatedBase = allocatedBase;
 
     gs->tlsData_ = tlsData;
     gs->globalDataLength_ = globalDataLength;
@@ -875,7 +881,8 @@ GlobalSegment::create(uint32_t globalDataLength)
 
 GlobalSegment::~GlobalSegment()
 {
-    js_free(tlsData_);
+    if (tlsData_)
+        js_free(tlsData_->allocatedBase);
 }
 
 size_t
