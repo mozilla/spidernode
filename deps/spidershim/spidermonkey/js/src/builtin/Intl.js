@@ -455,7 +455,7 @@ function CanonicalizeLanguageTag(locale) {
         var extension = ArrayJoinRange(subtags, "-", extensionStart, i);
         _DefineDataProperty(extensions, extensions.length, extension);
     }
-    callFunction(std_Array_sort, extensions);
+    callFunction(ArraySort, extensions);
 
     // Private use sequences are left as is. "x-private"
     var privateUse = "";
@@ -818,7 +818,7 @@ function addSpecialMissingLanguageTags(availableLocales) {
 
     // Also forcibly provide the last-ditch locale.
     var lastDitch = lastDitchLocale();
-    assert(lastDitch === "en-GB" && availableLocales["en"],
+    assert(lastDitch === "en-GB" && availableLocales.en,
            "shouldn't be a need to add every locale implied by the last-" +
            "ditch locale, merely just the last-ditch locale");
     availableLocales[lastDitch] = true;

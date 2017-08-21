@@ -889,6 +889,11 @@ ObjectHasGetterSetter(JSContext* cx, JSObject* obj, Shape* propShape);
 JSString*
 TypeOfObject(JSObject* obj, JSRuntime* rt);
 
+bool
+GetPrototypeOf(JSContext* cx, HandleObject target, MutableHandleValue rval);
+
+extern const VMFunction SetObjectElementInfo;
+
 } // namespace jit
 } // namespace js
 

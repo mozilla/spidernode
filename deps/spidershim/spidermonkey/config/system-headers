@@ -392,9 +392,6 @@ DiskInit.h
 dlfcn.h
 dlgs.h
 dl.h
-#ifdef MOZ_WIDGET_GONK
-dns_sd.h
-#endif
 docobj.h
 dos/dosextens.h
 dos.h
@@ -1277,6 +1274,9 @@ bzlib.h
 gio/gio.h
 #if MOZ_SYSTEM_LIBEVENT==1
 event.h
+event2/event.h
+event2/event_compat.h
+event2/event_struct.h
 #else
 sys/event.h
 #endif

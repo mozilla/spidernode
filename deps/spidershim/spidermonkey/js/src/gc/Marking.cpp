@@ -1285,9 +1285,14 @@ ModuleScope::Data::trace(JSTracer* trc)
     TraceBindingNames(trc, names, length);
 }
 void
+WasmInstanceScope::Data::trace(JSTracer* trc)
+{
+    TraceNullableEdge(trc, &instance, "wasm instance");
+    TraceBindingNames(trc, names, length);
+}
+void
 WasmFunctionScope::Data::trace(JSTracer* trc)
 {
-    TraceNullableEdge(trc, &instance, "wasm function");
     TraceBindingNames(trc, names, length);
 }
 void
@@ -1322,6 +1327,9 @@ Scope::traceChildren(JSTracer* trc)
         reinterpret_cast<ModuleScope::Data*>(data_)->trace(trc);
         break;
       case ScopeKind::With:
+        break;
+      case ScopeKind::WasmInstance:
+        reinterpret_cast<WasmInstanceScope::Data*>(data_)->trace(trc);
         break;
       case ScopeKind::WasmFunction:
         reinterpret_cast<WasmFunctionScope::Data*>(data_)->trace(trc);
@@ -1392,9 +1400,16 @@ js::GCMarker::eagerlyMarkChildren(Scope* scope)
       case ScopeKind::With:
         break;
 
+      case ScopeKind::WasmInstance: {
+        WasmInstanceScope::Data* data = reinterpret_cast<WasmInstanceScope::Data*>(scope->data_);
+        traverseEdge(scope, static_cast<JSObject*>(data->instance));
+        names = data->names;
+        length = data->length;
+        break;
+      }
+
       case ScopeKind::WasmFunction: {
         WasmFunctionScope::Data* data = reinterpret_cast<WasmFunctionScope::Data*>(scope->data_);
-        traverseEdge(scope, static_cast<JSObject*>(data->instance));
         names = data->names;
         length = data->length;
         break;
@@ -2347,7 +2362,7 @@ MarkStackIter::saveValueArray(NativeObject* obj, uintptr_t index, HeapSlot::Kind
  */
 GCMarker::GCMarker(JSRuntime* rt)
   : JSTracer(rt, JSTracer::TracerKindTag::Marking, ExpandWeakMaps),
-    stack(size_t(-1)),
+    stack(),
     color(MarkColor::Black),
     unmarkedArenaStackTop(nullptr)
 #ifdef DEBUG
@@ -2833,7 +2848,6 @@ js::TenuringTracer::moveToTenured(JSObject* src)
     insertIntoFixupList(overlay);
 
     TracePromoteToTenured(src, dst);
-    MemProfiler::MoveNurseryToTenured(src, dst);
     return dst;
 }
 

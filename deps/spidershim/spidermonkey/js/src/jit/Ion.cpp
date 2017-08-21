@@ -591,8 +591,8 @@ jit::LazyLinkTopActivation()
 {
     // First frame should be an exit frame.
     JSContext* cx = TlsContext.get();
-    JitFrameIterator it(cx);
-    LazyLinkExitFrameLayout* ll = it.exitFrame()->as<LazyLinkExitFrameLayout>();
+    JSJitFrameIter frame(cx);
+    LazyLinkExitFrameLayout* ll = frame.exitFrame()->as<LazyLinkExitFrameLayout>();
     RootedScript calleeScript(cx, ScriptFromCalleeToken(ll->jsFrame()->calleeToken()));
 
     LinkIonScript(cx, calleeScript);
@@ -2132,7 +2132,8 @@ IonCompile(JSContext* cx, JSScript* script,
     if (!inlineScriptTree)
         return AbortReason::Alloc;
 
-    CompileInfo* info = alloc->new_<CompileInfo>(script, script->functionNonDelazifying(), osrPc,
+    CompileInfo* info = alloc->new_<CompileInfo>(CompileRuntime::get(cx->runtime()),
+                                                 script, script->functionNonDelazifying(), osrPc,
                                                  Analysis_None,
                                                  script->needsArgsObj(), inlineScriptTree);
     if (!info)
@@ -2483,7 +2484,7 @@ jit::CanEnter(JSContext* cx, RunState& state)
 {
     MOZ_ASSERT(jit::IsIonEnabled(cx));
 
-    JSScript* script = state.script();
+    HandleScript script = state.script();
 
     // Skip if the script has been disabled.
     if (!script->canIonCompile())
@@ -2496,8 +2497,6 @@ jit::CanEnter(JSContext* cx, RunState& state)
     // Skip if the code is expected to result in a bailout.
     if (script->hasIonScript() && script->ionScript()->bailoutExpected())
         return Method_Skipped;
-
-    RootedScript rscript(cx, script);
 
     // If constructing, allocate a new |this| object before building Ion.
     // Creating |this| is done before building Ion because it may change the
@@ -2528,7 +2527,7 @@ jit::CanEnter(JSContext* cx, RunState& state)
 
     // If --ion-eager is used, compile with Baseline first, so that we
     // can directly enter IonMonkey.
-    if (JitOptions.eagerCompilation && !rscript->hasBaselineScript()) {
+    if (JitOptions.eagerCompilation && !script->hasBaselineScript()) {
         MethodStatus status = CanEnterBaselineMethod(cx, state);
         if (status != Method_Compiled)
             return status;
@@ -2537,14 +2536,14 @@ jit::CanEnter(JSContext* cx, RunState& state)
     // Skip if the script is being compiled off thread or can't be
     // Ion-compiled (again). MaybeCreateThisForConstructor could have
     // started an Ion compilation or marked the script as uncompilable.
-    if (rscript->isIonCompilingOffThread() || !rscript->canIonCompile())
+    if (script->isIonCompilingOffThread() || !script->canIonCompile())
         return Method_Skipped;
 
     // Attempt compilation. Returns Method_Compiled if already compiled.
-    MethodStatus status = Compile(cx, rscript, nullptr, nullptr);
+    MethodStatus status = Compile(cx, script, nullptr, nullptr);
     if (status != Method_Compiled) {
         if (status == Method_CantCompile)
-            ForbidCompilation(cx, rscript);
+            ForbidCompilation(cx, script);
         return status;
     }
 
@@ -2634,8 +2633,7 @@ BaselineCanEnterAtBranch(JSContext* cx, HandleScript script, BaselineFrame* osrF
     //   (Meaning it was present or a sequantial compile finished)
     // - Returns Method_Skipped if pc doesn't match
     //   (This means a background thread compilation with that pc could have started or not.)
-    RootedScript rscript(cx, script);
-    MethodStatus status = Compile(cx, rscript, osrFrame, pc, force);
+    MethodStatus status = Compile(cx, script, osrFrame, pc, force);
     if (status != Method_Compiled) {
         if (status == Method_CantCompile)
             ForbidCompilation(cx, script);
@@ -2973,64 +2971,65 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
 
     size_t frameno = 1;
 
-    for (JitFrameIterator it(activations); !it.done(); ++it, ++frameno) {
-        MOZ_ASSERT_IF(frameno == 1, it.isExitFrame() || it.type() == JitFrame_Bailout);
+    for (OnlyJSJitFrameIter iter(activations); !iter.done(); ++iter, ++frameno) {
+        const JSJitFrameIter& frame = iter.frame();
+        MOZ_ASSERT_IF(frameno == 1, frame.isExitFrame() || frame.type() == JitFrame_Bailout);
 
 #ifdef JS_JITSPEW
-        switch (it.type()) {
+        switch (frame.type()) {
           case JitFrame_Exit:
-            JitSpew(JitSpew_IonInvalidate, "#%zu exit frame @ %p", frameno, it.fp());
+            JitSpew(JitSpew_IonInvalidate, "#%zu exit frame @ %p", frameno, frame.fp());
             break;
           case JitFrame_BaselineJS:
           case JitFrame_IonJS:
           case JitFrame_Bailout:
           {
-            MOZ_ASSERT(it.isScripted());
+            MOZ_ASSERT(frame.isScripted());
             const char* type = "Unknown";
-            if (it.isIonJS())
+            if (frame.isIonJS())
                 type = "Optimized";
-            else if (it.isBaselineJS())
+            else if (frame.isBaselineJS())
                 type = "Baseline";
-            else if (it.isBailoutJS())
+            else if (frame.isBailoutJS())
                 type = "Bailing";
             JitSpew(JitSpew_IonInvalidate,
                     "#%zu %s JS frame @ %p, %s:%zu (fun: %p, script: %p, pc %p)",
-                    frameno, type, it.fp(), it.script()->maybeForwardedFilename(),
-                    it.script()->lineno(), it.maybeCallee(), (JSScript*)it.script(),
-                    it.returnAddressToFp());
+                    frameno, type, frame.fp(), frame.script()->maybeForwardedFilename(),
+                    frame.script()->lineno(), frame.maybeCallee(), (JSScript*)frame.script(),
+                    frame.returnAddressToFp());
             break;
           }
           case JitFrame_BaselineStub:
-            JitSpew(JitSpew_IonInvalidate, "#%zu baseline stub frame @ %p", frameno, it.fp());
+            JitSpew(JitSpew_IonInvalidate, "#%zu baseline stub frame @ %p", frameno, frame.fp());
             break;
           case JitFrame_Rectifier:
-            JitSpew(JitSpew_IonInvalidate, "#%zu rectifier frame @ %p", frameno, it.fp());
+            JitSpew(JitSpew_IonInvalidate, "#%zu rectifier frame @ %p", frameno, frame.fp());
             break;
           case JitFrame_IonICCall:
-            JitSpew(JitSpew_IonInvalidate, "#%zu ion IC call frame @ %p", frameno, it.fp());
+            JitSpew(JitSpew_IonInvalidate, "#%zu ion IC call frame @ %p", frameno, frame.fp());
             break;
           case JitFrame_Entry:
-            JitSpew(JitSpew_IonInvalidate, "#%zu entry frame @ %p", frameno, it.fp());
+            JitSpew(JitSpew_IonInvalidate, "#%zu entry frame @ %p", frameno, frame.fp());
             break;
         }
 #endif // JS_JITSPEW
 
-        if (!it.isIonScripted())
+        if (!frame.isIonScripted())
             continue;
 
         bool calledFromLinkStub = false;
         JitCode* lazyLinkStub = fop->runtime()->jitRuntime()->lazyLinkStub();
-        if (it.returnAddressToFp() >= lazyLinkStub->raw() &&
-            it.returnAddressToFp() < lazyLinkStub->rawEnd())
+        if (frame.returnAddressToFp() >= lazyLinkStub->raw() &&
+            frame.returnAddressToFp() < lazyLinkStub->rawEnd())
         {
             calledFromLinkStub = true;
         }
 
         // See if the frame has already been invalidated.
-        if (!calledFromLinkStub && it.checkInvalidation())
+        if (!calledFromLinkStub && frame.checkInvalidation())
             continue;
 
-        JSScript* script = it.script();
+        JSScript* script = frame.script();
         if (!script->hasIonScript())
             continue;
 
@@ -3086,7 +3085,7 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
 
         // Don't adjust OSI points in the linkStub (which don't exist), or in a
         // bailout path.
-        if (calledFromLinkStub || it.isBailoutJS())
+        if (calledFromLinkStub || frame.isBailoutJS())
             continue;
 
         // Write the delta (from the return address offset to the
@@ -3096,10 +3095,10 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
         // a uint32, which is checked during safepoint index
         // construction.
         AutoWritableJitCode awjc(ionCode);
-        const SafepointIndex* si = ionScript->getSafepointIndex(it.returnAddressToFp());
-        CodeLocationLabel dataLabelToMunge(it.returnAddressToFp());
+        const SafepointIndex* si = ionScript->getSafepointIndex(frame.returnAddressToFp());
+        CodeLocationLabel dataLabelToMunge(frame.returnAddressToFp());
         ptrdiff_t delta = ionScript->invalidateEpilogueDataOffset() -
-                          (it.returnAddressToFp() - ionCode->raw());
+                          (frame.returnAddressToFp() - ionCode->raw());
         Assembler::PatchWrite_Imm32(dataLabelToMunge, Imm32(delta));
 
         CodeLocationLabel osiPatchPoint = SafepointReader::InvalidationPatchPoint(ionScript, si);

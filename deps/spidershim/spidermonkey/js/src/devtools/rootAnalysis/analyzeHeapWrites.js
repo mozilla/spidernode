@@ -182,8 +182,7 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_CSSFontFaceRule_GetCssText", "aResult", null],
         ["Gecko_EnsureTArrayCapacity", "aArray", null],
         ["Gecko_ClearPODTArray", "aArray", null],
-        ["Gecko_SetStyleGridTemplateArrayLengths", "aValue", null],
-        ["Gecko_SetGridTemplateLineNamesLength", "aValue", null],
+        ["Gecko_SetStyleGridTemplate", "aGridTemplate", null],
         ["Gecko_ResizeTArrayForStrings", "aArray", null],
         ["Gecko_ClearAndResizeStyleContents", "aContent", null],
         [/Gecko_ClearAndResizeCounter/, "aContent", null],
@@ -225,6 +224,8 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_ClearAlternateValues", "aFont", null],
         ["Gecko_AppendAlternateValues", "aFont", null],
         ["Gecko_CopyAlternateValuesFrom", "aDest", null],
+        ["Gecko_CounterStyle_GetName", "aResult", null],
+        ["Gecko_CounterStyle_GetSingleString", "aResult", null],
     ];
     for (var [entryMatch, varMatch, csuMatch] of whitelist) {
         assert(entryMatch || varMatch || csuMatch);

@@ -282,16 +282,10 @@ jit::BaselineCompile(JSContext* cx, JSScript* script, bool forceDebugInstrumenta
 
     script->ensureNonLazyCanonicalFunction();
 
-    LifoAlloc alloc(TempAllocator::PreferredLifoChunkSize);
-    TempAllocator* temp = alloc.new_<TempAllocator>(&alloc);
-    if (!temp) {
-        ReportOutOfMemory(cx);
-        return Method_Error;
-    }
+    TempAllocator temp(&cx->tempLifoAlloc());
+    JitContext jctx(cx, nullptr);
 
-    JitContext jctx(cx, temp);
-
-    BaselineCompiler compiler(cx, *temp, script);
+    BaselineCompiler compiler(cx, temp, script);
     if (!compiler.init()) {
         ReportOutOfMemory(cx);
         return Method_Error;
@@ -1235,14 +1229,15 @@ jit::ToggleBaselineTraceLoggerEngine(JSRuntime* runtime, bool enable)
 static void
 MarkActiveBaselineScripts(JSContext* cx, const JitActivationIterator& activation)
 {
-    for (jit::JitFrameIterator iter(activation); !iter.done(); ++iter) {
-        switch (iter.type()) {
+    for (OnlyJSJitFrameIter iter(activation); !iter.done(); ++iter) {
+        const JSJitFrameIter& frame = iter.frame();
+        switch (frame.type()) {
           case JitFrame_BaselineJS:
-            iter.script()->baselineScript()->setActive();
+            frame.script()->baselineScript()->setActive();
             break;
           case JitFrame_Exit:
-            if (iter.exitFrame()->is<LazyLinkExitFrameLayout>()) {
-                LazyLinkExitFrameLayout* ll = iter.exitFrame()->as<LazyLinkExitFrameLayout>();
+            if (frame.exitFrame()->is<LazyLinkExitFrameLayout>()) {
+                LazyLinkExitFrameLayout* ll = frame.exitFrame()->as<LazyLinkExitFrameLayout>();
                 ScriptFromCalleeToken(ll->jsFrame()->calleeToken())->baselineScript()->setActive();
             }
             break;
@@ -1250,8 +1245,8 @@ MarkActiveBaselineScripts(JSContext* cx, const JitActivationIterator& activation
           case JitFrame_IonJS: {
             // Keep the baseline script around, since bailouts from the ion
             // jitcode might need to re-enter into the baseline jitcode.
-            iter.script()->baselineScript()->setActive();
-            for (InlineFrameIterator inlineIter(cx, &iter); inlineIter.more(); ++inlineIter)
+            frame.script()->baselineScript()->setActive();
+            for (InlineFrameIterator inlineIter(cx, &frame); inlineIter.more(); ++inlineIter)
                 inlineIter.script()->baselineScript()->setActive();
             break;
           }

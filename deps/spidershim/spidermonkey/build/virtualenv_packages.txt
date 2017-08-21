@@ -6,6 +6,7 @@ mozilla.pth:python/mozversioncontrol
 mozilla.pth:third_party/python/blessings
 mozilla.pth:third_party/python/compare-locales
 mozilla.pth:third_party/python/configobj
+mozilla.pth:third_party/python/cram
 mozilla.pth:third_party/python/dlmanager
 mozilla.pth:third_party/python/futures
 mozilla.pth:third_party/python/jsmin
@@ -21,6 +22,7 @@ mozilla.pth:third_party/python/py
 mozilla.pth:third_party/python/pytest
 mozilla.pth:third_party/python/pytoml
 mozilla.pth:third_party/python/redo
+mozilla.pth:third_party/python/six
 mozilla.pth:third_party/python/voluptuous
 mozilla.pth:third_party/python/json-e
 mozilla.pth:build

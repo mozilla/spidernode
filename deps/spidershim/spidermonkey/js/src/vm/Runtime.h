@@ -69,8 +69,6 @@ class EnterDebuggeeNoExecute;
 class TraceLoggerThread;
 #endif
 
-typedef Vector<UniquePtr<PromiseTask>, 0, SystemAllocPolicy> PromiseTaskPtrVector;
-
 } // namespace js
 
 struct DtoaState;
@@ -466,9 +464,7 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     void setTelemetryCallback(JSRuntime* rt, JSAccumulateTelemetryDataCallback callback);
 
   public:
-    js::ActiveThreadData<JS::StartAsyncTaskCallback> startAsyncTaskCallback;
-    js::UnprotectedData<JS::FinishAsyncTaskCallback> finishAsyncTaskCallback;
-    js::ExclusiveData<js::PromiseTaskPtrVector> promiseTasksToDestroy;
+    js::UnprotectedData<js::OffThreadPromiseRuntimeState> offThreadPromiseState;
 
     JSObject* getIncumbentGlobal(JSContext* cx);
     bool enqueuePromiseJob(JSContext* cx, js::HandleFunction job, js::HandleObject promise,
@@ -500,6 +496,12 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
     /* Call this to get the name of a compartment. */
     js::ActiveThreadData<JSCompartmentNameCallback> compartmentNameCallback;
+
+    /* Realm destroy callback. */
+    js::ActiveThreadData<JS::DestroyRealmCallback> destroyRealmCallback;
+
+    /* Call this to get the name of a realm. */
+    js::ActiveThreadData<JS::RealmNameCallback> realmNameCallback;
 
     /* Callback for doing memory reporting on external strings. */
     js::ActiveThreadData<JSExternalStringSizeofCallback> externalStringSizeofCallback;

@@ -314,8 +314,9 @@ MacroAssembler::neg64(Register64 reg)
 void
 MacroAssembler::mulBy3(Register src, Register dest)
 {
-    as_addu(dest, src, src);
-    as_addu(dest, dest, src);
+    MOZ_ASSERT(src != ScratchRegister);
+    as_addu(ScratchRegister, src, src);
+    as_addu(dest, ScratchRegister, src);
 }
 
 void
@@ -1013,6 +1014,24 @@ MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr, JSWhyMag
 
     branch32(cond, ToPayload(valaddr), Imm32(why), label);
     bind(&notMagic);
+}
+
+void
+MacroAssembler::branchToComputedAddress(const BaseIndex& addr)
+{
+    int32_t shift = Imm32::ShiftOf(addr.scale).value;
+    if (shift) {
+        // 4 instructions : lui ori jr nop
+        ma_mul(ScratchRegister, addr.index, Imm32(4 * 4));
+        as_addu(ScratchRegister, addr.base, ScratchRegister);
+    } else {
+        as_addu(ScratchRegister, addr.base, addr.index);
+    }
+
+    if (addr.offset)
+        asMasm().addPtr(Imm32(addr.offset), ScratchRegister);
+    as_jr(ScratchRegister);
+    as_nop();
 }
 
 // ========================================================================

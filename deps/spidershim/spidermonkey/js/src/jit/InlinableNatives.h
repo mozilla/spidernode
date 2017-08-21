@@ -70,6 +70,8 @@
     _(MathTrunc)                    \
     _(MathCbrt)                     \
                                     \
+    _(ReflectGetPrototypeOf)        \
+                                    \
     _(RegExpMatcher)                \
     _(RegExpSearcher)               \
     _(RegExpTester)                 \
@@ -83,11 +85,14 @@
     _(StringFromCharCode)           \
     _(StringFromCodePoint)          \
     _(StringCharAt)                 \
+    _(StringToLowerCase)            \
+    _(StringToUpperCase)            \
                                     \
     _(IntrinsicStringReplaceString) \
     _(IntrinsicStringSplitString)   \
                                     \
     _(ObjectCreate)                 \
+    _(ObjectToString)               \
                                     \
     _(SimdInt32x4)                  \
     _(SimdUint32x4)                 \

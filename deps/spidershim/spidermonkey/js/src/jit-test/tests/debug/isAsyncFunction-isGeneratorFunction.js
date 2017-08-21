@@ -9,8 +9,11 @@ g.non_debuggee = function non_debuggee () {}
 function checkExpr(expr, { isAsync, isGenerator })
 {
   print("Evaluating: " + uneval(expr));
-  let fn = gDO.executeInGlobal(expr).return;
+  let completion = gDO.executeInGlobal(expr);
+  if (completion.throw)
+    throw completion.throw.unsafeDereference();
 
+  let fn = completion.return;
   assertEq(fn.isAsyncFunction, isAsync);
   assertEq(fn.isGeneratorFunction, isGenerator);
 

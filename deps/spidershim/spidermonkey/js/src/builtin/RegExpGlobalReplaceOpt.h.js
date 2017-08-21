@@ -18,7 +18,7 @@
 // steps 8.b-16.
 // Optimized path for @@replace with the following conditions:
 //   * global flag is true
-function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
+function FUNC_NAME(rx, S, lengthS, replaceValue, flags
 #ifdef SUBSTITUTION
                    , firstDollarIndex
 #endif
@@ -27,6 +27,9 @@ function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
 #endif
                   )
 {
+    // Step 8.a.
+    var fullUnicode = !!(flags & REGEXP_UNICODE_FLAG);
+
     // Step 8.b.
     var lastIndex = 0;
     rx.lastIndex = 0;
@@ -35,7 +38,7 @@ function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
     // Save the original source and flags, so we can check if the replacer
     // function recompiled the regexp.
     var originalSource = UnsafeGetStringFromReservedSlot(rx, REGEXP_SOURCE_SLOT);
-    var originalFlags = UnsafeGetInt32FromReservedSlot(rx, REGEXP_FLAGS_SLOT);
+    var originalFlags = flags;
 #endif
 
     // Step 12 (reordered).
@@ -53,20 +56,17 @@ function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
         if (result === null)
             break;
 
-#if defined(SUBSTITUTION)
-        // Steps 14.a-b.
+        // Steps 14.a-b (skipped).
         assert(result.length >= 1, "RegExpMatcher doesn't return an empty array");
-        var nCaptures = result.length - 1;
-#endif
 
         // Step 14.c.
         var matched = result[0];
 
         // Step 14.d.
-        var matchLength = matched.length;
+        var matchLength = matched.length | 0;
 
         // Steps 14.e-f.
-        var position = result.index;
+        var position = result.index | 0;
         lastIndex = position + matchLength;
 
         // Steps g-k.
@@ -74,9 +74,7 @@ function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
 #if defined(FUNCTIONAL)
         replacement = RegExpGetFunctionalReplacement(result, S, position, replaceValue);
 #elif defined(SUBSTITUTION)
-        replacement = RegExpGetComplexReplacement(result, matched, S, position,
-                                                  nCaptures, replaceValue,
-                                                  false, firstDollarIndex);
+        replacement = RegExpGetSubstitution(result, S, position, replaceValue, firstDollarIndex);
 #elif defined(ELEMBASE)
         if (IsObject(elemBase)) {
             var prop = GetStringDataProperty(elemBase, matched);
@@ -107,6 +105,7 @@ function FUNC_NAME(rx, S, lengthS, replaceValue, fullUnicode
             lastIndex = fullUnicode ? AdvanceStringIndex(S, lastIndex) : lastIndex + 1;
             if (lastIndex > lengthS)
                 break;
+            lastIndex |= 0;
         }
 
 #if defined(FUNCTIONAL) || defined(ELEMBASE)

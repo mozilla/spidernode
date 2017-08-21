@@ -758,6 +758,7 @@ BytecodeEmitter::EmitterScope::searchInEnclosingScope(JSAtom* name, Scope* scope
           case ScopeKind::NonSyntactic:
             return NameLocation::Dynamic();
 
+          case ScopeKind::WasmInstance:
           case ScopeKind::WasmFunction:
             MOZ_CRASH("No direct eval inside wasm functions");
         }
@@ -1458,6 +1459,7 @@ BytecodeEmitter::EmitterScope::leave(BytecodeEmitter* bce, bool nonLocal)
       case ScopeKind::Module:
         break;
 
+      case ScopeKind::WasmInstance:
       case ScopeKind::WasmFunction:
         MOZ_CRASH("No wasm function scopes in JS");
     }
@@ -2281,11 +2283,6 @@ BytecodeEmitter::emitCheck(ptrdiff_t delta, ptrdiff_t* offset)
 {
     *offset = code().length();
 
-    // Start it off moderately large to avoid repeated resizings early on.
-    // ~98% of cases fit within 1024 bytes.
-    if (code().capacity() == 0 && !code().reserve(1024))
-        return false;
-
     if (!code().growBy(delta)) {
         ReportOutOfMemory(cx);
         return false;
@@ -2298,8 +2295,8 @@ BytecodeEmitter::updateDepth(ptrdiff_t target)
 {
     jsbytecode* pc = code(target);
 
-    int nuses = StackUses(nullptr, pc);
-    int ndefs = StackDefs(nullptr, pc);
+    int nuses = StackUses(pc);
+    int ndefs = StackDefs(pc);
 
     stackDepth -= nuses;
     MOZ_ASSERT(stackDepth >= 0);
@@ -3659,7 +3656,10 @@ BytecodeEmitter::reportExtraWarning(ParseNode* pn, unsigned errorNumber, ...)
     va_list args;
     va_start(args, errorNumber);
 
-    bool result = parser.reportExtraWarningErrorNumberVA(nullptr, pos.begin, errorNumber, args);
+    // FIXME: parser.tokenStream() should be a TokenStreamAnyChars for bug 1351107,
+    // but caused problems, cf. bug 1363116.
+    bool result = parser.tokenStream()
+                        .reportExtraWarningErrorNumberVA(nullptr, pos.begin, errorNumber, args);
 
     va_end(args);
     return result;
@@ -3672,7 +3672,10 @@ BytecodeEmitter::reportStrictModeError(ParseNode* pn, unsigned errorNumber, ...)
 
     va_list args;
     va_start(args, errorNumber);
-    bool result = parser.reportStrictModeErrorNumberVA(nullptr, pos.begin, sc->strict(),
+    // FIXME: parser.tokenStream() should be a TokenStreamAnyChars for bug 1351107,
+    // but caused problems, cf. bug 1363116.
+    bool result = parser.tokenStream()
+                        .reportStrictModeErrorNumberVA(nullptr, pos.begin, sc->strict(),
                                                        errorNumber, args);
     va_end(args);
     return result;
@@ -4987,6 +4990,9 @@ BytecodeEmitter::emitScript(ParseNode* body)
         if (!emitTree(body))
             return false;
     }
+
+    if (!updateSourceCoordNotes(body->pn_pos.end))
+        return false;
 
     if (!emit1(JSOP_RETRVAL))
         return false;
@@ -8609,6 +8615,13 @@ BytecodeEmitter::emitReturn(ParseNode* pn)
     if (ParseNode* pn2 = pn->pn_kid) {
         if (!emitTree(pn2))
             return false;
+
+        bool isAsyncGenerator = sc->asFunctionBox()->isAsync() &&
+                                sc->asFunctionBox()->isStarGenerator();
+        if (isAsyncGenerator) {
+            if (!emitAwait())
+                return false;
+        }
     } else {
         /* No explicit return value provided */
         if (!emit1(JSOP_UNDEFINED))
@@ -8721,6 +8734,14 @@ BytecodeEmitter::emitYield(ParseNode* pn)
         if (!emit1(JSOP_UNDEFINED))
             return false;
     }
+
+    // 11.4.3.7 AsyncGeneratorYield step 5.
+    bool isAsyncGenerator = sc->asFunctionBox()->isAsync();
+    if (isAsyncGenerator) {
+        if (!emitAwait())                                 // RESULT
+            return false;
+    }
+
     if (needsIteratorResult) {
         if (!emitFinishIteratorResult(false))
             return false;
@@ -8792,6 +8813,12 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
         return false;
 
     MOZ_ASSERT(this->stackDepth == startDepth);
+
+    // 11.4.3.7 AsyncGeneratorYield step 5.
+    if (isAsyncGenerator) {
+        if (!emitAwait())                                 // ITER RESULT
+            return false;
+    }
 
     // Load the generator object.
     if (!emitGetDotGenerator())                           // ITER RESULT GENOBJ
@@ -8942,11 +8969,6 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
     if (!emitAtomOp(cx->names().value, JSOP_GETPROP))     // ITER OLDRESULT FTYPE FVALUE VALUE
         return false;
 
-    if (isAsyncGenerator) {
-        if (!emitAwait())                                 // ITER OLDRESULT FTYPE FVALUE VALUE
-            return false;
-    }
-
     if (!emitPrepareIteratorResult())                     // ITER OLDRESULT FTYPE FVALUE VALUE RESULT
         return false;
     if (!emit1(JSOP_SWAP))                                // ITER OLDRESULT FTYPE FVALUE RESULT VALUE
@@ -9036,11 +9058,6 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
         return false;
     if (!emitAtomOp(cx->names().value, JSOP_GETPROP))            // VALUE
         return false;
-
-    if (isAsyncGenerator) {
-        if (!emitAwait())                                        // VALUE
-            return false;
-    }
 
     MOZ_ASSERT(this->stackDepth == startDepth - 1);
 
@@ -11279,11 +11296,6 @@ BytecodeEmitter::emitTreeInBranch(ParseNode* pn,
 static bool
 AllocSrcNote(JSContext* cx, SrcNotesVector& notes, unsigned* index)
 {
-    // Start it off moderately large to avoid repeated resizings early on.
-    // ~99% of cases fit within 256 bytes.
-    if (notes.capacity() == 0 && !notes.reserve(256))
-        return false;
-
     if (!notes.growBy(1)) {
         ReportOutOfMemory(cx);
         return false;

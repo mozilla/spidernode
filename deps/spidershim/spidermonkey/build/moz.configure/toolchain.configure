@@ -809,7 +809,7 @@ def compiler(language, host_or_target, c_compiler=None, other_compiler=None,
         add_old_configure_assignment(
             '%s_VERSION' % var, valid_compiler.version)
 
-    valid_compiler = compiler_class(valid_compiler)
+    valid_compiler = compiler_class(valid_compiler, host_or_target)
 
     def compiler_error():
         raise FatalCheckError('Failed compiling a simple %s source with %s'
@@ -1039,6 +1039,44 @@ set_define('HAVE_VISIBILITY_ATTRIBUTE',
 set_config('WRAP_SYSTEM_INCLUDES', wrap_system_includes)
 set_config('VISIBILITY_FLAGS', visibility_flags)
 
+@depends(c_compiler)
+@imports('multiprocessing')
+@imports(_from='__builtin__', _import='min')
+def pgo_flags(compiler):
+    if compiler.type in ('gcc', 'clang'):
+        return namespace(
+            gen_cflags=['-fprofile-generate'],
+            gen_ldflags=['-fprofile-generate'],
+            use_cflags=['-fprofile-use', '-fprofile-correction',
+                        '-Wcoverage-mismatch'],
+            use_ldflags=['-fprofile-use'],
+        )
+
+    if compiler.type == 'msvc':
+        num_cores = min(8, multiprocessing.cpu_count())
+        cgthreads = '-CGTHREADS:%s' % num_cores
+
+        return namespace(
+            gen_cflags=['-GL'],
+            gen_ldflags=['-LTCG:PGINSTRUMENT', '-PogoSafeMode', cgthreads],
+            # XXX: PGO builds can fail with warnings treated as errors,
+            # specifically "no profile data available" appears to be
+            # treated as an error sometimes. This might be a consequence
+            # of using WARNINGS_AS_ERRORS in some modules, combined
+            # with the linker doing most of the work in the whole-program
+            # optimization/PGO case. I think it's probably a compiler bug,
+            # but we work around it here.
+            use_cflags=['-GL', '-wd4624', '-wd4952'],
+            # XXX: should be -LTCG:PGOPTIMIZE, but that fails on libxul.
+            # Probably also a compiler bug, but what can you do?
+            use_ldflags=['-LTCG:PGUPDATE', cgthreads],
+        )
+
+set_config('PROFILE_GEN_CFLAGS', pgo_flags.gen_cflags)
+set_config('PROFILE_GEN_LDFLAGS', pgo_flags.gen_ldflags)
+set_config('PROFILE_USE_CFLAGS', pgo_flags.use_cflags)
+set_config('PROFILE_USE_LDFLAGS', pgo_flags.use_ldflags)
+
 # We only want to include windows.configure when we are compiling on
 # Windows, for Windows.
 @depends(target, host)
@@ -1088,6 +1126,7 @@ def developer_options(value):
         return True
 
 add_old_configure_assignment('DEVELOPER_OPTIONS', developer_options)
+set_config('DEVELOPER_OPTIONS', developer_options)
 
 # Linker detection
 # ==============================================================
@@ -1103,13 +1142,13 @@ option('--enable-gold',
        help='Enable GNU Gold Linker when it is not already the default',
        when=build_not_win_mac)
 
+imply_option('--enable-linker',
+             depends_if('--enable-gold', when=build_not_win_mac)(lambda x: 'gold'),
+             when=build_not_win_mac)
 
-@depends('--enable-gold', c_compiler, developer_options, check_build_environment, when=build_not_win_mac)
-@checking('for ld', lambda x: x.KIND)
 @imports('os')
 @imports('shutil')
-def enable_gold(enable_gold_option, c_compiler, developer_options, build_env):
-    linker = None
+def enable_gnu_linker(enable_gold_option, c_compiler, developer_options, build_env, linker_name):
     # Used to check the kind of linker
     version_check = ['-Wl,--version']
     cmd_base = c_compiler.wrapper + [c_compiler.compiler] + c_compiler.flags
@@ -1144,7 +1183,7 @@ def enable_gold(enable_gold_option, c_compiler, developer_options, build_env):
             # The -B trick didn't work, removing the directory
             shutil.rmtree(targetDir)
 
-    if enable_gold_option or developer_options:
+    if (enable_gold_option or developer_options) and linker_name != 'bfd':
         result = resolve_gold()
 
         if result:
@@ -1175,5 +1214,30 @@ def enable_gold(enable_gold_option, c_compiler, developer_options, build_env):
         KIND='other'
     )
 
-set_config('LD_IS_BFD', depends(enable_gold.KIND)(lambda x: x == 'bfd' or None))
-set_config('LINKER_LDFLAGS', enable_gold.LINKER_FLAG)
+js_option('--enable-linker', nargs=1,
+          choices=('bfd', 'gold', 'lld', 'other'),
+          help='Select the linker',
+          when=build_not_win_mac)
+
+@depends('--enable-linker', c_compiler, developer_options, check_build_environment, when=build_not_win_mac)
+@checking('for linker', lambda x: x.KIND)
+def select_linker(linker, c_compiler, developer_options, build_env):
+    linker = linker[0] if linker else 'other'
+    if linker in ('gold', 'bfd', 'other'):
+        return enable_gnu_linker(linker == 'gold', c_compiler, developer_options, build_env, linker)
+    if linker == 'lld':
+        version_check = ['-Wl,--version']
+        cmd_base = c_compiler.wrapper + [c_compiler.compiler] + c_compiler.flags
+        lld = "-fuse-ld=" + linker
+        cmd = cmd_base + [lld] + version_check
+        if 'LLD' in check_cmd_output(*cmd).decode('utf-8'):
+            return namespace(
+                KIND='lld',
+                LINKER_FLAG=lld,
+            )
+        else:
+            die("Could not use lld as linker")
+
+
+set_config('LD_IS_BFD', depends(select_linker.KIND)(lambda x: x == 'bfd' or None))
+set_config('LINKER_LDFLAGS', select_linker.LINKER_FLAG)

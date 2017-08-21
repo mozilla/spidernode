@@ -118,6 +118,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitIntToString(LIntToString* lir);
     void visitDoubleToString(LDoubleToString* lir);
     void visitValueToString(LValueToString* lir);
+    void visitValueToObject(LValueToObject* lir);
     void visitValueToObjectOrNull(LValueToObjectOrNull* lir);
     void visitInteger(LInteger* lir);
     void visitInteger64(LInteger64* lir);
@@ -291,6 +292,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitCharCodeAt(LCharCodeAt* lir);
     void visitFromCharCode(LFromCharCode* lir);
     void visitFromCodePoint(LFromCodePoint* lir);
+    void visitStringConvertCase(LStringConvertCase* lir);
     void visitSinCos(LSinCos *lir);
     void visitStringSplit(LStringSplit* lir);
     void visitFunctionEnvironment(LFunctionEnvironment* lir);
@@ -384,7 +386,8 @@ class CodeGenerator final : public CodeGeneratorSpecific
     };
     template <CallableOrConstructor mode>
     void emitIsCallableOrConstructor(Register object, Register output, Label* failure);
-    void visitIsCallable(LIsCallable* lir);
+    void visitIsCallableO(LIsCallableO* lir);
+    void visitIsCallableV(LIsCallableV* lir);
     void visitOutOfLineIsCallable(OutOfLineIsCallable* ool);
     void visitIsConstructor(LIsConstructor* lir);
     void visitOutOfLineIsConstructor(OutOfLineIsConstructor* ool);
@@ -394,6 +397,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitIsObject(LIsObject* lir);
     void visitIsObjectAndBranch(LIsObjectAndBranch* lir);
     void visitHasClass(LHasClass* lir);
+    void visitObjectClassToString(LObjectClassToString* lir);
     void visitWasmParameter(LWasmParameter* lir);
     void visitWasmParameterI64(LWasmParameterI64* lir);
     void visitWasmReturn(LWasmReturn* ret);
@@ -414,6 +418,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitOutOfLineNaNToZero(OutOfLineNaNToZero* ool);
     void visitFinishBoundFunctionInit(LFinishBoundFunctionInit* lir);
     void visitIsPackedArray(LIsPackedArray* lir);
+    void visitGetPrototypeOf(LGetPrototypeOf* lir);
 
     void visitCheckOverRecursed(LCheckOverRecursed* lir);
     void visitCheckOverRecursedFailure(CheckOverRecursedFailure* ool);

@@ -42,6 +42,7 @@ add_gcc_warning('-Wtype-limits')
 
 # catches some dead code
 add_gcc_warning('-Wunreachable-code')
+check_and_add_gcc_warning('-Wunreachable-code-return')
 
 # catches treating string literals as non-const
 add_gcc_warning('-Wwrite-strings', cxx_compiler)
@@ -116,6 +117,15 @@ check_and_add_gcc_warning('-Wno-gnu-zero-variadic-macro-arguments')
 # that represent possible security problems
 check_and_add_gcc_warning('-Wformat-security')
 check_and_add_gcc_warning('-Wformat-overflow=2')
+
+# Disable a warning with gcc 7. See bug 1320656
+# We are far from using C++17 and the impact of the warning will be
+# limited to a potential public ABI.
+# Currently only affecting js/
+check_and_add_gcc_warning('-Wno-noexcept-type', cxx_compiler,
+                          when=depends(build_project)
+                          (lambda build_project: build_project == 'js'))
+
 
 # Please keep these last in this file
 add_old_configure_assignment('_WARNINGS_CFLAGS', warnings_cflags)

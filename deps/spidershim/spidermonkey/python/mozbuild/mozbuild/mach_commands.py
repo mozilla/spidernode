@@ -1099,7 +1099,7 @@ class GTestCommands(MachCommandBase):
 
         # Note: we must normalize the path here so that gtest on Windows sees
         # a MOZ_GMP_PATH which has only Windows dir seperators, because
-        # nsILocalFile cannot open the paths with non-Windows dir seperators.
+        # nsIFile cannot open the paths with non-Windows dir seperators.
         xre_path = os.path.join(os.path.normpath(self.topobjdir), "dist", "bin")
         gtest_env["MOZ_XRE_DIR"] = xre_path
         gtest_env["MOZ_GMP_PATH"] = os.pathsep.join(
@@ -1389,7 +1389,7 @@ class RunProgram(MachCommandBase):
         extra_env = {
             'MOZ_DEVELOPER_REPO_DIR': self.topsrcdir,
             'MOZ_DEVELOPER_OBJ_DIR': self.topobjdir,
-            'RUST_BACKTRACE': '1',
+            'RUST_BACKTRACE': 'full',
         }
 
         if not enable_crash_reporter:
@@ -1836,6 +1836,32 @@ class PackageFrontend(MachCommandBase):
                     return True
                 return super(DownloadRecord, self).validate()
 
+        class ArtifactRecord(DownloadRecord):
+            def __init__(self, task_id, artifact_name):
+                cot = cache._download_manager.session.get(
+                    get_artifact_url(task_id, 'public/chainOfTrust.json.asc'))
+                digest = algorithm = None
+                if cot.status_code == 200:
+                    # The file is GPG-signed, but we don't care about validating
+                    # that. Instead of parsing the PGP signature, we just take
+                    # the one line we're interested in, which starts with a `{`.
+                    data = {}
+                    for l in cot.content.splitlines():
+                        if l.startswith('{'):
+                            try:
+                                data = json.loads(l)
+                                break
+                            except Exception:
+                                pass
+                for algorithm, digest in (data.get('artifacts', {})
+                                              .get(artifact_name, {}).items()):
+                    pass
+
+                name = os.path.basename(artifact_name)
+                super(ArtifactRecord, self).__init__(
+                    get_artifact_url(task_id, artifact_name), name,
+                    None, digest, algorithm, unpack=True)
+
         records = OrderedDict()
         downloaded = []
 
@@ -1877,13 +1903,20 @@ class PackageFrontend(MachCommandBase):
 
             toolchains = tasks('toolchain')
 
+            aliases = {}
+            for t in toolchains.values():
+                alias = t.attributes.get('toolchain-alias')
+                if alias:
+                    aliases['toolchain-{}'.format(alias)] = \
+                        t.task['metadata']['name']
+
             for b in from_build:
                 user_value = b
 
                 if not b.startswith('toolchain-'):
                     b = 'toolchain-{}'.format(b)
 
-                task = toolchains.get(b)
+                task = toolchains.get(aliases.get(b, b))
                 if not task:
                     self.log(logging.ERROR, 'artifact', {'build': user_value},
                              'Could not find a toolchain build named `{build}`')
@@ -1897,10 +1930,8 @@ class PackageFrontend(MachCommandBase):
                              'named `{build}`')
                     return 1
 
-                name = os.path.basename(artifact_name)
-                records[name] = DownloadRecord(
-                    get_artifact_url(task_id, artifact_name),
-                    name, None, None, None, unpack=True)
+                record = ArtifactRecord(task_id, artifact_name)
+                records[record.filename] = record
 
         # Handle the list of files of the form path@task-id on the command
         # line. Each of those give a path to an artifact to download.
@@ -1910,9 +1941,8 @@ class PackageFrontend(MachCommandBase):
                          'Expected a list of files of the form path@task-id')
                 return 1
             name, task_id = f.rsplit('@', 1)
-            records[name] = DownloadRecord(
-                get_artifact_url(task_id, name), os.path.basename(name),
-                None, None, None, unpack=True)
+            record = ArtifactRecord(task_id, name)
+            records[record.filename] = record
 
         for record in records.itervalues():
             self.log(logging.INFO, 'artifact', {'name': record.basename},
@@ -1927,14 +1957,14 @@ class PackageFrontend(MachCommandBase):
                         requests.exceptions.ChunkedEncodingError,
                         requests.exceptions.ConnectionError) as e:
 
-                    if isinstance(e, requests.exceptions.ConnectionError):
-                        should_retry = True
-                    else:
+                    if isinstance(e, requests.exceptions.HTTPError):
                         # The relengapi proxy likes to return error 400 bad request
                         # which seems improbably to be due to our (simple) GET
                         # being borked.
                         status = e.response.status_code
                         should_retry = status >= 500 or status == 400
+                    else:
+                        should_retry = True
 
                     if should_retry or attempt < retry:
                         level = logging.WARN
