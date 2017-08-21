@@ -30,7 +30,6 @@
 #endif
 #include "handle_wrap.h"
 #include "req-wrap.h"
-#include "tree.h"
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
@@ -40,6 +39,9 @@
 #include <stdint.h>
 #include <vector>
 #include <stack>
+#include <unordered_map>
+
+struct nghttp2_rcbuf;
 
 namespace node {
 
@@ -342,6 +344,8 @@ class IsolateData {
 #undef VS
 #undef VP
 
+  std::unordered_map<nghttp2_rcbuf*, v8::Eternal<v8::String>> http2_static_strs;
+
  private:
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
@@ -405,7 +409,7 @@ class Environment {
 
      private:
       Environment* env_;
-      double* uid_fields_;
+      double* uid_fields_ref_;
 
       DISALLOW_COPY_AND_ASSIGN(InitScope);
     };
@@ -438,12 +442,10 @@ class Environment {
     v8::Isolate* isolate_;
     // Stores the ids of the current execution context stack.
     std::stack<struct node_async_ids> ids_stack_;
-    // Used to communicate state between C++ and JS cheaply. Is placed in an
-    // Uint32Array() and attached to the async_wrap object.
+    // Attached to a Uint32Array that tracks the number of active hooks for
+    // each type.
     uint32_t fields_[kFieldsCount];
-    // Used to communicate ids between C++ and JS cheaply. Placed in a
-    // Float64Array and attached to the async_wrap object. Using a double only
-    // gives us 2^53-1 unique ids, but that should be sufficient.
+    // Attached to a Float64Array that tracks the state of async resources.
     double uid_fields_[kUidFieldsCount];
 
     DISALLOW_COPY_AND_ASSIGN(AsyncHooks);

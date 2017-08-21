@@ -492,28 +492,25 @@ out/doc/%: doc/%
 
 # check if ./node is actually set, else use user pre-installed binary
 gen-json = tools/doc/generate.js --format=json $< > $@
-out/doc/api/%.json: doc/api/%.md
-	@[ -e tools/doc/node_modules/js-yaml/package.json ] || \
-		[ -e tools/eslint/node_modules/js-yaml/package.json ] || \
-		if [ -x $(NODE) ]; then \
-			cd tools/doc && ../../$(NODE) ../../$(NPM) install; \
-		else \
-			cd tools/doc && node ../../$(NPM) install; \
-		fi
-	[ -x $(NODE) ] && $(NODE) $(gen-json) || node $(gen-json)
-
-# check if ./node is actually set, else use user pre-installed binary
 gen-html = tools/doc/generate.js --node-version=$(FULLVERSION) --format=html \
 			--template=doc/template.html --analytics=$(DOCS_ANALYTICS) $< > $@
-out/doc/api/%.html: doc/api/%.md
-	@[ -e tools/doc/node_modules/js-yaml/package.json ] || \
+
+gen-doc =	\
+	[ -e tools/doc/node_modules/js-yaml/package.json ] || \
 		[ -e tools/eslint/node_modules/js-yaml/package.json ] || \
 		if [ -x $(NODE) ]; then \
 			cd tools/doc && ../../$(NODE) ../../$(NPM) install; \
 		else \
 			cd tools/doc && node ../../$(NPM) install; \
-		fi
-	[ -x $(NODE) ] && $(NODE) $(gen-html) || node $(gen-html)
+		fi;\
+	[ -x $(NODE) ] && $(NODE) $(1) || node $(1)
+
+out/doc/api/%.json: doc/api/%.md
+	$(call gen-doc, $(gen-json))
+
+# check if ./node is actually set, else use user pre-installed binary
+out/doc/api/%.html: doc/api/%.md
+	$(call gen-doc, $(gen-html))
 
 docopen: $(apidocs_html)
 	@$(PYTHON) -mwebbrowser file://$(PWD)/out/doc/api/all.html
@@ -670,6 +667,11 @@ release-only:
 	@if [ "$(DISTTYPE)" != "nightly" ] && [ "$(DISTTYPE)" != "next-nightly" ] && \
 		`grep -q REPLACEME doc/api/*.md`; then \
 		echo 'Please update REPLACEME in Added: tags in doc/api/*.md (See doc/releases.md)' ; \
+		exit 1 ; \
+	fi
+	@if [ "$(DISTTYPE)" != "nightly" ] && [ "$(DISTTYPE)" != "next-nightly" ] && \
+		`grep -q DEP00XX doc/api/deprecations.md`; then \
+		echo 'Please update DEP00XX in doc/api/deprecations.md (See doc/releases.md)' ; \
 		exit 1 ; \
 	fi
 	@if [ "$(shell git status --porcelain | egrep -v '^\?\? ')" = "" ]; then \
@@ -875,20 +877,20 @@ bench: bench-net bench-http bench-fs bench-tls
 
 bench-ci: bench
 
+JSLINT_TARGETS = benchmark doc lib test tools
+
 jslint:
 	@echo "Running JS linter..."
 	$(NODE) tools/eslint/bin/eslint.js --cache --rulesdir=tools/eslint-rules --ext=.js,.md \
-	  benchmark doc lib test tools
+	  $(JSLINT_TARGETS)
 
 jslint-ci:
 	@echo "Running JS linter..."
 	$(NODE) tools/jslint.js $(PARALLEL_ARGS) -f tap -o test-eslint.tap \
-		benchmark doc lib test tools
+		$(JSLINT_TARGETS)
 
 CPPLINT_EXCLUDE ?=
 CPPLINT_EXCLUDE += src/node_root_certs.h
-CPPLINT_EXCLUDE += src/queue.h
-CPPLINT_EXCLUDE += src/tree.h
 CPPLINT_EXCLUDE += $(wildcard test/addons/??_*/*.cc test/addons/??_*/*.h)
 CPPLINT_EXCLUDE += $(wildcard test/addons-napi/??_*/*.cc test/addons-napi/??_*/*.h)
 # These files were copied more or less verbatim from V8.
