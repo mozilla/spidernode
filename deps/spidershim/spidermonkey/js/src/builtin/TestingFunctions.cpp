@@ -30,6 +30,7 @@
 #include "irregexp/RegExpEngine.h"
 #include "irregexp/RegExpParser.h"
 #endif
+#include "jit/AtomicOperations.h"
 #include "jit/InlinableNatives.h"
 #include "js/Debug.h"
 #include "js/HashTable.h"
@@ -534,6 +535,29 @@ WasmDebuggingIsSupported(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     args.rval().setBoolean(wasm::HasSupport(cx) && cx->options().wasmBaseline());
+    return true;
+}
+
+static bool
+WasmThreadsSupported(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+#ifdef ENABLE_WASM_THREAD_OPS
+    bool isSupported = wasm::HasSupport(cx);
+#else
+    bool isSupported = false;
+#endif
+
+    // NOTE!  When we land thread support, the following test and its comment
+    // should be moved into wasm::HasSupport() or wasm::HasCompilerSupport().
+
+    // Wasm threads require 8-byte lock-free atomics.  This guard will
+    // effectively disable Wasm support for some older devices, such as early
+    // ARMv6 and older MIPS.
+
+    isSupported = isSupported && jit::AtomicOperations::isLockfree8();
+
+    args.rval().setBoolean(isSupported);
     return true;
 }
 
@@ -1454,7 +1478,6 @@ SetupOOMFailure(JSContext* cx, bool failAlways, unsigned argc, Value* vp)
         return false;
     }
 
-    HelperThreadState().waitForAllThreads();
     js::oom::SimulateOOMAfter(count, targetThread, failAlways);
     args.rval().setUndefined();
     return true;
@@ -1562,9 +1585,6 @@ OOMTest(JSContext* cx, unsigned argc, Value* vp)
     for (unsigned thread = threadStart; thread < threadEnd; thread++) {
         if (verbose)
             fprintf(stderr, "thread %d\n", thread);
-
-        HelperThreadState().waitForAllThreads();
-        js::oom::targetThread = thread;
 
         unsigned allocation = 1;
         bool handledOOM;
@@ -1765,8 +1785,6 @@ finalize_counter_finalize(JSFreeOp* fop, JSObject* obj)
 static const JSClassOps FinalizeCounterClassOps = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -2063,17 +2081,11 @@ ShellAllocationMetadataBuilder::build(JSContext* cx, HandleObject,
     static int createdIndex = 0;
     createdIndex++;
 
-    if (!JS_DefineProperty(cx, obj, "index", createdIndex, 0,
-                           JS_STUBGETTER, JS_STUBSETTER))
-    {
+    if (!JS_DefineProperty(cx, obj, "index", createdIndex, 0))
         oomUnsafe.crash("ShellAllocationMetadataBuilder::build");
-    }
 
-    if (!JS_DefineProperty(cx, obj, "stack", stack, 0,
-                           JS_STUBGETTER, JS_STUBSETTER))
-    {
+    if (!JS_DefineProperty(cx, obj, "stack", stack, 0))
         oomUnsafe.crash("ShellAllocationMetadataBuilder::build");
-    }
 
     int stackIndex = 0;
     RootedId id(cx);
@@ -2082,11 +2094,8 @@ ShellAllocationMetadataBuilder::build(JSContext* cx, HandleObject,
         if (iter.isFunctionFrame() && iter.compartment() == cx->compartment()) {
             id = INT_TO_JSID(stackIndex);
             RootedObject callee(cx, iter.callee(cx));
-            if (!JS_DefinePropertyById(cx, stack, id, callee, 0,
-                                       JS_STUBGETTER, JS_STUBSETTER))
-            {
+            if (!JS_DefinePropertyById(cx, stack, id, callee, 0))
                 oomUnsafe.crash("ShellAllocationMetadataBuilder::build");
-            }
             stackIndex++;
         }
     }
@@ -2498,8 +2507,6 @@ class CloneBufferObject : public NativeObject {
 static const ClassOps CloneBufferObjectClassOps = {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -4718,6 +4725,11 @@ gc::ZealModeHelpText),
 "wasmDebuggingIsSupported()",
 "  Returns a boolean indicating whether WebAssembly debugging is supported on the current device;\n"
 "  returns false also if WebAssembly is not supported"),
+
+    JS_FN_HELP("wasmThreadsSupported", WasmThreadsSupported, 0, 0,
+"wasmThreadsSupported()",
+"  Returns a boolean indicating whether the WebAssembly threads proposal is\n"
+"  supported on the current device."),
 
     JS_FN_HELP("wasmTextToBinary", WasmTextToBinary, 1, 0,
 "wasmTextToBinary(str)",

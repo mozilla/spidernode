@@ -607,8 +607,6 @@ typedef void
     \
     JSAddPropertyOp    getAddProperty() const { return cOps ? cOps->addProperty : nullptr; } \
     JSDeletePropertyOp getDelProperty() const { return cOps ? cOps->delProperty : nullptr; } \
-    JSGetterOp         getGetProperty() const { return cOps ? cOps->getProperty : nullptr; } \
-    JSSetterOp         getSetProperty() const { return cOps ? cOps->setProperty : nullptr; } \
     JSEnumerateOp      getEnumerate()   const { return cOps ? cOps->enumerate   : nullptr; } \
     JSNewEnumerateOp   getNewEnumerate()const { return cOps ? cOps->newEnumerate: nullptr; } \
     JSResolveOp        getResolve()     const { return cOps ? cOps->resolve     : nullptr; } \
@@ -641,8 +639,6 @@ struct JS_STATIC_CLASS ClassOps
     /* Function pointer members (may be null). */
     JSAddPropertyOp     addProperty;
     JSDeletePropertyOp  delProperty;
-    JSGetterOp          getProperty;
-    JSSetterOp          setProperty;
     JSEnumerateOp       enumerate;
     JSNewEnumerateOp    newEnumerate;
     JSResolveOp         resolve;
@@ -759,8 +755,6 @@ struct JS_STATIC_CLASS JSClassOps
     /* Function pointer members (may be null). */
     JSAddPropertyOp     addProperty;
     JSDeletePropertyOp  delProperty;
-    JSGetterOp          getProperty;
-    JSSetterOp          setProperty;
     JSEnumerateOp       enumerate;
     JSNewEnumerateOp    newEnumerate;
     JSResolveOp         resolve;
@@ -860,7 +854,7 @@ static const uint32_t JSCLASS_FOREGROUND_FINALIZE =     1 << (JSCLASS_HIGH_FLAGS
 // application.
 static const uint32_t JSCLASS_GLOBAL_APPLICATION_SLOTS = 5;
 static const uint32_t JSCLASS_GLOBAL_SLOT_COUNT =
-    JSCLASS_GLOBAL_APPLICATION_SLOTS + JSProto_LIMIT * 2 + 36;
+    JSCLASS_GLOBAL_APPLICATION_SLOTS + JSProto_LIMIT * 2 + 37;
 
 #define JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(n)                              \
     (JSCLASS_IS_GLOBAL | JSCLASS_HAS_RESERVED_SLOTS(JSCLASS_GLOBAL_SLOT_COUNT + (n)))
@@ -984,10 +978,6 @@ struct JS_STATIC_CLASS Class
 static_assert(offsetof(JSClassOps, addProperty) == offsetof(ClassOps, addProperty),
               "ClassOps and JSClassOps must be consistent");
 static_assert(offsetof(JSClassOps, delProperty) == offsetof(ClassOps, delProperty),
-              "ClassOps and JSClassOps must be consistent");
-static_assert(offsetof(JSClassOps, getProperty) == offsetof(ClassOps, getProperty),
-              "ClassOps and JSClassOps must be consistent");
-static_assert(offsetof(JSClassOps, setProperty) == offsetof(ClassOps, setProperty),
               "ClassOps and JSClassOps must be consistent");
 static_assert(offsetof(JSClassOps, enumerate) == offsetof(ClassOps, enumerate),
               "ClassOps and JSClassOps must be consistent");

@@ -1712,19 +1712,6 @@ JS::GetFirstArgumentAsTypeHint(JSContext* cx, CallArgs args, JSType *result)
     return false;
 }
 
-JS_PUBLIC_API(bool)
-JS_PropertyStub(JSContext* cx, HandleObject obj, HandleId id, MutableHandleValue vp)
-{
-    return true;
-}
-
-JS_PUBLIC_API(bool)
-JS_StrictPropertyStub(JSContext* cx, HandleObject obj, HandleId id, MutableHandleValue vp,
-                      ObjectOpResult& result)
-{
-    return result.succeed();
-}
-
 JS_PUBLIC_API(JSObject*)
 JS_InitClass(JSContext* cx, HandleObject obj, HandleObject parent_proto,
              const JSClass* clasp, JSNative constructor, unsigned nargs,
@@ -2185,23 +2172,11 @@ DefinePropertyById(JSContext* cx, HandleObject obj, HandleId id, HandleValue val
     // than JSNatives. However, we might be pulling this property descriptor off
     // of something with JSNative property descriptors. If we are, wrap them in
     // JS Function objects.
-    //
-    // But skip doing this if our accessors are the well-known stub
-    // accessors, since those are known to be JSGetterOps.  Assert
-    // some sanity about it, though.
-    MOZ_ASSERT_IF(getter == JS_PropertyStub,
-                  setter == JS_StrictPropertyStub || (attrs & JSPROP_PROPOP_ACCESSORS));
-    MOZ_ASSERT_IF(setter == JS_StrictPropertyStub,
-                  getter == JS_PropertyStub || (attrs & JSPROP_PROPOP_ACCESSORS));
 
-    // If !(attrs & JSPROP_PROPOP_ACCESSORS), then either getter/setter are both
+    // If !(attrs & JSPROP_PROPOP_ACCESSORS), then getter/setter are both
     // possibly-null JSNatives (or possibly-null JSFunction* if JSPROP_GETTER or
-    // JSPROP_SETTER is appropriately set), or both are the well-known property
-    // stubs.  The subsequent block must handle only the first of these cases,
-    // so carefully exclude the latter case.
-    if (!(attrs & JSPROP_PROPOP_ACCESSORS) &&
-        getter != JS_PropertyStub && setter != JS_StrictPropertyStub)
-    {
+    // JSPROP_SETTER is appropriately set).
+    if (!(attrs & JSPROP_PROPOP_ACCESSORS)) {
         if (getter && !(attrs & JSPROP_GETTER)) {
             RootedAtom atom(cx, IdToFunctionName(cx, id, FunctionPrefixKind::Get));
             if (!atom)
@@ -2246,21 +2221,6 @@ DefinePropertyById(JSContext* cx, HandleObject obj, HandleId id, HandleValue val
                           ? JS_FUNC_TO_DATA_PTR(JSObject*, setter)
                           : nullptr);
 
-    // In most places throughout the engine, a property with null getter and
-    // not JSPROP_GETTER/SETTER/SHARED has no getter, and the same for setters:
-    // it's just a plain old data property. However the JS_Define* APIs use
-    // null getter and setter to mean "default to the Class getProperty and
-    // setProperty ops".
-    if (!(attrs & (JSPROP_GETTER | JSPROP_SETTER))) {
-        if (!getter)
-            getter = obj->getClass()->getGetProperty();
-        if (!setter)
-            setter = obj->getClass()->getSetProperty();
-    }
-    if (getter == JS_PropertyStub)
-        getter = nullptr;
-    if (setter == JS_StrictPropertyStub)
-        setter = nullptr;
     return DefineProperty(cx, obj, id, value, getter, setter, attrs);
 }
 
@@ -4879,21 +4839,21 @@ JS::GetModuleHostDefinedField(JSObject* module)
 }
 
 JS_PUBLIC_API(bool)
-JS::ModuleDeclarationInstantiation(JSContext* cx, JS::HandleObject moduleArg)
+JS::ModuleInstantiate(JSContext* cx, JS::HandleObject moduleArg)
 {
     AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, moduleArg);
-    return ModuleObject::DeclarationInstantiation(cx, moduleArg.as<ModuleObject>());
+    return ModuleObject::Instantiate(cx, moduleArg.as<ModuleObject>());
 }
 
 JS_PUBLIC_API(bool)
-JS::ModuleEvaluation(JSContext* cx, JS::HandleObject moduleArg)
+JS::ModuleEvaluate(JSContext* cx, JS::HandleObject moduleArg)
 {
     AssertHeapIsIdle();
     CHECK_REQUEST(cx);
     assertSameCompartment(cx, moduleArg);
-    return ModuleObject::Evaluation(cx, moduleArg.as<ModuleObject>());
+    return ModuleObject::Evaluate(cx, moduleArg.as<ModuleObject>());
 }
 
 JS_PUBLIC_API(JSObject*)
@@ -4905,13 +4865,42 @@ JS::GetRequestedModules(JSContext* cx, JS::HandleObject moduleArg)
     return &moduleArg->as<ModuleObject>().requestedModules();
 }
 
-JS_PUBLIC_API(JSScript*)
-JS::GetModuleScript(JSContext* cx, JS::HandleObject moduleArg)
+JS_PUBLIC_API(JSString*)
+JS::GetRequestedModuleSpecifier(JSContext* cx, JS::HandleValue value)
 {
     AssertHeapIsIdle();
     CHECK_REQUEST(cx);
-    assertSameCompartment(cx, moduleArg);
-    return moduleArg->as<ModuleObject>().script();
+    assertSameCompartment(cx, value);
+    JSObject* obj = &value.toObject();
+    return obj->as<RequestedModuleObject>().moduleSpecifier();
+}
+
+JS_PUBLIC_API(void)
+JS::GetRequestedModuleSourcePos(JSContext* cx, JS::HandleValue value,
+                                uint32_t* lineNumber, uint32_t* columnNumber)
+{
+    AssertHeapIsIdle();
+    CHECK_REQUEST(cx);
+    assertSameCompartment(cx, value);
+    MOZ_ASSERT(lineNumber);
+    MOZ_ASSERT(columnNumber);
+    auto& requested = value.toObject().as<RequestedModuleObject>();
+    *lineNumber = requested.lineNumber();
+    *columnNumber = requested.columnNumber();
+}
+
+JS_PUBLIC_API(bool)
+JS::IsModuleErrored(JSObject* moduleArg)
+{
+    AssertHeapIsIdle();
+    return moduleArg->as<ModuleObject>().status() == MODULE_STATUS_ERRORED;
+}
+
+JS_PUBLIC_API(JS::Value)
+JS::GetModuleError(JSObject* moduleArg)
+{
+    AssertHeapIsIdle();
+    return moduleArg->as<ModuleObject>().error();
 }
 
 JS_PUBLIC_API(JSObject*)

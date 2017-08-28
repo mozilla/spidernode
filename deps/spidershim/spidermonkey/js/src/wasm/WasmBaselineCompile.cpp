@@ -656,6 +656,7 @@ class BaseCompiler
     FuncOffsets finish();
 
     MOZ_MUST_USE bool emitFunction();
+    void emitInitStackLocals();
 
     // Used by some of the ScratchRegister implementations.
     operator MacroAssembler&() const { return masm; }
@@ -2260,26 +2261,8 @@ class BaseCompiler
             }
         }
 
-        // Initialize the stack locals to zero.
-        //
-        // The following are all Bug 1316820:
-        //
-        // TODO / OPTIMIZE: on x64, at least, scratch will be a 64-bit
-        // register and we can move 64 bits at a time.
-        //
-        // TODO / OPTIMIZE: On SSE2 or better SIMD systems we may be
-        // able to store 128 bits at a time.  (I suppose on some
-        // systems we have 512-bit SIMD for that matter.)
-        //
-        // TODO / OPTIMIZE: if we have only one initializing store
-        // then it's better to store a zero literal, probably.
-
-        if (varLow_ < varHigh_) {
-            ScratchI32 scratch(*this);
-            masm.mov(ImmWord(0), scratch);
-            for (int32_t i = varLow_ ; i < varHigh_ ; i += 4)
-                storeToFrameI32(scratch, i + 4);
-        }
+        if (varLow_ < varHigh_)
+            emitInitStackLocals();
 
         if (debugEnabled_)
             insertBreakablePoint(CallSiteDesc::EnterFrame);
@@ -3002,6 +2985,38 @@ class BaseCompiler
         RegI64 x0 = widenI32(r0);
 #endif
         return x0;
+    }
+
+    RegI64 popI64ForSignExtendI64() {
+#if defined(JS_CODEGEN_X86)
+        need2xI32(specific_edx, specific_eax);
+        // Low on top, high underneath
+        return popI64ToSpecific(RegI64(Register64(specific_edx, specific_eax)));
+#else
+        return popI64();
+#endif
+    }
+
+    void signExtendI64_8(RegI64 r) {
+#if defined(JS_CODEGEN_X64)
+        masm.movsbq(Operand(r.reg), r.reg);
+#elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM)
+        masm.move8SignExtend(r.low, r.low);
+        signExtendI32ToI64(RegI32(r.low), r);
+#else
+        MOZ_CRASH("Basecompiler platform hook: signExtendI64_8");
+#endif
+    }
+
+    void signExtendI64_16(RegI64 r) {
+#if defined(JS_CODEGEN_X64)
+        masm.movswq(Operand(r.reg), r.reg);
+#elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM)
+        masm.move16SignExtend(r.low, r.low);
+        signExtendI32ToI64(RegI32(r.low), r);
+#else
+        MOZ_CRASH("Basecompiler platform hook: signExtendI64_16");
+#endif
     }
 
     void signExtendI32ToI64(RegI32 src, RegI64 dest) {
@@ -3910,6 +3925,11 @@ class BaseCompiler
     template<bool isUnsigned> MOZ_MUST_USE bool emitTruncateF64ToI64();
 #endif
     void emitWrapI64ToI32();
+    void emitExtendI32_8();
+    void emitExtendI32_16();
+    void emitExtendI64_8();
+    void emitExtendI64_16();
+    void emitExtendI64_32();
     void emitExtendI32ToI64();
     void emitExtendU32ToI64();
     void emitReinterpretF32AsI32();
@@ -4965,6 +4985,48 @@ BaseCompiler::emitWrapI64ToI32()
     wrapI64ToI32(r0, i0);
     freeI64Except(r0, i0);
     pushI32(i0);
+}
+
+void
+BaseCompiler::emitExtendI32_8()
+{
+    RegI32 r = popI32();
+    masm.move8SignExtend(r, r);
+    pushI32(r);
+}
+
+void
+BaseCompiler::emitExtendI32_16()
+{
+    RegI32 r = popI32();
+    masm.move16SignExtend(r, r);
+    pushI32(r);
+}
+
+void
+BaseCompiler::emitExtendI64_8()
+{
+    RegI64 r = popI64ForSignExtendI64();
+    signExtendI64_8(r);
+    pushI64(r);
+}
+
+void
+BaseCompiler::emitExtendI64_16()
+{
+    RegI64 r = popI64ForSignExtendI64();
+    signExtendI64_16(r);
+    pushI64(r);
+}
+
+void
+BaseCompiler::emitExtendI64_32()
+{
+    RegI64 x0 = popI64ForSignExtendI64();
+    RegI32 r0 = RegI32(lowPart(x0));
+    signExtendI32ToI64(r0, x0);
+    pushI64(x0);
+    // Note: no need to free r0, since it is part of x0
 }
 
 void
@@ -7364,6 +7426,20 @@ BaseCompiler::emitBody()
           case uint16_t(Op::F64Ge):
             CHECK_NEXT(emitComparison(emitCompareF64, ValType::F64, Assembler::DoubleGreaterThanOrEqual));
 
+          // Sign extensions
+#ifdef ENABLE_WASM_THREAD_OPS
+          case uint16_t(Op::I32Extend8S):
+            CHECK_NEXT(emitConversion(emitExtendI32_8, ValType::I32, ValType::I32));
+          case uint16_t(Op::I32Extend16S):
+            CHECK_NEXT(emitConversion(emitExtendI32_16, ValType::I32, ValType::I32));
+          case uint16_t(Op::I64Extend8S):
+            CHECK_NEXT(emitConversion(emitExtendI64_8, ValType::I64, ValType::I64));
+          case uint16_t(Op::I64Extend16S):
+            CHECK_NEXT(emitConversion(emitExtendI64_16, ValType::I64, ValType::I64));
+          case uint16_t(Op::I64Extend32S):
+            CHECK_NEXT(emitConversion(emitExtendI64_32, ValType::I64, ValType::I64));
+#endif
+
           // Memory Related
           case uint16_t(Op::GrowMemory):
             CHECK_NEXT(emitGrowMemory());
@@ -7402,6 +7478,107 @@ BaseCompiler::emitFunction()
         return false;
 
     return true;
+}
+
+void
+BaseCompiler::emitInitStackLocals()
+{
+    MOZ_ASSERT(varLow_ < varHigh_, "there should be stack locals to initialize");
+
+    static const uint32_t wordSize = sizeof(void*);
+
+    // A local's localOffset always points above it in the frame, so that when
+    // translated to a stack address we end up with an address pointing to the
+    // base of the local.  Thus to go from a raw frame offset to an SP offset we
+    // first add K to the frame offset to obtain a localOffset for a slot of
+    // size K, and then map that to an SP offset.  Hence all the adjustments to
+    // `low` in the offset calculations below.
+
+    // On 64-bit systems we may have 32-bit alignment for the local area as it
+    // may be preceded by parameters and prologue/debug data.
+
+    uint32_t low = varLow_;
+    if (low % wordSize) {
+        masm.store32(Imm32(0), Address(StackPointer, localOffsetToSPOffset(low + 4)));
+        low += 4;
+    }
+    MOZ_ASSERT(low % wordSize == 0);
+
+    const uint32_t high = AlignBytes(varHigh_, wordSize);
+    MOZ_ASSERT(high <= uint32_t(localSize_), "localSize_ should be aligned at least that");
+
+    // An unrollLimit of 16 is chosen so that we only need an 8-bit signed
+    // immediate to represent the offset in the store instructions in the loop
+    // on x64.
+
+    const uint32_t unrollLimit = 16;
+    const uint32_t initWords = (high - low) / wordSize;
+    const uint32_t tailWords = initWords % unrollLimit;
+    const uint32_t loopHigh = high - (tailWords * wordSize);
+
+    // With only one word to initialize, just store an immediate zero.
+
+    if (initWords == 1) {
+        masm.storePtr(ImmWord(0), Address(StackPointer, localOffsetToSPOffset(low + wordSize)));
+        return;
+    }
+
+    // For other cases, it's best to have a zero in a register.
+    //
+    // One can do more here with SIMD registers (store 16 bytes at a time) or
+    // with instructions like STRD on ARM (store 8 bytes at a time), but that's
+    // for another day.
+
+    RegI32 zero = needI32();
+    masm.mov(ImmWord(0), zero);
+
+    // For the general case we want to have a loop body of unrollLimit stores
+    // and then a tail of less than unrollLimit stores.  When initWords is less
+    // than 2*unrollLimit the loop trip count is at most 1 and there is no
+    // benefit to having the pointer calculations and the compare-and-branch.
+    // So we completely unroll when we have initWords < 2 * unrollLimit.  (In
+    // this case we'll end up using 32-bit offsets on x64 for up to half of the
+    // stores, though.)
+
+    // Fully-unrolled case.
+
+    if (initWords < 2 * unrollLimit)  {
+        for (uint32_t i = low; i < high; i += wordSize)
+            masm.storePtr(zero, Address(StackPointer, localOffsetToSPOffset(i + wordSize)));
+        freeGPR(zero);
+        return;
+    }
+
+    // Unrolled loop with a tail. Stores will use negative offsets. That's OK
+    // for x86 and ARM, at least.
+
+    // Compute pointer to the highest-addressed slot on the frame.
+    RegI32 p = needI32();
+    masm.computeEffectiveAddress(Address(StackPointer, localOffsetToSPOffset(low + wordSize)),
+                                 p);
+
+    // Compute pointer to the lowest-addressed slot on the frame that will be
+    // initialized by the loop body.
+    RegI32 lim = needI32();
+    masm.computeEffectiveAddress(Address(StackPointer,
+                                         localOffsetToSPOffset(loopHigh + wordSize)),
+                                 lim);
+
+    // The loop body.  Eventually we'll have p == lim and exit the loop.
+    Label again;
+    masm.bind(&again);
+    for (uint32_t i = 0; i < unrollLimit; ++i)
+        masm.storePtr(zero, Address(p, -(wordSize * i)));
+    masm.subPtr(Imm32(unrollLimit * wordSize), p);
+    masm.branchPtr(Assembler::LessThan, lim, p, &again);
+
+    // The tail.
+    for (uint32_t i = 0; i < tailWords; ++i)
+        masm.storePtr(zero, Address(p, -(wordSize * i)));
+
+    freeGPR(p);
+    freeGPR(lim);
+    freeGPR(zero);
 }
 
 BaseCompiler::BaseCompiler(const ModuleEnvironment& env,

@@ -390,7 +390,7 @@ wasm::Eval(JSContext* cx, Handle<TypedArrayObject*> code, HandleObject importObj
         return false;
 
     UniqueChars error;
-    SharedModule module = Compile(*bytecode, *compileArgs, &error);
+    SharedModule module = CompileInitialTier(*bytecode, *compileArgs, &error);
     if (!module) {
         if (error) {
             JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_COMPILE_ERROR,
@@ -480,8 +480,6 @@ const ClassOps WasmModuleObject::classOps_ =
 {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -892,7 +890,7 @@ WasmModuleObject::construct(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     UniqueChars error;
-    SharedModule module = Compile(*bytecode, *compileArgs, &error);
+    SharedModule module = CompileInitialTier(*bytecode, *compileArgs, &error);
     if (!module) {
         if (error) {
             JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_COMPILE_ERROR,
@@ -926,8 +924,6 @@ const ClassOps WasmInstanceObject::classOps_ =
 {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -1307,8 +1303,6 @@ const ClassOps WasmMemoryObject::classOps_ =
 {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -1565,8 +1559,6 @@ const ClassOps WasmTableObject::classOps_ =
 {
     nullptr, /* addProperty */
     nullptr, /* delProperty */
-    nullptr, /* getProperty */
-    nullptr, /* setProperty */
     nullptr, /* enumerate */
     nullptr, /* newEnumerate */
     nullptr, /* resolve */
@@ -1923,7 +1915,7 @@ struct CompilePromiseTask : PromiseHelperTask
     {}
 
     void execute() override {
-        module = Compile(*bytecode, *compileArgs, &error);
+        module = CompileInitialTier(*bytecode, *compileArgs, &error);
     }
 
     bool resolve(JSContext* cx, Handle<PromiseObject*> promise) override {
@@ -2056,7 +2048,7 @@ struct InstantiatePromiseTask : PromiseHelperTask
     {}
 
     void execute() override {
-        module = Compile(*bytecode, *compileArgs, &error);
+        module = CompileInitialTier(*bytecode, *compileArgs, &error);
     }
 
     bool resolve(JSContext* cx, Handle<PromiseObject*> promise) override {

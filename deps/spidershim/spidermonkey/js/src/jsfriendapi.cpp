@@ -232,9 +232,7 @@ DefineHelpProperty(JSContext* cx, HandleObject obj, const char* prop, const char
     RootedAtom atom(cx, Atomize(cx, value, strlen(value)));
     if (!atom)
         return false;
-    return JS_DefineProperty(cx, obj, prop, atom,
-                             JSPROP_READONLY | JSPROP_PERMANENT,
-                             JS_STUBGETTER, JS_STUBSETTER);
+    return JS_DefineProperty(cx, obj, prop, atom, JSPROP_READONLY | JSPROP_PERMANENT);
 }
 
 JS_FRIEND_API(bool)
@@ -655,6 +653,12 @@ JS_FRIEND_API(void)
 JS_SetAccumulateTelemetryCallback(JSContext* cx, JSAccumulateTelemetryDataCallback callback)
 {
     cx->runtime()->setTelemetryCallback(cx->runtime(), callback);
+}
+
+JS_FRIEND_API(void)
+JS_SetSetUseCounterCallback(JSContext* cx, JSSetUseCounterCallback callback)
+{
+    cx->runtime()->setUseCounterCallback(cx->runtime(), callback);
 }
 
 JS_FRIEND_API(JSObject*)

@@ -1279,7 +1279,11 @@ class Install(MachCommandBase):
 @SettingsProvider
 class RunSettings():
     config_settings = [
-        ('runprefs.*', 'string'),
+        ('runprefs.*', 'string', """
+Pass a pref into Firefox when using `mach run`, of the form `foo.bar=value`.
+Prefs will automatically be cast into the appropriate type. Integers can be
+single quoted to force them to be strings.
+""".strip()),
     ]
 
 @CommandProvider
@@ -1802,7 +1806,7 @@ class PackageFrontend(MachCommandBase):
             cache_dir = os.path.join(self._mach_context.state_dir, 'toolchains')
 
         tooltool_url = (tooltool_url or
-                        'https://api.pub.build.mozilla.org/tooltool').rstrip('/')
+                        'https://tooltool.mozilla-releng.net').rstrip('/')
 
         cache = ArtifactCache(cache_dir=cache_dir, log=self.log,
                               skip_cache=skip_cache)
@@ -2068,6 +2072,8 @@ class Vendor(MachCommandBase):
                 description='Vendor av1 video codec reference implementation into the source repository.')
     @CommandArgument('-r', '--revision',
         help='Repository tag or commit to update to.')
+    @CommandArgument('--repo',
+        help='Repository url to pull a snapshot from. Supports github and googlesource.')
     @CommandArgument('--ignore-modified', action='store_true',
         help='Ignore modified files in current checkout',
         default=False)

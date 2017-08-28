@@ -195,9 +195,7 @@ js::SetPropertyIgnoringNamedGetter(JSContext* cx, HandleObject obj, HandleId id,
         RootedObject receiverObj(cx, &receiver.toObject());
 
         // Nonstandard SpiderMonkey special case: setter ops.
-        SetterOp setter = ownDesc.setter();
-        MOZ_ASSERT(setter != JS_StrictPropertyStub);
-        if (setter && setter != JS_StrictPropertyStub) {
+        if (SetterOp setter = ownDesc.setter()) {
             RootedValue valCopy(cx, v);
             return CallJSSetterOp(cx, setter, receiverObj, id, &valCopy, result);
         }
@@ -225,13 +223,7 @@ js::SetPropertyIgnoringNamedGetter(JSContext* cx, HandleObject obj, HandleId id,
             ? JSPROP_IGNORE_ENUMERATE | JSPROP_IGNORE_READONLY | JSPROP_IGNORE_PERMANENT
             : JSPROP_ENUMERATE;
 
-        // A very old nonstandard SpiderMonkey extension: default to the Class
-        // getter and setter ops.
-        const Class* clasp = receiverObj->getClass();
-        MOZ_ASSERT(clasp->getGetProperty() != JS_PropertyStub);
-        MOZ_ASSERT(clasp->getSetProperty() != JS_StrictPropertyStub);
-        return DefineProperty(cx, receiverObj, id, v,
-                              clasp->getGetProperty(), clasp->getSetProperty(), attrs, result);
+        return DefineProperty(cx, receiverObj, id, v, nullptr, nullptr, attrs, result);
     }
 
     // Step 6.

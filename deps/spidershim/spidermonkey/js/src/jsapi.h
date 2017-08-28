@@ -883,15 +883,11 @@ static const uint8_t JSPROP_SHARED =           0x40;
 /* internal JS engine use only */
 static const uint8_t JSPROP_INTERNAL_USE_BIT = 0x80;
 
-/* use JS_PropertyStub getter/setter instead of defaulting to class gsops for
-   property holding function */
-static const unsigned JSFUN_STUB_GSOPS =      0x200;
-
 /* native that can be called as a ctor */
 static const unsigned JSFUN_CONSTRUCTOR =     0x400;
 
 /* | of all the JSFUN_* flags */
-static const unsigned JSFUN_FLAGS_MASK =      0x600;
+static const unsigned JSFUN_FLAGS_MASK =      0x400;
 
 /*
  * If set, will allow redefining a non-configurable property, but only on a
@@ -2108,14 +2104,6 @@ GetFirstArgumentAsTypeHint(JSContext* cx, CallArgs args, JSType *result);
 
 } /* namespace JS */
 
-extern JS_PUBLIC_API(bool)
-JS_PropertyStub(JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-                JS::MutableHandleValue vp);
-
-extern JS_PUBLIC_API(bool)
-JS_StrictPropertyStub(JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-                      JS::MutableHandleValue vp, JS::ObjectOpResult& result);
-
 template<typename T>
 struct JSConstScalarSpec {
     const char* name;
@@ -2265,10 +2253,6 @@ inline int CheckIsSetterOp(JSSetterOp op);
   (static_cast<void>(sizeof(JS::detail::CheckIsSetterOp(v))), \
    reinterpret_cast<JSNative>(v))
 
-#define JS_STUBGETTER JS_PROPERTYOP_GETTER(JS_PropertyStub)
-
-#define JS_STUBSETTER JS_PROPERTYOP_SETTER(JS_StrictPropertyStub)
-
 #define JS_PS_ACCESSOR_SPEC(name, getter, setter, flags, extraFlags) \
     { name, uint8_t(JS_CHECK_ACCESSOR_FLAGS(flags) | extraFlags), \
       { {  getter, setter  } } }
@@ -2331,29 +2315,25 @@ struct JSFunctionSpec {
  * Terminating sentinel initializer to put at the end of a JSFunctionSpec array
  * that's passed to JS_DefineFunctions or JS_InitClass.
  */
-#define JS_FS_END JS_FS(nullptr,nullptr,0,0)
+#define JS_FS_END JS_FN(nullptr,nullptr,0,0)
 
 /*
- * Initializer macros for a JSFunctionSpec array element. JS_FN (whose name pays
- * homage to the old JSNative/JSFastNative split) simply adds the flag
- * JSFUN_STUB_GSOPS. JS_FNINFO allows the simple adding of
- * JSJitInfos. JS_SELF_HOSTED_FN declares a self-hosted function.
- * JS_INLINABLE_FN allows specifying an InlinableNative enum value for natives
- * inlined or specialized by the JIT. Finally JS_FNSPEC has slots for all the
- * fields.
+ * Initializer macros for a JSFunctionSpec array element. JS_FNINFO allows the
+ * simple adding of JSJitInfos. JS_SELF_HOSTED_FN declares a self-hosted
+ * function. JS_INLINABLE_FN allows specifying an InlinableNative enum value for
+ * natives inlined or specialized by the JIT. Finally JS_FNSPEC has slots for
+ * all the fields.
  *
  * The _SYM variants allow defining a function with a symbol key rather than a
  * string key. For example, use JS_SYM_FN(iterator, ...) to define an
  * @@iterator method.
  */
-#define JS_FS(name,call,nargs,flags)                                          \
-    JS_FNSPEC(name, call, nullptr, nargs, flags, nullptr)
 #define JS_FN(name,call,nargs,flags)                                          \
-    JS_FNSPEC(name, call, nullptr, nargs, (flags) | JSFUN_STUB_GSOPS, nullptr)
+    JS_FNSPEC(name, call, nullptr, nargs, flags, nullptr)
 #define JS_INLINABLE_FN(name,call,nargs,flags,native)                         \
-    JS_FNSPEC(name, call, &js::jit::JitInfo_##native, nargs, (flags) | JSFUN_STUB_GSOPS, nullptr)
+    JS_FNSPEC(name, call, &js::jit::JitInfo_##native, nargs, flags, nullptr)
 #define JS_SYM_FN(symbol,call,nargs,flags)                                    \
-    JS_SYM_FNSPEC(symbol, call, nullptr, nargs, (flags) | JSFUN_STUB_GSOPS, nullptr)
+    JS_SYM_FNSPEC(symbol, call, nullptr, nargs, flags, nullptr)
 #define JS_FNINFO(name,call,info,nargs,flags)                                 \
     JS_FNSPEC(name, call, info, nargs, flags, nullptr)
 #define JS_SELF_HOSTED_FN(name,selfHostedName,nargs,flags)                    \
@@ -2913,8 +2893,6 @@ class WrappedPtrOperations<JS::PropertyDescriptor, Wrapper>
             MOZ_ASSERT(!hasAll(JSPROP_IGNORE_READONLY | JSPROP_READONLY));
             MOZ_ASSERT_IF(has(JSPROP_IGNORE_VALUE), value().isUndefined());
         }
-        MOZ_ASSERT(getter() != JS_PropertyStub);
-        MOZ_ASSERT(setter() != JS_StrictPropertyStub);
 
         MOZ_ASSERT_IF(has(JSPROP_RESOLVING), !has(JSPROP_IGNORE_ENUMERATE));
         MOZ_ASSERT_IF(has(JSPROP_RESOLVING), !has(JSPROP_IGNORE_PERMANENT));
@@ -2965,9 +2943,6 @@ class MutableWrappedPtrOperations<JS::PropertyDescriptor, Wrapper>
 
     void initFields(JS::HandleObject obj, JS::HandleValue v, unsigned attrs,
                     JSGetterOp getterOp, JSSetterOp setterOp) {
-        MOZ_ASSERT(getterOp != JS_PropertyStub);
-        MOZ_ASSERT(setterOp != JS_StrictPropertyStub);
-
         object().set(obj);
         value().set(v);
         setAttributes(attrs);
@@ -3028,11 +3003,9 @@ class MutableWrappedPtrOperations<JS::PropertyDescriptor, Wrapper>
     void setAttributes(unsigned attrs) { desc().attrs = attrs; }
 
     void setGetter(JSGetterOp op) {
-        MOZ_ASSERT(op != JS_PropertyStub);
         desc().getter = op;
     }
     void setSetter(JSSetterOp op) {
-        MOZ_ASSERT(op != JS_StrictPropertyStub);
         desc().setter = op;
     }
     void setGetterObject(JSObject* obj) {
@@ -4655,45 +4628,59 @@ extern JS_PUBLIC_API(JS::Value)
 GetModuleHostDefinedField(JSObject* module);
 
 /*
- * Perform the ModuleDeclarationInstantiation operation on on the give source
- * text module record.
+ * Perform the ModuleInstantiate operation on the given source text module
+ * record.
  *
  * This transitively resolves all module dependencies (calling the
  * HostResolveImportedModule hook) and initializes the environment record for
  * the module.
  */
 extern JS_PUBLIC_API(bool)
-ModuleDeclarationInstantiation(JSContext* cx, JS::HandleObject moduleRecord);
+ModuleInstantiate(JSContext* cx, JS::HandleObject moduleRecord);
 
 /*
- * Perform the ModuleEvaluation operation on on the give source text module
- * record.
+ * Perform the ModuleEvaluate operation on the given source text module record.
  *
  * This does nothing if this module has already been evaluated. Otherwise, it
  * transitively evaluates all dependences of this module and then evaluates this
  * module.
  *
- * ModuleDeclarationInstantiation must have completed prior to calling this.
+ * ModuleInstantiate must have completed prior to calling this.
  */
 extern JS_PUBLIC_API(bool)
-ModuleEvaluation(JSContext* cx, JS::HandleObject moduleRecord);
+ModuleEvaluate(JSContext* cx, JS::HandleObject moduleRecord);
 
 /*
  * Get a list of the module specifiers used by a source text module
  * record to request importation of modules.
  *
- * The result is a JavaScript array of string values.  To extract the individual
- * values use only JS_GetArrayLength and JS_GetElement with indices 0 to
- * length - 1.
+ * The result is a JavaScript array of object values.  To extract the individual
+ * values use only JS_GetArrayLength and JS_GetElement with indices 0 to length
+ * - 1.
+ *
+ * The element values are objects with the following properties:
+ *  - moduleSpecifier: the module specifier string
+ *  - lineNumber: the line number of the import in the source text
+ *  - columnNumber: the column number of the import in the source text
+ *
+ * These property values can be extracted with GetRequestedModuleSpecifier() and
+ * GetRequestedModuleSourcePos()
  */
 extern JS_PUBLIC_API(JSObject*)
 GetRequestedModules(JSContext* cx, JS::HandleObject moduleRecord);
 
-/*
- * Get the script associated with a module.
- */
-extern JS_PUBLIC_API(JSScript*)
-GetModuleScript(JSContext* cx, JS::HandleObject moduleRecord);
+extern JS_PUBLIC_API(JSString*)
+GetRequestedModuleSpecifier(JSContext* cx, JS::HandleValue requestedModuleObject);
+
+extern JS_PUBLIC_API(void)
+GetRequestedModuleSourcePos(JSContext* cx, JS::HandleValue requestedModuleObject,
+                            uint32_t* lineNumber, uint32_t* columnNumber);
+
+extern JS_PUBLIC_API(bool)
+IsModuleErrored(JSObject* moduleRecord);
+
+extern JS_PUBLIC_API(JS::Value)
+GetModuleError(JSObject* moduleRecord);
 
 } /* namespace JS */
 

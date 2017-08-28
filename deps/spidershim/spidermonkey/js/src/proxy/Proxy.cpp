@@ -753,8 +753,6 @@ js::proxy_Construct(JSContext* cx, unsigned argc, Value* vp)
 const ClassOps js::ProxyClassOps = {
     nullptr,                 /* addProperty */
     nullptr,                 /* delProperty */
-    nullptr,                 /* getProperty */
-    nullptr,                 /* setProperty */
     nullptr,                 /* enumerate   */
     nullptr,                 /* newEnumerate */
     nullptr,                 /* resolve     */
@@ -833,7 +831,7 @@ js::InitProxyClass(JSContext* cx, HandleObject obj)
 
     if (!JS_DefineFunctions(cx, ctor, static_methods))
         return nullptr;
-    if (!JS_DefineProperty(cx, obj, "Proxy", ctor, JSPROP_RESOLVING, JS_STUBGETTER, JS_STUBSETTER))
+    if (!JS_DefineProperty(cx, obj, "Proxy", ctor, JSPROP_RESOLVING))
         return nullptr;
 
     global->setConstructor(JSProto_Proxy, ObjectValue(*ctor));
