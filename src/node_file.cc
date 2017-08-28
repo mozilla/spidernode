@@ -244,13 +244,7 @@ void After(uv_fs_t *req) {
                                    req_wrap->encoding_,
                                    &error);
         if (link.IsEmpty()) {
-          // TODO(addaleax): Use `error` itself here.
-          argv[0] = UVException(env->isolate(),
-                                UV_EINVAL,
-                                req_wrap->syscall(),
-                                "Invalid character encoding for filename",
-                                req->path,
-                                req_wrap->data());
+          argv[0] = error;
         } else {
           argv[1] = link.ToLocalChecked();
         }
@@ -263,13 +257,7 @@ void After(uv_fs_t *req) {
                                    req_wrap->encoding_,
                                    &error);
         if (link.IsEmpty()) {
-          // TODO(addaleax): Use `error` itself here.
-          argv[0] = UVException(env->isolate(),
-                                UV_EINVAL,
-                                req_wrap->syscall(),
-                                "Invalid character encoding for link",
-                                req->path,
-                                req_wrap->data());
+          argv[0] = error;
         } else {
           argv[1] = link.ToLocalChecked();
         }
@@ -281,13 +269,7 @@ void After(uv_fs_t *req) {
                                    req_wrap->encoding_,
                                    &error);
         if (link.IsEmpty()) {
-          // TODO(addaleax): Use `error` itself here.
-          argv[0] = UVException(env->isolate(),
-                                UV_EINVAL,
-                                req_wrap->syscall(),
-                                "Invalid character encoding for link",
-                                req->path,
-                                req_wrap->data());
+          argv[0] = error;
         } else {
           argv[1] = link.ToLocalChecked();
         }
@@ -326,13 +308,7 @@ void After(uv_fs_t *req) {
                                     req_wrap->encoding_,
                                     &error);
             if (filename.IsEmpty()) {
-              // TODO(addaleax): Use `error` itself here.
-              argv[0] = UVException(env->isolate(),
-                                    UV_EINVAL,
-                                    req_wrap->syscall(),
-                                    "Invalid character encoding for filename",
-                                    req->path,
-                                    req_wrap->data());
+              argv[0] = error;
               break;
             }
             name_argv[name_idx++] = filename.ToLocalChecked();
@@ -711,11 +687,8 @@ static void ReadLink(const FunctionCallbackInfo<Value>& args) {
                                                encoding,
                                                &error);
     if (rc.IsEmpty()) {
-      // TODO(addaleax): Use `error` itself here.
-      return env->ThrowUVException(UV_EINVAL,
-                                   "readlink",
-                                   "Invalid character encoding for link",
-                                   *path);
+      env->isolate()->ThrowException(error);
+      return;
     }
     args.GetReturnValue().Set(rc.ToLocalChecked());
   }
@@ -886,11 +859,8 @@ static void RealPath(const FunctionCallbackInfo<Value>& args) {
                                                encoding,
                                                &error);
     if (rc.IsEmpty()) {
-      // TODO(addaleax): Use `error` itself here.
-      return env->ThrowUVException(UV_EINVAL,
-                                   "realpath",
-                                   "Invalid character encoding for path",
-                                   *path);
+      env->isolate()->ThrowException(error);
+      return;
     }
     args.GetReturnValue().Set(rc.ToLocalChecked());
   }
@@ -940,11 +910,8 @@ static void ReadDir(const FunctionCallbackInfo<Value>& args) {
                                                        encoding,
                                                        &error);
       if (filename.IsEmpty()) {
-        // TODO(addaleax): Use `error` itself here.
-        return env->ThrowUVException(UV_EINVAL,
-                                     "readdir",
-                                     "Invalid character encoding for filename",
-                                     *path);
+        env->isolate()->ThrowException(error);
+        return;
       }
 
       name_v[name_idx++] = filename.ToLocalChecked();
@@ -1405,11 +1372,8 @@ static void Mkdtemp(const FunctionCallbackInfo<Value>& args) {
     MaybeLocal<Value> rc =
         StringBytes::Encode(env->isolate(), path, encoding, &error);
     if (rc.IsEmpty()) {
-      // TODO(addaleax): Use `error` itself here.
-      return env->ThrowUVException(UV_EINVAL,
-                                   "mkdtemp",
-                                   "Invalid character encoding for filename",
-                                   *tmpl);
+      env->isolate()->ThrowException(error);
+      return;
     }
     args.GetReturnValue().Set(rc.ToLocalChecked());
   }
@@ -1483,10 +1447,11 @@ void InitFs(Local<Object> target,
   Local<FunctionTemplate> fst =
       FunctionTemplate::New(env->isolate(), NewFSReqWrap);
   fst->InstanceTemplate()->SetInternalFieldCount(1);
-  env->SetProtoMethod(fst, "getAsyncId", AsyncWrap::GetAsyncId);
-  fst->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "FSReqWrap"));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "FSReqWrap"),
-              fst->GetFunction());
+  AsyncWrap::AddWrapMethods(env, fst);
+  Local<String> wrapString =
+      FIXED_ONE_BYTE_STRING(env->isolate(), "FSReqWrap");
+  fst->SetClassName(wrapString);
+  target->Set(wrapString, fst->GetFunction());
 }
 
 }  // end namespace node

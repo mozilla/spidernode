@@ -1,5 +1,7 @@
 # Crypto
 
+<!--introduced_in=v0.3.6-->
+
 > Stability: 2 - Stable
 
 The `crypto` module provides cryptographic functionality that includes a set of
@@ -1198,7 +1200,11 @@ rapidly.
 In line with OpenSSL's recommendation to use pbkdf2 instead of
 [`EVP_BytesToKey`][] it is recommended that developers derive a key and IV on
 their own using [`crypto.pbkdf2()`][] and to use [`crypto.createCipheriv()`][]
-to create the `Cipher` object.
+to create the `Cipher` object. Users should not use ciphers with counter mode
+(e.g. CTR, GCM or CCM) in `crypto.createCipher()`. A warning is emitted when
+they are used in order to avoid the risk of IV reuse that causes
+vulnerabilities. For the case when IV is reused in GCM, see [Nonce-Disrespecting
+Adversaries][] for details.
 
 ### crypto.createCipheriv(algorithm, key, iv)
 - `algorithm` {string}
@@ -1555,6 +1561,10 @@ crypto.pbkdf2('secret', 'salt', 100000, 512, 'sha512', (err, derivedKey) => {
 An array of supported digest functions can be retrieved using
 [`crypto.getHashes()`][].
 
+Note that this API uses libuv's threadpool, which can have surprising and
+negative performance implications for some applications, see the
+[`UV_THREADPOOL_SIZE`][] documentation for more information.
+
 ### crypto.pbkdf2Sync(password, salt, iterations, keylen, digest)
 <!-- YAML
 added: v0.9.3
@@ -1713,10 +1723,15 @@ console.log(
   `${buf.length} bytes of random data: ${buf.toString('hex')}`);
 ```
 
-The `crypto.randomBytes()` method will block until there is sufficient entropy.
+The `crypto.randomBytes()` method will not complete until there is
+sufficient entropy available.
 This should normally never take longer than a few milliseconds. The only time
 when generating the random bytes may conceivably block for a longer period of
 time is right after boot, when the whole system is still low on entropy.
+
+Note that this API uses libuv's threadpool, which can have surprising and
+negative performance implications for some applications, see the
+[`UV_THREADPOOL_SIZE`][] documentation for more information.
 
 ### crypto.randomFillSync(buffer[, offset][, size])
 <!-- YAML
@@ -1777,6 +1792,10 @@ crypto.randomFill(buf, 5, 5, (err, buf) => {
   console.log(buf.toString('hex'));
 });
 ```
+
+Note that this API uses libuv's threadpool, which can have surprising and
+negative performance implications for some applications, see the
+[`UV_THREADPOOL_SIZE`][] documentation for more information.
 
 ### crypto.setEngine(engine[, flags])
 <!-- YAML
@@ -2203,6 +2222,7 @@ the `crypto`, `tls`, and `https` modules and are generally specific to OpenSSL.
 
 [`Buffer`]: buffer.html
 [`EVP_BytesToKey`]: https://www.openssl.org/docs/man1.0.2/crypto/EVP_BytesToKey.html
+[`UV_THREADPOOL_SIZE`]: cli.html#cli_uv_threadpool_size_size
 [`cipher.final()`]: #crypto_cipher_final_outputencoding
 [`cipher.update()`]: #crypto_cipher_update_data_inputencoding_outputencoding
 [`crypto.createCipher()`]: #crypto_crypto_createcipher_algorithm_password
@@ -2240,6 +2260,7 @@ the `crypto`, `tls`, and `https` modules and are generally specific to OpenSSL.
 [HTML5's `keygen` element]: http://www.w3.org/TR/html5/forms.html#the-keygen-element
 [NIST SP 800-131A]: http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-131Ar1.pdf
 [NIST SP 800-132]: http://csrc.nist.gov/publications/nistpubs/800-132/nist-sp800-132.pdf
+[Nonce-Disrespecting Adversaries]: https://github.com/nonce-disrespect/nonce-disrespect
 [OpenSSL's SPKAC implementation]: https://www.openssl.org/docs/man1.0.2/apps/spkac.html
 [RFC 2412]: https://www.rfc-editor.org/rfc/rfc2412.txt
 [RFC 3526]: https://www.rfc-editor.org/rfc/rfc3526.txt

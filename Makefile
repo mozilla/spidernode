@@ -192,6 +192,10 @@ v8:
 	tools/make-v8.sh
 	$(MAKE) -C deps/v8 $(V8_ARCH).$(BUILDTYPE_LOWER) $(V8_BUILD_OPTIONS)
 
+ifeq ($(NODE_TARGET_TYPE),static_library)
+test: all
+	$(MAKE) cctest
+else
 test: all
 	$(MAKE) build-addons
 	$(MAKE) build-addons-napi
@@ -200,6 +204,7 @@ test: all
 		$(CI_JS_SUITES) \
 		$(CI_NATIVE_SUITES)
 	$(MAKE) lint
+endif
 
 test-parallel: all
 	$(PYTHON) tools/test.py --mode=release parallel -J
@@ -328,7 +333,7 @@ test-all-valgrind: test-build
 	$(PYTHON) tools/test.py --mode=debug,release --valgrind
 
 CI_NATIVE_SUITES := addons addons-napi
-CI_JS_SUITES := async-hooks doctool inspector known_issues message parallel pseudo-tty sequential
+CI_JS_SUITES := abort async-hooks doctool inspector known_issues message parallel pseudo-tty sequential
 
 # Build and test addons without building anything else
 test-ci-native: LOGLEVEL := info

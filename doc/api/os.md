@@ -1,5 +1,7 @@
 # OS
 
+<!--introduced_in=v0.10.0-->
+
 > Stability: 2 - Stable
 
 The `os` module provides a number of operating system-related utility methods.
@@ -46,7 +48,7 @@ added: v6.3.0
 
 Returns an object containing commonly used operating system specific constants
 for error codes, process signals, and so on. The specific constants currently
-defined are described in [OS Constants][].
+defined are described in [OS Constants](#os_os_constants_1).
 
 ## os.cpus()
 <!-- YAML

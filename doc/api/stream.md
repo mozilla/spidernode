@@ -1,5 +1,7 @@
 # Stream
 
+<!--introduced_in=v0.10.0-->
+
 > Stability: 2 - Stable
 
 A stream is an abstract interface for working with streaming data in Node.js.
@@ -894,7 +896,7 @@ in object mode.
 The optional `size` argument specifies a specific number of bytes to read. If
 `size` bytes are not available to be read, `null` will be returned *unless*
 the stream has ended, in which case all of the data remaining in the internal
-buffer will be returned (*even if it exceeds `size` bytes*).
+buffer will be returned.
 
 If the `size` argument is not specified, all of the data contained in the
 internal buffer will be returned.
@@ -1445,9 +1447,9 @@ added: v8.0.0
 -->
 
 * `callback` {Function} Call this function (optionally with an error
-  argument) when you are done writing any remaining data.
+  argument) when finished writing any remaining data.
 
-Note: `_final()` **must not** be called directly.  It MAY be implemented
+The `_final()` method **must not** be called directly. It may be implemented
 by child classes, and if so, will be called by the internal Writable
 class methods only.
 

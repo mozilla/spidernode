@@ -362,6 +362,9 @@ NAPI_EXTERN napi_status napi_wrap(napi_env env,
 NAPI_EXTERN napi_status napi_unwrap(napi_env env,
                                     napi_value js_object,
                                     void** result);
+NAPI_EXTERN napi_status napi_remove_wrap(napi_env env,
+                                         napi_value js_object,
+                                         void** result);
 NAPI_EXTERN napi_status napi_create_external(napi_env env,
                                              void* data,
                                              napi_finalize finalize_cb,
@@ -539,6 +542,20 @@ NAPI_EXTERN napi_status napi_get_version(napi_env env, uint32_t* result);
 NAPI_EXTERN
 napi_status napi_get_node_version(napi_env env,
                                   const napi_node_version** version);
+
+// Promises
+NAPI_EXTERN napi_status napi_create_promise(napi_env env,
+                                            napi_deferred* deferred,
+                                            napi_value* promise);
+NAPI_EXTERN napi_status napi_resolve_deferred(napi_env env,
+                                              napi_deferred deferred,
+                                              napi_value resolution);
+NAPI_EXTERN napi_status napi_reject_deferred(napi_env env,
+                                             napi_deferred deferred,
+                                             napi_value rejection);
+NAPI_EXTERN napi_status napi_is_promise(napi_env env,
+                                        napi_value promise,
+                                        bool* is_promise);
 
 EXTERN_C_END
 
