@@ -45,7 +45,7 @@ set enable_static=
 set build_addons_napi=
 set test_node_inspect=
 set test_check_deopts=
-set js_test_suites=async-hooks inspector known_issues message parallel sequential
+set js_test_suites=abort async-hooks inspector known_issues message parallel sequential
 set v8_test_options=
 set v8_build_options=
 set "common_test_suites=%js_test_suites% doctool addons addons-napi&set build_addons=1&set build_addons_napi=1"
@@ -305,6 +305,10 @@ copy /Y ..\deps\npm\bin\npm node-v%FULLVERSION%-win-%target_arch%\ > nul
 if errorlevel 1 echo Cannot copy npm && goto package_error
 copy /Y ..\deps\npm\bin\npm.cmd node-v%FULLVERSION%-win-%target_arch%\ > nul
 if errorlevel 1 echo Cannot copy npm.cmd && goto package_error
+copy /Y ..\deps\npm\bin\npx node-v%FULLVERSION%-win-%target_arch%\ > nul
+if errorlevel 1 echo Cannot copy npx && goto package_error
+copy /Y ..\deps\npm\bin\npx.cmd node-v%FULLVERSION%-win-%target_arch%\ > nul
+if errorlevel 1 echo Cannot copy npx.cmd && goto package_error
 copy /Y ..\tools\msvs\nodevars.bat node-v%FULLVERSION%-win-%target_arch%\ > nul
 if errorlevel 1 echo Cannot copy nodevars.bat && goto package_error
 if not defined noetw (

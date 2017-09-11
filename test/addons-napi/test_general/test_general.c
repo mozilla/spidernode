@@ -1,4 +1,5 @@
 #include <node_api.h>
+#include <stdlib.h>
 #include "../common.h"
 
 napi_value testStrictEquals(napi_env env, napi_callback_info info) {
@@ -205,12 +206,34 @@ napi_value finalize_was_called(napi_env env, napi_callback_info info) {
   return it_was_called;
 }
 
+napi_value testAdjustExternalMemory(napi_env env, napi_callback_info info) {
+  napi_value result;
+  int64_t adjustedValue;
+
+  NAPI_CALL(env, napi_adjust_external_memory(env, 1, &adjustedValue));
+  NAPI_CALL(env, napi_create_double(env, adjustedValue, &result));
+
+  return result;
+}
+
+napi_value testNapiRun(napi_env env, napi_callback_info info) {
+  napi_value script, result;
+  size_t argc = 1;
+
+  NAPI_CALL(env, napi_get_cb_info(env, info, &argc, &script, NULL, NULL));
+
+  NAPI_CALL(env, napi_run_script(env, script, &result));
+
+  return result;
+}
+
 void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
   napi_property_descriptor descriptors[] = {
     DECLARE_NAPI_PROPERTY("testStrictEquals", testStrictEquals),
     DECLARE_NAPI_PROPERTY("testGetPrototype", testGetPrototype),
     DECLARE_NAPI_PROPERTY("testGetVersion", testGetVersion),
     DECLARE_NAPI_PROPERTY("testGetNodeVersion", testGetNodeVersion),
+    DECLARE_NAPI_PROPERTY("testNapiRun", testNapiRun),
     DECLARE_NAPI_PROPERTY("doInstanceOf", doInstanceOf),
     DECLARE_NAPI_PROPERTY("getUndefined", getUndefined),
     DECLARE_NAPI_PROPERTY("getNull", getNull),
@@ -222,10 +245,11 @@ void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
     DECLARE_NAPI_PROPERTY("testFinalizeWrap", test_finalize_wrap),
     DECLARE_NAPI_PROPERTY("finalizeWasCalled", finalize_was_called),
     DECLARE_NAPI_PROPERTY("derefItemWasCalled", deref_item_was_called),
+    DECLARE_NAPI_PROPERTY("testAdjustExternalMemory", testAdjustExternalMemory)
   };
 
   NAPI_CALL_RETURN_VOID(env, napi_define_properties(
     env, exports, sizeof(descriptors) / sizeof(*descriptors), descriptors));
 }
 
-NAPI_MODULE(addon, Init)
+NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)

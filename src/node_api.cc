@@ -3213,6 +3213,19 @@ napi_status napi_get_node_version(napi_env env,
   return napi_clear_last_error(env);
 }
 
+napi_status napi_adjust_external_memory(napi_env env,
+                                        int64_t change_in_bytes,
+                                        int64_t* adjusted_value) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, &change_in_bytes);
+  CHECK_ARG(env, adjusted_value);
+
+  *adjusted_value = env->isolate->AdjustAmountOfExternalAllocatedMemory(
+      change_in_bytes);
+
+  return napi_clear_last_error(env);
+}
+
 namespace uvimpl {
 
 static napi_status ConvertUVErrorCode(int code) {
@@ -3409,4 +3422,31 @@ NAPI_EXTERN napi_status napi_is_promise(napi_env env,
   *is_promise = v8impl::V8LocalValueFromJsValue(promise)->IsPromise();
 
   return napi_clear_last_error(env);
+}
+
+NAPI_EXTERN napi_status napi_run_script(napi_env env,
+                                        napi_value script,
+                                        napi_value* result) {
+  NAPI_PREAMBLE(env);
+  CHECK_ARG(env, script);
+  CHECK_ARG(env, result);
+
+  v8::Local<v8::Value> v8_script = v8impl::V8LocalValueFromJsValue(script);
+
+  if (!v8_script->IsString()) {
+    return napi_set_last_error(env, napi_string_expected);
+  }
+
+  v8::Local<v8::Context> context = env->isolate->GetCurrentContext();
+
+  auto maybe_script = v8::Script::Compile(context,
+      v8::Local<v8::String>::Cast(v8_script));
+  CHECK_MAYBE_EMPTY(env, maybe_script, napi_generic_failure);
+
+  auto script_result =
+      maybe_script.ToLocalChecked()->Run(context);
+  CHECK_MAYBE_EMPTY(env, script_result, napi_generic_failure);
+
+  *result = v8impl::JsValueFromV8LocalValue(script_result.ToLocalChecked());
+  return GET_RETURN_STATUS(env);
 }

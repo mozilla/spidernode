@@ -420,6 +420,8 @@ http2_optgroup.add_option('--debug-nghttp2',
     dest='debug_nghttp2',
     help='build nghttp2 with DEBUGBUILD (default is false)')
 
+parser.add_option_group(http2_optgroup)
+
 parser.add_option('--with-perfctr',
     action='store_true',
     dest='with_perfctr',
@@ -872,8 +874,6 @@ def configure_node(o):
   want_snapshots = not options.without_snapshot
   o['variables']['want_separate_host_toolset'] = int(
       cross_compiling and want_snapshots)
-  o['variables']['want_separate_host_toolset_mkpeephole'] = int(
-      cross_compiling)
 
   if target_arch == 'arm':
     configure_arm(o)

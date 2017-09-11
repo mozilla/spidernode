@@ -3349,10 +3349,10 @@ void CipherBase::Init(const char* cipher_type,
                        cipher_type);
   }
 
-  if (!EVP_CIPHER_CTX_set_key_length(&ctx_, key_len)) {
-    EVP_CIPHER_CTX_cleanup(&ctx_);
-    return env()->ThrowError("Invalid key length");
-  }
+  if (mode == EVP_CIPH_WRAP_MODE)
+    EVP_CIPHER_CTX_set_flags(&ctx_, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
+
+  CHECK_EQ(1, EVP_CIPHER_CTX_set_key_length(&ctx_, key_len));
 
   EVP_CipherInit_ex(&ctx_,
                     nullptr,
@@ -3396,13 +3396,18 @@ void CipherBase::InitIv(const char* cipher_type,
   }
 
   const int expected_iv_len = EVP_CIPHER_iv_length(cipher);
-  const bool is_gcm_mode = (EVP_CIPH_GCM_MODE == EVP_CIPHER_mode(cipher));
+  const int mode = EVP_CIPHER_mode(cipher);
+  const bool is_gcm_mode = (EVP_CIPH_GCM_MODE == mode);
 
   if (is_gcm_mode == false && iv_len != expected_iv_len) {
     return env()->ThrowError("Invalid IV length");
   }
 
   EVP_CIPHER_CTX_init(&ctx_);
+
+  if (mode == EVP_CIPH_WRAP_MODE)
+    EVP_CIPHER_CTX_set_flags(&ctx_, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
+
   const bool encrypt = (kind_ == kCipher);
   EVP_CipherInit_ex(&ctx_, cipher, nullptr, nullptr, nullptr, encrypt);
 
@@ -3976,7 +3981,8 @@ void SignBase::CheckThrow(SignBase::Error error) {
 
 static bool ApplyRSAOptions(EVP_PKEY* pkey, EVP_PKEY_CTX* pkctx, int padding,
                             int salt_len) {
-  if (pkey->type == EVP_PKEY_RSA || pkey->type == EVP_PKEY_RSA2) {
+  if (EVP_PKEY_id(pkey) == EVP_PKEY_RSA ||
+      EVP_PKEY_id(pkey) == EVP_PKEY_RSA2) {
     if (EVP_PKEY_CTX_set_rsa_padding(pkctx, padding) <= 0)
       return false;
     if (padding == RSA_PKCS1_PSS_PADDING) {
@@ -4085,33 +4091,23 @@ static int Node_SignFinal(EVP_MD_CTX* mdctx, unsigned char* md,
   if (!EVP_DigestFinal_ex(mdctx, m, &m_len))
     return rv;
 
-  if (mdctx->digest->flags & EVP_MD_FLAG_PKEY_METHOD_SIGNATURE) {
-    size_t sltmp = static_cast<size_t>(EVP_PKEY_size(pkey));
-    pkctx = EVP_PKEY_CTX_new(pkey, nullptr);
-    if (pkctx == nullptr)
-      goto err;
-    if (EVP_PKEY_sign_init(pkctx) <= 0)
-      goto err;
-    if (!ApplyRSAOptions(pkey, pkctx, padding, pss_salt_len))
-      goto err;
-    if (EVP_PKEY_CTX_set_signature_md(pkctx, mdctx->digest) <= 0)
-      goto err;
-    if (EVP_PKEY_sign(pkctx, md, &sltmp, m, m_len) <= 0)
-      goto err;
-    *sig_len = sltmp;
-    rv = 1;
-   err:
-    EVP_PKEY_CTX_free(pkctx);
-    return rv;
-  }
-
-  if (mdctx->digest->sign == nullptr) {
-    EVPerr(EVP_F_EVP_SIGNFINAL, EVP_R_NO_SIGN_FUNCTION_CONFIGURED);
-    return 0;
-  }
-
-  return mdctx->digest->sign(mdctx->digest->type, m, m_len, md, sig_len,
-                             pkey->pkey.ptr);
+  size_t sltmp = static_cast<size_t>(EVP_PKEY_size(pkey));
+  pkctx = EVP_PKEY_CTX_new(pkey, nullptr);
+  if (pkctx == nullptr)
+    goto err;
+  if (EVP_PKEY_sign_init(pkctx) <= 0)
+    goto err;
+  if (!ApplyRSAOptions(pkey, pkctx, padding, pss_salt_len))
+    goto err;
+  if (EVP_PKEY_CTX_set_signature_md(pkctx, EVP_MD_CTX_md(mdctx)) <= 0)
+    goto err;
+  if (EVP_PKEY_sign(pkctx, md, &sltmp, m, m_len) <= 0)
+    goto err;
+  *sig_len = sltmp;
+  rv = 1;
+ err:
+  EVP_PKEY_CTX_free(pkctx);
+  return rv;
 }
 
 SignBase::Error Sign::SignFinal(const char* key_pem,
@@ -5608,13 +5604,13 @@ void RandomBytesProcessSync(Environment* env,
 void RandomBytes(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
-  if (!args[0]->IsUint32()) {
+  if (!args[0]->IsNumber() || args[0].As<v8::Number>()->Value() < 0) {
     return env->ThrowTypeError("size must be a number >= 0");
   }
 
   const int64_t size = args[0]->IntegerValue();
-  if (size < 0 || size > Buffer::kMaxLength)
-    return env->ThrowRangeError("size is not a valid Smi");
+  if (size > Buffer::kMaxLength)
+    return env->ThrowTypeError("size must be a uint32");
 
   Local<Object> obj = env->randombytes_constructor_template()->
       NewInstance(env->context()).ToLocalChecked();

@@ -20,6 +20,9 @@ An alias of [`assert.ok()`][].
 <!-- YAML
 added: v0.1.21
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15001
+    description: Error names and messages are now properly compared
   - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/12142
     description: Set and Map content is also compared
@@ -47,12 +50,12 @@ Only [enumerable "own" properties][] are considered. The
 non-enumerable properties — for such checks, consider using
 [`assert.deepStrictEqual()`][] instead. This can lead to some
 potentially surprising results. For example, the following example does not
-throw an `AssertionError` because the properties on the [`Error`][] object are
+throw an `AssertionError` because the properties on the [`RegExp`][] object are
 not enumerable:
 
 ```js
 // WARNING: This does not throw an AssertionError!
-assert.deepEqual(Error('a'), Error('b'));
+assert.deepEqual(/a/gi, new Date());
 ```
 
 An exception is made for [`Map`][] and [`Set`][]. Maps and Sets have their
@@ -104,6 +107,12 @@ parameter is undefined, a default error message is assigned.
 <!-- YAML
 added: v1.2.0
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15036
+    description: NaN is now compared using the [SameValueZero][] comparison.
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15001
+    description: Error names and messages are now properly compared
   - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/12142
     description: Set and Map content is also compared
@@ -123,9 +132,10 @@ changes:
 
 Generally identical to `assert.deepEqual()` with three exceptions:
 
-1. Primitive values are compared using the [Strict Equality Comparison][]
-  ( `===` ). Set values and Map keys are compared using the [SameValueZero][]
-  comparison. (Which means they are free of the [caveats][]).
+1. Primitive values besides `NaN` are compared using the [Strict Equality
+   Comparison][] ( `===` ). Set and Map values, Map keys and `NaN` are compared
+   using the [SameValueZero][] comparison (which means they are free of the
+   [caveats][]).
 2. [`[[Prototype]]`][prototype-spec] of objects are compared using
   the [Strict Equality Comparison][] too.
 3. [Type tags][Object.prototype.toString()] of objects should be the same.
@@ -158,6 +168,8 @@ assert.deepEqual(date, fakeDate);
 assert.deepStrictEqual(date, fakeDate);
 // AssertionError: 2017-03-11T14:25:31.849Z deepStrictEqual Date {}
 // Different type tags
+assert.deepStrictEqual(NaN, NaN);
+// OK, because of the SameValueZero comparison
 ```
 
 If the values are not equal, an `AssertionError` is thrown with a `message`
@@ -342,6 +354,22 @@ assert.ifError(new Error());
 ## assert.notDeepEqual(actual, expected[, message])
 <!-- YAML
 added: v0.1.21
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15001
+    description: Error names and messages are now properly compared
+  - version: v8.0.0
+    pr-url: https://github.com/nodejs/node/pull/12142
+    description: Set and Map content is also compared
+  - version: v6.4.0, v4.7.1
+    pr-url: https://github.com/nodejs/node/pull/8002
+    description: Typed array slices are handled correctly now.
+  - version: v6.1.0, v4.5.0
+    pr-url: https://github.com/nodejs/node/pull/6432
+    description: Objects with circular references can be used as inputs now.
+  - version: v5.10.1, v4.4.3
+    pr-url: https://github.com/nodejs/node/pull/5910
+    description: Handle non-`Uint8Array` typed arrays correctly.
 -->
 * `actual` {any}
 * `expected` {any}
@@ -389,6 +417,25 @@ parameter is undefined, a default error message is assigned.
 ## assert.notDeepStrictEqual(actual, expected[, message])
 <!-- YAML
 added: v1.2.0
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15036
+    description: NaN is now compared using the [SameValueZero][] comparison.
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/15001
+    description: Error names and messages are now properly compared
+  - version: v8.0.0
+    pr-url: https://github.com/nodejs/node/pull/12142
+    description: Set and Map content is also compared
+  - version: v6.4.0, v4.7.1
+    pr-url: https://github.com/nodejs/node/pull/8002
+    description: Typed array slices are handled correctly now.
+  - version: v6.1.0
+    pr-url: https://github.com/nodejs/node/pull/6432
+    description: Objects with circular references can be used as inputs now.
+  - version: v5.10.1, v4.4.3
+    pr-url: https://github.com/nodejs/node/pull/5910
+    description: Handle non-`Uint8Array` typed arrays correctly.
 -->
 * `actual` {any}
 * `expected` {any}

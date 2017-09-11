@@ -43,6 +43,7 @@ The documentation for N-API is structured as follows:
 * [Object Wrap][]
 * [Asynchronous Operations][]
 * [Promises][]
+* [Script Execution][]
 
 The N-API is a C API that ensures ABI stability across Node.js versions
 and different compiler levels. However, we also understand that a C++
@@ -877,7 +878,7 @@ except that instead of using the `NODE_MODULE` macro the following
 is used:
 
 ```C
-NAPI_MODULE(addon, Init)
+NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
 ```
 
 The next difference is the signature for the `Init` method. For a N-API
@@ -2874,7 +2875,7 @@ void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
   if (status != napi_ok) return;
 }
 
-NAPI_MODULE(addon, Init)
+NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
 ```
 
 Given the above code, the add-on can be used from JavaScript as follows:
@@ -3394,6 +3395,31 @@ support it:
 * If the function is not available, provide an alternate implementation
   that does not use the function.
 
+## Memory Management
+
+### napi_adjust_external_memory
+<!-- YAML
+added: REPLACEME
+-->
+```C
+NAPI_EXTERN napi_status napi_adjust_external_memory(napi_env env,
+                                                    int64_t change_in_bytes,
+                                                    int64_t* result);
+```
+
+- `[in] env`: The environment that the API is invoked under.
+- `[in] change_in_bytes`: The change in externally allocated memory that is
+kept alive by JavaScript objects.
+- `[out] result`: The adjusted value
+
+Returns `napi_ok` if the API succeeded.
+
+This function gives V8 an indication of the amount of externally allocated
+memory that is kept alive by JavaScript objects (i.e. a JavaScript object
+that points to its own memory allocated by a native module). Registering
+externally allocated memory will trigger global garbage collections more
+often than it would otherwise.
+
 <!-- it's very convenient to have all the anchors indexed -->
 <!--lint disable no-unused-definitions remark-lint-->
 ## Promises
@@ -3531,6 +3557,25 @@ NAPI_EXTERN napi_status napi_is_promise(napi_env env,
 - `[out] is_promise`: Flag indicating whether `promise` is a native promise
 object - that is, a promise object created by the underlying engine.
 
+## Script execution
+
+N-API provides an API for executing a string containing JavaScript using the
+underlying JavaScript engine.
+
+### napi_run_script
+<!-- YAML
+added: REPLACEME
+-->
+```C
+NAPI_EXTERN napi_status napi_run_script(napi_env env,
+                                        napi_value script,
+                                        napi_value* result);
+```
+
+- `[in] env`: The environment that the API is invoked under.
+- `[in] script`: A JavaScript string containing the script to execute.
+- `[out] result`: The value resulting from having executed the script.
+
 [Promises]: #n_api_promises
 [Asynchronous Operations]: #n_api_asynchronous_operations
 [Basic N-API Data Types]: #n_api_basic_n_api_data_types
@@ -3540,6 +3585,7 @@ object - that is, a promise object created by the underlying engine.
 [Native Abstractions for Node.js]: https://github.com/nodejs/nan
 [Object Lifetime Management]: #n_api_object_lifetime_management
 [Object Wrap]: #n_api_object_wrap
+[Script Execution]: #n_api_script_execution
 [Section 9.1.6]: https://tc39.github.io/ecma262/#sec-ordinary-object-internal-methods-and-internal-slots-defineownproperty-p-desc
 [Section 12.5.5]: https://tc39.github.io/ecma262/#sec-typeof-operator
 [Section 24.3]: https://tc39.github.io/ecma262/#sec-dataview-objects

@@ -19,7 +19,7 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-/* eslint-disable required-modules */
+/* eslint-disable required-modules, crypto-check */
 'use strict';
 const path = require('path');
 const fs = require('fs');
@@ -819,7 +819,12 @@ function hijackStdWritable(name, listener) {
 
   stream.writeTimes = 0;
   stream.write = function(data, callback) {
-    listener(data);
+    try {
+      listener(data);
+    } catch (e) {
+      process.nextTick(() => { throw e; });
+    }
+
     _write.call(stream, data, callback);
     stream.writeTimes++;
   };

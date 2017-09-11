@@ -92,6 +92,13 @@
       'lib/internal/http.js',
       'lib/internal/inspector_async_hook.js',
       'lib/internal/linkedlist.js',
+      'lib/internal/loader/Loader.js',
+      'lib/internal/loader/ModuleMap.js',
+      'lib/internal/loader/ModuleJob.js',
+      'lib/internal/loader/ModuleWrap.js',
+      'lib/internal/loader/resolveRequestUrl.js',
+      'lib/internal/loader/search.js',
+      'lib/internal/safe_globals.js',
       'lib/internal/net.js',
       'lib/internal/module.js',
       'lib/internal/os.js',
@@ -178,6 +185,7 @@
         'src/fs_event_wrap.cc',
         'src/handle_wrap.cc',
         'src/js_stream.cc',
+        'src/module_wrap.cc',
         'src/node.cc',
         'src/node_api.cc',
         'src/node_api.h',
@@ -231,6 +239,7 @@
         'src/env-inl.h',
         'src/handle_wrap.h',
         'src/js_stream.h',
+        'src/module_wrap.h',
         'src/node.h',
         'src/node_http2_core.h',
         'src/node_http2_core-inl.h',
@@ -668,7 +677,7 @@
       'conditions': [
         ['node_target_type!="static_library"', {
           'libraries': [
-	    '<(OBJ_GEN_PATH)<(OBJ_SEPARATOR)node_javascript.<(OBJ_SUFFIX)',
+            '<(OBJ_GEN_PATH)<(OBJ_SEPARATOR)node_javascript.<(OBJ_SUFFIX)',
             '<(OBJ_PATH)<(OBJ_SEPARATOR)node_debug_options.<(OBJ_SUFFIX)',
             '<(OBJ_PATH)<(OBJ_SEPARATOR)async-wrap.<(OBJ_SUFFIX)',
             '<(OBJ_PATH)<(OBJ_SEPARATOR)env.<(OBJ_SUFFIX)',

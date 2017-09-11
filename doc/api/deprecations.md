@@ -152,7 +152,7 @@ Type: Runtime
 explicitly via error event handlers set on the domain instead.
 
 <a id="DEP0013"></a>
-### DEP0013: fs async function without callback
+### DEP0013: fs asynchronous function without callback
 
 Type: Runtime
 
@@ -185,9 +185,10 @@ and should no longer be used.
 <a id="DEP0017"></a>
 ### DEP0017: Intl.v8BreakIterator
 
-Type: Runtime
+Type: End-of-Life
 
-The `Intl.v8BreakIterator` is deprecated and will be removed or replaced soon.
+`Intl.v8BreakIterator` was a non-standard extension and has been removed.
+See [`Intl.Segmenter`](https://github.com/tc39/proposal-intl-segmenter).
 
 <a id="DEP0018"></a>
 ### DEP0018: Unhandled promise rejections
@@ -201,7 +202,7 @@ code.
 <a id="DEP0019"></a>
 ### DEP0019: require('.') resolved outside directory
 
-Type: Runtime
+Type: End-of-Life
 
 In certain cases, `require('.')` may resolve outside the package directory.
 This behavior is deprecated and will be removed in a future major Node.js
@@ -660,6 +661,28 @@ Type: Runtime
 
 `REPLServer.parseREPLKeyword()` was removed from userland visibility.
 
+<a id="DEP00XX"></a>
+### DEP00XX: tls.parseCertString()
+
+Type: Documentation-only
+
+`tls.parseCertString()` is a trivial parsing helper that was made public by
+mistake. This function can usually be replaced with:
+
+```js
+const querystring = require('querystring');
+querystring.parse(str, '\n', '=');
+```
+
+*Note*: This function is not completely equivalent to `querystring.parse()`. One
+difference is that `querystring.parse()` does url encoding:
+
+```sh
+> querystring.parse('%E5%A5%BD=1', '\n', '=');
+{ '好': '1' }
+> tls.parseCertString('%E5%A5%BD=1');
+{ '%E5%A5%BD': '1' }
+```
 
 [`Buffer.allocUnsafeSlow(size)`]: buffer.html#buffer_class_method_buffer_allocunsafeslow_size
 [`Buffer.from(array)`]: buffer.html#buffer_class_method_buffer_from_array

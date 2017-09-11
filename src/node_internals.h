@@ -86,6 +86,10 @@ extern bool config_preserve_symlinks;
 
 // Set in node.cc by ParseArgs when --expose-http2 is used.
 extern bool config_expose_http2;
+// Set in node.cc by ParseArgs when --experimental-modules is used.
+// Used in node_config.cc to set a constant on process.binding('config')
+// that is used by lib/module.js
+extern bool config_experimental_modules;
 
 // Set in node.cc by ParseArgs when --expose-internals or --expose_internals is
 // used.
@@ -120,6 +124,14 @@ template <class TypeName>
 inline v8::Local<TypeName> PersistentToLocal(
     v8::Isolate* isolate,
     const v8::Persistent<TypeName>& persistent);
+
+// Creates a new context with Node.js-specific tweaks.  Currently, it removes
+// the `v8BreakIterator` property from the global `Intl` object if present.
+// See https://github.com/nodejs/node/issues/14909 for more info.
+v8::Local<v8::Context> NewContext(
+    v8::Isolate* isolate,
+    v8::Local<v8::ObjectTemplate> object_template =
+        v8::Local<v8::ObjectTemplate>());
 
 // Convert a struct sockaddr to a { address: '1.2.3.4', port: 1234 } JS object.
 // Sets address and port properties on the info object and returns it.
