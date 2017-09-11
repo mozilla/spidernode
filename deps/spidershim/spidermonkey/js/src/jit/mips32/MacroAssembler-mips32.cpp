@@ -506,6 +506,7 @@ MacroAssemblerMIPS::ma_b(Address addr, ImmGCPtr imm, Label* label, Condition c, 
 void
 MacroAssemblerMIPS::ma_bal(Label* label, DelaySlotFill delaySlotFill)
 {
+    spew("branch .Llabel %p\n", label);
     if (label->bound()) {
         // Generate the long jump for calls because return address has to be
         // the address after the reserved block.
@@ -523,6 +524,7 @@ MacroAssemblerMIPS::ma_bal(Label* label, DelaySlotFill delaySlotFill)
     // Make the whole branch continous in the buffer.
     m_buffer.ensureSpace(4 * sizeof(uint32_t));
 
+    spew("bal .Llabel %p\n", label);
     BufferOffset bo = writeInst(getBranchCode(BranchIsCall).encode());
     writeInst(nextInChain);
     if (!oom())
@@ -536,6 +538,7 @@ MacroAssemblerMIPS::ma_bal(Label* label, DelaySlotFill delaySlotFill)
 void
 MacroAssemblerMIPS::branchWithCode(InstImm code, Label* label, JumpKind jumpKind)
 {
+    spew("branch .Llabel %p", label);
     MOZ_ASSERT(code.encode() != InstImm(op_regimm, zero, rt_bgezal, BOffImm16(0)).encode());
     InstImm inst_beq = InstImm(op_beq, zero, zero, BOffImm16(0));
 
@@ -548,6 +551,9 @@ MacroAssemblerMIPS::branchWithCode(InstImm code, Label* label, JumpKind jumpKind
         if (jumpKind == ShortJump) {
             MOZ_ASSERT(BOffImm16::IsInRange(offset));
             code.setBOffImm16(BOffImm16(offset));
+#ifdef JS_JITSPEW
+            decodeBranchInstAndSpew(code);
+#endif
             writeInst(code.encode());
             as_nop();
             return;
@@ -563,7 +569,13 @@ MacroAssemblerMIPS::branchWithCode(InstImm code, Label* label, JumpKind jumpKind
         }
 
         // Handle long conditional branch
-        writeInst(invertBranch(code, BOffImm16(5 * sizeof(uint32_t))).encode());
+        spew("invert branch .Llabel %p", label);
+        InstImm code_r = invertBranch(code, BOffImm16(5 * sizeof(uint32_t)));
+#ifdef JS_JITSPEW
+        decodeBranchInstAndSpew(code_r);
+#endif
+        writeInst(code_r.encode());
+
         // No need for a "nop" here because we can clobber scratch.
         addLongJump(nextOffset());
         ma_liPatchable(ScratchRegister, Imm32(label->offset()));
@@ -583,6 +595,9 @@ MacroAssemblerMIPS::branchWithCode(InstImm code, Label* label, JumpKind jumpKind
 
         // Indicate that this is short jump with offset 4.
         code.setBOffImm16(BOffImm16(4));
+#ifdef JS_JITSPEW
+        decodeBranchInstAndSpew(code);
+#endif
         BufferOffset bo = writeInst(code.encode());
         writeInst(nextInChain);
         if (!oom())
@@ -595,6 +610,9 @@ MacroAssemblerMIPS::branchWithCode(InstImm code, Label* label, JumpKind jumpKind
     // Make the whole branch continous in the buffer.
     m_buffer.ensureSpace((conditional ? 5 : 4) * sizeof(uint32_t));
 
+#ifdef JS_JITSPEW
+    decodeBranchInstAndSpew(code);
+#endif
     BufferOffset bo = writeInst(code.encode());
     writeInst(nextInChain);
     if (!oom())
@@ -2408,5 +2426,53 @@ MacroAssembler::storeUnboxedValue(const ConstantOrRegister& value, MIRType value
 template void
 MacroAssembler::storeUnboxedValue(const ConstantOrRegister& value, MIRType valueType,
                                   const BaseIndex& dest, MIRType slotType);
+
+
+void
+MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output, Label* oolEntry)
+{
+
+    loadConstantDouble(double(-1.0), ScratchDoubleReg);
+    branchDouble(Assembler::DoubleLessThanOrEqual, input, ScratchDoubleReg, oolEntry);
+
+    loadConstantDouble(double(UINT32_MAX) + 1.0, ScratchDoubleReg);
+    branchDouble(Assembler::DoubleGreaterThanOrEqualOrUnordered, input, ScratchDoubleReg, oolEntry);
+    Label done, simple;
+    loadConstantDouble(double(0x80000000UL), ScratchDoubleReg);
+    branchDouble(Assembler::DoubleLessThan, input, ScratchDoubleReg, &simple);
+    as_subd(ScratchDoubleReg, input, ScratchDoubleReg);
+    as_truncwd(ScratchDoubleReg, ScratchDoubleReg);
+    moveFromFloat32(ScratchDoubleReg, output);
+    ma_li(ScratchRegister, Imm32(0x80000000UL));
+    ma_or(output, ScratchRegister);
+    ma_b(&done);
+    bind(&simple);
+    as_truncwd(ScratchDoubleReg, input);
+    moveFromFloat32(ScratchDoubleReg, output);
+    bind(&done);
+}
+
+void
+MacroAssembler::wasmTruncateFloat32ToUInt32(FloatRegister input, Register output, Label* oolEntry)
+{
+    loadConstantFloat32(double(-1.0), ScratchDoubleReg);
+    branchFloat(Assembler::DoubleLessThanOrEqualOrUnordered, input, ScratchDoubleReg, oolEntry);
+
+    loadConstantFloat32(double(UINT32_MAX) + 1.0, ScratchDoubleReg);
+    branchFloat(Assembler::DoubleGreaterThanOrEqualOrUnordered, input, ScratchDoubleReg, oolEntry);
+    Label done, simple;
+    loadConstantFloat32(double(0x80000000UL), ScratchDoubleReg);
+    branchFloat(Assembler::DoubleLessThan, input, ScratchDoubleReg, &simple);
+    as_subs(ScratchDoubleReg, input, ScratchDoubleReg);
+    as_truncws(ScratchDoubleReg, ScratchDoubleReg);
+    moveFromFloat32(ScratchDoubleReg, output);
+    ma_li(ScratchRegister, Imm32(0x80000000UL));
+    ma_or(output, ScratchRegister);
+    ma_b(&done);
+    bind(&simple);
+    as_truncws(ScratchDoubleReg, input);
+    moveFromFloat32(ScratchDoubleReg, output);
+    bind(&done);
+}
 
 //}}} check_macroassembler_style

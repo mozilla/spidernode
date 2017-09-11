@@ -10,13 +10,14 @@
 #include "jit/CacheIRCompiler.h"
 #include "jit/IonCaches.h"
 #include "jit/IonIC.h"
-
+#include "jit/JSJitFrameIter.h"
 #include "jit/Linker.h"
 #include "jit/SharedICHelpers.h"
 #include "proxy/Proxy.h"
 
 #include "jscompartmentinlines.h"
 
+#include "jit/JSJitFrameIter-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "vm/TypeInference-inl.h"
 
@@ -322,6 +323,21 @@ CacheRegisterAllocator::restoreIonLiveRegisters(MacroAssembler& masm, LiveRegist
 
     availableRegs_.set() = GeneralRegisterSet();
     availableRegsAfterSpill_.set() = GeneralRegisterSet::All();
+}
+
+static void*
+GetReturnAddressToIonCode(JSContext* cx)
+{
+    JSJitFrameIter frame(cx);
+    MOZ_ASSERT(frame.type() == JitFrame_Exit,
+               "An exit frame is expected as update functions are called with a VMFunction.");
+
+    void* returnAddr = frame.returnAddress();
+#ifdef DEBUG
+    ++frame;
+    MOZ_ASSERT(frame.isIonJS());
+#endif
+    return returnAddr;
 }
 
 void
@@ -1669,6 +1685,60 @@ IonCacheIRCompiler::emitStoreTypedObjectScalarProperty()
     return true;
 }
 
+static void
+EmitStoreDenseElement(MacroAssembler& masm, const ConstantOrRegister& value,
+                      Register elements, BaseObjectElementIndex target)
+{
+    // If the ObjectElements::CONVERT_DOUBLE_ELEMENTS flag is set, int32 values
+    // have to be converted to double first. If the value is not int32, it can
+    // always be stored directly.
+
+    Address elementsFlags(elements, ObjectElements::offsetOfFlags());
+    if (value.constant()) {
+        Value v = value.value();
+        Label done;
+        if (v.isInt32()) {
+            Label dontConvert;
+            masm.branchTest32(Assembler::Zero, elementsFlags,
+                              Imm32(ObjectElements::CONVERT_DOUBLE_ELEMENTS),
+                              &dontConvert);
+            masm.storeValue(DoubleValue(v.toInt32()), target);
+            masm.jump(&done);
+            masm.bind(&dontConvert);
+        }
+        masm.storeValue(v, target);
+        masm.bind(&done);
+        return;
+    }
+
+    TypedOrValueRegister reg = value.reg();
+    if (reg.hasTyped() && reg.type() != MIRType::Int32) {
+        masm.storeTypedOrValue(reg, target);
+        return;
+    }
+
+    Label convert, storeValue, done;
+    masm.branchTest32(Assembler::NonZero, elementsFlags,
+                      Imm32(ObjectElements::CONVERT_DOUBLE_ELEMENTS),
+                      &convert);
+    masm.bind(&storeValue);
+    masm.storeTypedOrValue(reg, target);
+    masm.jump(&done);
+
+    masm.bind(&convert);
+    if (reg.hasValue()) {
+        masm.branchTestInt32(Assembler::NotEqual, reg.valueReg(), &storeValue);
+        masm.int32ValueToDouble(reg.valueReg(), ScratchDoubleReg);
+        masm.storeDouble(ScratchDoubleReg, target);
+    } else {
+        MOZ_ASSERT(reg.type() == MIRType::Int32);
+        masm.convertInt32ToDouble(reg.typedReg().gpr(), ScratchDoubleReg);
+        masm.storeDouble(ScratchDoubleReg, target);
+    }
+
+    masm.bind(&done);
+}
+
 bool
 IonCacheIRCompiler::emitStoreDenseElement()
 {
@@ -1696,7 +1766,7 @@ IonCacheIRCompiler::emitStoreDenseElement()
     masm.branchTestMagic(Assembler::Equal, element, failure->label());
 
     EmitPreBarrier(masm, element, MIRType::Value);
-    EmitIonStoreDenseElement(masm, val, scratch, element);
+    EmitStoreDenseElement(masm, val, scratch, element);
     if (needsPostBarrier())
         emitPostBarrierElement(obj, val, scratch, index);
     return true;
@@ -1782,7 +1852,7 @@ IonCacheIRCompiler::emitStoreDenseElementHole()
     EmitPreBarrier(masm, element, MIRType::Value);
 
     masm.bind(&doStore);
-    EmitIonStoreDenseElement(masm, val, scratch, element);
+    EmitStoreDenseElement(masm, val, scratch, element);
     if (needsPostBarrier())
         emitPostBarrierElement(obj, val, scratch, index);
     return true;

@@ -40,11 +40,11 @@
     _(ClearNewObjectCache,      "clrNOC")                                     \
     _(CollectToFP,              "collct")                                     \
     _(ObjectsTenuredCallback,   "tenCB")                                      \
-    _(SweepArrayBufferViewList, "swpABO")                                     \
+    _(Sweep,                    "sweep")                                      \
     _(UpdateJitActivations,     "updtIn")                                     \
     _(FreeMallocedBuffers,      "frSlts")                                     \
     _(ClearStoreBuffer,         "clrSB")                                      \
-    _(Sweep,                    "sweep")                                      \
+    _(ClearNursery,             "clear")                                      \
     _(Resize,                   "resize")                                     \
     _(Pretenure,                "pretnr")
 
@@ -316,7 +316,7 @@ class Nursery
     unsigned maxNurseryChunks_;
 
     /* Promotion rate for the previous minor collection. */
-    double previousPromotionRate_;
+    float previousPromotionRate_;
 
     /* Report minor collections taking at least this long, if enabled. */
     mozilla::TimeDuration profileThreshold_;
@@ -353,11 +353,27 @@ class Nursery
     ProfileDurations totalDurations_;
     uint64_t minorGcCount_;
 
+    /*
+     * This data is initialised only if the nursery is enabled and after at
+     * least one call to Nursery::collect()
+     */
     struct {
         JS::gcreason::Reason reason;
-        uint64_t nurseryUsedBytes;
-        uint64_t tenuredBytes;
+        size_t nurseryCapacity;
+        size_t nurseryUsedBytes;
+        size_t tenuredBytes;
     } previousGC;
+
+    /*
+     * Calculate the promotion rate of the most recent minor GC.
+     * The valid_for_tenuring parameter is used to return whether this
+     * promotion rate is accurate enough (the nursery was full enough) to be
+     * used for tenuring and other decisions.
+     *
+     * Must only be called if the previousGC data is initialised.
+     */
+    float
+    calcPromotionRate(bool *validForTenuring) const;
 
     /*
      * The set of externally malloced buffers potentially kept live by objects
@@ -438,7 +454,7 @@ class Nursery
     /* Common internal allocator function. */
     void* allocate(size_t size);
 
-    double doCollection(JS::gcreason::Reason reason,
+    void doCollection(JS::gcreason::Reason reason,
                         gc::TenureCountCache& tenureCounts);
 
     /*
@@ -458,15 +474,21 @@ class Nursery
     void freeMallocedBuffers();
 
     /*
+     * Updates pointers to nursery objects that have been tenured and discards
+     * pointers to objects that have been freed.
+     */
+    void sweep(JSTracer* trc);
+
+    /*
      * Frees all non-live nursery-allocated things at the end of a minor
      * collection.
      */
-    void sweep();
+    void clear();
 
     void sweepDictionaryModeObjects();
 
     /* Change the allocable space provided by the nursery. */
-    void maybeResizeNursery(JS::gcreason::Reason reason, double promotionRate);
+    void maybeResizeNursery(JS::gcreason::Reason reason);
     void growAllocableSpace();
     void shrinkAllocableSpace(unsigned removeNumChunks);
     void minimizeAllocableSpace();

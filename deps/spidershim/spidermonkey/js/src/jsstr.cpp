@@ -528,11 +528,8 @@ str_enumerate(JSContext* cx, HandleObject obj)
         if (!str1)
             return false;
         value.setString(str1);
-        if (!DefineElement(cx, obj, i, value, nullptr, nullptr,
-                           STRING_ELEMENT_ATTRS | JSPROP_RESOLVING))
-        {
+        if (!DefineDataElement(cx, obj, i, value, STRING_ELEMENT_ATTRS | JSPROP_RESOLVING))
             return false;
-        }
     }
 
     return true;
@@ -559,8 +556,8 @@ str_resolve(JSContext* cx, HandleObject obj, HandleId id, bool* resolvedp)
         if (!str1)
             return false;
         RootedValue value(cx, StringValue(str1));
-        if (!DefineElement(cx, obj, uint32_t(slot), value, nullptr, nullptr,
-                           STRING_ELEMENT_ATTRS | JSPROP_RESOLVING))
+        if (!DefineDataElement(cx, obj, uint32_t(slot), value,
+                               STRING_ELEMENT_ATTRS | JSPROP_RESOLVING))
         {
             return false;
         }
@@ -1869,15 +1866,6 @@ StringMatch(JSLinearString* text, JSLinearString* pat, uint32_t start = 0)
 }
 
 static const size_t sRopeMatchThresholdRatioLog2 = 4;
-
-bool
-js::StringHasPattern(JSLinearString* text, const char16_t* pat, uint32_t patLen)
-{
-    AutoCheckCannotGC nogc;
-    return text->hasLatin1Chars()
-           ? StringMatch(text->latin1Chars(nogc), text->length(), pat, patLen) != -1
-           : StringMatch(text->twoByteChars(nogc), text->length(), pat, patLen) != -1;
-}
 
 int
 js::StringFindPattern(JSLinearString* text, JSLinearString* pat, size_t start)

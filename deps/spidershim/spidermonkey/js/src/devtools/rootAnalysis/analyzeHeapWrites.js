@@ -31,6 +31,7 @@ function checkExternalFunction(entry)
         // Assume that atomic accesses are threadsafe.
         /^__atomic_fetch_/,
         /^__atomic_load_/,
+        /^__atomic_thread_fence/,
     ];
     if (entry.matches(whitelist))
         return;
@@ -444,17 +445,17 @@ function ignoreContents(entry)
             /nsTArray_base.*?::EnsureCapacity/,
             /nsTArray_base.*?::ShiftData/,
             /AutoTArray.*?::Init/,
-            /nsAC?String::SetCapacity/,
-            /nsAC?String::SetLength/,
-            /nsAC?String::Assign/,
-            /nsAC?String::Append/,
-            /nsAC?String::Replace/,
-            /nsAC?String::Trim/,
-            /nsAC?String::Truncate/,
-            /nsAString::StripTaggedASCII/,
-            /nsAC?String::operator=/,
-            /nsAutoString::nsAutoString/,
-            /nsFixedCString::nsFixedCString/,
+            /nsTSubstring<T>::SetCapacity/,
+            /nsTSubstring<T>::SetLength/,
+            /nsTSubstring<T>::Assign/,
+            /nsTSubstring<T>::Append/,
+            /nsTSubstring<T>::Replace/,
+            /nsTSubstring<T>::Trim/,
+            /nsTSubstring<T>::Truncate/,
+            /nsTSubstring<T>::StripTaggedASCII/,
+            /nsTSubstring<T>::operator=/,
+            /nsTAutoStringN<T, N>::nsTAutoStringN/,
+            /nsTFixedString<T>::nsTFixedString/,
 
             // Similar for some other data structures
             /nsCOMArray_base::SetCapacity/,

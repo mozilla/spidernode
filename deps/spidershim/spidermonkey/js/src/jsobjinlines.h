@@ -143,6 +143,17 @@ js::NativeObject::sweepDictionaryListPointer()
         shape_->listp = nullptr;
 }
 
+MOZ_ALWAYS_INLINE void
+js::NativeObject::updateDictionaryListPointerAfterMinorGC(NativeObject* old)
+{
+    MOZ_ASSERT(this == Forwarded(old));
+
+    // Dictionary objects can be allocated in the nursery and when they are
+    // tenured the shape's pointer into the object needs to be updated.
+    if (shape_->listp == &old->shape_)
+        shape_->listp = &shape_;
+}
+
 /* static */ inline bool
 JSObject::setSingleton(JSContext* cx, js::HandleObject obj)
 {
@@ -238,12 +249,6 @@ js::GetElementNoGC(JSContext* cx, JSObject* obj, const Value& receiver, uint32_t
     if (index > JSID_INT_MAX)
         return false;
     return GetPropertyNoGC(cx, obj, receiver, INT_TO_JSID(index), vp);
-}
-
-inline bool
-js::GetElementNoGC(JSContext* cx, JSObject* obj, JSObject* receiver, uint32_t index, Value* vp)
-{
-    return GetElementNoGC(cx, obj, ObjectValue(*receiver), index, vp);
 }
 
 inline bool

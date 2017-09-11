@@ -101,7 +101,7 @@ case $cmd in
     cp -pPR ${TOPSRCDIR}/.cargo/config.in ${tgtpath}/.cargo
 
     # generate configure files to avoid build dependency on autoconf-2.13
-    cp -pPR ${TOPSRCDIR}/js/src/configure.in ${tgtpath}/js/src/configure
+    cp -PR ${TOPSRCDIR}/js/src/configure.in ${tgtpath}/js/src/configure
     chmod a+x ${tgtpath}/js/src/configure
     ${AUTOCONF} --localdir=${TOPSRCDIR}/js/src \
         ${TOPSRCDIR}/js/src/old-configure.in >${tgtpath}/js/src/old-configure
@@ -110,6 +110,7 @@ case $cmd in
     cp -pPR ${TOPSRCDIR}/mfbt ${tgtpath}
     cp -p ${SRCDIR}/../moz.configure ${tgtpath}/js
     cp -pPR ${SRCDIR}/../public ${tgtpath}/js
+    cp -pPR ${SRCDIR}/../rust ${tgtpath}/js
     cp -pPR ${SRCDIR}/../examples ${tgtpath}/js
     find ${SRCDIR} -mindepth 1 -maxdepth 1 -not -path ${STAGING} -a -not -name ${pkg} \
         -exec cp -pPR {} ${tgtpath}/js/src \;

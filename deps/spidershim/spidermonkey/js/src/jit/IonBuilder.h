@@ -578,6 +578,7 @@ class IonBuilder
     AbortReasonOr<Ok> jsop_itermore();
     AbortReasonOr<Ok> jsop_isnoiter();
     AbortReasonOr<Ok> jsop_iterend();
+    AbortReasonOr<Ok> jsop_iternext();
     AbortReasonOr<Ok> jsop_in();
     AbortReasonOr<Ok> jsop_hasown();
     AbortReasonOr<Ok> jsop_instanceof();
@@ -683,6 +684,7 @@ class IonBuilder
     InliningResult inlineGetFirstDollarIndex(CallInfo& callInfo);
 
     // Object natives and intrinsics.
+    InliningResult inlineObject(CallInfo& callInfo);
     InliningResult inlineObjectCreate(CallInfo& callInfo);
     InliningResult inlineObjectToString(CallInfo& callInfo);
     InliningResult inlineDefineDataProperty(CallInfo& callInfo);
@@ -1078,9 +1080,6 @@ class IonBuilder
     // True if script->failedLexicalCheck_ is set for the current script or
     // an outer script.
     bool failedLexicalCheck_;
-
-    // Has an iterator other than 'for in'.
-    bool nonStringIteration_;
 
 #ifdef DEBUG
     // If this script uses the lazy arguments object.

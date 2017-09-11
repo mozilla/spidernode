@@ -43,7 +43,8 @@
   _(ProcessExecutableRegion,     500) \
   _(WasmCodeProfilingLabels,     500) \
   _(OffThreadPromiseState,       500) \
-  _(WasmTier2GeneratorComplete,  500) \
+  _(WasmModuleTieringLock,       500) \
+  _(WasmCompileTaskState,        500) \
                                       \
   _(TraceLoggerGraphState,       600) \
   _(VTuneLock,                   600)

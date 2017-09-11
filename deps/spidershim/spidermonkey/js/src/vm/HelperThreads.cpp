@@ -36,6 +36,7 @@ using namespace js;
 
 using mozilla::ArrayLength;
 using mozilla::DebugOnly;
+using mozilla::Maybe;
 using mozilla::Unused;
 using mozilla::TimeDuration;
 using mozilla::TimeStamp;
@@ -306,7 +307,7 @@ CancelOffThreadIonCompileLocked(const CompilationSelector& selector, bool discar
     for (size_t i = 0; i < finished.length(); i++) {
         jit::IonBuilder* builder = finished[i];
         if (IonBuilderMatches(selector, builder)) {
-            builder->script()->zone()->group()->numFinishedBuilders--;
+            builder->script()->zoneFromAnyThread()->group()->numFinishedBuilders--;
             jit::FinishOffThreadBuilder(nullptr, builder, lock);
             HelperThreadState().remove(finished, &i);
         }
@@ -646,6 +647,14 @@ js::CancelOffThreadParses(JSRuntime* rt)
         if (!found)
             break;
     }
+
+#ifdef DEBUG
+    GlobalHelperThreadState::ParseTaskVector& worklist = HelperThreadState().parseWorklist(lock);
+    for (size_t i = 0; i < worklist.length(); i++) {
+        ParseTask* task = worklist[i];
+        MOZ_ASSERT(!task->runtimeMatches(rt));
+    }
+#endif
 }
 
 bool
@@ -687,9 +696,6 @@ EnsureParserCreatedClasses(JSContext* cx, ParseTaskKind kind)
     if (!EnsureConstructor(cx, global, JSProto_RegExp))
         return false; // needed by regular expression literals
 
-    if (!EnsureConstructor(cx, global, JSProto_Iterator))
-        return false; // needed by ???
-
     if (!GlobalObject::initStarGenerators(cx, global))
         return false; // needed by function*() {} and generator comprehensions
 
@@ -699,8 +705,29 @@ EnsureParserCreatedClasses(JSContext* cx, ParseTaskKind kind)
     return true;
 }
 
+class AutoClearUsedByHelperThread
+{
+    ZoneGroup* group;
+
+  public:
+    explicit AutoClearUsedByHelperThread(JSObject* global)
+      : group(global->zone()->group())
+    {}
+
+    void forget() {
+        group = nullptr;
+    }
+
+    ~AutoClearUsedByHelperThread() {
+        if (group)
+            group->clearUsedByHelperThread();
+    }
+};
+
 static JSObject*
-CreateGlobalForOffThreadParse(JSContext* cx, ParseTaskKind kind, const gc::AutoSuppressGC& nogc)
+CreateGlobalForOffThreadParse(JSContext* cx, ParseTaskKind kind,
+                              Maybe<AutoClearUsedByHelperThread>& clearUseGuard,
+                              const gc::AutoSuppressGC& nogc)
 {
     JSCompartment* currentCompartment = cx->compartment();
 
@@ -723,11 +750,18 @@ CreateGlobalForOffThreadParse(JSContext* cx, ParseTaskKind kind, const gc::AutoS
 
     JS_SetCompartmentPrincipals(global->compartment(), currentCompartment->principals());
 
+    // Mark this zone group as created for a helper thread. This prevents it
+    // from being collected until clearUsedByHelperThread() is called.
+    ZoneGroup* group = global->zone()->group();
+    group->setCreatedForHelperThread();
+    clearUseGuard.emplace(global);
+
     // Initialize all classes required for parsing while still on the active
     // thread, for both the target and the new global so that prototype
     // pointers can be changed infallibly after parsing finishes.
     if (!EnsureParserCreatedClasses(cx, kind))
         return nullptr;
+
     {
         AutoCompartment ac(cx, global);
         if (!EnsureParserCreatedClasses(cx, kind))
@@ -740,19 +774,18 @@ CreateGlobalForOffThreadParse(JSContext* cx, ParseTaskKind kind, const gc::AutoS
 static bool
 QueueOffThreadParseTask(JSContext* cx, ParseTask* task)
 {
-    if (OffThreadParsingMustWaitForGC(cx->runtime())) {
-        AutoLockHelperThreadState lock;
-        if (!HelperThreadState().parseWaitingOnGC(lock).append(task)) {
-            ReportOutOfMemory(cx);
-            return false;
-        }
-    } else {
-        AutoLockHelperThreadState lock;
-        if (!HelperThreadState().parseWorklist(lock).append(task)) {
-            ReportOutOfMemory(cx);
-            return false;
-        }
+    AutoLockHelperThreadState lock;
 
+    bool mustWait = OffThreadParsingMustWaitForGC(cx->runtime());
+
+    auto& queue = mustWait ? HelperThreadState().parseWaitingOnGC(lock)
+                           : HelperThreadState().parseWorklist(lock);
+    if (!queue.append(task)) {
+        ReportOutOfMemory(cx);
+        return false;
+    }
+
+    if (!mustWait) {
         task->activate(cx->runtime());
         HelperThreadState().notifyOne(GlobalHelperThreadState::PRODUCER, lock);
     }
@@ -771,7 +804,8 @@ StartOffThreadParseTask(JSContext* cx, const ReadOnlyCompileOptions& options,
     gc::AutoAssertNoNurseryAlloc noNurseryAlloc;
     AutoSuppressAllocationMetadataBuilder suppressMetadata(cx);
 
-    JSObject* global = CreateGlobalForOffThreadParse(cx, kind, nogc);
+    Maybe<AutoClearUsedByHelperThread> clearUseGuard;
+    JSObject* global = CreateGlobalForOffThreadParse(cx, kind, clearUseGuard, nogc);
     if (!global)
         return false;
 
@@ -783,6 +817,7 @@ StartOffThreadParseTask(JSContext* cx, const ReadOnlyCompileOptions& options,
         return false;
 
     task.forget();
+    clearUseGuard->forget();
 
     return true;
 }
@@ -847,7 +882,7 @@ js::EnqueuePendingParseTasksAfterGC(JSRuntime* rt)
 
         for (size_t i = 0; i < waiting.length(); i++) {
             ParseTask* task = waiting[i];
-            if (task->runtimeMatches(rt) && !task->parseGlobal->zone()->wasGCStarted()) {
+            if (task->runtimeMatches(rt)) {
                 AutoEnterOOMUnsafeRegion oomUnsafe;
                 if (!newTasks.append(task))
                     oomUnsafe.crash("EnqueuePendingParseTasksAfterGC");
@@ -859,8 +894,8 @@ js::EnqueuePendingParseTasksAfterGC(JSRuntime* rt)
     if (newTasks.empty())
         return;
 
-    // This logic should mirror the contents of the !activeGCInAtomsZone()
-    // branch in StartOffThreadParseScript:
+    // This logic should mirror the contents of the
+    // !OffThreadParsingMustWaitForGC() branch in QueueOffThreadParseTask:
 
     for (size_t i = 0; i < newTasks.length(); i++)
         newTasks[i]->activate(rt);
@@ -937,11 +972,7 @@ GlobalHelperThreadState::GlobalHelperThreadState()
  : cpuCount(0),
    threadCount(0),
    threads(nullptr),
-   wasmCompilationInProgress_tier1(false),
-   wasmCompilationInProgress_tier2(false),
    wasmTier2GeneratorsFinished_(0),
-   numWasmFailedJobs_tier1(0),
-   numWasmFailedJobs_tier2(0),
    helperLock(mutexid::GlobalHelperThreadState)
 {
     cpuCount = GetCPUCount();
@@ -1192,8 +1223,7 @@ bool
 GlobalHelperThreadState::canStartWasmCompile(const AutoLockHelperThreadState& lock,
                                              wasm::CompileMode mode)
 {
-    // Don't execute a wasm job if an earlier one failed.
-    if (wasmWorklist(lock, mode).empty() || wasmFailed(lock, mode))
+    if (wasmWorklist(lock, mode).empty())
         return false;
 
     // For Tier1 and Once compilation, honor the maximum allowed threads to
@@ -1432,7 +1462,7 @@ js::GCParallelTask::~GCParallelTask()
     // base class can't ensure that the task is done using the members. All we
     // can do now is check that someone has previously stopped the task.
 #ifdef DEBUG
-    mozilla::Maybe<AutoLockHelperThreadState> helperLock;
+    Maybe<AutoLockHelperThreadState> helperLock;
     if (!HelperThreadState().isLockedByCurrentThread())
         helperLock.emplace();
     MOZ_ASSERT(state == NotStarted);
@@ -1756,10 +1786,6 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
                                                    Handle<GlobalObject*> global,
                                                    JSCompartment* dest)
 {
-    // Finish any ongoing incremental GC that may affect the destination zone.
-    if (JS::IsIncrementalGCInProgress(cx) && dest->zone()->wasGCStarted())
-        JS::FinishIncrementalGC(cx, JS::gcreason::API);
-
     // After we call LeaveParseTaskZone() it's not safe to GC until we have
     // finished merging the contents of the parse task's compartment into the
     // destination compartment.
@@ -1797,8 +1823,7 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
             JSProtoKey key = JS::IdentifyStandardPrototype(protoObj);
             if (key != JSProto_Null) {
                 MOZ_ASSERT(key == JSProto_Object || key == JSProto_Array ||
-                           key == JSProto_Function || key == JSProto_RegExp ||
-                           key == JSProto_Iterator);
+                           key == JSProto_Function || key == JSProto_RegExp);
                 newProto = GetBuiltinPrototypePure(global, key);
             } else if (protoObj == parseTaskStarGenFunctionProto) {
                 newProto = global->getStarGeneratorFunctionPrototype();
@@ -1854,27 +1879,14 @@ HelperThread::handleWasmWorkload(AutoLockHelperThreadState& locked, wasm::Compil
     MOZ_ASSERT(idle());
 
     currentTask.emplace(HelperThreadState().wasmWorklist(locked, mode).popCopy());
-    bool success = false;
-    UniqueChars error;
 
     wasm::CompileTask* task = wasmTask();
     {
         AutoUnlockHelperThreadState unlock(locked);
-        success = wasm::CompileFunction(task, &error);
+        wasm::ExecuteCompileTaskFromHelperThread(task);
     }
 
-    // On success, try to move work to the finished list.
-    if (success)
-        success = HelperThreadState().wasmFinishedList(locked, mode).append(task);
-
-    // On failure, note the failure for harvesting by the parent.
-    if (!success) {
-        HelperThreadState().noteWasmFailure(locked, mode);
-        HelperThreadState().setWasmError(locked, mode, Move(error));
-    }
-
-    // Notify the active thread in case it's waiting.
-    HelperThreadState().notifyAll(GlobalHelperThreadState::CONSUMER, locked);
+    // No active thread should be waiting on the CONSUMER mutex.
     currentTask.reset();
 }
 

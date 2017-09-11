@@ -582,7 +582,17 @@ JSCompartment::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx, HandleOb
     RootedObject lexicalEnv(cx, nonSyntacticLexicalEnvironments_->lookup(key));
 
     if (!lexicalEnv) {
-        lexicalEnv = LexicalEnvironmentObject::createNonSyntactic(cx, enclosing);
+        // NOTE: The default global |this| value is set to key for compatibility
+        // with existing users of the lexical environment cache.
+        //  - When used by shared-global JSM loader, |this| must be the
+        //    NonSyntacticVariablesObject passed as enclosing.
+        //  - When used by SubscriptLoader, |this| must be the target object of
+        //    the WithEnvironmentObject wrapper.
+        //  - When used by XBL/DOM Events, we execute directly as a function and
+        //    do not access the |this| value.
+        // See js::GetFunctionThis / js::GetNonSyntacticGlobalThis
+        MOZ_ASSERT(key->is<NonSyntacticVariablesObject>() || !key->is<EnvironmentObject>());
+        lexicalEnv = LexicalEnvironmentObject::createNonSyntactic(cx, enclosing, /*thisv = */key);
         if (!lexicalEnv)
             return nullptr;
         if (!nonSyntacticLexicalEnvironments_->add(cx, key, lexicalEnv))
@@ -665,7 +675,7 @@ JSCompartment::getTemplateLiteralObject(JSContext* cx, HandleObject rawStrings,
     } else {
         MOZ_ASSERT(templateObj->nonProxyIsExtensible());
         RootedValue rawValue(cx, ObjectValue(*rawStrings));
-        if (!DefineProperty(cx, templateObj, cx->names().raw, rawValue, nullptr, nullptr, 0))
+        if (!DefineDataProperty(cx, templateObj, cx->names().raw, rawValue, 0))
             return false;
         if (!FreezeObject(cx, rawStrings))
             return false;

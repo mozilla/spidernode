@@ -1551,7 +1551,8 @@ MacroAssembler::Pop(const ValueOperand& val)
 void
 MacroAssembler::PopStackPtr()
 {
-    MOZ_CRASH("NYI");
+    asMasm().ma_load(StackPointer, Address(StackPointer, 0), SizeWord);
+    framePushed_ -= sizeof(intptr_t);
 }
 
 
@@ -1579,6 +1580,7 @@ MacroAssembler::callWithPatch()
     as_bal(BOffImm16(3 * sizeof(uint32_t)));
     addPtr(Imm32(5 * sizeof(uint32_t)), ra);
     // Allocate space which will be patched by patchCall().
+    spew(".space 32bit initValue 0xffff ffff");
     writeInst(UINT32_MAX);
     as_lw(ScratchRegister, ra, -(int32_t)(5 * sizeof(uint32_t)));
     addPtr(ra, ScratchRegister);
@@ -1611,6 +1613,7 @@ MacroAssembler::farJumpWithPatch()
     as_lw(ScratchRegister, ra, 0);
     // Allocate space which will be patched by patchFarJump().
     CodeOffset farJump(currentOffset());
+    spew(".space 32bit initValue 0xffff ffff");
     writeInst(UINT32_MAX);
     addPtr(ra, ScratchRegister);
     as_jr(ScratchRegister);
@@ -1757,6 +1760,28 @@ void
 MacroAssembler::comment(const char* msg)
 {
     Assembler::comment(msg);
+}
+
+
+void
+MacroAssembler::wasmTruncateDoubleToInt32(FloatRegister input, Register output, Label* oolEntry)
+{
+    as_truncwd(ScratchFloat32Reg, input);
+    as_cfc1(ScratchRegister, Assembler::FCSR);
+    moveFromFloat32(ScratchFloat32Reg, output);
+    as_ext(ScratchRegister, ScratchRegister, 6, 1);
+    ma_b(ScratchRegister, Imm32(0), oolEntry, Assembler::NotEqual);
+}
+
+
+void
+MacroAssembler::wasmTruncateFloat32ToInt32(FloatRegister input, Register output, Label* oolEntry)
+{
+    as_truncws(ScratchFloat32Reg, input);
+    as_cfc1(ScratchRegister, Assembler::FCSR);
+    moveFromFloat32(ScratchFloat32Reg, output);
+    as_ext(ScratchRegister, ScratchRegister, 6, 1);
+    ma_b(ScratchRegister, Imm32(0), oolEntry, Assembler::NotEqual);
 }
 
 //}}} check_macroassembler_style

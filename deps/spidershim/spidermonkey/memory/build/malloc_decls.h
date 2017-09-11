@@ -15,12 +15,6 @@
 
 #  include "mozjemalloc_types.h"
 
-#ifndef MALLOC_USABLE_SIZE_CONST_PTR
-#define MALLOC_USABLE_SIZE_CONST_PTR const
-#endif
-
-typedef MALLOC_USABLE_SIZE_CONST_PTR void * usable_ptr_t;
-
 #  define MALLOC_FUNCS_MALLOC 1
 #  define MALLOC_FUNCS_JEMALLOC 2
 #  define MALLOC_FUNCS_INIT 4
@@ -61,7 +55,8 @@ MALLOC_DECL(malloc_good_size, size_t, size_t)
 MALLOC_DECL_VOID(jemalloc_stats, jemalloc_stats_t *)
 MALLOC_DECL_VOID(jemalloc_purge_freed_pages)
 MALLOC_DECL_VOID(jemalloc_free_dirty_pages)
-MALLOC_DECL_VOID(jemalloc_thread_local_arena, jemalloc_bool)
+MALLOC_DECL_VOID(jemalloc_thread_local_arena, bool)
+MALLOC_DECL_VOID(jemalloc_ptr_info, const void*, jemalloc_ptr_info_t*)
 #  endif
 
 #  undef MALLOC_DECL_VOID

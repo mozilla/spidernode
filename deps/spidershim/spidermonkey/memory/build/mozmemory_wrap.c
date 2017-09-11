@@ -10,6 +10,7 @@
  * argument types. */
 #define MALLOC_DECL(name, return_type, ...) \
   MOZ_MEMORY_API return_type name ## _impl(__VA_ARGS__);
+#define MALLOC_FUNCS MALLOC_FUNCS_MALLOC
 #include "malloc_decls.h"
 
 #ifdef MOZ_WRAP_NEW_DELETE
@@ -141,17 +142,6 @@ asprintf_impl(char **str, const char *fmt, ...)
 #endif
 
 #ifdef XP_WIN
-/*
- *  There's a fun allocator mismatch in (at least) the VS 2010 CRT
- *  (see the giant comment in $(topsrcdir)/mozglue/build/Makefile.in)
- *  that gets redirected here to avoid a crash on shutdown.
- */
-void
-dumb_free_thunk(void *ptr)
-{
-  return; /* shutdown leaks that we don't care about */
-}
-
 #include <wchar.h>
 
 /*

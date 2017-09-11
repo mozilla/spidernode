@@ -9226,6 +9226,12 @@ class MSetArrayLength
     AliasSet getAliasSet() const override {
         return AliasSet::Store(AliasSet::ObjectFields);
     }
+
+    // By default no, unless built as a recovered instruction.
+    MOZ_MUST_USE bool writeRecoverData(CompactBufferWriter& writer) const override;
+    bool canRecoverOnBailout() const override {
+        return isRecoveredOnBailout();
+    }
 };
 
 class MGetNextEntryForIterator
@@ -13638,7 +13644,8 @@ class MHasClass
       : MUnaryInstruction(classOpcode, object)
       , class_(clasp)
     {
-        MOZ_ASSERT(object->type() == MIRType::Object);
+        MOZ_ASSERT(object->type() == MIRType::Object ||
+                   (object->type() == MIRType::Value && object->mightBeType(MIRType::Object)));
         setResultType(MIRType::Boolean);
         setMovable();
     }

@@ -270,9 +270,9 @@ option('--disable-gtest-in-build',
 # on Desktop platforms with the exception of Windows PGO, where linking
 # xul-gtest.dll takes too long.
 @depends('MOZ_PGO', build_project, target, 'MOZ_AUTOMATION', '--disable-gtest-in-build',
-         when='--enable-compile-environment')
-def build_gtest(pgo, build_project, target, automation, enabled):
-    if not enabled:
+         enable_tests, when='--enable-compile-environment')
+def build_gtest(pgo, build_project, target, automation, enabled, enable_tests):
+    if not enable_tests or not enabled:
         return None
     if (automation and build_project == 'browser' and
         not (pgo and target.os == 'WINNT')):
@@ -371,38 +371,30 @@ tup = check_prog('TUP', tup_progs)
 option(env='WATCHMAN', nargs=1, help='Path to the watchman program')
 
 @depends('WATCHMAN')
-@imports('json')
-def watchman_info(prog):
+@checking('for watchman', callback=lambda w: w.path if w else 'not found')
+def watchman(prog):
     if not prog:
         prog = find_program('watchman')
 
     if not prog:
         return
 
-    out = check_cmd_output(prog, 'version', onerror=lambda: None)
+    # `watchman version` will talk to the Watchman daemon service.
+    # This can hang due to permissions problems. e.g.
+    # https://github.com/facebook/watchman/issues/376. So use
+    # `watchman --version` to prevent a class of failures.
+    out = check_cmd_output(prog, '--version', onerror=lambda: None)
     if out is None:
         return
 
-    # Assume a process not emitting JSON is not watchman or is a
-    # broken watchman.
-    try:
-        res = json.loads(out)
-    except ValueError:
-        return
+    return namespace(path=prog, version=Version(out.strip()))
 
-    return namespace(path=prog, version=Version(res['version']))
-
-@depends_if(watchman_info)
-@checking('for watchman')
-def watchman(w):
-    return w.path
-
-@depends_if(watchman_info)
+@depends_if(watchman)
 @checking('for watchman version')
 def watchman_version(w):
     return w.version
 
-set_config('WATCHMAN', watchman)
+set_config('WATCHMAN', watchman.path)
 
 @depends_all(hg_version, hg_config, watchman)
 @checking('for watchman Mercurial integration')
