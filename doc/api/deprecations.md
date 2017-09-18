@@ -664,7 +664,7 @@ Type: Runtime
 <a id="DEP00XX"></a>
 ### DEP00XX: tls.parseCertString()
 
-Type: Documentation-only
+Type: Runtime
 
 `tls.parseCertString()` is a trivial parsing helper that was made public by
 mistake. This function can usually be replaced with:
@@ -714,7 +714,7 @@ difference is that `querystring.parse()` does url encoding:
 [`os.networkInterfaces`]: os.html#os_os_networkinterfaces
 [`os.tmpdir()`]: os.html#os_os_tmpdir
 [`punycode`]: punycode.html
-[`require.extensions`]: globals.html#globals_require_extensions
+[`require.extensions`]: modules.html#modules_require_extensions
 [`tls.CryptoStream`]: tls.html#tls_class_cryptostream
 [`tls.SecureContext`]: tls.html#tls_tls_createsecurecontext_options
 [`tls.SecurePair`]: tls.html#tls_class_securepair

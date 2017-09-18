@@ -92,9 +92,9 @@ napi_value createNapiError(napi_env env, napi_callback_info info) {
   NAPI_CALL(env, napi_get_last_error_info(env, &error_info));
 
   NAPI_ASSERT(env, error_info->error_code == status,
-    "Last error info code should match last status");
+      "Last error info code should match last status");
   NAPI_ASSERT(env, error_info->error_message,
-    "Last error info message should not be null");
+      "Last error info message should not be null");
 
   return NULL;
 }
@@ -143,8 +143,10 @@ static bool deref_item_called = false;
 static void deref_item(napi_env env, void* data, void* hint) {
   (void) hint;
 
+  NAPI_ASSERT_RETURN_VOID(env, data == &deref_item_called,
+    "Finalize callback was called with the correct pointer");
+
   deref_item_called = true;
-  NAPI_CALL_RETURN_VOID(env, napi_delete_reference(env, (napi_ref)data));
 }
 
 napi_value deref_item_was_called(napi_env env, napi_callback_info info) {
@@ -156,15 +158,13 @@ napi_value deref_item_was_called(napi_env env, napi_callback_info info) {
 }
 
 napi_value wrap(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value argv[2];
-  napi_ref payload;
+  size_t argc = 1;
+  napi_value to_wrap;
 
   deref_item_called = false;
 
-  NAPI_CALL(env, napi_get_cb_info(env, info, &argc, argv, NULL, NULL));
-  NAPI_CALL(env, napi_create_reference(env, argv[1], 1, &payload));
-  NAPI_CALL(env, napi_wrap(env, argv[0], payload, deref_item, NULL, NULL));
+  NAPI_CALL(env, napi_get_cb_info(env, info, &argc, &to_wrap, NULL, NULL));
+  NAPI_CALL(env, napi_wrap(env, to_wrap, &deref_item_called, deref_item, NULL, NULL));
 
   return NULL;
 }
@@ -176,9 +176,6 @@ napi_value remove_wrap(napi_env env, napi_callback_info info) {
 
   NAPI_CALL(env, napi_get_cb_info(env, info, &argc, &wrapped, NULL, NULL));
   NAPI_CALL(env, napi_remove_wrap(env, wrapped, &data));
-  if (data != NULL) {
-    NAPI_CALL(env, napi_delete_reference(env, (napi_ref)data));
-  }
 
   return NULL;
 }
@@ -227,7 +224,7 @@ napi_value testNapiRun(napi_env env, napi_callback_info info) {
   return result;
 }
 
-void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
+napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor descriptors[] = {
     DECLARE_NAPI_PROPERTY("testStrictEquals", testStrictEquals),
     DECLARE_NAPI_PROPERTY("testGetPrototype", testGetPrototype),
@@ -248,8 +245,10 @@ void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
     DECLARE_NAPI_PROPERTY("testAdjustExternalMemory", testAdjustExternalMemory)
   };
 
-  NAPI_CALL_RETURN_VOID(env, napi_define_properties(
-    env, exports, sizeof(descriptors) / sizeof(*descriptors), descriptors));
+  NAPI_CALL(env, napi_define_properties(
+      env, exports, sizeof(descriptors) / sizeof(*descriptors), descriptors));
+
+  return exports;
 }
 
 NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
