@@ -92,9 +92,6 @@
 #  error Should only include mozmemory_wrap.h when MOZ_MEMORY is set.
 #endif
 
-#if defined(MOZ_JEMALLOC_IMPL) && !defined(MOZ_MEMORY_IMPL)
-#  define MOZ_MEMORY_IMPL
-#endif
 #if defined(MOZ_MEMORY_IMPL) && !defined(IMPL_MFBT)
 #  ifdef MFBT_API /* mozilla/Types.h was already included */
 #    error mozmemory_wrap.h has to be included before mozilla/Types.h when MOZ_MEMORY_IMPL is set and IMPL_MFBT is not.
@@ -145,9 +142,6 @@
 #ifndef mozmem_dup_impl
 #  define mozmem_dup_impl(a)      a
 #endif
-#ifndef mozmem_jemalloc_impl
-#  define mozmem_jemalloc_impl(a) a
-#endif
 
 /* Malloc implementation functions */
 #define malloc_impl              mozmem_malloc_impl(malloc)
@@ -176,14 +170,5 @@
 #define vasprintf_impl  mozmem_dup_impl(vasprintf)
 #define asprintf_impl   mozmem_dup_impl(asprintf)
 #endif
-
-/* Jemalloc specific function */
-#define jemalloc_stats_impl              mozmem_jemalloc_impl(jemalloc_stats)
-#define jemalloc_purge_freed_pages_impl  mozmem_jemalloc_impl(jemalloc_purge_freed_pages)
-#define jemalloc_free_dirty_pages_impl   mozmem_jemalloc_impl(jemalloc_free_dirty_pages)
-#define jemalloc_thread_local_arena_impl \
-          mozmem_jemalloc_impl(jemalloc_thread_local_arena)
-#define jemalloc_ptr_info_impl \
-          mozmem_jemalloc_impl(jemalloc_ptr_info)
 
 #endif /* mozmemory_wrap_h */

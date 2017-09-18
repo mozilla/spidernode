@@ -30,6 +30,7 @@ from .data import (
     BaseSources,
     BrandingFiles,
     ChromeManifestEntry,
+    ComputedFlags,
     ConfigFileSubstitution,
     ContextWrapped,
     Defines,
@@ -128,6 +129,7 @@ class TreeMetadataEmitter(LoggingMixin):
 
         self._libs = OrderedDefaultDict(list)
         self._binaries = OrderedDict()
+        self._compile_dirs = set()
         self._linkage = []
         self._static_linking_shared = set()
         self._crate_verified_local = set()
@@ -757,6 +759,8 @@ class TreeMetadataEmitter(LoggingMixin):
         if not (linkables or host_linkables):
             return
 
+        self._compile_dirs.add(context.objdir)
+
         sources = defaultdict(list)
         gen_sources = defaultdict(list)
         all_flags = {}
@@ -905,7 +909,6 @@ class TreeMetadataEmitter(LoggingMixin):
             'ANDROID_APK_NAME',
             'ANDROID_APK_PACKAGE',
             'ANDROID_GENERATED_RESFILES',
-            'DISABLE_STL_WRAPPING',
             'EXTRA_DSO_LDOPTS',
             'RCFILE',
             'RESFILE',
@@ -931,10 +934,6 @@ class TreeMetadataEmitter(LoggingMixin):
                   'LDFLAGS', 'HOST_CFLAGS', 'HOST_CXXFLAGS']:
             if v in context and context[v]:
                 passthru.variables['MOZBUILD_' + v] = context[v]
-
-        # NO_VISIBILITY_FLAGS is slightly different
-        if context['NO_VISIBILITY_FLAGS']:
-            passthru.variables['VISIBILITY_FLAGS'] = ''
 
         if isinstance(context, TemplateContext) and context.template == 'Gyp':
             passthru.variables['IS_GYP_DIR'] = True
@@ -1133,6 +1132,9 @@ class TreeMetadataEmitter(LoggingMixin):
         if passthru.variables:
             yield passthru
 
+        if context.objdir in self._compile_dirs:
+            yield ComputedFlags(context, context['COMPILE_FLAGS'])
+
     def _create_substitution(self, cls, context, path):
         sub = cls(context)
         sub.input_path = '%s.in' % path.full_path
@@ -1254,14 +1256,11 @@ class TreeMetadataEmitter(LoggingMixin):
 
             filtered = mpmanifest.tests
 
-            # Jetpack add-on tests are expected to be generated during the
-            # build process so they won't exist here.
-            if flavor != 'jetpack-addon':
-                missing = [t['name'] for t in filtered if not os.path.exists(t['path'])]
-                if missing:
-                    raise SandboxValidationError('Test manifest (%s) lists '
-                        'test that does not exist: %s' % (
-                        path, ', '.join(missing)), context)
+            missing = [t['name'] for t in filtered if not os.path.exists(t['path'])]
+            if missing:
+                raise SandboxValidationError('Test manifest (%s) lists '
+                    'test that does not exist: %s' % (
+                    path, ', '.join(missing)), context)
 
             out_dir = mozpath.join(install_prefix, manifest_reldir)
             if 'install-to-subdir' in defaults:

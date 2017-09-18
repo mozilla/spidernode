@@ -24,6 +24,7 @@
 #include "js/GCAPI.h"
 #include "js/GCVector.h"
 #include "js/HeapAPI.h"
+#include "vm/Printer.h"
 #include "vm/Shape.h"
 #include "vm/String.h"
 #include "vm/Xdr.h"
@@ -559,7 +560,7 @@ class JSObject : public js::gc::Cell
     }
 
 #ifdef DEBUG
-    void dump(FILE* fp) const;
+    void dump(js::GenericPrinter& fp) const;
     void dump() const;
 #endif
 
@@ -1235,6 +1236,9 @@ LookupOwnPropertyPure(JSContext* cx, JSObject* obj, jsid id, PropertyResult* pro
 
 bool
 GetPropertyPure(JSContext* cx, JSObject* obj, jsid id, Value* vp);
+
+bool
+GetOwnPropertyPure(JSContext* cx, JSObject* obj, jsid id, Value* vp);
 
 bool
 GetGetterPure(JSContext* cx, JSObject* obj, jsid id, JSFunction** fp);

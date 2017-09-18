@@ -3584,7 +3584,8 @@ DumpStringRepresentation(JSContext* cx, unsigned argc, Value* vp)
     if (!str)
         return false;
 
-    str->dumpRepresentation(stderr, 0);
+    Fprinter out(stderr);
+    str->dumpRepresentation(out, 0);
 
     args.rval().setUndefined();
     return true;
@@ -4443,7 +4444,7 @@ IsLegacyIterator(JSContext* cx, unsigned argc, Value* vp)
     if (args.length() < 1)
         args.rval().setBoolean(false);
     else
-        args.rval().setBoolean(IsLegacyIterator(args[0]));
+        args.rval().setBoolean(IsPropertyIterator(args[0]));
     return true;
 }
 

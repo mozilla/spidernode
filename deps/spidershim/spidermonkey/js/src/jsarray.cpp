@@ -455,6 +455,14 @@ js::GetElements(JSContext* cx, HandleObject aobj, uint32_t length, Value* vp)
         }
     }
 
+    if (aobj->is<TypedArrayObject>()) {
+        TypedArrayObject* typedArray = &aobj->as<TypedArrayObject>();
+        if (typedArray->length() == length) {
+            typedArray->getElements(vp);
+            return true;
+        }
+    }
+
     if (js::GetElementsOp op = aobj->getOpsGetElements()) {
         ElementAdder adder(cx, vp, length, ElementAdder::GetElement);
         return op(cx, aobj, 0, length, &adder);
@@ -1242,7 +1250,7 @@ ArrayJoinDenseKernel(JSContext* cx, SeparatorOp sepOp, HandleObject obj, uint64_
             return DenseElementResult::Failure;
 
         // Step 7.b.
-        const Value& elem = GetBoxedOrUnboxedDenseElement<Type>(obj, *numProcessed);
+        Value elem = GetBoxedOrUnboxedDenseElement<Type>(obj, *numProcessed);
 
         // Steps 7.c-d.
         if (elem.isString()) {
@@ -4139,10 +4147,10 @@ bool
 js::ArrayInfo(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JSObject* obj;
+    RootedObject obj(cx);
 
     for (unsigned i = 0; i < args.length(); i++) {
-        RootedValue arg(cx, args[i]);
+        HandleValue arg = args[i];
 
         UniqueChars bytes = DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, arg, nullptr);
         if (!bytes)
