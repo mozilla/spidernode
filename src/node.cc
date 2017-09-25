@@ -197,9 +197,6 @@ unsigned int reverted = 0;
 std::string icu_data_dir;  // NOLINT(runtime/string)
 #endif
 
-// N-API is in experimental state, disabled by default.
-bool load_napi_modules = false;
-
 // used by C++ modules as well
 bool no_deprecation = false;
 
@@ -1162,12 +1159,10 @@ bool ShouldAbortOnUncaughtException(Isolate* isolate) {
 }
 
 
-bool DomainEnter(Environment* env, Local<Object> object) {
+void DomainEnter(Environment* env, Local<Object> object) {
   Local<Value> domain_v = object->Get(env->domain_string());
   if (domain_v->IsObject()) {
     Local<Object> domain = domain_v.As<Object>();
-    if (domain->Get(env->disposed_string())->IsTrue())
-      return true;
     Local<Value> enter_v = domain->Get(env->enter_string());
     if (enter_v->IsFunction()) {
       if (enter_v.As<Function>()->Call(domain, 0, nullptr).IsEmpty()) {
@@ -1176,16 +1171,13 @@ bool DomainEnter(Environment* env, Local<Object> object) {
       }
     }
   }
-  return false;
 }
 
 
-bool DomainExit(Environment* env, v8::Local<v8::Object> object) {
+void DomainExit(Environment* env, v8::Local<v8::Object> object) {
   Local<Value> domain_v = object->Get(env->domain_string());
   if (domain_v->IsObject()) {
     Local<Object> domain = domain_v.As<Object>();
-    if (domain->Get(env->disposed_string())->IsTrue())
-      return true;
     Local<Value> exit_v = domain->Get(env->exit_string());
     if (exit_v->IsFunction()) {
       if (exit_v.As<Function>()->Call(domain, 0, nullptr).IsEmpty()) {
@@ -1194,7 +1186,6 @@ bool DomainExit(Environment* env, v8::Local<v8::Object> object) {
       }
     }
   }
-  return false;
 }
 
 
@@ -1348,30 +1339,6 @@ void AddPromiseHook(v8::Isolate* isolate, promise_hook_func fn, void* arg) {
   env->AddPromiseHook(fn, arg);
 }
 
-class InternalCallbackScope {
- public:
-  InternalCallbackScope(Environment* env,
-                        Local<Object> object,
-                        const async_context& asyncContext);
-  ~InternalCallbackScope();
-  void Close();
-
-  inline bool Failed() const { return failed_; }
-  inline void MarkAsFailed() { failed_ = true; }
-  inline bool IsInnerMakeCallback() const {
-    return callback_scope_.in_makecallback();
-  }
-
- private:
-  Environment* env_;
-  async_context async_context_;
-  v8::Local<v8::Object> object_;
-  Environment::AsyncCallbackScope callback_scope_;
-  bool failed_ = false;
-  bool pushed_ids_ = false;
-  bool closed_ = false;
-};
-
 CallbackScope::CallbackScope(Isolate* isolate,
                              Local<Object> object,
                              async_context asyncContext)
@@ -1390,20 +1357,22 @@ CallbackScope::~CallbackScope() {
 
 InternalCallbackScope::InternalCallbackScope(Environment* env,
                                              Local<Object> object,
-                                             const async_context& asyncContext)
+                                             const async_context& asyncContext,
+                                             ResourceExpectation expect)
   : env_(env),
     async_context_(asyncContext),
     object_(object),
     callback_scope_(env) {
-  CHECK(!object.IsEmpty());
+  if (expect == kRequireResource) {
+    CHECK(!object.IsEmpty());
+  }
 
+  HandleScope handle_scope(env->isolate());
   // If you hit this assertion, you forgot to enter the v8::Context first.
   CHECK_EQ(env->context(), env->isolate()->GetCurrentContext());
 
-  if (env->using_domains()) {
-    failed_ = DomainEnter(env, object_);
-    if (failed_)
-      return;
+  if (env->using_domains() && !object_.IsEmpty()) {
+    DomainEnter(env, object_);
   }
 
   if (asyncContext.async_id != 0) {
@@ -1424,6 +1393,7 @@ InternalCallbackScope::~InternalCallbackScope() {
 void InternalCallbackScope::Close() {
   if (closed_) return;
   closed_ = true;
+  HandleScope handle_scope(env_->isolate());
 
   if (pushed_ids_)
     env_->async_hooks()->pop_ids(async_context_.async_id);
@@ -1434,9 +1404,8 @@ void InternalCallbackScope::Close() {
     AsyncWrap::EmitAfter(env_, async_context_.async_id);
   }
 
-  if (env_->using_domains()) {
-    failed_ = DomainExit(env_, object_);
-    if (failed_) return;
+  if (env_->using_domains() && !object_.IsEmpty()) {
+    DomainExit(env_, object_);
   }
 
   if (IsInnerMakeCallback()) {
@@ -1475,6 +1444,7 @@ MaybeLocal<Value> InternalMakeCallback(Environment* env,
                                        int argc,
                                        Local<Value> argv[],
                                        async_context asyncContext) {
+  CHECK(!recv.IsEmpty());
   InternalCallbackScope scope(env, recv, asyncContext);
   if (scope.Failed()) {
     return Undefined(env->isolate());
@@ -2703,27 +2673,22 @@ static void DLOpen(const FunctionCallbackInfo<Value>& args) {
     env->ThrowError("Module did not self-register.");
     return;
   }
-  if (mp->nm_version != NODE_MODULE_VERSION) {
-    char errmsg[1024];
-    if (mp->nm_version == -1) {
-      snprintf(errmsg,
-               sizeof(errmsg),
-               "The module '%s'"
-               "\nwas compiled against the ABI-stable Node.js API (N-API)."
-               "\nThis feature is experimental and must be enabled on the "
-               "\ncommand-line by adding --napi-modules.",
-               *filename);
-    } else {
-      snprintf(errmsg,
-               sizeof(errmsg),
-               "The module '%s'"
-               "\nwas compiled against a different Node.js version using"
-               "\nNODE_MODULE_VERSION %d. This version of Node.js requires"
-               "\nNODE_MODULE_VERSION %d. Please try re-compiling or "
-               "re-installing\nthe module (for instance, using `npm rebuild` "
-               "or `npm install`).",
-               *filename, mp->nm_version, NODE_MODULE_VERSION);
+  if (mp->nm_version == -1) {
+    if (env->EmitNapiWarning()) {
+      ProcessEmitWarning(env, "N-API is an experimental feature and could "
+                         "change at any time.");
     }
+  } else if (mp->nm_version != NODE_MODULE_VERSION) {
+    char errmsg[1024];
+    snprintf(errmsg,
+             sizeof(errmsg),
+             "The module '%s'"
+             "\nwas compiled against a different Node.js version using"
+             "\nNODE_MODULE_VERSION %d. This version of Node.js requires"
+             "\nNODE_MODULE_VERSION %d. Please try re-compiling or "
+             "re-installing\nthe module (for instance, using `npm rebuild` "
+             "or `npm install`).",
+             *filename, mp->nm_version, NODE_MODULE_VERSION);
 
     // NOTE: `mp` is allocated inside of the shared library's memory, calling
     // `dlclose` will deallocate it
@@ -3827,7 +3792,8 @@ static void PrintHelp() {
          "  --throw-deprecation        throw an exception on deprecations\n"
          "  --pending-deprecation      emit pending deprecation warnings\n"
          "  --no-warnings              silence all process warnings\n"
-         "  --napi-modules             load N-API modules\n"
+         "  --napi-modules             load N-API modules (no-op - option\n"
+         "                             kept for compatibility)\n"
          "  --abort-on-uncaught-exception\n"
          "                             aborting instead of exiting causes a\n"
          "                             core file to be generated for analysis\n"
@@ -3952,6 +3918,7 @@ static void CheckIfAllowedInEnv(const char* exe, bool is_env,
     "--no-deprecation",
     "--trace-deprecation",
     "--throw-deprecation",
+    "--pending-deprecation",
     "--no-warnings",
     "--napi-modules",
     "--expose-http2",
@@ -4085,7 +4052,7 @@ static void ParseArgs(int* argc,
     } else if (strcmp(arg, "--no-deprecation") == 0) {
       no_deprecation = true;
     } else if (strcmp(arg, "--napi-modules") == 0) {
-      load_napi_modules = true;
+      // no-op
     } else if (strcmp(arg, "--no-warnings") == 0) {
       no_process_warnings = true;
     } else if (strcmp(arg, "--trace-warnings") == 0) {
@@ -4740,11 +4707,6 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
 
   env.set_trace_sync_io(trace_sync_io);
 
-  if (load_napi_modules) {
-    ProcessEmitWarning(&env, "N-API is an experimental feature "
-        "and could change at any time.");
-  }
-
   {
     SealHandleScope seal(isolate);
     bool more;
@@ -4752,9 +4714,14 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
     do {
       uv_run(env.event_loop(), UV_RUN_DEFAULT);
 
+      v8_platform.DrainVMTasks();
+
+      more = uv_loop_alive(env.event_loop());
+      if (more)
+        continue;
+
       EmitBeforeExit(&env);
 
-      v8_platform.DrainVMTasks();
       // Emit `beforeExit` if the loop became alive either after emitting
       // event, or after running some callbacks.
       more = uv_loop_alive(env.event_loop());

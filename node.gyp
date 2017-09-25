@@ -302,8 +302,6 @@
         'NODE_WANT_INTERNALS=1',
         # Warn when using deprecated V8 APIs.
         'V8_DEPRECATION_WARNINGS=1',
-        # We're using the nghttp2 static lib
-        'NGHTTP2_STATICLIB'
       ],
     },
     {
@@ -798,7 +796,7 @@
             'common.gypi',
           ],
 
-          'ldflags': ['-Wl,-bE:<(PRODUCT_DIR)/node.exp'],
+          'ldflags': ['-Wl,-bE:<(PRODUCT_DIR)/node.exp', '-Wl,-brtl'],
         },
         {
           'target_name': 'node_exp',
