@@ -1865,7 +1865,7 @@ class MOZ_STACK_CLASS ModuleValidator
             return false;
         }
 
-        return mg_.init(asmJSMetadata_.get());
+        return mg_.init(/* codeSectionSize (ignored) = */ 0, asmJSMetadata_.get());
     }
 
     JSContext* cx() const                    { return cx_; }
@@ -1886,9 +1886,9 @@ class MOZ_STACK_CLASS ModuleValidator
         moduleFunctionName_ = name;
     }
     MOZ_MUST_USE bool initGlobalArgumentName(PropertyName* n) {
-        MOZ_ASSERT(n->isTenured());
         globalArgumentName_ = n;
         if (n) {
+            MOZ_ASSERT(n->isTenured());
             asmJSMetadata_->globalArgumentName = StringToNewUTF8CharsZ(cx_, *n);
             if (!asmJSMetadata_->globalArgumentName)
                 return false;
@@ -1896,9 +1896,9 @@ class MOZ_STACK_CLASS ModuleValidator
         return true;
     }
     MOZ_MUST_USE bool initImportArgumentName(PropertyName* n) {
-        MOZ_ASSERT(n->isTenured());
         importArgumentName_ = n;
         if (n) {
+            MOZ_ASSERT(n->isTenured());
             asmJSMetadata_->importArgumentName = StringToNewUTF8CharsZ(cx_, *n);
             if (!asmJSMetadata_->importArgumentName)
                 return false;
@@ -1906,9 +1906,9 @@ class MOZ_STACK_CLASS ModuleValidator
         return true;
     }
     MOZ_MUST_USE bool initBufferArgumentName(PropertyName* n) {
-        MOZ_ASSERT(n->isTenured());
         bufferArgumentName_ = n;
         if (n) {
+            MOZ_ASSERT(n->isTenured());
             asmJSMetadata_->bufferArgumentName = StringToNewUTF8CharsZ(cx_, *n);
             if (!asmJSMetadata_->bufferArgumentName)
                 return false;
@@ -4470,8 +4470,6 @@ CheckSharedArrayAtomicAccess(FunctionValidator& f, ParseNode* viewName, ParseNod
       default:
         return f.failf(viewName, "not an integer array");
     }
-
-    return true;
 }
 
 static bool

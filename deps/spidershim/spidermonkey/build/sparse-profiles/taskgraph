@@ -7,6 +7,11 @@ path:browser/locales/all-locales
 # Lots of random files in here are read. Just pull in the whole thing.
 path:build/
 
+# TODO remove once bug 1402010 is resolved and test manifests aren't
+# processed in Files() reading mode in moz.build files.
+path:layout/tools/reftest/
+path:testing/web-platform/tests/tools/
+
 # This file is read as part of validating the taskgraph.
 path:mobile/locales/l10n-changesets.json
 
@@ -21,6 +26,10 @@ path:tools/lint/
 
 # for new-style try pushes
 path:try_task_config.json
+
+# Moz.build files are read in filesystem mode
+glob:**/moz.build
+glob:**/*.mozbuild
 
 # Tooltool manifests also need to be opened. Assume they
 # are all somewhere in "tooltool-manifests" directories.

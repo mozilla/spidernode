@@ -12,7 +12,6 @@
 #include "jsobj.h"
 
 #include "gc/Barrier.h"
-#include "gc/Zone.h"
 #include "js/Class.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/SharedArrayObject.h"
@@ -273,9 +272,7 @@ class TypedArrayObject : public NativeObject
   public:
     static void trace(JSTracer* trc, JSObject* obj);
     static void finalize(FreeOp* fop, JSObject* obj);
-    static void objectMoved(JSObject* obj, const JSObject* old);
-    static size_t objectMovedDuringMinorGC(JSTracer* trc, JSObject* obj, const JSObject* old,
-                                           gc::AllocKind allocKind);
+    static size_t objectMoved(JSObject* obj, JSObject* old);
 
     /* Initialization bits */
 

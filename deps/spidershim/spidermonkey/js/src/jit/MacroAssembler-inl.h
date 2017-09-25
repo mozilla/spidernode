@@ -90,10 +90,10 @@ MacroAssembler::call(const wasm::CallSiteDesc& desc, const Register reg)
 }
 
 void
-MacroAssembler::call(const wasm::CallSiteDesc& desc, uint32_t funcDefIndex)
+MacroAssembler::call(const wasm::CallSiteDesc& desc, uint32_t funcIndex)
 {
     CodeOffset l = callWithPatch();
-    append(desc, l, funcDefIndex);
+    append(desc, l, funcIndex);
 }
 
 void
@@ -126,8 +126,22 @@ MacroAssembler::passABIArg(FloatRegister reg, MoveOp::Type type)
     passABIArg(MoveOperand(reg), type);
 }
 
-template <typename T> void
-MacroAssembler::callWithABI(const T& fun, MoveOp::Type result)
+void
+MacroAssembler::callWithABI(void* fun, MoveOp::Type result, CheckUnsafeCallWithABI check)
+{
+    AutoProfilerCallInstrumentation profiler(*this);
+    callWithABINoProfiler(fun, result, check);
+}
+
+void
+MacroAssembler::callWithABI(Register fun, MoveOp::Type result)
+{
+    AutoProfilerCallInstrumentation profiler(*this);
+    callWithABINoProfiler(fun, result);
+}
+
+void
+MacroAssembler::callWithABI(const Address& fun, MoveOp::Type result)
 {
     AutoProfilerCallInstrumentation profiler(*this);
     callWithABINoProfiler(fun, result);

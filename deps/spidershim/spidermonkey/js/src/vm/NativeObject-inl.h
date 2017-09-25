@@ -137,10 +137,13 @@ NativeObject::copyDenseElements(uint32_t dstStart, const Value* src, uint32_t co
     MOZ_ASSERT(dstStart + count <= getDenseCapacity());
     MOZ_ASSERT(!denseElementsAreCopyOnWrite());
     MOZ_ASSERT(!denseElementsAreFrozen());
+    MOZ_ASSERT_IF(count > 0, src != nullptr);
 #ifdef DEBUG
     for (uint32_t i = 0; i < count; ++i)
         checkStoredValue(src[i]);
 #endif
+    if (count == 0)
+        return;
     if (JS::shadow::Zone::asShadowZone(zone())->needsIncrementalBarrier()) {
         uint32_t numShifted = getElementsHeader()->numShiftedElements();
         for (uint32_t i = 0; i < count; ++i) {
@@ -498,6 +501,20 @@ NativeObject::create(JSContext* cx, js::gc::AllocKind kind, js::gc::InitialHeap 
     js::gc::TraceCreateObject(nobj);
 
     return nobj;
+}
+
+/* static */ inline JS::Result<NativeObject*, JS::OOM&>
+NativeObject::createWithTemplate(JSContext* cx, js::gc::InitialHeap heap,
+                                 HandleObject templateObject)
+{
+    RootedObjectGroup group(cx, templateObject->group());
+    RootedShape shape(cx, templateObject->as<NativeObject>().lastProperty());
+
+    gc::AllocKind kind = gc::GetGCObjectKind(shape->numFixedSlots());
+    MOZ_ASSERT(CanBeFinalizedInBackground(kind, shape->getObjectClass()));
+    kind = gc::GetBackgroundAllocKind(kind);
+
+    return create(cx, kind, heap, shape, group);
 }
 
 MOZ_ALWAYS_INLINE uint32_t

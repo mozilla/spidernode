@@ -81,11 +81,11 @@ class OrderedHashSet;
 typedef OrderedHashMap<HashableValue,
                        HeapPtr<Value>,
                        HashableValue::Hasher,
-                       RuntimeAllocPolicy> ValueMap;
+                       ZoneAllocPolicy> ValueMap;
 
 typedef OrderedHashSet<HashableValue,
                        HashableValue::Hasher,
-                       RuntimeAllocPolicy> ValueSet;
+                       ZoneAllocPolicy> ValueSet;
 
 template <typename ObjectT>
 class OrderedHashTableRef;
@@ -130,7 +130,7 @@ class MapObject : public NativeObject {
     static MOZ_MUST_USE bool iterator(JSContext *cx, IteratorKind kind, HandleObject obj,
                                       MutableHandleValue iter);
 
-    using UnbarrieredTable = OrderedHashMap<Value, Value, UnbarrieredHashPolicy, RuntimeAllocPolicy>;
+    using UnbarrieredTable = OrderedHashMap<Value, Value, UnbarrieredHashPolicy, ZoneAllocPolicy>;
     friend class OrderedHashTableRef<MapObject>;
 
     static void sweepAfterMinorGC(FreeOp* fop, MapObject* mapobj);
@@ -190,7 +190,7 @@ class MapIteratorObject : public NativeObject
     static MapIteratorObject* create(JSContext* cx, HandleObject mapobj, ValueMap* data,
                                      MapObject::IteratorKind kind);
     static void finalize(FreeOp* fop, JSObject* obj);
-    static void objectMoved(JSObject* obj, const JSObject* old);
+    static size_t objectMoved(JSObject* obj, JSObject* old);
 
     static MOZ_MUST_USE bool next(Handle<MapIteratorObject*> mapIterator,
                                   HandleArrayObject resultPairObj, JSContext* cx);
@@ -234,7 +234,7 @@ class SetObject : public NativeObject {
                                       MutableHandleValue iter);
     static MOZ_MUST_USE bool delete_(JSContext *cx, HandleObject obj, HandleValue key, bool *rval);
 
-    using UnbarrieredTable = OrderedHashSet<Value, UnbarrieredHashPolicy, RuntimeAllocPolicy>;
+    using UnbarrieredTable = OrderedHashSet<Value, UnbarrieredHashPolicy, ZoneAllocPolicy>;
     friend class OrderedHashTableRef<SetObject>;
 
     static void sweepAfterMinorGC(FreeOp* fop, SetObject* setobj);
@@ -293,7 +293,7 @@ class SetIteratorObject : public NativeObject
     static SetIteratorObject* create(JSContext* cx, HandleObject setobj, ValueSet* data,
                                      SetObject::IteratorKind kind);
     static void finalize(FreeOp* fop, JSObject* obj);
-    static void objectMoved(JSObject* obj, const JSObject* old);
+    static size_t objectMoved(JSObject* obj, JSObject* old);
 
     static MOZ_MUST_USE bool next(Handle<SetIteratorObject*> setIterator,
                                   HandleArrayObject resultObj, JSContext* cx);

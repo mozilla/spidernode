@@ -605,6 +605,8 @@ FrameIter::popInterpreterFrame()
 void
 FrameIter::settleOnActivation()
 {
+    MOZ_ASSERT(!data_.cx_->inUnsafeCallWithABI);
+
     while (true) {
         if (data_.activations_.done()) {
             data_.state_ = DONE;
@@ -1784,7 +1786,7 @@ WasmActivation::interrupted() const
         return false;
 
     DebugOnly<wasm::Frame*> fp = act->asWasm()->exitFP();
-    MOZ_ASSERT(fp && fp->instance()->code().containsFunctionPC(pc));
+    MOZ_ASSERT(fp && fp->instance()->code().containsCodePC(pc));
     return true;
 }
 
