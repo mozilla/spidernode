@@ -361,7 +361,7 @@ js::ToPropertyDescriptor(JSContext* cx, HandleValue descval, bool checkAccessors
                                       js_getter_str);
             return false;
         }
-        attrs |= JSPROP_GETTER | JSPROP_SHARED;
+        attrs |= JSPROP_GETTER;
     }
 
     // step 9
@@ -379,7 +379,7 @@ js::ToPropertyDescriptor(JSContext* cx, HandleValue descval, bool checkAccessors
                                       js_setter_str);
             return false;
         }
-        attrs |= JSPROP_SETTER | JSPROP_SHARED;
+        attrs |= JSPROP_SETTER;
     }
 
     // step 10
@@ -395,7 +395,6 @@ js::ToPropertyDescriptor(JSContext* cx, HandleValue descval, bool checkAccessors
 
     desc.setAttributes(attrs);
     MOZ_ASSERT_IF(attrs & JSPROP_READONLY, !(attrs & (JSPROP_GETTER | JSPROP_SETTER)));
-    MOZ_ASSERT_IF(attrs & (JSPROP_GETTER | JSPROP_SETTER), attrs & JSPROP_SHARED);
     return true;
 }
 
@@ -425,7 +424,7 @@ js::CompletePropertyDescriptor(MutableHandle<PropertyDescriptor> desc)
             desc.setGetterObject(nullptr);
         if (!desc.hasSetterObject())
             desc.setSetterObject(nullptr);
-        desc.attributesRef() |= JSPROP_GETTER | JSPROP_SETTER | JSPROP_SHARED;
+        desc.attributesRef() |= JSPROP_GETTER | JSPROP_SETTER;
     }
     if (!desc.hasConfigurable())
         desc.attributesRef() |= JSPROP_PERMANENT;
@@ -1157,19 +1156,19 @@ js::CloneObject(JSContext* cx, HandleObject obj, Handle<js::TaggedProto> proto)
 }
 
 static bool
-GetScriptArrayObjectElements(JSContext* cx, HandleObject obj, MutableHandle<GCVector<Value>> values)
+GetScriptArrayObjectElements(JSContext* cx, HandleArrayObject arr,
+                             MutableHandle<GCVector<Value>> values)
 {
-    MOZ_ASSERT(!obj->isSingleton());
-    MOZ_ASSERT(obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>());
-    MOZ_ASSERT_IF(obj->isNative(), !obj->as<NativeObject>().isIndexed());
+    MOZ_ASSERT(!arr->isSingleton());
+    MOZ_ASSERT(!arr->isIndexed());
 
-    size_t length = GetAnyBoxedOrUnboxedArrayLength(obj);
+    size_t length = arr->length();
     if (!values.appendN(MagicValue(JS_ELEMENTS_HOLE), length))
         return false;
 
-    size_t initlen = GetAnyBoxedOrUnboxedInitializedLength(obj);
+    size_t initlen = arr->getDenseInitializedLength();
     for (size_t i = 0; i < initlen; i++)
-        values[i].set(GetAnyBoxedOrUnboxedDenseElement(obj, i));
+        values[i].set(arr->getDenseElement(i));
 
     return true;
 }
@@ -1242,12 +1241,12 @@ js::DeepCloneObjectLiteral(JSContext* cx, HandleObject obj, NewObjectKind newKin
     MOZ_ASSERT_IF(obj->isSingleton(),
                   cx->compartment()->behaviors().getSingletonsAsTemplates());
     MOZ_ASSERT(obj->is<PlainObject>() || obj->is<UnboxedPlainObject>() ||
-               obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>());
+               obj->is<ArrayObject>());
     MOZ_ASSERT(newKind != SingletonObject);
 
-    if (obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>()) {
+    if (obj->is<ArrayObject>()) {
         Rooted<GCVector<Value>> values(cx, GCVector<Value>(cx));
-        if (!GetScriptArrayObjectElements(cx, obj, &values))
+        if (!GetScriptArrayObjectElements(cx, obj.as<ArrayObject>(), &values))
             return nullptr;
 
         // Deep clone any elements.
@@ -1362,9 +1361,8 @@ js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj)
         if (mode == XDR_ENCODE) {
             MOZ_ASSERT(obj->is<PlainObject>() ||
                        obj->is<UnboxedPlainObject>() ||
-                       obj->is<ArrayObject>() ||
-                       obj->is<UnboxedArrayObject>());
-            isArray = (obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>()) ? 1 : 0;
+                       obj->is<ArrayObject>());
+            isArray = obj->is<ArrayObject>() ? 1 : 0;
         }
 
         if (!xdr->codeUint32(&isArray))
@@ -1376,8 +1374,11 @@ js::XDRObjectLiteral(XDRState<mode>* xdr, MutableHandleObject obj)
 
     if (isArray) {
         Rooted<GCVector<Value>> values(cx, GCVector<Value>(cx));
-        if (mode == XDR_ENCODE && !GetScriptArrayObjectElements(cx, obj, &values))
-            return false;
+        if (mode == XDR_ENCODE) {
+            RootedArrayObject arr(cx, &obj->as<ArrayObject>());
+            if (!GetScriptArrayObjectElements(cx, arr, &values))
+                return false;
+        }
 
         uint32_t initialized;
         if (mode == XDR_ENCODE)
@@ -2399,11 +2400,6 @@ js::LookupOwnPropertyPure(JSContext* cx, JSObject* obj, jsid id, PropertyResult*
             propp->setNonNativeProperty();
             return true;
         }
-    } else if (obj->is<UnboxedArrayObject>()) {
-        if (obj->as<UnboxedArrayObject>().containsProperty(cx, id)) {
-            propp->setNonNativeProperty();
-            return true;
-        }
     } else if (obj->is<TypedObject>()) {
         if (obj->as<TypedObject>().typeDescr().hasProperty(cx->names(), id)) {
             propp->setNonNativeProperty();
@@ -2976,7 +2972,7 @@ js::WatchGuts(JSContext* cx, JS::HandleObject origObj, JS::HandleId id, JS::Hand
 
     WatchpointMap* wpmap = cx->compartment()->watchpointMap;
     if (!wpmap) {
-        wpmap = cx->runtime()->new_<WatchpointMap>();
+        wpmap = cx->zone()->new_<WatchpointMap>();
         if (!wpmap || !wpmap->init()) {
             ReportOutOfMemory(cx);
             js_delete(wpmap);
@@ -3526,7 +3522,6 @@ DumpProperty(const NativeObject* obj, Shape& shape, js::GenericPrinter& out)
     if (attrs & JSPROP_ENUMERATE) out.put("enumerate ");
     if (attrs & JSPROP_READONLY) out.put("readonly ");
     if (attrs & JSPROP_PERMANENT) out.put("permanent ");
-    if (attrs & JSPROP_SHARED) out.put("shared ");
 
     if (shape.hasGetterValue())
         out.printf("getterValue=%p ", (void*) shape.getterObject());
@@ -3869,16 +3864,6 @@ JSObject::allocKindForTenure(const js::Nursery& nursery) const
         return GetGCObjectKindForBytes(UnboxedPlainObject::offsetOfData() + nbytes);
     }
 
-    // Unboxed arrays use inline data if their size is small enough.
-    if (is<UnboxedArrayObject>()) {
-        const UnboxedArrayObject* nobj = &as<UnboxedArrayObject>();
-        size_t nbytes = UnboxedArrayObject::offsetOfInlineElements() +
-                        nobj->capacity() * nobj->elementSize();
-        if (nbytes <= JSObject::MAX_BYTE_SIZE)
-            return GetGCObjectKindForBytes(nbytes);
-        return AllocKind::OBJECT0;
-    }
-
     // Inlined typed objects are followed by their data, so make sure we copy
     // it all over to the new object.
     if (is<InlineTypedObject>()) {
@@ -4187,7 +4172,7 @@ JSObject::debugCheckNewObject(ObjectGroup* group, Shape* shape, js::gc::AllocKin
     if (shape)
         MOZ_ASSERT(clasp == shape->getObjectClass());
     else
-        MOZ_ASSERT(clasp == &UnboxedPlainObject::class_ || clasp == &UnboxedArrayObject::class_);
+        MOZ_ASSERT(clasp == &UnboxedPlainObject::class_);
 
     if (!ClassCanHaveFixedData(clasp)) {
         MOZ_ASSERT(shape);

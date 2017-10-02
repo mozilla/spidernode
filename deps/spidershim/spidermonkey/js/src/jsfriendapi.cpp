@@ -21,6 +21,7 @@
 
 #include "builtin/Promise.h"
 #include "builtin/TestingFunctions.h"
+#include "ds/MemoryProtectionExceptionHandler.h"
 #include "gc/GCInternals.h"
 #include "js/Proxy.h"
 #include "proxy/DeadObjectProxy.h"
@@ -278,7 +279,7 @@ js::GetBuiltinClass(JSContext* cx, HandleObject obj, ESClass* cls)
 
     if (obj->is<PlainObject>() || obj->is<UnboxedPlainObject>())
         *cls = ESClass::Object;
-    else if (obj->is<ArrayObject>() || obj->is<UnboxedArrayObject>())
+    else if (obj->is<ArrayObject>())
         *cls = ESClass::Array;
     else if (obj->is<NumberObject>())
         *cls = ESClass::Number;
@@ -1370,20 +1371,6 @@ js::GetDOMProxyShadowsCheck()
     return gDOMProxyShadowsCheck;
 }
 
-static XrayJitInfo* gXrayJitInfo = nullptr;
-
-JS_FRIEND_API(void)
-js::SetXrayJitInfo(XrayJitInfo* info)
-{
-    gXrayJitInfo = info;
-}
-
-XrayJitInfo*
-js::GetXrayJitInfo()
-{
-    return gXrayJitInfo;
-}
-
 bool
 js::detail::IdMatchesAtom(jsid id, JSAtom* atom)
 {
@@ -1566,4 +1553,18 @@ js::SystemZoneAvailable(JSContext* cx)
 {
     CooperatingContext& owner = cx->runtime()->gc.systemZoneGroup->ownerContext();
     return owner.context() == nullptr;
+}
+
+JS_FRIEND_API(void)
+js::ProtectBuffer(void* buffer, size_t size)
+{
+    gc::MakePagesReadOnly(buffer, size);
+    MemoryProtectionExceptionHandler::addRegion(buffer, size);
+}
+
+JS_FRIEND_API(void)
+js::UnprotectBuffer(void* buffer, size_t size)
+{
+    MemoryProtectionExceptionHandler::removeRegion(buffer);
+    gc::UnprotectPages(buffer, size);
 }

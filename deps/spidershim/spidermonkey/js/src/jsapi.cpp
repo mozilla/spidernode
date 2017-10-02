@@ -1334,7 +1334,7 @@ JS_malloc(JSContext* cx, size_t nbytes)
 {
     AssertHeapIsIdle();
     CHECK_REQUEST(cx);
-    return static_cast<void*>(cx->runtime()->pod_malloc<uint8_t>(nbytes));
+    return static_cast<void*>(cx->zone()->pod_malloc<uint8_t>(nbytes));
 }
 
 JS_PUBLIC_API(void*)
@@ -3677,7 +3677,7 @@ CloneFunctionObject(JSContext* cx, HandleObject funobj, HandleObject env, Handle
         return nullptr;
     }
 
-    if (IsAsmJSModule(fun)) {
+    if (IsAsmJSModule(fun) || wasm::IsExportedFunction(fun)) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_CANT_CLONE_OBJECT);
         return nullptr;
     }

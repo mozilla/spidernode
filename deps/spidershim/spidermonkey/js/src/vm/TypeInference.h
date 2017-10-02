@@ -905,8 +905,8 @@ class PreliminaryObjectArray
         mozilla::PodZero(this);
     }
 
-    void registerNewObject(JSObject* res);
-    void unregisterObject(JSObject* obj);
+    void registerNewObject(PlainObject* res);
+    void unregisterObject(PlainObject* obj);
 
     JSObject* get(size_t i) const {
         MOZ_ASSERT(i < COUNT);
@@ -1298,10 +1298,6 @@ class RecompileInfo;
 bool
 FinishCompilation(JSContext* cx, HandleScript script, CompilerConstraintList* constraints,
                   RecompileInfo* precompileInfo, bool* isValidOut);
-
-// Reset any CompilerOutput present for a script.
-void
-InvalidateCompilerOutputsForScript(JSContext* cx, HandleScript script);
 
 // Update the actual types in any scripts queried by constraints with any
 // speculative types added during the definite properties analysis.

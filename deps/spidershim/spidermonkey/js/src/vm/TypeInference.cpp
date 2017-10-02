@@ -1511,18 +1511,6 @@ js::FinishCompilation(JSContext* cx, HandleScript script, CompilerConstraintList
     return true;
 }
 
-void
-js::InvalidateCompilerOutputsForScript(JSContext* cx, HandleScript script)
-{
-    TypeZone& types = cx->zone()->types;
-    if (types.compilerOutputs) {
-        for (auto& co : *types.compilerOutputs) {
-            if (co.script() == script)
-                co.invalidate();
-        }
-    }
-}
-
 static void
 CheckDefinitePropertiesTypeSet(JSContext* cx, TemporaryTypeSet* frozen, StackTypeSet* actual)
 {
@@ -2518,7 +2506,7 @@ TemporaryTypeSet::propertyNeedsBarrier(CompilerConstraintList* constraints, jsid
 bool
 js::ClassCanHaveExtraProperties(const Class* clasp)
 {
-    if (clasp == &UnboxedPlainObject::class_ || clasp == &UnboxedArrayObject::class_)
+    if (clasp == &UnboxedPlainObject::class_)
         return false;
     return clasp->getResolve()
         || clasp->getOpsLookupProperty()
@@ -3451,7 +3439,7 @@ JSFunction::setTypeForScriptedFunction(JSContext* cx, HandleFunction fun,
 /////////////////////////////////////////////////////////////////////
 
 void
-PreliminaryObjectArray::registerNewObject(JSObject* res)
+PreliminaryObjectArray::registerNewObject(PlainObject* res)
 {
     // The preliminary object pointers are weak, and won't be swept properly
     // during nursery collections, so the preliminary objects need to be
@@ -3469,7 +3457,7 @@ PreliminaryObjectArray::registerNewObject(JSObject* res)
 }
 
 void
-PreliminaryObjectArray::unregisterObject(JSObject* obj)
+PreliminaryObjectArray::unregisterObject(PlainObject* obj)
 {
     for (size_t i = 0; i < COUNT; i++) {
         if (objects[i] == obj) {

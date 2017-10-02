@@ -976,7 +976,6 @@ const char* gc::ZealModeHelpText =
     "    3: (FrameGC) Collect when the window paints (browser only)\n"
     "    4: (VerifierPre) Verify pre write barriers between instructions\n"
     "    5: (FrameVerifierPre) Verify pre write barriers between paints\n"
-    "    6: (StackRooting) Verify stack rooting\n"
     "    7: (GenerationalGC) Collect the nursery every N nursery allocations\n"
     "    8: (IncrementalRootsThenFinish) Incremental GC in two slices: 1) mark roots 2) finish collection\n"
     "    9: (IncrementalMarkAllThenFinish) Incremental GC in two slices: 1) mark all 2) new marking and finish\n"
@@ -8081,13 +8080,19 @@ JS::AssertGCThingIsNotAnObjectSubclass(Cell* cell)
 JS_FRIEND_API(void)
 js::gc::AssertGCThingHasType(js::gc::Cell* cell, JS::TraceKind kind)
 {
-    MOZ_ASSERT(IsCellPointerValid(cell));
-    if (!cell)
+    if (!cell) {
         MOZ_ASSERT(kind == JS::TraceKind::Null);
-    else if (IsInsideNursery(cell))
+        return;
+    }
+
+    MOZ_ASSERT(IsCellPointerValid(cell));
+
+    if (IsInsideNursery(cell)) {
         MOZ_ASSERT(kind == JS::TraceKind::Object);
-    else
-        MOZ_ASSERT(MapAllocToTraceKind(cell->asTenured().getAllocKind()) == kind);
+        return;
+    }
+
+    MOZ_ASSERT(MapAllocToTraceKind(cell->asTenured().getAllocKind()) == kind);
 }
 #endif
 
@@ -8651,7 +8656,7 @@ NewMemoryInfoObject(JSContext* cx)
 #endif
         if (!JS_DefineProperty(cx, obj, pair.name,
                                getter, nullptr,
-                               JSPROP_ENUMERATE | JSPROP_SHARED))
+                               JSPROP_ENUMERATE))
         {
             return nullptr;
         }
@@ -8686,7 +8691,7 @@ NewMemoryInfoObject(JSContext* cx)
 #endif
         if (!JS_DefineProperty(cx, zoneObj, pair.name,
                                getter, nullptr,
-                               JSPROP_ENUMERATE | JSPROP_SHARED))
+                               JSPROP_ENUMERATE))
         {
             return nullptr;
         }
