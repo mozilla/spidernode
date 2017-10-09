@@ -496,7 +496,7 @@ SetProperty(JSContext* cx, HandleObject obj, HandlePropertyName name, HandleValu
         // Aliased var assigns ignore readonly attributes on the property, as
         // required for initializing 'const' closure variables.
         Shape* shape = obj->as<NativeObject>().lookup(cx, name);
-        MOZ_ASSERT(shape && shape->hasSlot());
+        MOZ_ASSERT(shape && shape->isDataProperty());
         obj->as<NativeObject>().setSlotWithType(cx, shape, value);
         return true;
     }
@@ -822,8 +822,8 @@ bool
 DebugEpilogueOnBaselineReturn(JSContext* cx, BaselineFrame* frame, jsbytecode* pc)
 {
     if (!DebugEpilogue(cx, frame, pc, true)) {
-        // DebugEpilogue popped the frame by updating exitFP, so run the stop
-        // event here before we enter the exception handler.
+        // DebugEpilogue popped the frame by updating packedExitFP, so run the
+        // stop event here before we enter the exception handler.
         TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
         TraceLogStopEvent(logger, TraceLogger_Baseline);
         TraceLogStopEvent(logger, TraceLogger_Scripts);
@@ -849,8 +849,8 @@ DebugEpilogue(JSContext* cx, BaselineFrame* frame, jsbytecode* pc, bool ok)
     frame->setOverridePc(script->lastPC());
 
     if (!ok) {
-        // Pop this frame by updating exitFP, so that the exception handling
-        // code will start at the previous frame.
+        // Pop this frame by updating packedExitFP, so that the exception
+        // handling code will start at the previous frame.
         JitFrameLayout* prefix = frame->framePrefix();
         EnsureBareExitFrame(cx, prefix);
         return false;
@@ -1602,7 +1602,7 @@ GetNativeDataProperty(JSContext* cx, NativeObject* obj, jsid id, Value* vp)
 
     while (true) {
         if (Shape* shape = obj->lastProperty()->search(cx, id)) {
-            if (!shape->hasSlot() || !shape->hasDefaultGetter())
+            if (!shape->isDataProperty())
                 return false;
 
             *vp = obj->getSlot(shape->slot());
@@ -1714,8 +1714,7 @@ SetNativeDataProperty(JSContext* cx, JSObject* obj, PropertyName* name, Value* v
     NativeObject* nobj = &obj->as<NativeObject>();
     Shape* shape = nobj->lastProperty()->search(cx, NameToId(name));
     if (!shape ||
-        !shape->hasSlot() ||
-        !shape->hasDefaultSetter() ||
+        !shape->isDataProperty() ||
         !shape->writable() ||
         nobj->watched())
     {

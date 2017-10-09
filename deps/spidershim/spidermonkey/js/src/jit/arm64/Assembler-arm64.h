@@ -43,7 +43,6 @@ static constexpr Register InvalidReg { Registers::invalid_reg };
 static constexpr FloatRegister InvalidFloatReg = { FloatRegisters::invalid_fpreg, FloatRegisters::Single };
 
 static constexpr Register OsrFrameReg { Registers::x3 };
-static constexpr Register ArgumentsRectifierReg { Registers::x8 };
 static constexpr Register CallTempReg0 { Registers::x9 };
 static constexpr Register CallTempReg1 { Registers::x10 };
 static constexpr Register CallTempReg2 { Registers::x11 };
@@ -443,11 +442,19 @@ class ABIArgGenerator
     ABIArg current_;
 };
 
+// These registers may be volatile or nonvolatile.
 static constexpr Register ABINonArgReg0 = r8;
 static constexpr Register ABINonArgReg1 = r9;
 static constexpr Register ABINonArgReg2 = r10;
+
+// These registers may be volatile or nonvolatile.
+// Note: these three registers are all guaranteed to be different
 static constexpr Register ABINonArgReturnReg0 = r8;
 static constexpr Register ABINonArgReturnReg1 = r9;
+
+// This register is guaranteed to be clobberable during the prologue of an ABI
+// call which must preserve both ABI argument and non-volatile registers.
+static constexpr Register NativeABIPrologueClobberable = lr;
 
 // TLS pointer argument register for WebAssembly functions. This must not alias
 // any other register used for passing function arguments or return values.

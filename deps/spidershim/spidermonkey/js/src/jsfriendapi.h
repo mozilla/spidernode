@@ -3062,12 +3062,6 @@ ToWindowProxyIfWindow(JSObject* obj)
 extern JS_FRIEND_API(JSObject*)
 ToWindowIfWindowProxy(JSObject* obj);
 
-// Create and add the Intl.PluralRules constructor function to the provided
-// object.  This function throws if called more than once per realm/global
-// object.
-extern bool
-AddPluralRulesConstructor(JSContext* cx, JS::Handle<JSObject*> intl);
-
 // Create and add the Intl.MozDateTimeFormat constructor function to the provided
 // object.
 //
@@ -3121,13 +3115,6 @@ SetCooperativeYieldCallback(JSContext* cx, YieldCallback callback);
 // are using it now).
 extern JS_FRIEND_API(bool)
 SystemZoneAvailable(JSContext* cx);
-
-// Protects/unprotects a page-sized buffer as read-only, associating a special crash
-// handler to make access violations easier to spot on crash-stats.
-extern JS_FRIEND_API(void)
-ProtectBuffer(void* buffer, size_t size);
-extern JS_FRIEND_API(void)
-UnprotectBuffer(void* buffer, size_t size);
 
 } /* namespace js */
 

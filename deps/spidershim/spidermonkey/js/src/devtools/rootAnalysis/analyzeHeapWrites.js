@@ -65,7 +65,7 @@ function hasThreadsafeReferenceCounts(entry, regexp)
         "nsIRunnable",
 
         // I don't know if these always have threadsafe refcounts.
-        "nsIAtom",
+        "nsAtom",
         "nsIPermissionManager",
         "nsIURI",
     ];
@@ -220,6 +220,7 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_CopyShapeSourceFrom", "aDst", null],
         ["Gecko_DestroyShapeSource", "aShape", null],
         ["Gecko_StyleShapeSource_SetURLValue", "aShape", null],
+        ["Gecko_NewBasicShape", "aShape", null],
         ["Gecko_nsFont_InitSystem", "aDest", null],
         ["Gecko_nsFont_SetFontFeatureValuesLookup", "aFont", null],
         ["Gecko_nsFont_ResetFontFeatureValuesLookup", "aFont", null],
@@ -237,6 +238,8 @@ function treatAsSafeArgument(entry, varName, csuName)
         ["Gecko_CounterStyle_GetName", "aResult", null],
         ["Gecko_CounterStyle_GetSingleString", "aResult", null],
         ["Gecko_EnsureMozBorderColors", "aBorder", null],
+        ["Gecko_nsTArray_FontFamilyName_AppendNamed", "aNames", null],
+        ["Gecko_nsTArray_FontFamilyName_AppendGeneric", "aNames", null],
     ];
     for (var [entryMatch, varMatch, csuMatch] of whitelist) {
         assert(entryMatch || varMatch || csuMatch);
@@ -370,6 +373,14 @@ function ignoreCallEdge(entry, callee)
         return true;
     }
 
+    // StyleShapeSource exclusively owns its UniquePtr<nsStyleImage>.
+    if (/nsStyleImage::SetURLValue/.test(callee) &&
+        /StyleShapeSource::SetURL/.test(name) &&
+        entry.isSafeArgument(0))
+    {
+        return true;
+    }
+
     // The AddRef through a just-assigned heap pointer here is not handled by
     // the analysis.
     if (/nsCSSValue::Array::AddRef/.test(callee) &&
@@ -497,7 +508,6 @@ function ignoreContents(entry)
             /(nsTSubstring<T>|nsAC?String)::StripTaggedASCII/,
             /(nsTSubstring<T>|nsAC?String)::operator=/,
             /nsTAutoStringN<T, N>::nsTAutoStringN/,
-            /nsTFixedString<T>::nsTFixedString/,
 
             // Similar for some other data structures
             /nsCOMArray_base::SetCapacity/,

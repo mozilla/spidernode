@@ -95,7 +95,6 @@ ReportOverRecursed(JSContext* cx);
 
 class Activation;
 class ActivationIterator;
-class WasmActivation;
 
 namespace jit {
 class JitRuntime;
@@ -292,7 +291,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     friend class js::Activation;
     friend class js::ActivationIterator;
     friend class js::jit::JitActivation;
-    friend class js::WasmActivation;
     friend class js::jit::CompileRuntime;
 
   public:
@@ -962,7 +960,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
      * the caller must ensure that no deadlock possible during OOM reporting.
      */
     void updateMallocCounter(size_t nbytes);
-    void updateMallocCounter(JS::Zone* zone, size_t nbytes);
 
     void reportAllocationOverflow() { js::ReportAllocationOverflow(nullptr); }
 

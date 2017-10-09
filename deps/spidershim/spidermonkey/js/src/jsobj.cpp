@@ -577,6 +577,30 @@ js::SetIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level)
     return true;
 }
 
+static bool
+ResolveLazyProperties(JSContext* cx, HandleNativeObject obj)
+{
+    const Class* clasp = obj->getClass();
+    if (JSEnumerateOp enumerate = clasp->getEnumerate()) {
+        if (!enumerate(cx, obj))
+            return false;
+    }
+    if (clasp->getNewEnumerate() && clasp->getResolve()) {
+        AutoIdVector properties(cx);
+        if (!clasp->getNewEnumerate()(cx, obj, properties, /* enumerableOnly = */ false))
+            return false;
+
+        RootedId id(cx);
+        for (size_t i = 0; i < properties.length(); i++) {
+            id = properties[i];
+            bool found;
+            if (!HasOwnProperty(cx, obj, id, &found))
+                return false;
+        }
+    }
+    return true;
+}
+
 // ES6 draft rev33 (12 Feb 2015) 7.3.15
 bool
 js::TestIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level, bool* result)
@@ -590,31 +614,69 @@ js::TestIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level, bo
         return true;
     }
 
-    // Steps 7-8.
-    AutoIdVector props(cx);
-    if (!GetPropertyKeys(cx, obj, JSITER_HIDDEN | JSITER_OWNONLY | JSITER_SYMBOLS, &props))
-        return false;
+    // Fast path for native objects.
+    if (obj->isNative()) {
+        HandleNativeObject nobj = obj.as<NativeObject>();
 
-    // Step 9.
-    RootedId id(cx);
-    Rooted<PropertyDescriptor> desc(cx);
-    for (size_t i = 0, len = props.length(); i < len; i++) {
-        id = props[i];
-
-        // Steps 9.a-b.
-        if (!GetOwnPropertyDescriptor(cx, obj, id, &desc))
+        // Force lazy properties to be resolved.
+        if (!ResolveLazyProperties(cx, nobj))
             return false;
 
-        // Step 9.c.
-        if (!desc.object())
-            continue;
-
-        // Steps 9.c.i-ii.
-        if (desc.configurable() ||
-            (level == IntegrityLevel::Frozen && desc.isDataDescriptor() && desc.writable()))
+        // Typed array elements are non-configurable, writable properties, so
+        // if any elements are present, the typed array cannot be frozen.
+        if (nobj->is<TypedArrayObject>() && nobj->as<TypedArrayObject>().length() > 0 &&
+            level == IntegrityLevel::Frozen)
         {
             *result = false;
             return true;
+        }
+
+        // Unless the frozen flag is set, dense elements are configurable.
+        if (nobj->getDenseInitializedLength() > 0 && !nobj->denseElementsAreFrozen()) {
+            *result = false;
+            return true;
+        }
+
+        // Steps 7-9.
+        for (Shape::Range<NoGC> r(nobj->lastProperty()); !r.empty(); r.popFront()) {
+            Shape* shape = &r.front();
+
+            // Steps 9.c.i-ii.
+            if (shape->configurable() ||
+                (level == IntegrityLevel::Frozen &&
+                 shape->isDataDescriptor() && shape->writable()))
+            {
+                *result = false;
+                return true;
+            }
+        }
+    } else {
+        // Steps 7-8.
+        AutoIdVector props(cx);
+        if (!GetPropertyKeys(cx, obj, JSITER_HIDDEN | JSITER_OWNONLY | JSITER_SYMBOLS, &props))
+            return false;
+
+        // Step 9.
+        RootedId id(cx);
+        Rooted<PropertyDescriptor> desc(cx);
+        for (size_t i = 0, len = props.length(); i < len; i++) {
+            id = props[i];
+
+            // Steps 9.a-b.
+            if (!GetOwnPropertyDescriptor(cx, obj, id, &desc))
+                return false;
+
+            // Step 9.c.
+            if (!desc.object())
+                continue;
+
+            // Steps 9.c.i-ii.
+            if (desc.configurable() ||
+                (level == IntegrityLevel::Frozen && desc.isDataDescriptor() && desc.writable()))
+            {
+                *result = false;
+                return true;
+            }
         }
     }
 
@@ -2427,16 +2489,11 @@ NativeGetPureInline(NativeObject* pobj, jsid id, PropertyResult prop, Value* vp)
 
     // Fail if we have a custom getter.
     Shape* shape = prop.shape();
-    if (!shape->hasDefaultGetter())
+    if (!shape->isDataProperty())
         return false;
 
-    if (shape->hasSlot()) {
-        *vp = pobj->getSlot(shape->slot());
-        MOZ_ASSERT(!vp->isMagic());
-    } else {
-        vp->setUndefined();
-    }
-
+    *vp = pobj->getSlot(shape->slot());
+    MOZ_ASSERT(!vp->isMagic());
     return true;
 }
 
@@ -2551,8 +2608,8 @@ js::HasOwnDataPropertyPure(JSContext* cx, JSObject* obj, jsid id, bool* result)
     if (!LookupOwnPropertyPure(cx, obj, id, &prop))
         return false;
 
-    *result = prop && !prop.isDenseOrTypedArrayElement() && prop.shape()->hasDefaultGetter() &&
-              prop.shape()->hasSlot();
+    *result = prop && !prop.isDenseOrTypedArrayElement() &&
+              prop.shape()->isDataProperty();
     return true;
 }
 
@@ -2705,26 +2762,8 @@ js::PreventExtensions(JSContext* cx, HandleObject obj, ObjectOpResult& result, I
         return false;
 
     // Force lazy properties to be resolved.
-    if (obj->isNative()) {
-        const Class* clasp = obj->getClass();
-        if (JSEnumerateOp enumerate = clasp->getEnumerate()) {
-            if (!enumerate(cx, obj.as<NativeObject>()))
-                return false;
-        }
-        if (clasp->getNewEnumerate() && clasp->getResolve()) {
-            AutoIdVector properties(cx);
-            if (!clasp->getNewEnumerate()(cx, obj, properties, /* enumerableOnly = */ false))
-                return false;
-
-            RootedId id(cx);
-            for (size_t i = 0; i < properties.length(); i++) {
-                id = properties[i];
-                bool found;
-                if (!HasOwnProperty(cx, obj, id, &found))
-                    return false;
-            }
-        }
-    }
+    if (obj->isNative() && !ResolveLazyProperties(cx, obj.as<NativeObject>()))
+        return false;
 
     // Sparsify dense elements, to make sure no element can be added without a
     // call to isExtensible, at the cost of performance. If the object is being
@@ -3359,8 +3398,12 @@ GetObjectSlotNameFunctor::operator()(JS::CallbackTracer* trc, char* buf, size_t 
     Shape* shape;
     if (obj->isNative()) {
         shape = obj->as<NativeObject>().lastProperty();
-        while (shape && (!shape->hasSlot() || shape->slot() != slot))
+        while (shape && (shape->isEmptyShape() ||
+                         !shape->isDataProperty() ||
+                         shape->slot() != slot))
+        {
             shape = shape->previous();
+        }
     } else {
         shape = nullptr;
     }
@@ -3538,9 +3581,9 @@ DumpProperty(const NativeObject* obj, Shape& shape, js::GenericPrinter& out)
     else
         out.printf("unknown jsid %p", (void*) JSID_BITS(id));
 
-    uint32_t slot = shape.hasSlot() ? shape.maybeSlot() : SHAPE_INVALID_SLOT;
+    uint32_t slot = shape.isDataProperty() ? shape.maybeSlot() : SHAPE_INVALID_SLOT;
     out.printf(": slot %d", slot);
-    if (shape.hasSlot()) {
+    if (shape.isDataProperty()) {
         out.put(" = ");
         dumpValue(obj->getSlot(slot), out);
     } else if (slot != SHAPE_INVALID_SLOT) {
@@ -4155,6 +4198,8 @@ js::Unbox(JSContext* cx, HandleObject obj, MutableHandleValue vp)
         vp.setString(obj->as<StringObject>().unbox());
     else if (obj->is<DateObject>())
         vp.set(obj->as<DateObject>().UTCTime());
+    else if (obj->is<SymbolObject>())
+        vp.setSymbol(obj->as<SymbolObject>().unbox());
     else
         vp.setUndefined();
 

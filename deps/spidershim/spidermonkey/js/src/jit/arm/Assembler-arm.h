@@ -61,7 +61,6 @@ struct SecondScratchRegisterScope : public AutoRegisterScope
 };
 
 static constexpr Register OsrFrameReg = r3;
-static constexpr Register ArgumentsRectifierReg = r8;
 static constexpr Register CallTempReg0 = r5;
 static constexpr Register CallTempReg1 = r6;
 static constexpr Register CallTempReg2 = r7;
@@ -109,11 +108,19 @@ class ABIArgGenerator
 
 bool IsUnaligned(const wasm::MemoryAccessDesc& access);
 
+// These registers may be volatile or nonvolatile.
 static constexpr Register ABINonArgReg0 = r4;
 static constexpr Register ABINonArgReg1 = r5;
 static constexpr Register ABINonArgReg2 = r6;
+
+// These registers may be volatile or nonvolatile.
+// Note: these three registers are all guaranteed to be different
 static constexpr Register ABINonArgReturnReg0 = r4;
 static constexpr Register ABINonArgReturnReg1 = r5;
+
+// This register is guaranteed to be clobberable during the prologue of an ABI
+// call which must preserve both ABI argument and non-volatile registers.
+static constexpr Register NativeABIPrologueClobberable = ScratchRegister;
 
 // TLS pointer argument register for WebAssembly functions. This must not alias
 // any other register used for passing function arguments or return values.

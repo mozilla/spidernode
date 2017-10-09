@@ -142,9 +142,7 @@ struct JSContext : public JS::RootingContext,
     /* Clear the pending exception (if any) due to OOM. */
     void recoverFromOutOfMemory();
 
-    inline void updateMallocCounter(size_t nbytes) {
-        runtime()->updateMallocCounter(zone(), nbytes);
-    }
+    void updateMallocCounter(size_t nbytes);
 
     void reportAllocationOverflow() {
         js::ReportAllocationOverflow(this);
@@ -376,7 +374,11 @@ struct JSContext : public JS::RootingContext,
     }
     static size_t offsetOfProfilingActivation() {
         return offsetof(JSContext, profilingActivation_);
-     }
+    }
+
+    static size_t offsetOfJitActivation() {
+        return offsetof(JSContext, jitActivation);
+    }
 
 #ifdef DEBUG
     static size_t offsetOfInUnsafeCallWithABI() {

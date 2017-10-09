@@ -2110,7 +2110,7 @@ HeapTypeSetKey::constant(CompilerConstraintList* constraints, Value* valOut)
 
     // Get the current value of the property.
     Shape* shape = obj->as<NativeObject>().lookupPure(id());
-    if (!shape || !shape->hasDefaultGetter() || !shape->hasSlot() || shape->hadOverwrite())
+    if (!shape || !shape->isDataProperty() || shape->hadOverwrite())
         return false;
 
     Value val = obj->as<NativeObject>().getSlot(shape->slot());
@@ -2633,7 +2633,7 @@ UpdatePropertyType(JSContext* cx, HeapTypeSet* types, NativeObject* obj, Shape* 
     if (shape->hasGetterValue() || shape->hasSetterValue()) {
         types->setNonDataProperty(cx);
         types->TypeSet::addType(TypeSet::UnknownType(), &cx->typeLifoAlloc());
-    } else if (shape->hasDefaultGetter() && shape->hasSlot()) {
+    } else if (shape->isDataProperty()) {
         if (!indexed && types->canSetDefinite(shape->slot()))
             types->setDefinite(shape->slot());
 
@@ -3544,11 +3544,10 @@ OnlyHasDataProperties(Shape* shape)
     MOZ_ASSERT(!shape->inDictionary());
 
     while (!shape->isEmptyShape()) {
-        if (!shape->isDataDescriptor() ||
+        if (!shape->isDataProperty() ||
             !shape->configurable() ||
             !shape->enumerable() ||
-            !shape->writable() ||
-            !shape->hasSlot())
+            !shape->writable())
         {
             return false;
         }
@@ -3592,37 +3591,34 @@ PreliminaryObjectArrayWithTemplate::maybeAnalyze(JSContext* cx, ObjectGroup* gro
     ScopedJSDeletePtr<PreliminaryObjectArrayWithTemplate> preliminaryObjects(this);
     group->detachPreliminaryObjects();
 
-    if (shape()) {
-        MOZ_ASSERT(shape()->slotSpan() != 0);
-        MOZ_ASSERT(OnlyHasDataProperties(shape()));
+    MOZ_ASSERT(shape());
+    MOZ_ASSERT(shape()->slotSpan() != 0);
+    MOZ_ASSERT(OnlyHasDataProperties(shape()));
 
-        // Make sure all the preliminary objects reflect the properties originally
-        // in the template object.
-        for (size_t i = 0; i < PreliminaryObjectArray::COUNT; i++) {
-            JSObject* objBase = preliminaryObjects->get(i);
-            if (!objBase)
-                continue;
-            PlainObject* obj = &objBase->as<PlainObject>();
+    // Make sure all the preliminary objects reflect the properties originally
+    // in the template object.
+    for (size_t i = 0; i < PreliminaryObjectArray::COUNT; i++) {
+        JSObject* objBase = preliminaryObjects->get(i);
+        if (!objBase)
+            continue;
+        PlainObject* obj = &objBase->as<PlainObject>();
 
-            if (obj->inDictionaryMode() || !OnlyHasDataProperties(obj->lastProperty()))
-                return;
+        if (obj->inDictionaryMode() || !OnlyHasDataProperties(obj->lastProperty()))
+            return;
 
-            if (CommonPrefix(obj->lastProperty(), shape()) != shape())
-                return;
-        }
+        if (CommonPrefix(obj->lastProperty(), shape()) != shape())
+            return;
     }
 
     TryConvertToUnboxedLayout(cx, enter, shape(), group, preliminaryObjects);
     if (group->maybeUnboxedLayout())
         return;
 
-    if (shape()) {
-        // We weren't able to use an unboxed layout, but since the preliminary
-        // objects still reflect the template object's properties, and all
-        // objects in the future will be created with those properties, the
-        // properties can be marked as definite for objects in the group.
-        group->addDefiniteProperties(cx, shape());
-    }
+    // We weren't able to use an unboxed layout, but since the preliminary
+    // objects still reflect the template object's properties, and all
+    // objects in the future will be created with those properties, the
+    // properties can be marked as definite for objects in the group.
+    group->addDefiniteProperties(cx, shape());
 }
 
 /////////////////////////////////////////////////////////////////////

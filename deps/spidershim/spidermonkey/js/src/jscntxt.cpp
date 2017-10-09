@@ -348,7 +348,7 @@ PopulateReportBlame(JSContext* cx, JSErrorReport* report)
  * Furthermore, callers of ReportOutOfMemory (viz., malloc) assume a GC does
  * not occur, so GC must be avoided or suppressed.
  */
-void
+JS_FRIEND_API(void)
 js::ReportOutOfMemory(JSContext* cx)
 {
 #ifdef JS_MORE_DETERMINISTIC
@@ -1607,6 +1607,17 @@ JSContext::findVersion()
         return JSVERSION_DEFAULT;
 
     return runtime()->defaultVersion();
+}
+
+void
+JSContext::updateMallocCounter(size_t nbytes)
+{
+    if (!zone()) {
+        runtime()->updateMallocCounter(nbytes);
+        return;
+    }
+
+    zone()->updateMallocCounter(nbytes);
 }
 
 #ifdef DEBUG

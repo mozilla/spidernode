@@ -21,7 +21,6 @@
 
 #include "builtin/Promise.h"
 #include "builtin/TestingFunctions.h"
-#include "ds/MemoryProtectionExceptionHandler.h"
 #include "gc/GCInternals.h"
 #include "js/Proxy.h"
 #include "proxy/DeadObjectProxy.h"
@@ -1123,7 +1122,7 @@ JS::ForceLexicalInitialization(JSContext *cx, HandleObject obj)
     for (Shape::Range<NoGC> r(nobj->lastProperty()); !r.empty(); r.popFront()) {
         Shape* s = &r.front();
         Value v = nobj->getSlot(s->slot());
-        if (s->hasSlot() && v.isMagic() && v.whyMagic() == JS_UNINITIALIZED_LEXICAL) {
+        if (s->isDataProperty() && v.isMagic() && v.whyMagic() == JS_UNINITIALIZED_LEXICAL) {
             nobj->setSlot(s->slot(), UndefinedValue());
             initializedAny = true;
         }
@@ -1553,18 +1552,4 @@ js::SystemZoneAvailable(JSContext* cx)
 {
     CooperatingContext& owner = cx->runtime()->gc.systemZoneGroup->ownerContext();
     return owner.context() == nullptr;
-}
-
-JS_FRIEND_API(void)
-js::ProtectBuffer(void* buffer, size_t size)
-{
-    gc::MakePagesReadOnly(buffer, size);
-    MemoryProtectionExceptionHandler::addRegion(buffer, size);
-}
-
-JS_FRIEND_API(void)
-js::UnprotectBuffer(void* buffer, size_t size)
-{
-    MemoryProtectionExceptionHandler::removeRegion(buffer);
-    gc::UnprotectPages(buffer, size);
 }
