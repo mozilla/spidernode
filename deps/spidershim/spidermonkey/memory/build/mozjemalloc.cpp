@@ -507,17 +507,12 @@ static size_t recycled_size;
  */
 #if defined(XP_WIN)
 #define malloc_mutex_t CRITICAL_SECTION
-#define malloc_spinlock_t CRITICAL_SECTION
 #elif defined(XP_DARWIN)
 struct malloc_mutex_t {
 	OSSpinLock	lock;
 };
-struct malloc_spinlock_t {
-	OSSpinLock	lock;
-};
 #else
 typedef pthread_mutex_t malloc_mutex_t;
-typedef pthread_mutex_t malloc_spinlock_t;
 #endif
 
 /* Set to true once the allocator has been initialized. */
@@ -644,23 +639,53 @@ struct ExtentTreeBoundsTrait : public ExtentTreeTrait
 /******************************************************************************/
 /*
  * Radix tree data structures.
+ *
+ * The number of bits passed to the template is the number of significant bits
+ * in an address to do a radix lookup with.
+ *
+ * An address is looked up by splitting it in kBitsPerLevel bit chunks, except
+ * the most significant bits, where the bit chunk is kBitsAtLevel1 which can be
+ * different if Bits is not a multiple of kBitsPerLevel.
+ *
+ * With e.g. sizeof(void*)=4, Bits=16 and kBitsPerLevel=8, an address is split
+ * like the following:
+ * 0x12345678 -> mRoot[0x12][0x34]
  */
 
-/*
- * Size of each radix tree node (must be a power of 2).  This impacts tree
- * depth.
- */
+template <size_t Bits>
+class AddressRadixTree {
+ // Size of each radix tree node (as a power of 2).
+ // This impacts tree depth.
 #if (SIZEOF_PTR == 4)
-#  define MALLOC_RTREE_NODESIZE (1U << 14)
+  static const size_t kNodeSize2Pow = 14;
 #else
-#  define MALLOC_RTREE_NODESIZE CACHELINE
+  static const size_t kNodeSize2Pow = CACHELINE_2POW;
 #endif
+  static const size_t kBitsPerLevel = kNodeSize2Pow - SIZEOF_PTR_2POW;
+  static const size_t kBitsAtLevel1 =
+    (Bits % kBitsPerLevel) ? Bits % kBitsPerLevel : kBitsPerLevel;
+  static const size_t kHeight = (Bits + kBitsPerLevel - 1) / kBitsPerLevel;
+  static_assert(kBitsAtLevel1 + (kHeight - 1) * kBitsPerLevel == Bits,
+                "AddressRadixTree parameters don't work out");
 
-struct malloc_rtree_t {
-	malloc_spinlock_t	lock;
-	void			**root;
-	unsigned		height;
-	unsigned		level2bits[1]; /* Dynamically sized. */
+  malloc_mutex_t mLock;
+  void** mRoot;
+
+public:
+  bool Init();
+
+  inline void* Get(void* aAddr);
+
+  // Returns whether the value was properly set
+  inline bool Set(void* aAddr, void* aValue);
+
+  inline bool Unset(void* aAddr)
+  {
+    return Set(aAddr, nullptr);
+  }
+
+private:
+  inline void** GetSlot(void* aAddr, bool aCreate = false);
 };
 
 /******************************************************************************/
@@ -900,7 +925,7 @@ struct arena_t {
   RedBlackTreeNode<arena_t> mLink;
 
   /* All operations on this arena require that lock be locked. */
-  malloc_spinlock_t mLock;
+  malloc_mutex_t mLock;
 
   arena_stats_t mStats;
 
@@ -1039,7 +1064,7 @@ struct ArenaTreeTrait
  * Chunks.
  */
 
-static malloc_rtree_t *chunk_rtree;
+static AddressRadixTree<(SIZEOF_PTR << 3) - CHUNK_2POW_DEFAULT> gChunkRTree;
 
 /* Protects chunk-related data structures. */
 static malloc_mutex_t	chunks_mtx;
@@ -1094,7 +1119,7 @@ static size_t		base_committed;
 // the type being defined anymore.
 static RedBlackTree<arena_t, ArenaTreeTrait> gArenaTree;
 static unsigned narenas;
-static malloc_spinlock_t arenas_lock; /* Protects arenas initialization. */
+static malloc_mutex_t arenas_lock; /* Protects arenas initialization. */
 
 /*
  * The arena associated with the current thread (per jemalloc_thread_local_arena)
@@ -1271,77 +1296,8 @@ malloc_mutex_unlock(malloc_mutex_t *mutex)
 #endif
 }
 
-#if (defined(__GNUC__))
-__attribute__((unused))
-#  endif
-static bool
-malloc_spin_init(malloc_spinlock_t *lock)
-{
-#if defined(XP_WIN)
-	if (!InitializeCriticalSectionAndSpinCount(lock, _CRT_SPINCOUNT))
-			return (true);
-#elif defined(XP_DARWIN)
-	lock->lock = OS_SPINLOCK_INIT;
-#elif defined(XP_LINUX) && !defined(ANDROID)
-	pthread_mutexattr_t attr;
-	if (pthread_mutexattr_init(&attr) != 0)
-		return (true);
-	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ADAPTIVE_NP);
-	if (pthread_mutex_init(lock, &attr) != 0) {
-		pthread_mutexattr_destroy(&attr);
-		return (true);
-	}
-	pthread_mutexattr_destroy(&attr);
-#else
-	if (pthread_mutex_init(lock, nullptr) != 0)
-		return (true);
-#endif
-	return (false);
-}
-
-static inline void
-malloc_spin_lock(malloc_spinlock_t *lock)
-{
-
-#if defined(XP_WIN)
-	EnterCriticalSection(lock);
-#elif defined(XP_DARWIN)
-	OSSpinLockLock(&lock->lock);
-#else
-	pthread_mutex_lock(lock);
-#endif
-}
-
-static inline void
-malloc_spin_unlock(malloc_spinlock_t *lock)
-{
-#if defined(XP_WIN)
-	LeaveCriticalSection(lock);
-#elif defined(XP_DARWIN)
-	OSSpinLockUnlock(&lock->lock);
-#else
-	pthread_mutex_unlock(lock);
-#endif
-}
-
 /*
  * End mutex.
- */
-/******************************************************************************/
-/*
- * Begin spin lock.  Spin locks here are actually adaptive mutexes that block
- * after a period of spinning, because unbounded spinning would allow for
- * priority inversion.
- */
-
-#if !defined(XP_DARWIN)
-#  define	malloc_spin_init	malloc_mutex_init
-#  define	malloc_spin_lock	malloc_mutex_lock
-#  define	malloc_spin_unlock	malloc_mutex_unlock
-#endif
-
-/*
- * End spin lock.
  */
 /******************************************************************************/
 /*
@@ -1719,145 +1675,101 @@ pages_copy(void *dest, const void *src, size_t n)
 }
 #endif
 
-static inline malloc_rtree_t *
-malloc_rtree_new(unsigned bits)
+template <size_t Bits>
+bool
+AddressRadixTree<Bits>::Init()
 {
-	malloc_rtree_t *ret;
-	unsigned bits_per_level, height, i;
+  malloc_mutex_init(&mLock);
 
-	bits_per_level = ffs(pow2_ceil((MALLOC_RTREE_NODESIZE /
-	    sizeof(void *)))) - 1;
-	height = bits / bits_per_level;
-	if (height * bits_per_level != bits)
-		height++;
-	MOZ_DIAGNOSTIC_ASSERT(height * bits_per_level >= bits);
-
-	ret = (malloc_rtree_t*)base_calloc(1, sizeof(malloc_rtree_t) +
-	    (sizeof(unsigned) * (height - 1)));
-	if (!ret)
-		return nullptr;
-
-	malloc_spin_init(&ret->lock);
-	ret->height = height;
-	if (bits_per_level * height > bits)
-		ret->level2bits[0] = bits % bits_per_level;
-	else
-		ret->level2bits[0] = bits_per_level;
-	for (i = 1; i < height; i++)
-		ret->level2bits[i] = bits_per_level;
-
-	ret->root = (void**)base_calloc(1, sizeof(void *) << ret->level2bits[0]);
-	if (!ret->root) {
-		/*
-		 * We leak the rtree here, since there's no generic base
-		 * deallocation.
-		 */
-		return nullptr;
-	}
-
-	return (ret);
+  mRoot = (void**)base_calloc(1 << kBitsAtLevel1, sizeof(void*));
+  return mRoot;
 }
 
-#define	MALLOC_RTREE_GET_GENERATE(f)					\
-/* The least significant bits of the key are ignored. */		\
-static inline void *							\
-f(malloc_rtree_t *rtree, uintptr_t key)					\
-{									\
-	void *ret;							\
-	uintptr_t subkey;						\
-	unsigned i, lshift, height, bits;				\
-	void **node, **child;						\
-									\
-	MALLOC_RTREE_LOCK(&rtree->lock);				\
-	for (i = lshift = 0, height = rtree->height, node = rtree->root;\
-	    i < height - 1;						\
-	    i++, lshift += bits, node = child) {			\
-		bits = rtree->level2bits[i];				\
-		subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);	\
-		child = (void**)node[subkey];				\
-		if (!child) {						\
-			MALLOC_RTREE_UNLOCK(&rtree->lock);		\
-			return nullptr;					\
-		}							\
-	}								\
-									\
-	/*								\
-	 * node is a leaf, so it contains values rather than node	\
-	 * pointers.							\
-	 */								\
-	bits = rtree->level2bits[i];					\
-	subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);		\
-	ret = node[subkey];						\
-	MALLOC_RTREE_UNLOCK(&rtree->lock);				\
-									\
-	MALLOC_RTREE_GET_VALIDATE					\
-	return (ret);							\
+template <size_t Bits>
+void**
+AddressRadixTree<Bits>::GetSlot(void* aKey, bool aCreate)
+{
+  uintptr_t key = reinterpret_cast<uintptr_t>(aKey);
+  uintptr_t subkey;
+  unsigned i, lshift, height, bits;
+  void** node;
+  void** child;
+
+  for (i = lshift = 0, height = kHeight, node = mRoot;
+       i < height - 1;
+       i++, lshift += bits, node = child) {
+    bits = i ? kBitsPerLevel : kBitsAtLevel1;
+    subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
+    child = (void**) node[subkey];
+    if (!child && aCreate) {
+      child = (void**) base_calloc(1 << kBitsPerLevel, sizeof(void*));
+      if (child) {
+        node[subkey] = child;
+      }
+    }
+    if (!child) {
+      return nullptr;
+    }
+  }
+
+  /*
+   * node is a leaf, so it contains values rather than node
+   * pointers.
+   */
+  bits = i ? kBitsPerLevel : kBitsAtLevel1;
+  subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
+  return &node[subkey];
 }
 
-#ifdef MOZ_DEBUG
-#  define MALLOC_RTREE_LOCK(l)		malloc_spin_lock(l)
-#  define MALLOC_RTREE_UNLOCK(l)	malloc_spin_unlock(l)
-#  define MALLOC_RTREE_GET_VALIDATE
-MALLOC_RTREE_GET_GENERATE(malloc_rtree_get_locked)
-#  undef MALLOC_RTREE_LOCK
-#  undef MALLOC_RTREE_UNLOCK
-#  undef MALLOC_RTREE_GET_VALIDATE
-#endif
-
-#define	MALLOC_RTREE_LOCK(l)
-#define	MALLOC_RTREE_UNLOCK(l)
-#ifdef MOZ_DEBUG
-   /*
-    * Suppose that it were possible for a jemalloc-allocated chunk to be
-    * munmap()ped, followed by a different allocator in another thread re-using
-    * overlapping virtual memory, all without invalidating the cached rtree
-    * value.  The result would be a false positive (the rtree would claim that
-    * jemalloc owns memory that it had actually discarded).  I don't think this
-    * scenario is possible, but the following assertion is a prudent sanity
-    * check.
-    */
-#  define MALLOC_RTREE_GET_VALIDATE					\
-	MOZ_ASSERT(malloc_rtree_get_locked(rtree, key) == ret);
-#else
-#  define MALLOC_RTREE_GET_VALIDATE
-#endif
-MALLOC_RTREE_GET_GENERATE(malloc_rtree_get)
-#undef MALLOC_RTREE_LOCK
-#undef MALLOC_RTREE_UNLOCK
-#undef MALLOC_RTREE_GET_VALIDATE
-
-static inline bool
-malloc_rtree_set(malloc_rtree_t *rtree, uintptr_t key, void *val)
+template <size_t Bits>
+void*
+AddressRadixTree<Bits>::Get(void* aKey)
 {
-	uintptr_t subkey;
-	unsigned i, lshift, height, bits;
-	void **node, **child;
+  void* ret = nullptr;
 
-	malloc_spin_lock(&rtree->lock);
-	for (i = lshift = 0, height = rtree->height, node = rtree->root;
-	    i < height - 1;
-	    i++, lshift += bits, node = child) {
-		bits = rtree->level2bits[i];
-		subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
-		child = (void**)node[subkey];
-		if (!child) {
-			child = (void**)base_calloc(1, sizeof(void *) <<
-			    rtree->level2bits[i+1]);
-			if (!child) {
-				malloc_spin_unlock(&rtree->lock);
-				return (true);
-			}
-			node[subkey] = child;
-		}
-	}
+  void** slot = GetSlot(aKey);
 
-	/* node is a leaf, so it contains values rather than node pointers. */
-	bits = rtree->level2bits[i];
-	subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
-	node[subkey] = val;
-	malloc_spin_unlock(&rtree->lock);
+  if (slot) {
+    ret = *slot;
+  }
+#ifdef MOZ_DEBUG
+  malloc_mutex_lock(&mlock);
+  /*
+   * Suppose that it were possible for a jemalloc-allocated chunk to be
+   * munmap()ped, followed by a different allocator in another thread re-using
+   * overlapping virtual memory, all without invalidating the cached rtree
+   * value.  The result would be a false positive (the rtree would claim that
+   * jemalloc owns memory that it had actually discarded).  I don't think this
+   * scenario is possible, but the following assertion is a prudent sanity
+   * check.
+   */
+  if (!slot) {
+    // In case a slot has been created in the meantime.
+    slot = GetSlot(aKey);
+  }
+  if (slot) {
+    // The malloc_mutex_lock call above should act as a memory barrier, forcing
+    // the compiler to emit a new read instruction for *slot.
+    MOZ_ASSERT(ret == *slot);
+  } else {
+    MOZ_ASSERT(ret == nullptr);
+  }
+  malloc_mutex_unlock(&mlock);
+#endif
+  return ret;
+}
 
-	return (false);
+template <size_t Bits>
+bool
+AddressRadixTree<Bits>::Set(void* aKey, void* aValue)
+{
+  malloc_mutex_lock(&mLock);
+  void** slot = GetSlot(aKey, /* create */ true);
+  if (slot) {
+    *slot = aValue;
+  }
+  malloc_mutex_unlock(&mLock);
+  return slot;
 }
 
 /* pages_trim, chunk_alloc_mmap_slow and chunk_alloc_mmap were cherry-picked
@@ -2148,7 +2060,7 @@ chunk_alloc(size_t size, size_t alignment, bool base, bool *zeroed)
 RETURN:
 
 	if (ret && base == false) {
-		if (malloc_rtree_set(chunk_rtree, (uintptr_t)ret, ret)) {
+		if (!gChunkRTree.Set(ret, ret)) {
 			chunk_dealloc(ret, size, UNKNOWN_CHUNK);
 			return nullptr;
 		}
@@ -2280,7 +2192,7 @@ chunk_dealloc(void *chunk, size_t size, ChunkType type)
 	MOZ_ASSERT(size != 0);
 	MOZ_ASSERT((size & chunksize_mask) == 0);
 
-	malloc_rtree_set(chunk_rtree, (uintptr_t)chunk, nullptr);
+	gChunkRTree.Unset(chunk);
 
 	if (CAN_RECYCLE(size)) {
 		size_t recycled_so_far = load_acquire_z(&recycled_size);
@@ -3208,7 +3120,7 @@ arena_t::MallocSmall(size_t aSize, bool aZero)
   }
   MOZ_DIAGNOSTIC_ASSERT(aSize == bin->reg_size);
 
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
   if ((run = bin->runcur) && run->nfree > 0) {
     ret = MallocBinEasy(bin, run);
   } else {
@@ -3216,12 +3128,12 @@ arena_t::MallocSmall(size_t aSize, bool aZero)
   }
 
   if (!ret) {
-    malloc_spin_unlock(&mLock);
+    malloc_mutex_unlock(&mLock);
     return nullptr;
   }
 
   mStats.allocated_small += aSize;
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 
   if (aZero == false) {
     if (opt_junk) {
@@ -3242,14 +3154,14 @@ arena_t::MallocLarge(size_t aSize, bool aZero)
 
   /* Large allocation. */
   aSize = PAGE_CEILING(aSize);
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
   ret = AllocRun(nullptr, aSize, true, aZero);
   if (!ret) {
-    malloc_spin_unlock(&mLock);
+    malloc_mutex_unlock(&mLock);
     return nullptr;
   }
   mStats.allocated_large += aSize;
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 
   if (aZero == false) {
     if (opt_junk) {
@@ -3296,10 +3208,10 @@ arena_t::Palloc(size_t aAlignment, size_t aSize, size_t aAllocSize)
   MOZ_ASSERT((aSize & pagesize_mask) == 0);
   MOZ_ASSERT((aAlignment & pagesize_mask) == 0);
 
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
   ret = AllocRun(nullptr, aAllocSize, true, false);
   if (!ret) {
-    malloc_spin_unlock(&mLock);
+    malloc_mutex_unlock(&mLock);
     return nullptr;
   }
 
@@ -3328,7 +3240,7 @@ arena_t::Palloc(size_t aAlignment, size_t aSize, size_t aAllocSize)
   }
 
   mStats.allocated_large += aSize;
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 
   if (opt_junk) {
     memset(ret, kAllocJunk, aSize);
@@ -3482,7 +3394,7 @@ isalloc_validate(const void* ptr)
     return 0;
   }
 
-  if (!malloc_rtree_get(chunk_rtree, (uintptr_t)chunk)) {
+  if (!gChunkRTree.Get(chunk)) {
     return 0;
   }
 
@@ -3552,8 +3464,8 @@ MozJemalloc::jemalloc_ptr_info(const void* aPtr, jemalloc_ptr_info_t* aInfo)
     return;
   }
 
-  // Look for huge allocations before looking for |chunk| in chunk_rtree.
-  // This is necessary because |chunk| won't be in chunk_rtree if it's
+  // Look for huge allocations before looking for |chunk| in gChunkRTree.
+  // This is necessary because |chunk| won't be in gChunkRTree if it's
   // the second or subsequent chunk in a huge allocation.
   extent_node_t* node;
   extent_node_t key;
@@ -3570,7 +3482,7 @@ MozJemalloc::jemalloc_ptr_info(const void* aPtr, jemalloc_ptr_info_t* aInfo)
   }
 
   // It's not a huge allocation. Check if we have a known chunk.
-  if (!malloc_rtree_get(chunk_rtree, (uintptr_t)chunk)) {
+  if (!gChunkRTree.Get(chunk)) {
     *aInfo = { TagUnknown, nullptr, 0 };
     return;
   }
@@ -3769,7 +3681,7 @@ arena_dalloc(void *ptr, size_t offset)
 	MOZ_ASSERT(arena);
 	MOZ_DIAGNOSTIC_ASSERT(arena->mMagic == ARENA_MAGIC);
 
-	malloc_spin_lock(&arena->mLock);
+	malloc_mutex_lock(&arena->mLock);
 	pageind = offset >> pagesize_2pow;
 	mapelm = &chunk->map[pageind];
 	MOZ_DIAGNOSTIC_ASSERT((mapelm->bits & CHUNK_MAP_ALLOCATED) != 0);
@@ -3780,7 +3692,7 @@ arena_dalloc(void *ptr, size_t offset)
 		/* Large allocation. */
 		arena->DallocLarge(chunk, ptr);
 	}
-	malloc_spin_unlock(&arena->mLock);
+	malloc_mutex_unlock(&arena->mLock);
 }
 
 static inline void
@@ -3807,10 +3719,10 @@ arena_t::RallocShrinkLarge(arena_chunk_t* aChunk, void* aPtr, size_t aSize,
    * Shrink the run, and make trailing pages available for other
    * allocations.
    */
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
   TrimRunTail(aChunk, (arena_run_t*)aPtr, aOldSize, aSize, true);
   mStats.allocated_large -= aOldSize - aSize;
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 }
 
 bool
@@ -3820,7 +3732,7 @@ arena_t::RallocGrowLarge(arena_chunk_t* aChunk, void* aPtr, size_t aSize,
   size_t pageind = (uintptr_t(aPtr) - uintptr_t(aChunk)) >> pagesize_2pow;
   size_t npages = aOldSize >> pagesize_2pow;
 
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
   MOZ_DIAGNOSTIC_ASSERT(aOldSize == (aChunk->map[pageind].bits & ~pagesize_mask));
 
   /* Try to extend the run. */
@@ -3843,10 +3755,10 @@ arena_t::RallocGrowLarge(arena_chunk_t* aChunk, void* aPtr, size_t aSize,
         CHUNK_MAP_ALLOCATED;
 
     mStats.allocated_large += aSize - aOldSize;
-    malloc_spin_unlock(&mLock);
+    malloc_mutex_unlock(&mLock);
     return false;
   }
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 
   return true;
 }
@@ -3977,7 +3889,7 @@ arena_t::Init()
   arena_bin_t* bin;
   size_t prev_run_size;
 
-  if (malloc_spin_init(&mLock))
+  if (malloc_mutex_init(&mLock))
     return true;
 
   memset(&mLink, 0, sizeof(mLink));
@@ -4076,13 +3988,13 @@ arenas_extend()
     return arenas_fallback();
   }
 
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
 
   // TODO: Use random Ids.
   ret->mId = narenas++;
   gArenaTree.Insert(ret);
 
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
   return ret;
 }
 
@@ -4487,7 +4399,7 @@ MALLOC_OUT:
   base_nodes = nullptr;
   malloc_mutex_init(&base_mtx);
 
-  malloc_spin_init(&arenas_lock);
+  malloc_mutex_init(&arenas_lock);
 
   /*
    * Initialize one arena here.
@@ -4510,8 +4422,7 @@ MALLOC_OUT:
    */
   thread_arena.set(gMainArena);
 
-  chunk_rtree = malloc_rtree_new((SIZEOF_PTR << 3) - CHUNK_2POW_DEFAULT);
-  if (!chunk_rtree) {
+  if (!gChunkRTree.Init()) {
     return true;
   }
 
@@ -4853,7 +4764,7 @@ MozJemalloc::jemalloc_stats(jemalloc_stats_t* aStats)
   MOZ_ASSERT(base_mapped >= base_committed);
   malloc_mutex_unlock(&base_mtx);
 
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
   /* Iterate over arenas. */
   for (auto arena : gArenaTree.iter()) {
     size_t arena_mapped, arena_allocated, arena_committed, arena_dirty, j,
@@ -4867,7 +4778,7 @@ MozJemalloc::jemalloc_stats(jemalloc_stats_t* aStats)
     arena_headers = 0;
     arena_unused = 0;
 
-    malloc_spin_lock(&arena->mLock);
+    malloc_mutex_lock(&arena->mLock);
 
     arena_mapped = arena->mStats.mapped;
 
@@ -4896,7 +4807,7 @@ MozJemalloc::jemalloc_stats(jemalloc_stats_t* aStats)
       arena_headers += bin->stats.curruns * bin->reg0_offset;
     }
 
-    malloc_spin_unlock(&arena->mLock);
+    malloc_mutex_unlock(&arena->mLock);
 
     MOZ_ASSERT(arena_mapped >= arena_committed);
     MOZ_ASSERT(arena_committed >= arena_allocated + arena_dirty);
@@ -4911,7 +4822,7 @@ MozJemalloc::jemalloc_stats(jemalloc_stats_t* aStats)
     aStats->bin_unused += arena_unused;
     aStats->bookkeeping += arena_headers;
   }
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
 
   /* Account for arena chunk headers in bookkeeping rather than waste. */
   chunk_header_size =
@@ -4961,24 +4872,24 @@ hard_purge_chunk(arena_chunk_t *chunk)
 void
 arena_t::HardPurge()
 {
-  malloc_spin_lock(&mLock);
+  malloc_mutex_lock(&mLock);
 
   while (!mChunksMAdvised.isEmpty()) {
     arena_chunk_t* chunk = mChunksMAdvised.popFront();
     hard_purge_chunk(chunk);
   }
 
-  malloc_spin_unlock(&mLock);
+  malloc_mutex_unlock(&mLock);
 }
 
 template<> inline void
 MozJemalloc::jemalloc_purge_freed_pages()
 {
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
   for (auto arena : gArenaTree.iter()) {
     arena->HardPurge();
   }
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
 }
 
 #else /* !defined MALLOC_DOUBLE_PURGE */
@@ -4995,13 +4906,13 @@ MozJemalloc::jemalloc_purge_freed_pages()
 template<> inline void
 MozJemalloc::jemalloc_free_dirty_pages(void)
 {
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
   for (auto arena : gArenaTree.iter()) {
-    malloc_spin_lock(&arena->mLock);
+    malloc_mutex_lock(&arena->mLock);
     arena->Purge(true);
-    malloc_spin_unlock(&arena->mLock);
+    malloc_mutex_unlock(&arena->mLock);
   }
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
 }
 
 inline arena_t*
@@ -5009,9 +4920,9 @@ arena_t::GetById(arena_id_t aArenaId)
 {
   arena_t key;
   key.mId = aArenaId;
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
   arena_t* result = gArenaTree.Search(&key);
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
   MOZ_RELEASE_ASSERT(result);
   return result;
 }
@@ -5028,12 +4939,12 @@ template<> inline void
 MozJemalloc::moz_dispose_arena(arena_id_t aArenaId)
 {
   arena_t* arena = arena_t::GetById(aArenaId);
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
   gArenaTree.Remove(arena);
   // The arena is leaked, and remaining allocations in it still are alive
   // until they are freed. After that, the arena will be empty but still
   // taking have at least a chunk taking address space. TODO: bug 1364359.
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
 }
 
 #define MALLOC_DECL(name, return_type, ...) \
@@ -5078,10 +4989,10 @@ _malloc_prefork(void)
 {
   /* Acquire all mutexes in a safe order. */
 
-  malloc_spin_lock(&arenas_lock);
+  malloc_mutex_lock(&arenas_lock);
 
   for (auto arena : gArenaTree.iter()) {
-    malloc_spin_lock(&arena->mLock);
+    malloc_mutex_lock(&arena->mLock);
   }
 
   malloc_mutex_lock(&base_mtx);
@@ -5102,9 +5013,9 @@ _malloc_postfork_parent(void)
   malloc_mutex_unlock(&base_mtx);
 
   for (auto arena : gArenaTree.iter()) {
-    malloc_spin_unlock(&arena->mLock);
+    malloc_mutex_unlock(&arena->mLock);
   }
-  malloc_spin_unlock(&arenas_lock);
+  malloc_mutex_unlock(&arenas_lock);
 }
 
 #ifndef XP_DARWIN
@@ -5120,9 +5031,9 @@ _malloc_postfork_child(void)
   malloc_mutex_init(&base_mtx);
 
   for (auto arena : gArenaTree.iter()) {
-    malloc_spin_init(&arena->mLock);
+    malloc_mutex_init(&arena->mLock);
   }
-  malloc_spin_init(&arenas_lock);
+  malloc_mutex_init(&arenas_lock);
 }
 
 /*

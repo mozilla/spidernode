@@ -23,6 +23,7 @@
 
 #include "wasm/WasmCode.h"
 #include "wasm/WasmGenerator.h"
+#include "wasm/WasmInstance.h"
 
 #include "jit/MacroAssembler-inl.h"
 
@@ -138,10 +139,10 @@ SetupABIArguments(MacroAssembler& masm, const FuncExport& fe, Register argv, Reg
               case MIRType::Int64: {
                 Register sp = masm.getStackPointer();
 #if JS_BITS_PER_WORD == 32
-                masm.load32(Address(src.base, src.offset + INT64LOW_OFFSET), scratch);
-                masm.store32(scratch, Address(sp, iter->offsetFromArgBase() + INT64LOW_OFFSET));
-                masm.load32(Address(src.base, src.offset + INT64HIGH_OFFSET), scratch);
-                masm.store32(scratch, Address(sp, iter->offsetFromArgBase() + INT64HIGH_OFFSET));
+                masm.load32(LowWord(src), scratch);
+                masm.store32(scratch, LowWord(Address(sp, iter->offsetFromArgBase())));
+                masm.load32(HighWord(src), scratch);
+                masm.store32(scratch, HighWord(Address(sp, iter->offsetFromArgBase())));
 #else
                 Register64 scratch64(scratch);
                 masm.load64(src, scratch64);
@@ -383,10 +384,10 @@ StackCopy(MacroAssembler& masm, MIRType type, Register scratch, Address src, Add
         masm.store32(scratch, dst);
     } else if (type == MIRType::Int64) {
 #if JS_BITS_PER_WORD == 32
-        masm.load32(Address(src.base, src.offset + INT64LOW_OFFSET), scratch);
-        masm.store32(scratch, Address(dst.base, dst.offset + INT64LOW_OFFSET));
-        masm.load32(Address(src.base, src.offset + INT64HIGH_OFFSET), scratch);
-        masm.store32(scratch, Address(dst.base, dst.offset + INT64HIGH_OFFSET));
+        masm.load32(LowWord(src), scratch);
+        masm.store32(scratch, LowWord(dst));
+        masm.load32(HighWord(src), scratch);
+        masm.store32(scratch, HighWord(dst));
 #else
         Register64 scratch64(scratch);
         masm.load64(src, scratch64);
@@ -710,7 +711,7 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     // the return address.
     static_assert(WasmStackAlignment >= JitStackAlignment, "subsumes");
     unsigned sizeOfRetAddr = sizeof(void*);
-    unsigned sizeOfPreFrame = WasmFrameLayout::Size() - sizeOfRetAddr;
+    unsigned sizeOfPreFrame = WasmToJSJitFrameLayout::Size() - sizeOfRetAddr;
     unsigned sizeOfThisAndArgs = (1 + fi.sig().args().length()) * sizeof(Value);
     unsigned totalJitFrameBytes = sizeOfRetAddr + sizeOfPreFrame + sizeOfThisAndArgs;
     unsigned jitFramePushed = StackDecrementForCall(masm, JitStackAlignment, totalJitFrameBytes) -
@@ -722,7 +723,7 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     // 1. Descriptor
     size_t argOffset = 0;
     uint32_t descriptor = MakeFrameDescriptor(sizeOfThisAndArgsAndPadding, JitFrame_WasmToJSJit,
-                                              WasmFrameLayout::Size());
+                                              WasmToJSJitFrameLayout::Size());
     masm.storePtr(ImmWord(uintptr_t(descriptor)), Address(masm.getStackPointer(), argOffset));
     argOffset += sizeof(size_t);
 
@@ -730,16 +731,12 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     Register callee = ABINonArgReturnReg0;   // live until call
     Register scratch = ABINonArgReturnReg1;  // repeatedly clobbered
 
-    // 2.1. Get callee
+    // 2.1. Get JSFunction callee
     masm.loadWasmGlobalPtr(fi.tlsDataOffset() + offsetof(FuncImportTls, obj), callee);
 
     // 2.2. Save callee
     masm.storePtr(callee, Address(masm.getStackPointer(), argOffset));
     argOffset += sizeof(size_t);
-
-    // 2.3. Load callee executable entry point
-    masm.loadPtr(Address(callee, JSFunction::offsetOfNativeOrScript()), callee);
-    masm.loadBaselineOrIonNoArgCheck(callee, callee, nullptr);
 
     // 3. Argc
     unsigned argc = fi.sig().args().length();
@@ -757,8 +754,30 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     argOffset += fi.sig().args().length() * sizeof(Value);
     MOZ_ASSERT(argOffset == sizeOfThisAndArgs + sizeOfPreFrame);
 
+    // 6. Check if we need to rectify arguments
+    masm.load16ZeroExtend(Address(callee, JSFunction::offsetOfNargs()), scratch);
+
+    Label rectify;
+    masm.branch32(Assembler::Above, scratch, Imm32(fi.sig().args().length()), &rectify);
+
+    // 7. If we haven't rectified arguments, load callee executable entry point
+    masm.loadPtr(Address(callee, JSFunction::offsetOfNativeOrScript()), callee);
+    masm.loadBaselineOrIonNoArgCheck(callee, callee, nullptr);
+
+    Label rejoinBeforeCall;
+    masm.bind(&rejoinBeforeCall);
+
     AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
     masm.callJitNoProfiler(callee);
+
+    // Note that there might be a GC thing in the JSReturnOperand now.
+    // In all the code paths from here:
+    // - either the value is unboxed because it was a primitive and we don't
+    //   need to worry about rooting anymore.
+    // - or the value needs to be rooted, but nothing can cause a GC between
+    //   here and CoerceInPlace, which roots before coercing to a primitive.
+    //   In particular, this is true because wasm::InInterruptibleCode will
+    //   return false when PC is in the jit exit.
 
     // The JIT callee clobbers all registers, including WasmTlsReg and
     // FramePointer, so restore those here. During this sequence of
@@ -780,7 +799,14 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     unsigned nativeFramePushed = masm.framePushed();
     AssertStackAlignment(masm, ABIStackAlignment);
 
-    masm.branchTestMagic(Assembler::Equal, JSReturnOperand, throwLabel);
+#ifdef DEBUG
+    {
+        Label ok;
+        masm.branchTestMagic(Assembler::NotEqual, JSReturnOperand, &ok);
+        masm.breakpoint();
+        masm.bind(&ok);
+    }
+#endif
 
     Label oolConvert;
     switch (fi.sig().ret()) {
@@ -817,6 +843,15 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
     masm.bind(&done);
 
     GenerateJitExitEpilogue(masm, masm.framePushed(), offsets);
+
+    {
+        // Call the arguments rectifier.
+        masm.bind(&rectify);
+        masm.loadPtr(Address(WasmTlsReg, offsetof(TlsData, instance)), callee);
+        masm.loadPtr(Address(callee, Instance::offsetOfJSJitArgsRectifier()), callee);
+        masm.loadPtr(Address(callee, JitCode::offsetOfCode()), callee);
+        masm.jump(&rejoinBeforeCall);
+    }
 
     if (oolConvert.used()) {
         masm.bind(&oolConvert);
@@ -863,15 +898,12 @@ GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLa
             masm.unboxInt32(Address(masm.getStackPointer(), offsetToCoerceArgv), ReturnReg);
             break;
           case ExprType::F64:
-            masm.call(SymbolicAddress::CoerceInPlace_ToNumber);
-            masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, throwLabel);
-            masm.loadDouble(Address(masm.getStackPointer(), offsetToCoerceArgv), ReturnDoubleReg);
-            break;
           case ExprType::F32:
             masm.call(SymbolicAddress::CoerceInPlace_ToNumber);
             masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, throwLabel);
             masm.loadDouble(Address(masm.getStackPointer(), offsetToCoerceArgv), ReturnDoubleReg);
-            masm.convertDoubleToFloat32(ReturnDoubleReg, ReturnFloat32Reg);
+            if (fi.sig().ret() == ExprType::F32)
+                masm.convertDoubleToFloat32(ReturnDoubleReg, ReturnFloat32Reg);
             break;
           default:
             MOZ_CRASH("Unsupported convert type");
