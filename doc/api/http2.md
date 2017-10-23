@@ -817,7 +817,7 @@ const client = http2.connect('http://example.org:8000');
 const req = client.request({ ':path': '/' });
 
 // Cancel the stream if there's no activity after 5 seconds
-req.setTimeout(5000, () => req.rstStreamWithCancel());
+req.setTimeout(5000, () => req.rstWithCancel());
 ```
 
 #### http2stream.state
@@ -1598,6 +1598,9 @@ added: v8.4.0
     used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
+  * `createConnection` {Function} An optional callback that receives the `URL`
+    instance passed to `connect` and the `options` object, and returns any
+    [`Duplex`][] stream that is to be used as the connection for this session.
 * `listener` {Function}
 * Returns {Http2Session}
 
@@ -2712,9 +2715,9 @@ if the stream is closed.
 [`ServerHttp2Stream`]: #http2_class_serverhttp2stream
 [`TypeError`]: errors.html#errors_class_typeerror
 [`http2.SecureServer`]: #http2_class_http2secureserver
-[`http2.createSecureServer()`]: #http2_createsecureserver_options_onrequesthandler
+[`http2.createSecureServer()`]: #http2_http2_createsecureserver_options_onrequesthandler
 [`http2.Server`]: #http2_class_http2server
-[`http2.createServer()`]: #http2_createserver_options_onrequesthandler
+[`http2.createServer()`]: #http2_http2_createserver_options_onrequesthandler
 [`http2stream.pushStream()`]: #http2_http2stream_pushstream_headers_options_callback
 [`net.Socket`]: net.html#net_class_net_socket
 [`request.socket.getPeerCertificate()`]: tls.html#tls_tlssocket_getpeercertificate_detailed
