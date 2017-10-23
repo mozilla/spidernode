@@ -26,6 +26,7 @@
 namespace js {
 
 class AutoLockGC;
+class AutoLockGCBgAlloc;
 class AutoLockHelperThreadState;
 class VerifyPreTracer;
 
@@ -35,11 +36,11 @@ typedef Vector<ZoneGroup*, 4, SystemAllocPolicy> ZoneGroupVector;
 using BlackGrayEdgeVector = Vector<TenuredCell*, 0, SystemAllocPolicy>;
 
 class AutoCallGCCallbacks;
-class AutoMaybeStartBackgroundAllocation;
 class AutoRunParallelTask;
 class AutoTraceSession;
 class MarkingValidator;
 struct MovingTracer;
+class SweepGroupsIter;
 class WeakCacheSweepIterator;
 
 enum IncrementalProgress
@@ -702,11 +703,6 @@ class MemoryCounter
         return triggered_;
     }
 
-    void decrement(size_t bytes) {
-        MOZ_ASSERT(bytes <= bytes_);
-        bytes_ -= bytes;
-    }
-
     void adopt(MemoryCounter<T>& other) {
         bytes_ += other.bytes();
         other.reset();
@@ -939,8 +935,7 @@ class GCRuntime
                                   ChunkPool::Iter(fullChunks(lock)));
     }
 
-    Chunk* getOrAllocChunk(const AutoLockGC& lock,
-                           AutoMaybeStartBackgroundAllocation& maybeStartBGAlloc);
+    Chunk* getOrAllocChunk(AutoLockGCBgAlloc& lock);
     void recycleChunk(Chunk* chunk, const AutoLockGC& lock);
 
 #ifdef JS_GC_ZEAL
@@ -997,8 +992,7 @@ class GCRuntime
 
     // For ArenaLists::allocateFromArena()
     friend class ArenaLists;
-    Chunk* pickChunk(const AutoLockGC& lock,
-                     AutoMaybeStartBackgroundAllocation& maybeStartBGAlloc);
+    Chunk* pickChunk(AutoLockGCBgAlloc& lock);
     Arena* allocateArena(Chunk* chunk, Zone* zone, AllocKind kind,
                          ShouldCheckThresholds checkThresholds, const AutoLockGC& lock);
 
@@ -1025,7 +1019,6 @@ class GCRuntime
     void prepareToFreeChunk(ChunkInfo& info);
 
     friend class BackgroundAllocTask;
-    friend class AutoMaybeStartBackgroundAllocation;
     bool wantBackgroundAllocation(const AutoLockGC& lock) const;
     void startBackgroundAllocTaskIfIdle();
 
@@ -1081,27 +1074,24 @@ class GCRuntime
     void groupZonesForSweeping(JS::gcreason::Reason reason, AutoLockForExclusiveAccess& lock);
     MOZ_MUST_USE bool findInterZoneEdges();
     void getNextSweepGroup();
-    void endMarkingSweepGroup();
-    void beginSweepingSweepGroup();
+    IncrementalProgress endMarkingSweepGroup(FreeOp* fop, SliceBudget& budget);
+    IncrementalProgress beginSweepingSweepGroup(FreeOp* fop, SliceBudget& budget);
+#ifdef JS_GC_ZEAL
+    IncrementalProgress maybeYieldForSweepingZeal(FreeOp* fop, SliceBudget& budget);
+#endif
     bool shouldReleaseObservedTypes();
     void sweepDebuggerOnMainThread(FreeOp* fop);
     void sweepJitDataOnMainThread(FreeOp* fop);
-    void endSweepingSweepGroup();
-    IncrementalProgress performSweepActions(SliceBudget& sliceBudget,
-                                            AutoLockForExclusiveAccess& lock);
-    static IncrementalProgress sweepTypeInformation(GCRuntime* gc, FreeOp* fop, SliceBudget& budget,
-                                                    Zone* zone);
-    static IncrementalProgress mergeSweptObjectArenas(GCRuntime* gc, FreeOp* fop, SliceBudget& budget,
-                                                      Zone* zone);
-    static IncrementalProgress sweepAtomsTable(GCRuntime* gc, FreeOp* fop, SliceBudget& budget);
+    IncrementalProgress endSweepingSweepGroup(FreeOp* fop, SliceBudget& budget);
+    IncrementalProgress performSweepActions(SliceBudget& sliceBudget, AutoLockForExclusiveAccess& lock);
+    IncrementalProgress sweepTypeInformation(FreeOp* fop, SliceBudget& budget, Zone* zone);
+    IncrementalProgress mergeSweptObjectArenas(FreeOp* fop, SliceBudget& budget, Zone* zone);
     void startSweepingAtomsTable();
-    IncrementalProgress sweepAtomsTable(SliceBudget& budget);
-    static IncrementalProgress sweepWeakCaches(GCRuntime* gc, FreeOp* fop, SliceBudget& budget);
-    IncrementalProgress sweepWeakCaches(SliceBudget& budget);
-    static IncrementalProgress finalizeAllocKind(GCRuntime* gc, FreeOp* fop, SliceBudget& budget,
-                                                 Zone* zone, AllocKind kind);
-    static IncrementalProgress sweepShapeTree(GCRuntime* gc, FreeOp* fop, SliceBudget& budget,
-                                              Zone* zone);
+    IncrementalProgress sweepAtomsTable(FreeOp* fop, SliceBudget& budget);
+    IncrementalProgress sweepWeakCaches(FreeOp* fop, SliceBudget& budget);
+    IncrementalProgress finalizeAllocKind(FreeOp* fop, SliceBudget& budget, Zone* zone,
+                                          AllocKind kind);
+    IncrementalProgress sweepShapeTree(FreeOp* fop, SliceBudget& budget, Zone* zone);
     void endSweepPhase(bool lastGC, AutoLockForExclusiveAccess& lock);
     bool allCCVisibleZonesWereCollected() const;
     void sweepZones(FreeOp* fop, ZoneGroup* group, bool lastGC);
@@ -1293,8 +1283,19 @@ class GCRuntime
      */
     ActiveThreadOrGCTaskData<State> incrementalState;
 
+    /* The incremental state at the start of this slice. */
+    ActiveThreadData<State> initialState;
+
+#ifdef JS_GC_ZEAL
+    /* Whether to pay attention the zeal settings in this incremental slice. */
+    ActiveThreadData<bool> useZeal;
+#endif
+
     /* Indicates that the last incremental slice exhausted the mark stack. */
     ActiveThreadData<bool> lastMarkSlice;
+
+    /* Whether it's currently safe to yield to the mutator in an incremental GC. */
+    ActiveThreadData<bool> safeToYield;
 
     /* Whether any sweeping will take place in the separate GC helper thread. */
     ActiveThreadData<bool> sweepOnBackgroundThread;
@@ -1327,6 +1328,7 @@ class GCRuntime
     ActiveThreadOrGCTaskData<JS::detail::WeakCacheBase*> sweepCache;
     ActiveThreadData<bool> abortSweepAfterCurrentGroup;
 
+    friend class SweepGroupsIter;
     friend class WeakCacheSweepIterator;
 
     /*
@@ -1442,6 +1444,7 @@ class GCRuntime
 
     /* Synchronize GC heap access among GC helper threads and active threads. */
     friend class js::AutoLockGC;
+    friend class js::AutoLockGCBgAlloc;
     js::Mutex lock;
 
     BackgroundAllocTask allocTask;
@@ -1498,30 +1501,6 @@ class MOZ_RAII AutoEnterIteration {
     ~AutoEnterIteration() {
         MOZ_ASSERT(gc->numActiveZoneIters);
         --gc->numActiveZoneIters;
-    }
-};
-
-// After pulling a Chunk out of the empty chunks pool, we want to run the
-// background allocator to refill it. The code that takes Chunks does so under
-// the GC lock. We need to start the background allocation under the helper
-// threads lock. To avoid lock inversion we have to delay the start until after
-// we are outside the GC lock. This class handles that delay automatically.
-class MOZ_RAII AutoMaybeStartBackgroundAllocation
-{
-    GCRuntime* gc;
-
-  public:
-    AutoMaybeStartBackgroundAllocation()
-      : gc(nullptr)
-    {}
-
-    void tryToStartBackgroundAllocation(GCRuntime& gc) {
-        this->gc = &gc;
-    }
-
-    ~AutoMaybeStartBackgroundAllocation() {
-        if (gc)
-            gc->startBackgroundAllocTaskIfIdle();
     }
 };
 

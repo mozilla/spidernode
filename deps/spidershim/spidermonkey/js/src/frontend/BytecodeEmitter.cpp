@@ -2504,7 +2504,7 @@ BytecodeEmitter::emitCall(JSOp op, uint16_t argc, ParseNode* pn)
 {
     if (pn && !updateSourceCoordNotes(pn->pn_pos.begin))
         return false;
-    return emit3(op, ARGC_HI(argc), ARGC_LO(argc));
+    return emit3(op, ARGC_LO(argc), ARGC_HI(argc));
 }
 
 bool
@@ -2687,7 +2687,7 @@ bool
 BytecodeEmitter::emitUint16Operand(JSOp op, uint32_t operand)
 {
     MOZ_ASSERT(operand <= UINT16_MAX);
-    if (!emit3(op, UINT16_HI(operand), UINT16_LO(operand)))
+    if (!emit3(op, UINT16_LO(operand), UINT16_HI(operand)))
         return false;
     checkTypeSet(op);
     return true;
@@ -3384,6 +3384,12 @@ BytecodeEmitter::checkSideEffects(ParseNode* pn, bool* answer)
       case PNK_TAGGED_TEMPLATE:
       case PNK_SUPERCALL:
         MOZ_ASSERT(pn->isArity(PN_LIST));
+        *answer = true;
+        return true;
+
+      case PNK_PIPELINE:
+        MOZ_ASSERT(pn->isArity(PN_LIST));
+        MOZ_ASSERT(pn->pn_count >= 2);
         *answer = true;
         return true;
 
@@ -5308,6 +5314,37 @@ BytecodeEmitter::emitIteratorNext(ParseNode* pn, IteratorKind iterKind /* = Iter
 }
 
 bool
+BytecodeEmitter::emitPushNotUndefinedOrNull()
+{
+    MOZ_ASSERT(this->stackDepth > 0);                     // V
+
+    if (!emit1(JSOP_DUP))                                 // V V
+        return false;
+    if (!emit1(JSOP_UNDEFINED))                           // V V UNDEFINED
+        return false;
+    if (!emit1(JSOP_STRICTNE))                            // V ?NEQL
+        return false;
+
+    JumpList undefinedOrNullJump;
+    if (!emitJump(JSOP_AND, &undefinedOrNullJump))        // V ?NEQL
+        return false;
+
+    if (!emit1(JSOP_POP))                                 // V
+        return false;
+    if (!emit1(JSOP_DUP))                                 // V V
+        return false;
+    if (!emit1(JSOP_NULL))                                // V V NULL
+        return false;
+    if (!emit1(JSOP_STRICTNE))                            // V ?NEQL
+        return false;
+
+    if (!emitJumpTargetAndPatch(undefinedOrNullJump))     // V NOT-UNDEF-OR-NULL
+        return false;
+
+    return true;
+}
+
+bool
 BytecodeEmitter::emitIteratorClose(IteratorKind iterKind /* = IteratorKind::Sync */,
                                    CompletionKind completionKind /* = CompletionKind::Normal */,
                                    bool allowSelfHosted /* = false */)
@@ -5332,15 +5369,12 @@ BytecodeEmitter::emitIteratorClose(IteratorKind iterKind /* = IteratorKind::Sync
 
     // Step 4.
     //
-    // Do nothing if "return" is null or undefined.
+    // Do nothing if "return" is undefined or null.
     IfThenElseEmitter ifReturnMethodIsDefined(this);
-    if (!emit1(JSOP_DUP))                                 // ... ITER RET RET
+    if (!emitPushNotUndefinedOrNull())                    // ... ITER RET NOT-UNDEF-OR-NULL
         return false;
-    if (!emit1(JSOP_UNDEFINED))                           // ... ITER RET RET UNDEFINED
-        return false;
-    if (!emit1(JSOP_NE))                                  // ... ITER RET ?NEQL
-        return false;
-    if (!ifReturnMethodIsDefined.emitIfElse())
+
+    if (!ifReturnMethodIsDefined.emitIfElse())            // ... ITER RET
         return false;
 
     if (completionKind == CompletionKind::Throw) {
@@ -5441,10 +5475,12 @@ BytecodeEmitter::emitIteratorClose(IteratorKind iterKind /* = IteratorKind::Sync
         }
     }
 
-    if (!ifReturnMethodIsDefined.emitElse())
+    if (!ifReturnMethodIsDefined.emitElse())              // ... ITER RET
         return false;
+
     if (!emit1(JSOP_POP))                                 // ... ITER
         return false;
+
     if (!ifReturnMethodIsDefined.emitEnd())
         return false;
 
@@ -7018,11 +7054,9 @@ BytecodeEmitter::emitAsyncIterator()
         return false;
 
     IfThenElseEmitter ifAsyncIterIsUndefined(this);
-    if (!emit1(JSOP_DUP))                                         // OBJ ITERFN ITERFN
+    if (!emitPushNotUndefinedOrNull())                            // OBJ ITERFN !UNDEF-OR-NULL
         return false;
-    if (!emit1(JSOP_UNDEFINED))                                   // OBJ ITERFN ITERFN UNDEF
-        return false;
-    if (!emit1(JSOP_EQ))                                          // OBJ ITERFN EQ
+    if (!emit1(JSOP_NOT))                                         // OBJ ITERFN UNDEF-OR-NULL
         return false;
     if (!ifAsyncIterIsUndefined.emitIfElse())                     // OBJ ITERFN
         return false;
@@ -8914,13 +8948,9 @@ BytecodeEmitter::emitYieldStar(ParseNode* iter)
 
     // Step iii.
     //
-    // Do nothing if "return" is undefined.
+    // Do nothing if "return" is undefined or null.
     IfThenElseEmitter ifReturnMethodIsDefined(this);
-    if (!emit1(JSOP_DUP))                                 // ITER RESULT FTYPE FVALUE ITER RET RET
-        return false;
-    if (!emit1(JSOP_UNDEFINED))                           // ITER RESULT FTYPE FVALUE ITER RET RET UNDEFINED
-        return false;
-    if (!emit1(JSOP_NE))                                  // ITER RESULT FTYPE FVALUE ITER RET ?NEQL
+    if (!emitPushNotUndefinedOrNull())                    // ITER RESULT FTYPE FVALUE ITER RET NOT-UNDEF-OR-NULL
         return false;
 
     // Step iv.
@@ -9467,6 +9497,113 @@ BytecodeEmitter::isRestParameter(ParseNode* pn)
 }
 
 bool
+BytecodeEmitter::emitCallee(ParseNode* callee, ParseNode* call, bool spread, bool* callop)
+{
+    switch (callee->getKind()) {
+      case PNK_NAME:
+        if (!emitGetName(callee, *callop))
+            return false;
+        break;
+      case PNK_DOT:
+        MOZ_ASSERT(emitterMode != BytecodeEmitter::SelfHosting);
+        if (callee->as<PropertyAccess>().isSuper()) {
+            if (!emitSuperPropOp(callee, JSOP_GETPROP_SUPER, /* isCall = */ *callop))
+                return false;
+        } else {
+            if (!emitPropOp(callee, *callop ? JSOP_CALLPROP : JSOP_GETPROP))
+                return false;
+        }
+
+        break;
+      case PNK_ELEM:
+        MOZ_ASSERT(emitterMode != BytecodeEmitter::SelfHosting);
+        if (callee->as<PropertyByValue>().isSuper()) {
+            if (!emitSuperElemOp(callee, JSOP_GETELEM_SUPER, /* isCall = */ *callop))
+                return false;
+        } else {
+            if (!emitElemOp(callee, *callop ? JSOP_CALLELEM : JSOP_GETELEM))
+                return false;
+            if (*callop) {
+                if (!emit1(JSOP_SWAP))
+                    return false;
+            }
+        }
+
+        break;
+      case PNK_FUNCTION:
+        /*
+         * Top level lambdas which are immediately invoked should be
+         * treated as only running once. Every time they execute we will
+         * create new types and scripts for their contents, to increase
+         * the quality of type information within them and enable more
+         * backend optimizations. Note that this does not depend on the
+         * lambda being invoked at most once (it may be named or be
+         * accessed via foo.caller indirection), as multiple executions
+         * will just cause the inner scripts to be repeatedly cloned.
+         */
+        MOZ_ASSERT(!emittingRunOnceLambda);
+        if (checkRunOnceContext()) {
+            emittingRunOnceLambda = true;
+            if (!emitTree(callee))
+                return false;
+            emittingRunOnceLambda = false;
+        } else {
+            if (!emitTree(callee))
+                return false;
+        }
+        *callop = false;
+        break;
+      case PNK_SUPERBASE:
+        MOZ_ASSERT(call->isKind(PNK_SUPERCALL));
+        MOZ_ASSERT(parser.isSuperBase(callee));
+        if (!emit1(JSOP_SUPERFUN))
+            return false;
+        break;
+      default:
+        if (!emitTree(callee))
+            return false;
+        *callop = false;             /* trigger JSOP_UNDEFINED after */
+        break;
+    }
+
+    return true;
+}
+
+bool
+BytecodeEmitter::emitPipeline(ParseNode* pn)
+{
+    MOZ_ASSERT(pn->isArity(PN_LIST));
+    MOZ_ASSERT(pn->pn_count >= 2);
+
+    if (!emitTree(pn->pn_head))
+        return false;
+
+    ParseNode* callee = pn->pn_head->pn_next;
+
+    do {
+        bool callop = true;
+        if (!emitCallee(callee, pn, false, &callop))
+            return false;
+
+        // Emit room for |this|
+        if (!callop) {
+            if (!emit1(JSOP_UNDEFINED))
+                return false;
+        }
+
+        if (!emit2(JSOP_PICK, 2))
+            return false;
+
+        if (!emitCall(JSOP_CALL, 1, pn))
+            return false;
+
+        checkTypeSet(JSOP_CALL);
+    } while ((callee = callee->pn_next));
+
+    return true;
+}
+
+bool
 BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUsage::WantValue */)
 {
     bool callop = pn->isKind(PNK_CALL) || pn->isKind(PNK_TAGGED_TEMPLATE);
@@ -9494,94 +9631,32 @@ BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUs
 
     ParseNode* pn2 = pn->pn_head;
     bool spread = JOF_OPTYPE(pn->getOp()) == JOF_BYTE;
-    switch (pn2->getKind()) {
-      case PNK_NAME:
-        if (emitterMode == BytecodeEmitter::SelfHosting && !spread) {
-            // Calls to "forceInterpreter", "callFunction",
-            // "callContentFunction", or "resumeGenerator" in self-hosted
-            // code generate inline bytecode.
-            if (pn2->name() == cx->names().callFunction ||
-                pn2->name() == cx->names().callContentFunction ||
-                pn2->name() == cx->names().constructContentFunction)
-            {
-                return emitSelfHostedCallFunction(pn);
-            }
-            if (pn2->name() == cx->names().resumeGenerator)
-                return emitSelfHostedResumeGenerator(pn);
-            if (pn2->name() == cx->names().forceInterpreter)
-                return emitSelfHostedForceInterpreter(pn);
-            if (pn2->name() == cx->names().allowContentIter)
-                return emitSelfHostedAllowContentIter(pn);
-            if (pn2->name() == cx->names().defineDataPropertyIntrinsic && pn->pn_count == 4)
-                return emitSelfHostedDefineDataProperty(pn);
-            if (pn2->name() == cx->names().hasOwn)
-                return emitSelfHostedHasOwn(pn);
-            // Fall through.
-        }
-        if (!emitGetName(pn2, callop))
-            return false;
-        break;
-      case PNK_DOT:
-        MOZ_ASSERT(emitterMode != BytecodeEmitter::SelfHosting);
-        if (pn2->as<PropertyAccess>().isSuper()) {
-            if (!emitSuperPropOp(pn2, JSOP_GETPROP_SUPER, /* isCall = */ callop))
-                return false;
-        } else {
-            if (!emitPropOp(pn2, callop ? JSOP_CALLPROP : JSOP_GETPROP))
-                return false;
-        }
 
-        break;
-      case PNK_ELEM:
-        MOZ_ASSERT(emitterMode != BytecodeEmitter::SelfHosting);
-        if (pn2->as<PropertyByValue>().isSuper()) {
-            if (!emitSuperElemOp(pn2, JSOP_GETELEM_SUPER, /* isCall = */ callop))
-                return false;
-        } else {
-            if (!emitElemOp(pn2, callop ? JSOP_CALLELEM : JSOP_GETELEM))
-                return false;
-            if (callop) {
-                if (!emit1(JSOP_SWAP))
-                    return false;
-            }
+    if (pn2->isKind(PNK_NAME) && emitterMode == BytecodeEmitter::SelfHosting && !spread) {
+        // Calls to "forceInterpreter", "callFunction",
+        // "callContentFunction", or "resumeGenerator" in self-hosted
+        // code generate inline bytecode.
+        if (pn2->name() == cx->names().callFunction ||
+            pn2->name() == cx->names().callContentFunction ||
+            pn2->name() == cx->names().constructContentFunction)
+        {
+            return emitSelfHostedCallFunction(pn);
         }
-
-        break;
-      case PNK_FUNCTION:
-        /*
-         * Top level lambdas which are immediately invoked should be
-         * treated as only running once. Every time they execute we will
-         * create new types and scripts for their contents, to increase
-         * the quality of type information within them and enable more
-         * backend optimizations. Note that this does not depend on the
-         * lambda being invoked at most once (it may be named or be
-         * accessed via foo.caller indirection), as multiple executions
-         * will just cause the inner scripts to be repeatedly cloned.
-         */
-        MOZ_ASSERT(!emittingRunOnceLambda);
-        if (checkRunOnceContext()) {
-            emittingRunOnceLambda = true;
-            if (!emitTree(pn2))
-                return false;
-            emittingRunOnceLambda = false;
-        } else {
-            if (!emitTree(pn2))
-                return false;
-        }
-        callop = false;
-        break;
-      case PNK_SUPERBASE:
-        MOZ_ASSERT(pn->isKind(PNK_SUPERCALL));
-        MOZ_ASSERT(parser.isSuperBase(pn2));
-        if (!emit1(JSOP_SUPERFUN))
-            return false;
-        break;
-      default:
-        if (!emitTree(pn2))
-            return false;
-        callop = false;             /* trigger JSOP_UNDEFINED after */
-        break;
+        if (pn2->name() == cx->names().resumeGenerator)
+            return emitSelfHostedResumeGenerator(pn);
+        if (pn2->name() == cx->names().forceInterpreter)
+            return emitSelfHostedForceInterpreter(pn);
+        if (pn2->name() == cx->names().allowContentIter)
+            return emitSelfHostedAllowContentIter(pn);
+        if (pn2->name() == cx->names().defineDataPropertyIntrinsic && pn->pn_count == 4)
+            return emitSelfHostedDefineDataProperty(pn);
+        if (pn2->name() == cx->names().hasOwn)
+            return emitSelfHostedHasOwn(pn);
+        // Fall through
     }
+
+    if (!emitCallee(pn2, pn, spread, &callop))
+        return false;
 
     bool isNewOp = pn->getOp() == JSOP_NEW || pn->getOp() == JSOP_SPREADNEW ||
                    pn->getOp() == JSOP_SUPERCALL || pn->getOp() == JSOP_SPREADSUPERCALL;
@@ -9701,6 +9776,9 @@ BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUs
 }
 
 static const JSOp ParseNodeKindToJSOp[] = {
+    // JSOP_NOP is for pipeline operator which does not emit its own JSOp
+    // but has highest precedence in binary operators
+    JSOP_NOP,
     JSOP_OR,
     JSOP_AND,
     JSOP_BITOR,
@@ -10136,10 +10214,7 @@ BytecodeEmitter::replaceNewInitWithNewObject(JSObject* obj, ptrdiff_t offset)
 
     MOZ_ASSERT(code[0] == JSOP_NEWINIT);
     code[0] = JSOP_NEWOBJECT;
-    code[1] = jsbytecode(index >> 24);
-    code[2] = jsbytecode(index >> 16);
-    code[3] = jsbytecode(index >> 8);
-    code[4] = jsbytecode(index);
+    SET_UINT32(code, index);
 
     return true;
 }
@@ -11084,6 +11159,11 @@ BytecodeEmitter::emitTree(ParseNode* pn, ValueUsage valueUsage /* = ValueUsage::
 
       case PNK_POW:
         if (!emitRightAssociative(pn))
+            return false;
+        break;
+
+      case PNK_PIPELINE:
+        if (!emitPipeline(pn))
             return false;
         break;
 

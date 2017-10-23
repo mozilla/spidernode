@@ -54,9 +54,6 @@ DecodeFunctionBody(Decoder& d, ModuleGenerator& mg, uint32_t funcIndex)
 static bool
 DecodeCodeSection(Decoder& d, ModuleGenerator& mg, ModuleEnvironment* env)
 {
-    if (!mg.startFuncDefs())
-        return false;
-
     if (!env->codeSection) {
         if (env->numFuncDefs() != 0)
             return d.fail("expected function bodies");
@@ -86,9 +83,8 @@ bool
 CompileArgs::initFromContext(JSContext* cx, ScriptedCaller&& scriptedCaller)
 {
     baselineEnabled = cx->options().wasmBaseline();
-
-    // For sanity's sake, just use Ion if both compilers are disabled.
-    ionEnabled = cx->options().wasmIon() || !cx->options().wasmBaseline();
+    ionEnabled = cx->options().wasmIon();
+    testTiering = cx->options().testWasmAwaitTier2();
 
     // Debug information such as source view or debug traps will require
     // additional memory and permanently stay in baseline code, so we try to
@@ -312,7 +308,7 @@ static const double spaceCutoffPct = 0.9;
 
 // Figure out whether we should use tiered compilation or not.
 static bool
-GetTieringEnabled(uint32_t codeSize)
+TieringBeneficial(uint32_t codeSize)
 {
     if (!CanUseExtraThreads())
         return false;
@@ -382,39 +378,51 @@ GetTieringEnabled(uint32_t codeSize)
     return true;
 }
 
+static void
+InitialCompileFlags(const CompileArgs& args, Decoder& d, CompileMode* mode, Tier* tier,
+                    DebugEnabled* debug)
+{
+    uint32_t codeSectionSize = 0;
+
+    SectionRange range;
+    if (StartsCodeSection(d.begin(), d.end(), &range))
+        codeSectionSize = range.size;
+
+    bool baselineEnabled = BaselineCanCompile() && (args.baselineEnabled || args.testTiering);
+    bool debugEnabled = BaselineCanCompile() && args.debugEnabled;
+    bool ionEnabled = args.ionEnabled || !baselineEnabled || args.testTiering;
+
+    if (baselineEnabled && ionEnabled && !debugEnabled &&
+        (TieringBeneficial(codeSectionSize) || args.testTiering))
+    {
+        *mode = CompileMode::Tier1;
+        *tier = Tier::Baseline;
+    } else {
+        *mode = CompileMode::Once;
+        *tier = debugEnabled || !ionEnabled ? Tier::Baseline : Tier::Ion;
+    }
+
+    *debug = debugEnabled ? DebugEnabled::True : DebugEnabled::False;
+}
+
 SharedModule
 wasm::CompileInitialTier(const ShareableBytes& bytecode, const CompileArgs& args, UniqueChars* error)
 {
     MOZ_RELEASE_ASSERT(wasm::HaveSignalHandlers());
 
-    bool baselineEnabled = BaselineCanCompile() && args.baselineEnabled;
-    bool debugEnabled = BaselineCanCompile() && args.debugEnabled;
-    bool ionEnabled = args.ionEnabled || !baselineEnabled;
-
-    DebugEnabled debug = debugEnabled ? DebugEnabled::True : DebugEnabled::False;
-
-    ModuleEnvironment env(ModuleEnvironment::UnknownMode, ModuleEnvironment::UnknownTier, debug);
-
     Decoder d(bytecode.bytes, error);
-    if (!DecodeModuleEnvironment(d, &env))
-        return nullptr;
-
-    uint32_t codeSize = env.codeSection ? env.codeSection->size : 0;
 
     CompileMode mode;
     Tier tier;
-    if (baselineEnabled && ionEnabled && !debugEnabled && GetTieringEnabled(codeSize)) {
-        mode = CompileMode::Tier1;
-        tier = Tier::Baseline;
-    } else {
-        mode = CompileMode::Once;
-        tier = debugEnabled || !ionEnabled ? Tier::Baseline : Tier::Ion;
-    }
+    DebugEnabled debug;
+    InitialCompileFlags(args, d, &mode, &tier, &debug);
 
-    env.setModeAndTier(mode, tier);
+    ModuleEnvironment env(mode, tier, debug);
+    if (!DecodeModuleEnvironment(d, &env))
+        return nullptr;
 
     ModuleGenerator mg(args, &env, nullptr, error);
-    if (!mg.init(bytecode.length()))
+    if (!mg.init())
         return nullptr;
 
     if (!DecodeCodeSection(d, mg, &env))
@@ -439,7 +447,7 @@ wasm::CompileTier2(Module& module, const CompileArgs& args, Atomic<bool>* cancel
         return false;
 
     ModuleGenerator mg(args, &env, cancelled, &error);
-    if (!mg.init(module.bytecode().length()))
+    if (!mg.init())
         return false;
 
     if (!DecodeCodeSection(d, mg, &env))
