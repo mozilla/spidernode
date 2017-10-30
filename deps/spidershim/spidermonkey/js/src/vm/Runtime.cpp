@@ -25,11 +25,9 @@
 #endif
 
 #include "jsatom.h"
-#include "jsgc.h"
 #include "jsmath.h"
 #include "jsobj.h"
 #include "jsscript.h"
-#include "jswatchpoint.h"
 #include "jswin.h"
 #include "jswrapper.h"
 

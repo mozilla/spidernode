@@ -45,21 +45,24 @@ with Files('**/l10n.toml'):
 with Files('README.txt'):
     BUG_COMPONENT = ('Core', 'General')
 
+with Files("nsprpub/**"):
+    BUG_COMPONENT = ("NSPR", "NSPR")
+
 with Files('**/Makefile.in'):
     BUG_COMPONENT = ('Core', 'Build Config')
     FINAL = True
 
 with Files("**/*.js"):
-    SCHEDULES.inclusive += ['test-verification']
+    SCHEDULES.inclusive += ['test-verify']
 
 with Files("**/*.html"):
-    SCHEDULES.inclusive += ['test-verification']
+    SCHEDULES.inclusive += ['test-verify']
 
 with Files("**/*.xhtml"):
-    SCHEDULES.inclusive += ['test-verification']
+    SCHEDULES.inclusive += ['test-verify']
 
 with Files("**/*.xul"):
-    SCHEDULES.inclusive += ['test-verification']
+    SCHEDULES.inclusive += ['test-verify']
 
 FILES_PER_UNIFIED_FILE = 1
 
@@ -85,6 +88,7 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] or not CONFIG['MOZ_BUILD_APP']:
         'layout/tools/reftest/selftest/python.ini',
         'testing/marionette/harness/marionette_harness/tests/harness_unit/python.ini',
         'testing/mochitest/tests/python/python.ini',
+        'testing/talos/talos/unittests/python.ini'
     ]
 
     CONFIGURE_SUBST_FILES += [

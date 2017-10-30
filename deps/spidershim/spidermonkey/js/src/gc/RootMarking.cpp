@@ -11,10 +11,8 @@
 #endif
 
 #include "jscntxt.h"
-#include "jsgc.h"
 #include "jsprf.h"
 #include "jstypes.h"
-#include "jswatchpoint.h"
 
 #include "builtin/MapObject.h"
 #include "frontend/BytecodeCompiler.h"

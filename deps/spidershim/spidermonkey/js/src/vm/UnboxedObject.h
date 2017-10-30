@@ -7,7 +7,6 @@
 #ifndef vm_UnboxedObject_h
 #define vm_UnboxedObject_h
 
-#include "jsgc.h"
 #include "jsobj.h"
 
 #include "gc/Zone.h"
@@ -260,7 +259,6 @@ class UnboxedPlainObject : public UnboxedObject
 
     static bool newEnumerate(JSContext* cx, HandleObject obj, AutoIdVector& properties,
                              bool enumerableOnly);
-    static bool obj_watch(JSContext* cx, HandleObject obj, HandleId id, HandleObject callable);
 
     inline const UnboxedLayout& layout() const;
 

@@ -20,7 +20,8 @@
 #include "gc/Barrier.h"
 #include "gc/NurseryAwareHashMap.h"
 #include "gc/Zone.h"
-#include "vm/PIC.h"
+#include "vm/ArrayBufferObject.h"
+#include "vm/GlobalObject.h"
 #include "vm/ReceiverGuard.h"
 #include "vm/RegExpShared.h"
 #include "vm/SavedStacks.h"
@@ -546,7 +547,6 @@ struct IteratorHashPolicy
 namespace js {
 class DebugEnvironments;
 class ObjectWeakMap;
-class WatchpointMap;
 class WeakMapBase;
 } // namespace js
 
@@ -623,11 +623,9 @@ struct JSCompartment
   public:
     bool                         isSelfHosting;
     bool                         marked;
-    bool                         warnedAboutDateToLocaleFormat : 1;
     bool                         warnedAboutExprClosure : 1;
     bool                         warnedAboutForEach : 1;
     bool                         warnedAboutLegacyGenerator : 1;
-    bool                         warnedAboutObjectWatch : 1;
     uint32_t                     warnedAboutStringGenericsMethods;
 
 #ifdef DEBUG
@@ -968,7 +966,6 @@ struct JSCompartment
     void sweepNativeIterators();
     void sweepTemplateObjects();
     void sweepVarNames();
-    void sweepWatchpoints();
 
     void purge();
     void clearTables();
@@ -1157,8 +1154,6 @@ struct JSCompartment
     void sweepBreakpoints(js::FreeOp* fop);
 
   public:
-    js::WatchpointMap* watchpointMap;
-
     js::ScriptCountsMap* scriptCountsMap;
     js::ScriptNameMap* scriptNameMap;
 

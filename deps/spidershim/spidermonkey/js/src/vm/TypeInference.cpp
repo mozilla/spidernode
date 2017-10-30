@@ -14,7 +14,6 @@
 
 #include "jsapi.h"
 #include "jscntxt.h"
-#include "jsgc.h"
 #include "jshashutil.h"
 #include "jsobj.h"
 #include "jsprf.h"
@@ -2723,14 +2722,6 @@ ObjectGroup::updateNewPropertyTypes(JSContext* cx, JSObject* objArg, jsid id, He
         Shape* shape = obj->lookup(cx, rootedId);
         if (shape)
             UpdatePropertyType(cx, types, obj, shape, false);
-    }
-
-    if (obj->watched()) {
-        /*
-         * Mark the property as non-data, to inhibit optimizations on it
-         * and avoid bypassing the watchpoint handler.
-         */
-        types->setNonDataProperty(cx);
     }
 }
 

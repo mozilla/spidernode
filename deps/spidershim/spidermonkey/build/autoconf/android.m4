@@ -8,10 +8,19 @@ AC_DEFUN([MOZ_ANDROID_NDK],
 case "$target" in
 *-android*|*-linuxandroid*)
     dnl $android_platform will be set for us by Python configure.
-    CPPFLAGS="-idirafter $android_platform/usr/include $CPPFLAGS"
+    directory_include_args="-isystem $android_platform/usr/include"
+
+    # clang will do any number of interesting things with host tools unless we tell
+    # it to use the NDK tools.
+    extra_opts="-gcc-toolchain $(dirname $(dirname $TOOLCHAIN_PREFIX))"
+    CPPFLAGS="$extra_opts $CPPFLAGS"
+    ASFLAGS="$extra_opts $ASFLAGS"
+    LDFLAGS="$extra_opts $LDFLAGS"
+
+    CPPFLAGS="$directory_include_args $CPPFLAGS"
     CFLAGS="-fno-short-enums -fno-exceptions $CFLAGS"
     CXXFLAGS="-fno-short-enums -fno-exceptions $CXXFLAGS $stlport_cppflags"
-    ASFLAGS="-idirafter $android_platform/usr/include -DANDROID $ASFLAGS"
+    ASFLAGS="$directory_include_args -DANDROID $ASFLAGS"
 
     dnl Add --allow-shlib-undefined, because libGLESv2 links to an
     dnl undefined symbol (present on the hardware, just not in the
@@ -263,9 +272,16 @@ case "$target" in
         AC_MSG_ERROR([You must install the Android tools.  Try |mach bootstrap|.  (Looked for $android_tools)])
     fi
 
-    MOZ_PATH_PROG(EMULATOR, emulator, :, [$android_tools])
+    dnl Android Tools 26 changes emulator path.
+    dnl Although android_sdk_root/tools still has emulator command,
+    dnl it doesn't work correctly
+    MOZ_PATH_PROG(EMULATOR, emulator, :, [$android_sdk_root/emulator])
     if test -z "$EMULATOR" -o "$EMULATOR" = ":"; then
-      AC_MSG_ERROR([The program emulator was not found.  Try |mach bootstrap|.])
+        dnl old emulator path until Android Tools 25.x
+        MOZ_PATH_PROG(EMULATOR, emulator, :, [$android_tools])
+        if test -z "$EMULATOR" -o "$EMULATOR" = ":"; then
+            AC_MSG_ERROR([The program emulator was not found.  Try |mach bootstrap|.])
+        fi
     fi
 
     # `compileSdkVersion ANDROID_COMPILE_SDK_VERSION` is Gradle-only,
