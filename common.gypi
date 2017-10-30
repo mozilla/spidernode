@@ -29,7 +29,7 @@
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.4',
+    'v8_embedder_string': '-node.8',
 
     # Enable disassembler for `--print-code` v8 options
     'v8_enable_disassembler': 1,
@@ -188,6 +188,7 @@
             'BasicRuntimeChecks': 3, # /RTC1
             'AdditionalOptions': [
               '/bigobj', # prevent error C1128 in VS2015
+              '/MP', # compile across multiple CPUs
             ],
           },
           'VCLinkerTool': {
@@ -246,6 +247,9 @@
             'EnableFunctionLevelLinking': 'true',
             'EnableIntrinsicFunctions': 'true',
             'RuntimeTypeInfo': 'false',
+            'AdditionalOptions': [
+              '/MP', # compile across multiple CPUs
+            ],
           },
           'VCLibrarianTool': {
             'AdditionalOptions': [
@@ -278,9 +282,6 @@
         # and their sheer number drowns out other, more legitimate warnings.
         'DisableSpecificWarnings': ['4267'],
         'WarnAsError': 'false',
-        'AdditionalOptions': [
-          '/MP', # compile across multiple CPUs
-        ],
       },
       'VCLibrarianTool': {
       },

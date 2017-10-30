@@ -111,6 +111,7 @@ class ModuleWrap;
   V(callback_string, "callback")                                              \
   V(change_string, "change")                                                  \
   V(channel_string, "channel")                                                \
+  V(chunks_sent_since_last_write_string, "chunksSentSinceLastWrite")          \
   V(constants_string, "constants")                                            \
   V(oncertcb_string, "oncertcb")                                              \
   V(onclose_string, "_onclose")                                               \
@@ -409,7 +410,7 @@ class Environment {
 
     inline v8::Local<v8::String> provider_string(int idx);
 
-    inline void force_checks();
+    inline void no_force_checks();
 
     inline void push_async_ids(double async_id, double trigger_async_id);
     inline bool pop_async_id(double async_id);
@@ -667,8 +668,8 @@ class Environment {
 #undef V
 
 #if HAVE_INSPECTOR
-  inline inspector::Agent* inspector_agent() {
-    return &inspector_agent_;
+  inline inspector::Agent* inspector_agent() const {
+    return inspector_agent_;
   }
 #endif
 
@@ -713,7 +714,7 @@ class Environment {
   std::map<std::string, uint64_t> performance_marks_;
 
 #if HAVE_INSPECTOR
-  inspector::Agent inspector_agent_;
+  inspector::Agent* const inspector_agent_;
 #endif
 
   HandleWrapQueue handle_wrap_queue_;

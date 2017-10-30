@@ -309,8 +309,8 @@ notes about [commit squashing](#commit-squashing)).
 A good commit message should describe what changed and why.
 
 1. The first line should:
-   - contain a short description of the change
-   - be 50 characters or less
+   - contain a short description of the change (preferably 50 characters or less,
+     and no more than 72 characters)
    - be entirely in lowercase with the exception of proper nouns, acronyms, and
    the words that refer to code, like function/variable names
    - be prefixed with the name of the changed subsystem and start with an
@@ -854,11 +854,8 @@ By making a contribution to this project, I certify that:
 [Building guide]: ./BUILDING.md
 [CI (Continuous Integration) test run]: #ci-testing
 [Code of Conduct]: https://github.com/nodejs/TSC/blob/master/CODE_OF_CONDUCT.md
-[guide for writing tests in Node.js]: ./doc/guides/writing-tests.md
 [https://ci.nodejs.org/]: https://ci.nodejs.org/
 [IRC in the #node-dev channel]: https://webchat.freenode.net?channels=node-dev&uio=d4
 [Node.js help repository]: https://github.com/nodejs/help/issues
-[notes about the waiting time]: #waiting-until-the-pull-request-gets-landed
 [Onboarding guide]: ./doc/onboarding.md
-[on GitHub]: https://github.com/nodejs/node
 [Technical Steering Committee (TSC) repository]: https://github.com/nodejs/TSC/issues

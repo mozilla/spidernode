@@ -128,7 +128,7 @@ exec('"my script.cmd" a b', (err, stdout, stderr) => {
 <!-- YAML
 added: v0.1.90
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
 -->
@@ -244,7 +244,7 @@ lsExample();
 <!-- YAML
 added: v0.1.91
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
 -->
@@ -375,7 +375,7 @@ supported by `child_process.fork()` and will be ignored if set.
 <!-- YAML
 added: v0.1.90
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
   - version: v6.4.0
@@ -665,7 +665,7 @@ configuration at startup.
 <!-- YAML
 added: v0.11.12
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
   - version: v8.0.0
@@ -719,7 +719,7 @@ throw an [`Error`][] that will include the full result of the underlying
 <!-- YAML
 added: v0.11.12
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
   - version: v8.0.0
@@ -775,7 +775,7 @@ execution.
 <!-- YAML
 added: v0.11.12
 changes:
-  - version: REPLACEME
+  - version: v8.8.0
     pr-url: https://github.com/nodejs/node/pull/15380
     description: The `windowsHide` option is supported now.
   - version: v8.0.0
@@ -1359,7 +1359,6 @@ unavailable.
 [`Error`]: errors.html#errors_class_error
 [`EventEmitter`]: events.html#events_class_eventemitter
 [`JSON.stringify` spec]: https://tc39.github.io/ecma262/#sec-json.stringify
-[`JSON.stringify()`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify
 [`subprocess.connected`]: #child_process_subprocess_connected
 [`subprocess.disconnect()`]: #child_process_subprocess_disconnect
 [`subprocess.kill()`]: #child_process_subprocess_kill_signal
