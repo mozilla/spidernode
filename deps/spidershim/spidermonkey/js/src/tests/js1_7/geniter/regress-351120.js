@@ -16,7 +16,6 @@ test();
 
 function test()
 {
-  enterFunc ('test');
   printBugNumber(BUGNUMBER);
   printStatus (summary);
  
@@ -24,13 +23,11 @@ function test()
   actual = '';
   try
   {
-    (function() { yield [].z({}); })().next();
+    (function*() { yield [].z({}); })().next();
   }
   catch(ex)
   {
     actual = ex + '';
   }
   reportMatch(expect, actual, summary);
-
-  exitFunc ('test');
 }

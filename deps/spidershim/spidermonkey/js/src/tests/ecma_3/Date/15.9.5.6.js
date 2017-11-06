@@ -1,4 +1,3 @@
-// |reftest| skip-if(xulRuntime.OS=="WINNT")
 /* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,7 +25,6 @@
 */
 
 var SECTION = "15.9.5.6";
-var VERSION = "ECMA_3"; 
 var TITLE   = "Date.prototype.toLocaleDateString()"; 
  
 var status = '';
@@ -34,7 +32,6 @@ var actual = '';
 var expect = '';
 
 
-startTest();
 writeHeaderToLog( SECTION + " "+ TITLE);
 
 // first, some generic tests -
@@ -94,7 +91,6 @@ test();
 function addTestCase()
 {
   new TestCase(
-    "unknown-test-name",
     status,
     expect,
     actual);

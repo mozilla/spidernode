@@ -168,19 +168,9 @@ ifdef MOZ_DEBUG
 CODFILE=$(basename $(@F)).cod
 endif
 
-ifdef DEFFILE
-OS_LDFLAGS += -DEF:$(call normalizepath,$(DEFFILE))
-EXTRA_DEPS += $(DEFFILE)
-endif
-
-else #!GNU_CC
-
-ifdef DEFFILE
-OS_LDFLAGS += $(call normalizepath,$(DEFFILE))
-EXTRA_DEPS += $(DEFFILE)
-endif
-
 endif # !GNU_CC
+
+EXTRA_DEPS += $(DEFFILE)
 
 endif # WINNT
 
@@ -542,9 +532,6 @@ endif
 endif # NO_PROFILE_GUIDED_OPTIMIZE
 
 ##############################################
-
-checkout:
-	$(MAKE) -C $(topsrcdir) -f client.mk checkout
 
 clean clobber realclean clobber_all::
 	-$(RM) $(ALL_TRASH)
@@ -1548,7 +1535,7 @@ endif
 # Fake targets.  Always run these rules, even if a file/directory with that
 # name already exists.
 #
-.PHONY: all alltags boot checkout chrome realchrome clean clobber clobber_all export install libs makefiles realclean run_apprunner tools $(DIRS) FORCE
+.PHONY: all alltags boot chrome realchrome clean clobber clobber_all export install libs makefiles realclean run_apprunner tools $(DIRS) FORCE
 
 # Used as a dependency to force targets to rebuild
 FORCE:

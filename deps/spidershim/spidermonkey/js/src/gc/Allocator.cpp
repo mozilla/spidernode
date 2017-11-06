@@ -8,7 +8,6 @@
 
 #include "jscntxt.h"
 
-#include "gc/ArenaList.h"
 #include "gc/GCInternals.h"
 #include "gc/GCTrace.h"
 #include "gc/Nursery.h"
@@ -19,6 +18,7 @@
 
 #include "jsobjinlines.h"
 
+#include "gc/ArenaList-inl.h"
 #include "gc/Heap-inl.h"
 
 using namespace js;
@@ -147,7 +147,7 @@ js::Allocate(JSContext* cx)
     return GCRuntime::tryNewTenuredThing<T, allowGC>(cx, kind, thingSize);
 }
 
-#define DECL_ALLOCATOR_INSTANCES(allocKind, traceKind, type, sizedType) \
+#define DECL_ALLOCATOR_INSTANCES(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
     template type* js::Allocate<type, NoGC>(JSContext* cx);\
     template type* js::Allocate<type, CanGC>(JSContext* cx);
 FOR_EACH_NONOBJECT_ALLOCKIND(DECL_ALLOCATOR_INSTANCES)

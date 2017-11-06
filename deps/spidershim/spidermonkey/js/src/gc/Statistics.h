@@ -15,10 +15,13 @@
 #include "mozilla/PodOperations.h"
 
 #include "jsalloc.h"
-#include "jsgc.h"
 #include "jspubtd.h"
+#include "NamespaceImports.h"
 
+#include "gc/GCEnum.h"
 #include "js/GCAPI.h"
+#include "js/SliceBudget.h"
+#include "js/UniquePtr.h"
 #include "js/Vector.h"
 #include "vm/JSONPrinter.h"
 
@@ -314,6 +317,7 @@ struct Statistics
     /* GC numbers as of the beginning of the collection. */
     uint64_t startingMinorGCNumber;
     uint64_t startingMajorGCNumber;
+    uint64_t startingSliceNumber;
 
     /* Records the maximum GC pause in an API-controlled interval (in us). */
     mutable TimeDuration maxPauseInInterval;

@@ -1,4 +1,4 @@
-// |reftest| random-if(xulRuntime.OS=="Linux") skip-if(xulRuntime.OS=="WINNT")
+// |reftest| random-if(xulRuntime.OS=="Linux")
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,7 +26,6 @@
 */
 
 var SECTION = "15.9.5.5";
-var VERSION = "ECMA_3"; 
 var TITLE   = "Date.prototype.toLocaleString()"; 
   
 var status = '';
@@ -34,7 +33,6 @@ var actual = '';
 var expect = '';
 
 
-startTest();
 writeHeaderToLog( SECTION + " "+ TITLE);
 
 // first, some generic tests -

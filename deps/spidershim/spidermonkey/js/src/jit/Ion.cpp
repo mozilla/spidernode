@@ -56,6 +56,7 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
+#include "gc/Iteration-inl.h"
 #include "jit/JitFrames-inl.h"
 #include "jit/shared/Lowering-shared-inl.h"
 #include "vm/Debugger-inl.h"
@@ -2274,8 +2275,7 @@ IonCompile(JSContext* cx, JSScript* script,
 static bool
 CheckFrame(JSContext* cx, BaselineFrame* frame)
 {
-    MOZ_ASSERT(!frame->script()->isStarGenerator());
-    MOZ_ASSERT(!frame->script()->isLegacyGenerator());
+    MOZ_ASSERT(!frame->script()->isGenerator());
     MOZ_ASSERT(!frame->script()->isAsync());
     MOZ_ASSERT(!frame->isDebuggerEvalFrame());
     MOZ_ASSERT(!frame->isEvalFrame());
@@ -2307,7 +2307,7 @@ CheckScript(JSContext* cx, JSScript* script, bool osr)
         return false;
     }
 
-    if (script->isStarGenerator() || script->isLegacyGenerator()) {
+    if (script->isGenerator()) {
         TrackAndSpewIonAbort(cx, script, "generator script");
         return false;
     }

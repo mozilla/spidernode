@@ -171,13 +171,9 @@ class ParserBase : public StrictModeGetter
     JSVersion versionNumber() const { return tokenStream.versionNumber(); }
     TokenPos pos() const { return tokenStream.currentToken().pos; }
 
-    // Determine whether |yield| is a valid name in the current context, or
-    // whether it's prohibited due to strictness, JS version, or occurrence
-    // inside a star generator.
-    bool yieldExpressionsSupported() {
-        return (versionNumber() >= JSVERSION_1_7 && !pc->isAsync()) ||
-               pc->isStarGenerator() ||
-               pc->isLegacyGenerator();
+    // Determine whether |yield| is a valid name in the current context.
+    bool yieldExpressionsSupported() const {
+        return pc->isGenerator();
     }
 
     virtual bool strictMode() { return pc->sc()->strict(); }
@@ -241,7 +237,6 @@ class ParserBase : public StrictModeGetter
 
     bool warnOnceAboutExprClosure();
     bool warnOnceAboutForEach();
-    bool warnOnceAboutLegacyGenerator();
 
     bool allowsForEachIn() {
 #if !JS_HAS_FOR_EACH_IN
@@ -737,14 +732,14 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
                     InvokedPrediction invoked = PredictUninvoked);
     Node assignExprWithoutYieldOrAwait(YieldHandling yieldHandling);
     Node yieldExpression(InHandling inHandling);
-    Node condExpr1(InHandling inHandling, YieldHandling yieldHandling,
-                   TripledotHandling tripledotHandling,
-                   PossibleError* possibleError,
-                   InvokedPrediction invoked = PredictUninvoked);
-    Node orExpr1(InHandling inHandling, YieldHandling yieldHandling,
-                 TripledotHandling tripledotHandling,
-                 PossibleError* possibleError,
-                 InvokedPrediction invoked = PredictUninvoked);
+    Node condExpr(InHandling inHandling, YieldHandling yieldHandling,
+                  TripledotHandling tripledotHandling,
+                  PossibleError* possibleError,
+                  InvokedPrediction invoked = PredictUninvoked);
+    Node orExpr(InHandling inHandling, YieldHandling yieldHandling,
+                TripledotHandling tripledotHandling,
+                PossibleError* possibleError,
+                InvokedPrediction invoked = PredictUninvoked);
     Node unaryExpr(YieldHandling yieldHandling, TripledotHandling tripledotHandling,
                    PossibleError* possibleError = nullptr,
                    InvokedPrediction invoked = PredictUninvoked);
@@ -844,6 +839,8 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
 
     bool matchLabel(YieldHandling yieldHandling, MutableHandle<PropertyName*> label);
 
+    // Indicate if the next token (tokenized as Operand) is |in| or |of|.  If
+    // so, consume it.
     bool matchInOrOf(bool* isForInp, bool* isForOfp);
 
     bool hasUsedFunctionSpecialName(HandlePropertyName name);
@@ -871,9 +868,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool finishFunction(bool isStandaloneFunction = false);
     bool leaveInnerFunction(ParseContext* outerpc);
 
-    bool matchOrInsertSemicolonHelper(TokenStream::Modifier modifier);
-    bool matchOrInsertSemicolonAfterExpression();
-    bool matchOrInsertSemicolonAfterNonExpression();
+    bool matchOrInsertSemicolon();
 
   public:
     enum FunctionCallBehavior {

@@ -16,7 +16,6 @@
 #include "jsiter.h"
 #include "jswrapper.h"
 
-#include "gc/Marking.h"
 #include "gc/Policy.h"
 #include "jit/JitCompartment.h"
 #include "jit/JitOptions.h"
@@ -25,7 +24,6 @@
 #include "js/RootingAPI.h"
 #include "proxy/DeadObjectProxy.h"
 #include "vm/Debugger.h"
-#include "vm/StopIterationObject.h"
 #include "vm/WrapperObject.h"
 
 #include "jsatominlines.h"
@@ -34,6 +32,7 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
+#include "gc/Marking-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/UnboxedObject-inl.h"
 
@@ -56,7 +55,6 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     marked(true),
     warnedAboutExprClosure(false),
     warnedAboutForEach(false),
-    warnedAboutLegacyGenerator(false),
     warnedAboutStringGenericsMethods(0),
 #ifdef DEBUG
     firedOnNewGlobalObject(false),
@@ -393,17 +391,6 @@ JSCompartment::getNonWrapperObjectForCurrentCompartment(JSContext* cx, MutableHa
     obj.set(UncheckedUnwrap(obj, /* stopAtWindowProxy = */ true));
     if (obj->compartment() == this) {
         MOZ_ASSERT(!IsWindow(obj));
-        return true;
-    }
-
-    // Translate StopIteration singleton.
-    if (obj->is<StopIterationObject>()) {
-        // StopIteration isn't a constructor, but it's stored in GlobalObject
-        // as one, out of laziness. Hence the GetBuiltinConstructor call here.
-        RootedObject stopIteration(cx);
-        if (!GetBuiltinConstructor(cx, JSProto_StopIteration, &stopIteration))
-            return false;
-        obj.set(stopIteration);
         return true;
     }
 

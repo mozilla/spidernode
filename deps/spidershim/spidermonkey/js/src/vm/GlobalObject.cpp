@@ -37,7 +37,6 @@
 #include "vm/PIC.h"
 #include "vm/RegExpStatics.h"
 #include "vm/RegExpStaticsObject.h"
-#include "vm/StopIterationObject.h"
 #include "wasm/WasmJS.h"
 
 #include "jscompartmentinlines.h"
@@ -521,8 +520,6 @@ GlobalObject::initSelfHostingBuiltins(JSContext* cx, Handle<GlobalObject*> globa
            InitBareBuiltinCtor(cx, global, JSProto_Uint8Array) &&
            InitBareBuiltinCtor(cx, global, JSProto_Int32Array) &&
            InitBareSymbolCtor(cx, global) &&
-           InitBareWeakMapCtor(cx, global) &&
-           InitStopIterationClass(cx, global) &&
            DefineFunctions(cx, global, builtins, AsIntrinsic);
 }
 

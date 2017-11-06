@@ -7152,7 +7152,7 @@ ParseFunction(ModuleValidator& m, ParseNode** fnOut, unsigned* line)
     ParseContext* outerpc = m.parser().pc;
     Directives directives(outerpc);
     FunctionBox* funbox = m.parser().newFunctionBox(fn, fun, toStringStart, directives,
-                                                    NotGenerator, SyncFunction);
+                                                    GeneratorKind::NotGenerator, SyncFunction);
     if (!funbox)
         return false;
     funbox->initWithEnclosingParseContext(outerpc, frontend::Statement);
@@ -8189,8 +8189,8 @@ AsmJSModuleFunctionToModule(JSFunction* fun)
 }
 
 // Implements the semantics of an asm.js module function that has been successfully validated.
-static bool
-InstantiateAsmJS(JSContext* cx, unsigned argc, JS::Value* vp)
+bool
+js::InstantiateAsmJS(JSContext* cx, unsigned argc, JS::Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -8680,7 +8680,7 @@ EstablishPreconditions(JSContext* cx, AsmJSParser& parser)
         break;
     }
 
-    if (parser.pc->isStarGenerator() || parser.pc->isLegacyGenerator())
+    if (parser.pc->isGenerator())
         return Warn(parser, JSMSG_USE_ASM_TYPE_FAIL, "Disabled by generator context");
 
     if (parser.pc->isAsync())

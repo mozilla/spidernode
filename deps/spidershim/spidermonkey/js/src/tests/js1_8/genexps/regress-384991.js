@@ -16,7 +16,6 @@ test();
 
 function test()
 {
-  enterFunc ('test');
   printBugNumber(BUGNUMBER);
   printStatus (summary);
 
@@ -25,7 +24,7 @@ function test()
   try
   {
     actual = 'No Error';
-    (function() { w((yield)); });
+    (function*() { w((yield)); });
   }
   catch(ex)
   {
@@ -36,7 +35,7 @@ function test()
   try
   {
     actual = 'No Error';
-    (function() { w(1 ? yield : 0); });
+    (function*() { w(1 ? yield : 0); });
   }
   catch(ex)
   {
@@ -47,13 +46,11 @@ function test()
   try
   {
     actual = 'No Error';
-    (function () { f(x = yield); const x = undefined; });
+    (function* () { f(x = yield); const x = undefined; });
   }
   catch(ex)
   {
     actual = ex + '';
   }
   reportCompare(expect, actual, summary + ': 3');
-
-  exitFunc ('test');
 }

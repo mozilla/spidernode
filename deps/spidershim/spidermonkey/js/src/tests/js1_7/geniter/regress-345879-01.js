@@ -16,11 +16,10 @@ test();
 
 function test()
 {
-  enterFunc ('test');
   printBugNumber(BUGNUMBER);
   printStatus (summary);
  
-  function gen() {
+  function* gen() {
     yield isNaN();
   }
 
@@ -28,6 +27,4 @@ function test()
   f.next();
 
   reportCompare(expect, actual, summary);
-
-  exitFunc ('test');
 }

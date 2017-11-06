@@ -4,11 +4,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //-----------------------------------------------------------------------------
-var BUGNUMBER     = "(none)";
 var summary = "gen.toString() omitting 'yield' from value";
 var actual, expect;
 
-printBugNumber(BUGNUMBER);
 printStatus(summary);
 
 /**************
@@ -17,7 +15,7 @@ printStatus(summary);
 
 var failed = false;
 
-function gen()
+function* gen()
 {
   yield 17;
 }

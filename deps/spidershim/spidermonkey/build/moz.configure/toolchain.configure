@@ -57,6 +57,18 @@ def yasm_version(yasm):
     return Version(version)
 
 
+@depends(yasm_version)
+def yasm_major_version(yasm_version):
+    return str(yasm_version.major)
+
+
+@depends(yasm_version)
+def yasm_minor_version(yasm_version):
+    return str(yasm_version.minor)
+
+
+set_config('YASM_MAJOR_VERSION', yasm_major_version)
+set_config('YASM_MINOR_VERSION', yasm_minor_version)
 # Until we move all the yasm consumers out of old-configure.
 # bug 1257904
 add_old_configure_assignment('_YASM_MAJOR_VERSION',
@@ -187,8 +199,8 @@ set_config('XCODE_PATH', xcode_path)
 option('--with-compiler-wrapper', env='COMPILER_WRAPPER', nargs=1,
        help='Enable compiling with wrappers such as distcc and ccache')
 
-option('--with-ccache', env='CCACHE', nargs='?',
-       help='Enable compiling with ccache')
+js_option('--with-ccache', env='CCACHE', nargs='?',
+          help='Enable compiling with ccache')
 
 
 @depends_if('--with-ccache')
@@ -499,11 +511,11 @@ def check_compiler(compiler, language, target):
                  info.language_version == cxx14_version):
                 append_flag('-std=gnu++14')
 
-    # We force clang-cl to emulate Visual C++ 2015 Update 3.
-    if info.type == 'clang-cl' and info.version != '19.00.24213':
+    # We force clang-cl to emulate Visual C++ 2017 version 15.4
+    if info.type == 'clang-cl' and info.version != '19.11.25547':
         # This flag is a direct clang-cl flag that doesn't need -Xclang,
         # add it directly.
-        flags.append('-fms-compatibility-version=19.00.24213')
+        flags.append('-fms-compatibility-version=19.11.25547')
 
     # Check compiler target
     # --------------------------------------------------------------------
@@ -1212,6 +1224,19 @@ set_config('WRAP_SYSTEM_INCLUDES', wrap_system_includes)
 set_config('VISIBILITY_FLAGS', visibility_flags)
 
 
+@depends(c_compiler, using_sccache)
+def depend_cflags(info, using_sccache):
+    if info.type not in ('clang-cl', 'msvc'):
+        return '-MD -MP -MF $(MDDEPDIR)/$(@F).pp'
+    elif using_sccache:
+        # sccache supports a special flag to create depfiles
+        # by parsing MSVC's -showIncludes output.
+        return '-deps$(MDDEPDIR)/$(@F).pp'
+
+
+set_config('_DEPEND_CFLAGS', depend_cflags)
+
+
 @depends(c_compiler)
 @imports('multiprocessing')
 @imports(_from='__builtin__', _import='min')
@@ -1407,8 +1432,8 @@ def enable_gnu_linker(enable_gold_option, c_compiler, developer_options, build_e
         targetDir = os.path.join(build_env.topobjdir, 'build', 'unix', 'gold')
 
         gold_detection_arg = '-print-prog-name=ld.gold'
-        gold = check_cmd_output(c_compiler.compiler,
-                                gold_detection_arg).strip()
+        detection_cmd = cmd_base + [gold_detection_arg]
+        gold = check_cmd_output(*detection_cmd).strip()
         if not gold:
             return
 

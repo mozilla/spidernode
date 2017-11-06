@@ -11,7 +11,8 @@
 #include "mozilla/EnumSet.h"
 #include "mozilla/Maybe.h"
 
-#include "jsfriendapi.h"
+#include "jsapi.h"
+#include "jsatom.h"
 
 #include "gc/ArenaList.h"
 #include "gc/AtomMarking.h"
@@ -21,7 +22,6 @@
 #include "gc/Nursery.h"
 #include "gc/Statistics.h"
 #include "gc/StoreBuffer.h"
-#include "gc/Tracer.h"
 #include "js/GCAnnotations.h"
 #include "js/UniquePtr.h"
 
@@ -1210,10 +1210,11 @@ class GCRuntime
     AtomMarkingRuntime atomMarking;
 
   private:
-    // When empty, chunks reside in the emptyChunks pool and are re-used as
-    // needed or eventually expired if not re-used. The emptyChunks pool gets
-    // refilled from the background allocation task heuristically so that empty
-    // chunks should always available for immediate allocation without syscalls.
+    // When chunks are empty, they reside in the emptyChunks pool and are
+    // re-used as needed or eventually expired if not re-used. The emptyChunks
+    // pool gets refilled from the background allocation task heuristically so
+    // that empty chunks should always be available for immediate allocation
+    // without syscalls.
     GCLockData<ChunkPool> emptyChunks_;
 
     // Chunks which have had some, but not all, of their arenas allocated live

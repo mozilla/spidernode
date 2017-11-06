@@ -1798,6 +1798,10 @@ JitCompartment::generateRegExpMatcherStub(JSContext* cx)
     // Loop to construct the match strings. There are two different loops,
     // depending on whether the input is latin1.
     CreateDependentString depStr[2];
+
+    // depStr may refer to failureRestore during generateFallback below,
+    // so this variable must live outside of the block.
+    Label failureRestore;
     {
         Label isLatin1, done;
         masm.branchLatin1String(input, &isLatin1);
@@ -1805,7 +1809,6 @@ JitCompartment::generateRegExpMatcherStub(JSContext* cx)
         Label* failure = &oolEntry;
         Register temp4 = (maybeTemp4 == InvalidReg) ? lastIndex : maybeTemp4;
 
-        Label failureRestore;
         if (maybeTemp4 == InvalidReg) {
             failure = &failureRestore;
 
@@ -9288,9 +9291,9 @@ CodeGenerator::visitIsNoIterAndBranch(LIsNoIterAndBranch* lir)
         masm.jump(ifFalse);
 }
 
-typedef bool (*CloseIteratorFn)(JSContext*, HandleObject);
-static const VMFunction CloseIteratorInfo =
-    FunctionInfo<CloseIteratorFn>(CloseIterator, "CloseIterator");
+typedef void (*CloseIteratorFromIonFn)(JSContext*, JSObject*);
+static const VMFunction CloseIteratorFromIonInfo =
+    FunctionInfo<CloseIteratorFromIonFn>(CloseIteratorFromIon, "CloseIteratorFromIon");
 
 void
 CodeGenerator::visitIteratorEnd(LIteratorEnd* lir)
@@ -9300,7 +9303,7 @@ CodeGenerator::visitIteratorEnd(LIteratorEnd* lir)
     const Register temp2 = ToRegister(lir->temp2());
     const Register temp3 = ToRegister(lir->temp3());
 
-    OutOfLineCode* ool = oolCallVM(CloseIteratorInfo, lir, ArgList(obj), StoreNothing());
+    OutOfLineCode* ool = oolCallVM(CloseIteratorFromIonInfo, lir, ArgList(obj), StoreNothing());
 
     LoadNativeIterator(masm, obj, temp1, ool->entry());
 

@@ -120,8 +120,10 @@ CONFIG_TOOLS	= $(MOZ_BUILD_ROOT)/config
 AUTOCONF_TOOLS	= $(MOZILLA_DIR)/build/autoconf
 
 ifdef _MSC_VER
+ifndef MOZ_USING_SCCACHE
 CC_WRAPPER ?= $(call py_action,cl)
 CXX_WRAPPER ?= $(call py_action,cl)
+endif
 endif # _MSC_VER
 
 CC := $(CC_WRAPPER) $(CC)
@@ -134,7 +136,6 @@ PYTHON_PATH = $(PYTHON) $(topsrcdir)/config/pythonpath.py
 
 # determine debug-related options
 _DEBUG_ASFLAGS :=
-_DEBUG_LDFLAGS :=
 
 ifneq (,$(MOZ_DEBUG)$(MOZ_DEBUG_SYMBOLS))
   ifeq ($(AS),$(YASM))
@@ -148,37 +149,9 @@ ifneq (,$(MOZ_DEBUG)$(MOZ_DEBUG_SYMBOLS))
   else
     _DEBUG_ASFLAGS += $(MOZ_DEBUG_FLAGS)
   endif
-  _DEBUG_LDFLAGS += $(MOZ_DEBUG_LDFLAGS)
 endif
 
 ASFLAGS += $(_DEBUG_ASFLAGS)
-OS_LDFLAGS += $(_DEBUG_LDFLAGS)
-
-# XXX: What does this? Bug 482434 filed for better explanation.
-ifeq ($(OS_ARCH)_$(GNU_CC),WINNT_)
-ifndef MOZ_DEBUG
-
-# MOZ_DEBUG_SYMBOLS generates debug symbols in separate PDB files.
-# Used for generating an optimized build with debugging symbols.
-# Used in the Windows nightlies to generate symbols for crash reporting.
-ifdef MOZ_DEBUG_SYMBOLS
-OS_LDFLAGS += -DEBUG
-endif
-
-#
-# Handle DMD in optimized builds.
-#
-ifdef MOZ_DMD
-OS_LDFLAGS = -DEBUG
-endif # MOZ_DMD
-
-ifdef MOZ_OPTIMIZE
-OS_LDFLAGS += -OPT:REF,ICF
-endif # MOZ_OPTIMIZE
-
-endif # MOZ_DEBUG
-
-endif # WINNT && !GNU_CC
 
 #
 # Build using PIC by default
@@ -200,7 +173,7 @@ endif
 ifneq (1,$(NO_PROFILE_GUIDED_OPTIMIZE))
 ifdef MOZ_PROFILE_GENERATE
 PGO_CFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_GEN_CFLAGS))
-OS_LDFLAGS += $(PROFILE_GEN_LDFLAGS)
+PGO_LDFLAGS += $(PROFILE_GEN_LDFLAGS)
 ifeq (WINNT,$(OS_ARCH))
 AR_FLAGS += -LTCG
 endif
@@ -208,15 +181,12 @@ endif # MOZ_PROFILE_GENERATE
 
 ifdef MOZ_PROFILE_USE
 PGO_CFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_USE_CFLAGS))
-OS_LDFLAGS += $(PROFILE_USE_LDFLAGS)
+PGO_LDFLAGS += $(PROFILE_USE_LDFLAGS)
 ifeq (WINNT,$(OS_ARCH))
 AR_FLAGS += -LTCG
 endif
 endif # MOZ_PROFILE_USE
 endif # NO_PROFILE_GUIDED_OPTIMIZE
-
-# linker
-OS_LDFLAGS += $(LINKER_LDFLAGS)
 
 MAKE_JARS_FLAGS = \
 	-t $(topsrcdir) \
@@ -249,36 +219,16 @@ INCLUDES = \
 
 include $(MOZILLA_DIR)/config/static-checking-config.mk
 
-LDFLAGS		= $(OS_LDFLAGS) $(MOZBUILD_LDFLAGS) $(MOZ_FIX_LINK_PATHS)
+LDFLAGS		= $(COMPUTED_LDFLAGS) $(PGO_LDFLAGS) $(MK_LDFLAGS)
 
-ifdef MOZ_OPTIMIZE
-LDFLAGS		+= $(MOZ_OPTIMIZE_LDFLAGS)
-endif # MOZ_OPTIMIZE
-
-HOST_CFLAGS	+= $(_DEPEND_CFLAGS)
-HOST_CXXFLAGS	+= $(_DEPEND_CFLAGS)
-ifdef CROSS_COMPILE
-HOST_CFLAGS	+= $(HOST_OPTIMIZE_FLAGS)
-HOST_CXXFLAGS	+= $(HOST_OPTIMIZE_FLAGS)
-else
-ifdef MOZ_OPTIMIZE
-HOST_CFLAGS	+= $(MOZ_OPTIMIZE_FLAGS)
-HOST_CXXFLAGS	+= $(MOZ_OPTIMIZE_FLAGS)
-endif # MOZ_OPTIMIZE
-endif # CROSS_COMPILE
-
-COMPILE_CFLAGS	= $(COMPUTED_CFLAGS) $(PGO_CFLAGS) $(MOZBUILD_CFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE_DEFINES)
-COMPILE_CXXFLAGS = $(COMPUTED_CXXFLAGS) $(PGO_CFLAGS) $(MOZBUILD_CXXFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE_DEFINES)
+COMPILE_CFLAGS	= $(COMPUTED_CFLAGS) $(PGO_CFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE_DEFINES)
+COMPILE_CXXFLAGS = $(COMPUTED_CXXFLAGS) $(PGO_CFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE_DEFINES)
 COMPILE_CMFLAGS = $(OS_COMPILE_CMFLAGS) $(MOZBUILD_CMFLAGS)
 COMPILE_CMMFLAGS = $(OS_COMPILE_CMMFLAGS) $(MOZBUILD_CMMFLAGS)
 ASFLAGS += $(MOZBUILD_ASFLAGS)
 
-ifndef CROSS_COMPILE
-HOST_CFLAGS += $(RTL_FLAGS)
-endif
-
-HOST_CFLAGS += $(HOST_DEFINES) $(MOZBUILD_HOST_CFLAGS)
-HOST_CXXFLAGS += $(HOST_DEFINES) $(MOZBUILD_HOST_CXXFLAGS)
+HOST_CFLAGS = $(COMPUTED_HOST_CFLAGS) $(_DEPEND_CFLAGS)
+HOST_CXXFLAGS = $(COMPUTED_HOST_CXXFLAGS) $(_DEPEND_CFLAGS)
 
 # We only add color flags if neither the flag to disable color
 # (e.g. "-fno-color-diagnostics" nor a flag to control color

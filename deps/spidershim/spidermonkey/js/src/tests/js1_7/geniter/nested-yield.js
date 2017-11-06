@@ -4,11 +4,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //-----------------------------------------------------------------------------
-var BUGNUMBER     = "(none)";
 var summary = "YieldExpression is and contains an AssignmentExpression";
 var actual, expect;
 
-printBugNumber(BUGNUMBER);
 printStatus(summary);
 
 /**************
@@ -17,7 +15,7 @@ printStatus(summary);
 
 var failed = false;
 
-function gen()
+function* gen()
 {
   yield (yield (yield 7));
 }
@@ -26,26 +24,14 @@ var it = gen();
 
 try
 {
-  if (it.next() != 7)
+  if (it.next().value != 7)
     throw "7 not yielded";
-  if (it.send(17) != 17)
+  if (it.next(17).value != 17)
     throw "passed-in 17 not yielded";
-  if (it.send(undefined) !== undefined)
+  if (it.next(undefined).value !== undefined)
     throw "should be able to yield undefined";
 
-  var stopPassed = false;
-  try
-  {
-    it.next();
-  }
-  catch (e)
-  {
-    if (e === StopIteration)
-      stopPassed = true;
-  }
-
-  if (!stopPassed)
-    throw "it: missing or incorrect StopIteration";
+  it.next();
 }
 catch (e)
 {

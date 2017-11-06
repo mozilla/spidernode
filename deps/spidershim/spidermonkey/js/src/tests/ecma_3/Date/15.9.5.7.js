@@ -1,4 +1,3 @@
-// |reftest| skip-if(xulRuntime.OS=="WINNT")
 /* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -27,7 +26,6 @@
 */
 //-----------------------------------------------------------------------------
 var SECTION = "15.9.5.7";
-var VERSION = "ECMA_3"; 
 var TITLE   = "Date.prototype.toLocaleTimeString()";
   
 var status = '';
@@ -41,7 +39,6 @@ var reducedDateString = '';
 var hopeThisIsLocaleTimeString = '';
 var cnERR ='OOPS! FATAL ERROR: no regexp match in extractLocaleTimeString()';
 
-startTest();
 writeHeaderToLog( SECTION + " "+ TITLE);
 
 // first, a couple generic tests -
@@ -87,7 +84,6 @@ test();
 function addTestCase()
 {
   new TestCase(
-    SECTION,
     status,
     expect,
     actual);

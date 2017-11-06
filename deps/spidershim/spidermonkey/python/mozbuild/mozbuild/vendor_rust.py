@@ -164,8 +164,6 @@ Please commit or stash these changes before vendoring, or re-run with `--ignore-
         # reviewed solely by a build peer; any additions must be checked by
         # somebody competent to review licensing minutiae.
         LICENSE_FILE_PACKAGE_WHITELIST = {
-            # Google BSD-like license; some directories have separate licenses
-            'gamma-lut': '1f04103e3a61b91343b3f9d2ed2cc8543062917e2cc7d52a739ffe6429ccaf61',
             # MIT
             'deque': '6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb',
         }
@@ -271,6 +269,8 @@ license file's hash.
             ('gkrust', 'toolkit/library/rust'),
             ('gkrust-gtest', 'toolkit/library/gtest/rust'),
             ('js', 'js/rust'),
+            ('mozjs_sys', 'js/src'),
+            ('webdriver', 'testing/webdriver'),
             ('geckodriver', 'testing/geckodriver'),
         )
 

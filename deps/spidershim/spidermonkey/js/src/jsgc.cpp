@@ -223,7 +223,6 @@
 #include "gc/FindSCCs.h"
 #include "gc/GCInternals.h"
 #include "gc/GCTrace.h"
-#include "gc/Marking.h"
 #include "gc/Memory.h"
 #include "gc/Policy.h"
 #include "jit/BaselineJIT.h"
@@ -246,6 +245,8 @@
 #include "jsscriptinlines.h"
 
 #include "gc/Heap-inl.h"
+#include "gc/Iteration-inl.h"
+#include "gc/Marking-inl.h"
 #include "gc/Nursery-inl.h"
 #include "vm/GeckoProfiler-inl.h"
 #include "vm/Stack-inl.h"
@@ -287,6 +288,15 @@ namespace TuningDefaults {
 
     /* JSGC_ALLOCATION_THRESHOLD_FACTOR_AVOID_INTERRUPT */
     static const float AllocThresholdFactorAvoidInterrupt = 0.9f;
+
+    /* no parameter */
+    static const float MallocThresholdGrowFactor = 1.5f;
+
+    /* no parameter */
+    static const float MallocThresholdShrinkFactor = 0.9f;
+
+    /* no parameter */
+    static const size_t MallocThresholdLimit = 1024 * 1024 * 1024;
 
     /* no parameter */
     static const size_t ZoneAllocDelayBytes = 1024 * 1024;
@@ -349,7 +359,7 @@ const AllocKind gc::slotsToThingKind[] = {
 static_assert(JS_ARRAY_LENGTH(slotsToThingKind) == SLOTS_TO_THING_KIND_LIMIT,
               "We have defined a slot count for each kind.");
 
-#define CHECK_THING_SIZE(allocKind, traceKind, type, sizedType) \
+#define CHECK_THING_SIZE(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
     static_assert(sizeof(sizedType) >= SortedArenaList::MinThingSize, \
                   #sizedType " is smaller than SortedArenaList::MinThingSize!"); \
     static_assert(sizeof(sizedType) >= sizeof(FreeSpan), \
@@ -362,7 +372,7 @@ FOR_EACH_ALLOCKIND(CHECK_THING_SIZE);
 #undef CHECK_THING_SIZE
 
 const uint32_t Arena::ThingSizes[] = {
-#define EXPAND_THING_SIZE(allocKind, traceKind, type, sizedType) \
+#define EXPAND_THING_SIZE(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
     sizeof(sizedType),
 FOR_EACH_ALLOCKIND(EXPAND_THING_SIZE)
 #undef EXPAND_THING_SIZE
@@ -376,7 +386,7 @@ FreeSpan ArenaLists::placeholder;
 #define OFFSET(type) uint32_t(ArenaHeaderSize + (ArenaSize - ArenaHeaderSize) % sizeof(type))
 
 const uint32_t Arena::FirstThingOffsets[] = {
-#define EXPAND_FIRST_THING_OFFSET(allocKind, traceKind, type, sizedType) \
+#define EXPAND_FIRST_THING_OFFSET(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
     OFFSET(sizedType),
 FOR_EACH_ALLOCKIND(EXPAND_FIRST_THING_OFFSET)
 #undef EXPAND_FIRST_THING_OFFSET
@@ -387,7 +397,7 @@ FOR_EACH_ALLOCKIND(EXPAND_FIRST_THING_OFFSET)
 #define COUNT(type) uint32_t((ArenaSize - ArenaHeaderSize) / sizeof(type))
 
 const uint32_t Arena::ThingsPerArena[] = {
-#define EXPAND_THINGS_PER_ARENA(allocKind, traceKind, type, sizedType) \
+#define EXPAND_THINGS_PER_ARENA(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
     COUNT(sizedType),
 FOR_EACH_ALLOCKIND(EXPAND_THINGS_PER_ARENA)
 #undef EXPAND_THINGS_PER_ARENA
@@ -631,7 +641,7 @@ FinalizeArenas(FreeOp* fop,
                ArenaLists::KeepArenasEnum keepArenas)
 {
     switch (thingKind) {
-#define EXPAND_CASE(allocKind, traceKind, type, sizedType) \
+#define EXPAND_CASE(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
       case AllocKind::allocKind: \
         return FinalizeTypedArenas<type>(fop, src, dest, thingKind, budget, keepArenas);
 FOR_EACH_ALLOCKIND(EXPAND_CASE)
@@ -993,7 +1003,8 @@ const char* gc::ZealModeHelpText =
     "   14: (Compact) Perform a shrinking collection every N allocations\n"
     "   15: (CheckHeapAfterGC) Walk the heap to check its integrity after every GC\n"
     "   16: (CheckNursery) Check nursery integrity on minor GC\n"
-    "   17: (IncrementalSweepThenFinish) Incremental GC in two slices: 1) start sweeping 2) finish collection\n";
+    "   17: (IncrementalSweepThenFinish) Incremental GC in two slices: 1) start sweeping 2) finish collection\n"
+    "   18: (CheckGrayMarking) Check gray marking invariants after every GC\n";
 
 // The set of zeal modes that control incremental slices. These modes are
 // mutually exclusive.
@@ -1117,7 +1128,7 @@ static const char*
 AllocKindName(AllocKind kind)
 {
     static const char* names[] = {
-#define EXPAND_THING_NAME(allocKind, _1, _2, _3) \
+#define EXPAND_THING_NAME(allocKind, _1, _2, _3, _4, _5) \
         #allocKind,
 FOR_EACH_ALLOCKIND(EXPAND_THING_NAME)
 #undef EXPAND_THING_NAME
@@ -1380,7 +1391,7 @@ GCSchedulingTunables::setParameter(JSGCParamKey key, uint32_t value, const AutoL
 void
 GCSchedulingTunables::setMaxMallocBytes(size_t value)
 {
-    maxMallocBytes_ = value;
+    maxMallocBytes_ = std::min(value, TuningDefaults::MallocThresholdLimit);
 }
 
 void
@@ -1917,10 +1928,13 @@ MemoryCounter::updateOnGCEnd(const GCSchedulingTunables& tunables, const AutoLoc
     // Update the trigger threshold at the end of GC and adjust the current
     // byte count to reflect bytes allocated since the start of GC.
     MOZ_ASSERT(bytes_ >= bytesAtStartOfGC_);
-    if (shouldTriggerGC(tunables))
-        maxBytes_ *= 2;
-    else
-        maxBytes_ = std::max(tunables.maxMallocBytes(), size_t(maxBytes_ * 0.9));
+    if (shouldTriggerGC(tunables)) {
+        maxBytes_ = std::min(TuningDefaults::MallocThresholdLimit,
+                             size_t(maxBytes_ * TuningDefaults::MallocThresholdGrowFactor));
+    } else {
+        maxBytes_ = std::max(tunables.maxMallocBytes(),
+                             size_t(maxBytes_ * TuningDefaults::MallocThresholdShrinkFactor));
+    }
     bytes_ -= bytesAtStartOfGC_;
     triggered_ = NoTrigger;
 }
@@ -2470,7 +2484,7 @@ UpdateArenaPointers(MovingTracer* trc, Arena* arena)
     AllocKind kind = arena->getAllocKind();
 
     switch (kind) {
-#define EXPAND_CASE(allocKind, traceKind, type, sizedType) \
+#define EXPAND_CASE(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
       case AllocKind::allocKind: \
         UpdateArenaPointersTyped<type>(trc, arena, JS::TraceKind::traceKind); \
         return;
@@ -3820,7 +3834,7 @@ static const char*
 AllocKindToAscii(AllocKind kind)
 {
     switch(kind) {
-#define MAKE_CASE(allocKind, traceKind, type, sizedType) \
+#define MAKE_CASE(allocKind, traceKind, type, sizedType, bgFinal, nursery) \
       case AllocKind:: allocKind: return #allocKind;
 FOR_EACH_ALLOCKIND(MAKE_CASE)
 #undef MAKE_CASE
@@ -5036,7 +5050,7 @@ NextIncomingCrossCompartmentPointer(JSObject* prev, bool unlink)
 }
 
 void
-js::DelayCrossCompartmentGrayMarking(JSObject* src)
+js::gc::DelayCrossCompartmentGrayMarking(JSObject* src)
 {
     MOZ_ASSERT(IsGrayListObject(src));
 
@@ -7496,6 +7510,9 @@ GCRuntime::collect(bool nonincrementalByAPI, SliceBudget budget, JS::gcreason::R
     if (rt->hasZealMode(ZealMode::CheckHeapAfterGC)) {
         gcstats::AutoPhase ap(rt->gc.stats(), gcstats::PhaseKind::TRACE_HEAP);
         CheckHeapAfterGC(rt);
+    }
+    if (rt->hasZealMode(ZealMode::CheckGrayMarking)) {
+        MOZ_RELEASE_ASSERT(CheckGrayMarkingState(rt));
     }
 #endif
 }

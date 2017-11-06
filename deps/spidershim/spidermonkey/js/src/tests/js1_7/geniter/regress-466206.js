@@ -16,13 +16,12 @@ test();
 
 function test()
 {
-  enterFunc ('test');
   printBugNumber(BUGNUMBER);
   printStatus (summary);
 
   var f;
 
-  function g() {
+  function* g() {
     var x = {};
     f = function () { x.y; };
     if (0) yield;
@@ -33,6 +32,4 @@ function test()
   f();
  
   reportCompare(expect, actual, summary);
-
-  exitFunc ('test');
 }

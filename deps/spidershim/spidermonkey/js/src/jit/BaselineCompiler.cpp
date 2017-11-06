@@ -4597,10 +4597,8 @@ BaselineCompiler::emit_JSOP_YIELD()
 
     MOZ_ASSERT(frame.stackDepth() >= 1);
 
-    if (frame.stackDepth() == 1 && !script->isLegacyGenerator()) {
-        // If the expression stack is empty, we can inline the YIELD. Don't do
-        // this for legacy generators: we have to throw an exception if the
-        // generator is in the closing state, see GeneratorObject::suspend.
+    if (frame.stackDepth() == 1) {
+        // If the expression stack is empty, we can inline the YIELD.
 
         masm.storeValue(Int32Value(GET_UINT24(pc)),
                         Address(genObj, GeneratorObject::offsetOfYieldAndAwaitIndexSlot()));
@@ -4690,7 +4688,7 @@ static const VMFunction InterpretResumeInfo =
 typedef bool (*GeneratorThrowFn)(JSContext*, BaselineFrame*, Handle<GeneratorObject*>,
                                  HandleValue, uint32_t);
 static const VMFunction GeneratorThrowInfo =
-    FunctionInfo<GeneratorThrowFn>(jit::GeneratorThrowOrClose, "GeneratorThrowOrClose", TailCall);
+    FunctionInfo<GeneratorThrowFn>(jit::GeneratorThrowOrReturn, "GeneratorThrowOrReturn", TailCall);
 
 bool
 BaselineCompiler::emit_JSOP_RESUME()
@@ -4873,7 +4871,7 @@ BaselineCompiler::emit_JSOP_RESUME()
                         Address(genObj, GeneratorObject::offsetOfYieldAndAwaitIndexSlot()));
         masm.jump(scratch1);
     } else {
-        MOZ_ASSERT(resumeKind == GeneratorObject::THROW || resumeKind == GeneratorObject::CLOSE);
+        MOZ_ASSERT(resumeKind == GeneratorObject::THROW || resumeKind == GeneratorObject::RETURN);
 
         // Update the frame's frameSize field.
         masm.computeEffectiveAddress(Address(BaselineFrameReg, BaselineFrame::FramePointerOffset),
@@ -4899,7 +4897,7 @@ BaselineCompiler::emit_JSOP_RESUME()
 
         // Push the frame descriptor and a dummy return address (it doesn't
         // matter what we push here, frame iterators will use the frame pc
-        // set in jit::GeneratorThrowOrClose).
+        // set in jit::GeneratorThrowOrReturn).
         masm.push(scratch1);
 
         // On ARM64, the callee will push the return address.
@@ -4918,8 +4916,8 @@ BaselineCompiler::emit_JSOP_RESUME()
     } else if (resumeKind == GeneratorObject::THROW) {
         pushArg(ImmGCPtr(cx->names().throw_));
     } else {
-        MOZ_ASSERT(resumeKind == GeneratorObject::CLOSE);
-        pushArg(ImmGCPtr(cx->names().close));
+        MOZ_ASSERT(resumeKind == GeneratorObject::RETURN);
+        pushArg(ImmGCPtr(cx->names().return_));
     }
 
     masm.loadValue(frame.addressOfStackValue(frame.peek(-1)), retVal);

@@ -16,7 +16,6 @@ test();
 
 function test()
 {
-  enterFunc ('test');
   printBugNumber(BUGNUMBER);
   printStatus (summary);
  
@@ -24,7 +23,7 @@ function test()
 
   var scope = "Global";
 
-  function gen() {
+  function* gen() {
     var scope = "Generator";
     function inner() {
       actual = scope + " " + typeof scope;
@@ -36,6 +35,4 @@ function test()
   gen().next();
 
   reportCompare(expect, actual, summary);
-
-  exitFunc ('test');
 }
