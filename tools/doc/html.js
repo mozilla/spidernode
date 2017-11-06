@@ -211,7 +211,8 @@ function altDocs(filename) {
   }
 
   const versions = [
-    { num: '8.x' },
+    { num: '9.x' },
+    { num: '8.x', lts: true },
     { num: '7.x' },
     { num: '6.x', lts: true },
     { num: '5.x' },
@@ -498,12 +499,12 @@ function buildToc(lexed, filename, cb) {
 
     depth = tok.depth;
     const realFilename = path.basename(realFilenames[0], '.md');
-    const id = getId(realFilename + '_' + tok.text.trim());
+    const id = getId(`${realFilename}_${tok.text.trim()}`);
     toc.push(new Array((depth - 1) * 2 + 1).join(' ') +
              `* <span class="stability_${tok.stability}">` +
              `<a href="#${id}">${tok.text}</a></span>`);
-    tok.text += '<span><a class="mark" href="#' + id + '" ' +
-                'id="' + id + '">#</a></span>';
+    tok.text += `<span><a class="mark" href="#${id}"` +
+                `id="${id}">#</a></span>`;
   });
 
   toc = marked.parse(toc.join('\n'));
@@ -517,7 +518,7 @@ function getId(text) {
   text = text.replace(/^_+|_+$/, '');
   text = text.replace(/^([^a-z])/, '_$1');
   if (idCounters.hasOwnProperty(text)) {
-    text += '_' + (++idCounters[text]);
+    text += `_${(++idCounters[text])}`;
   } else {
     idCounters[text] = 0;
   }
