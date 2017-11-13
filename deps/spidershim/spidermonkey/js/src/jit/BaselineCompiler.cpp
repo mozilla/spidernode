@@ -982,23 +982,21 @@ BaselineCompiler::emitBody()
             continue;
         }
 
-        // Fully sync the stack if there are incoming jumps.
         if (info->jumpTarget) {
+            // Fully sync the stack if there are incoming jumps.
             frame.syncStack(0);
             frame.setStackDepth(info->stackDepth);
+            masm.bind(labelOf(pc));
+        } else if (MOZ_UNLIKELY(compileDebugInstrumentation_)) {
+            // Also fully sync the stack if the debugger is enabled.
+            frame.syncStack(0);
+        } else {
+            // At the beginning of any op, at most the top 2 stack-values are unsynced.
+            if (frame.stackDepth() > 2)
+                frame.syncStack(2);
         }
 
-        // Always sync in debug mode.
-        if (compileDebugInstrumentation_)
-            frame.syncStack(0);
-
-        // At the beginning of any op, at most the top 2 stack-values are unsynced.
-        if (frame.stackDepth() > 2)
-            frame.syncStack(2);
-
         frame.assertValidState(*info);
-
-        masm.bind(labelOf(pc));
 
         // Add a PC -> native mapping entry for the current op. These entries are
         // used when we need the native code address for a given pc, for instance
@@ -1007,13 +1005,13 @@ BaselineCompiler::emitBody()
         bool addIndexEntry = (pc == script->code() || lastOpUnreachable || emittedOps > 100);
         if (addIndexEntry)
             emittedOps = 0;
-        if (!addPCMappingEntry(addIndexEntry)) {
+        if (MOZ_UNLIKELY(!addPCMappingEntry(addIndexEntry))) {
             ReportOutOfMemory(cx);
             return Method_Error;
         }
 
         // Emit traps for breakpoints and step mode.
-        if (compileDebugInstrumentation_ && !emitDebugTrap())
+        if (MOZ_UNLIKELY(compileDebugInstrumentation_) && !emitDebugTrap())
             return Method_Error;
 
         switch (op) {
@@ -1023,6 +1021,7 @@ BaselineCompiler::emitBody()
           case JSOP_SETINTRINSIC:
             // Run-once opcode during self-hosting initialization.
           case JSOP_UNUSED126:
+          case JSOP_UNUSED206:
           case JSOP_UNUSED223:
           case JSOP_LIMIT:
             // === !! WARNING WARNING WARNING !! ===
@@ -1033,7 +1032,7 @@ BaselineCompiler::emitBody()
 
 #define EMIT_OP(OP)                            \
           case OP:                             \
-            if (!this->emit_##OP())            \
+            if (MOZ_UNLIKELY(!this->emit_##OP())) \
                 return Method_Error;           \
             break;
 OPCODE_LIST(EMIT_OP)
@@ -2267,25 +2266,6 @@ bool
 BaselineCompiler::emit_JSOP_INITHIDDENPROP()
 {
     return emit_JSOP_INITPROP();
-}
-
-typedef bool (*NewbornArrayPushFn)(JSContext*, HandleObject, const Value&);
-static const VMFunction NewbornArrayPushInfo =
-    FunctionInfo<NewbornArrayPushFn>(NewbornArrayPush, "NewbornArrayPush");
-
-bool
-BaselineCompiler::emit_JSOP_ARRAYPUSH()
-{
-    // Keep value in R0, object in R1.
-    frame.popRegsAndSync(2);
-    masm.unboxObject(R1, R1.scratchReg());
-
-    prepareVMCall();
-
-    pushArg(R0);
-    pushArg(R1.scratchReg());
-
-    return callVM(NewbornArrayPushInfo);
 }
 
 bool

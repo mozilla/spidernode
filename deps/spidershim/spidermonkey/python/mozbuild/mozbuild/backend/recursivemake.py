@@ -114,7 +114,6 @@ MOZBUILD_VARIABLES = [
     b'HOST_SIMPLE_PROGRAMS',
     b'JAR_MANIFEST',
     b'JAVA_JAR_TARGETS',
-    b'LD_VERSION_SCRIPT',
     b'LIBRARY_NAME',
     b'LIBS',
     b'MAKE_FRAMEWORK',
@@ -526,6 +525,7 @@ class RecursiveMakeBackend(CommonBackend):
                 '.inc',
                 '.py',
                 '.rs',
+                'new', # 'new' is an output from make-stl-wrappers.py
             )
             tier = 'export' if any(f.endswith(export_suffixes) for f in obj.outputs) else 'misc'
             self._no_skip[tier].add(backend_file.relobjdir)

@@ -323,9 +323,9 @@ def prune_final_dir_for_clang_tidy(final_dir):
 if __name__ == "__main__":
     # The directories end up in the debug info, so the easy way of getting
     # a reproducible build is to run it in a know absolute directory.
-    # We use a directory in /builds/slave because the mozilla infrastructure
-    # cleans it up automatically.
-    base_dir = "/builds/slave/moz-toolchain"
+    # We use a directory that is registered as a volume in the Docker image.
+    base_dir = "/builds/worker/workspace/moz-toolchain"
+
     if is_windows():
         # TODO: Because Windows taskcluster builds are run with distinct
         # user IDs for each job, we can't store things in some globally
@@ -456,15 +456,15 @@ if __name__ == "__main__":
     for p in config.get("patches", []):
         patch(p, source_dir)
 
-    symlinks = [(source_dir + "/clang",
+    symlinks = [(clang_source_dir,
                  llvm_source_dir + "/tools/clang"),
-                (source_dir + "/extra",
+                (extra_source_dir,
                  llvm_source_dir + "/tools/clang/tools/extra"),
-                (source_dir + "/compiler-rt",
+                (compiler_rt_source_dir,
                  llvm_source_dir + "/projects/compiler-rt"),
-                (source_dir + "/libcxx",
+                (libcxx_source_dir,
                  llvm_source_dir + "/projects/libcxx"),
-                (source_dir + "/libcxxabi",
+                (libcxxabi_source_dir,
                  llvm_source_dir + "/projects/libcxxabi")]
     for l in symlinks:
         # On Windows, we have to re-copy the whole directory every time.

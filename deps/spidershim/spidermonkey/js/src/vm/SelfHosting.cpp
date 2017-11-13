@@ -1875,6 +1875,21 @@ intrinsic_WarnDeprecatedStringMethod(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+intrinsic_ThrowArgTypeNotObject(JSContext* cx, unsigned argc ,Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc,vp);
+    MOZ_ASSERT(args.length() == 2);
+    MOZ_ASSERT(args[0].isNumber());
+    MOZ_ASSERT(!args[1].isObject());
+    if (args[0].toNumber() == NOT_OBJECT_KIND_DESCRIPTOR)
+        ReportNotObjectWithName(cx, "descriptor", args[1]);
+    else
+        MOZ_CRASH("unexpected kind");
+
+    return false;
+}
+
+static bool
 intrinsic_ConstructFunction(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -2093,100 +2108,17 @@ intrinsic_ModuleNamespaceExports(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
-intrinsic_CreatePendingPromise(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() == 0);
-    JSObject* promise = PromiseObject::createSkippingExecutor(cx);
-    if (!promise)
-        return false;
-    args.rval().setObject(*promise);
-    return true;
-}
-
-static bool
-intrinsic_CreatePromiseResolvedWith(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() == 1);
-    JSObject* promise = PromiseObject::unforgeableResolve(cx, args[0]);
-    if (!promise)
-        return false;
-    args.rval().setObject(*promise);
-    return true;
-}
-
-static bool
-intrinsic_CreatePromiseRejectedWith(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() == 1);
-    JSObject* promise = PromiseObject::unforgeableReject(cx, args[0]);
-    if (!promise)
-        return false;
-    args.rval().setObject(*promise);
-    return true;
-}
-
-static bool
-intrinsic_ResolvePromise(JSContext* cx, unsigned argc, Value* vp)
+intrinsic_PromiseResolve(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     MOZ_ASSERT(args.length() == 2);
-    Rooted<PromiseObject*> promise(cx, &args[0].toObject().as<PromiseObject>());
-    if (!PromiseObject::resolve(cx, promise, args[1]))
+
+    RootedObject constructor(cx, &args[0].toObject());
+    JSObject* promise = js::PromiseResolve(cx, constructor, args[1]);
+    if (!promise)
         return false;
-    args.rval().setUndefined();
-    return true;
-}
 
-static bool
-intrinsic_RejectPromise(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() == 2);
-    Rooted<PromiseObject*> promise(cx, &args[0].toObject().as<PromiseObject>());
-    if (!PromiseObject::reject(cx, promise, args[1]))
-        return false;
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
-intrinsic_CallOriginalPromiseThen(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() >= 2);
-
-    RootedObject promise(cx, &args[0].toObject());
-    Value val = args[1];
-    RootedObject onResolvedObj(cx, val.isUndefined() ? nullptr : val.toObjectOrNull());
-    val = args.get(2);
-    RootedObject onRejectedObj(cx, val.isUndefined() ? nullptr : val.toObjectOrNull());
-
-    JSObject* resultPromise = JS::CallOriginalPromiseThen(cx, promise, onResolvedObj,
-                                                          onRejectedObj);
-    if (!resultPromise)
-        return false;
-    args.rval().setObject(*resultPromise);
-    return true;
-}
-
-static bool
-intrinsic_AddPromiseReactions(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    MOZ_ASSERT(args.length() >= 2);
-
-    RootedObject promise(cx, &args[0].toObject());
-    Value val = args[1];
-    RootedObject onResolvedObj(cx, val.isUndefined() ? nullptr : val.toObjectOrNull());
-    val = args.get(2);
-    RootedObject onRejectedObj(cx, val.isUndefined() ? nullptr : val.toObjectOrNull());
-
-    if (!JS::AddPromiseReactions(cx, promise, onResolvedObj, onRejectedObj))
-        return false;
-    args.rval().setUndefined();
+    args.rval().setObject(*promise);
     return true;
 }
 
@@ -2588,6 +2520,7 @@ static const JSFunctionSpec intrinsic_functions[] = {
                     IntrinsicStringSplitString),
     JS_FN("StringSplitStringLimit", intrinsic_StringSplitStringLimit, 3, 0),
     JS_FN("WarnDeprecatedStringMethod", intrinsic_WarnDeprecatedStringMethod, 2, 0),
+    JS_FN("ThrowArgTypeNotObject", intrinsic_ThrowArgTypeNotObject, 2, 0),
 
     // See builtin/RegExp.h for descriptions of the regexp_* functions.
     JS_FN("regexp_exec_no_statics", regexp_exec_no_statics, 2,0),
@@ -2609,13 +2542,9 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("AddModuleNamespaceBinding", intrinsic_AddModuleNamespaceBinding, 4, 0),
     JS_FN("ModuleNamespaceExports", intrinsic_ModuleNamespaceExports, 1, 0),
 
-    JS_FN("CreatePendingPromise", intrinsic_CreatePendingPromise, 0, 0),
-    JS_FN("CreatePromiseResolvedWith", intrinsic_CreatePromiseResolvedWith, 1, 0),
-    JS_FN("CreatePromiseRejectedWith", intrinsic_CreatePromiseRejectedWith, 1, 0),
-    JS_FN("ResolvePromise", intrinsic_ResolvePromise, 2, 0),
-    JS_FN("RejectPromise", intrinsic_RejectPromise, 2, 0),
-    JS_FN("AddPromiseReactions", intrinsic_AddPromiseReactions, 3, 0),
-    JS_FN("CallOriginalPromiseThen", intrinsic_CallOriginalPromiseThen, 3, 0),
+    JS_FN("IsPromiseObject", intrinsic_IsInstanceOfBuiltin<PromiseObject>, 1, 0),
+    JS_FN("CallPromiseMethodIfWrapped", CallNonGenericSelfhostedMethod<Is<PromiseObject>>, 2, 0),
+    JS_FN("PromiseResolve", intrinsic_PromiseResolve, 2, 0),
 
     JS_FS_END
 };

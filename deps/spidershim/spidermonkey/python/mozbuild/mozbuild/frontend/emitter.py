@@ -132,6 +132,7 @@ class TreeMetadataEmitter(LoggingMixin):
         self._binaries = OrderedDict()
         self._compile_dirs = set()
         self._host_compile_dirs = set()
+        self._rust_compile_dirs = set()
         self._compile_flags = dict()
         self._linkage = []
         self._static_linking_shared = set()
@@ -550,6 +551,8 @@ class TreeMetadataEmitter(LoggingMixin):
             if not programs:
                 continue
 
+            if kind == 'RUST_PROGRAMS':
+                self._rust_compile_dirs.add(context.objdir)
             all_rust_programs.append((programs, kind, cls))
 
         # Verify Rust program definitions.
@@ -716,10 +719,10 @@ class TreeMetadataEmitter(LoggingMixin):
                     raise SandboxValidationError(
                         'SYMBOLS_FILE can only be used with a SHARED_LIBRARY.',
                         context)
-                if context.get('DEFFILE') or context.get('LD_VERSION_SCRIPT'):
+                if context.get('DEFFILE'):
                     raise SandboxValidationError(
-                        'SYMBOLS_FILE cannot be used along DEFFILE or '
-                        'LD_VERSION_SCRIPT.', context)
+                        'SYMBOLS_FILE cannot be used along DEFFILE.',
+                        context)
                 if isinstance(symbols_file, SourcePath):
                     if not os.path.exists(symbols_file.full_path):
                         raise SandboxValidationError(
@@ -774,9 +777,13 @@ class TreeMetadataEmitter(LoggingMixin):
 
         # Avoid emitting compile flags for directories only containing rust
         # libraries. Emitted compile flags are only relevant to C/C++ sources
-        # for the time being.
+        # for the time being, however ldflags must be emitted for the benefit
+        # of cargo.
         if not all(isinstance(l, (RustLibrary)) for l in linkables):
             self._compile_dirs.add(context.objdir)
+        elif linkables:
+            self._rust_compile_dirs.add(context.objdir)
+
         if host_linkables and not all(isinstance(l, HostRustLibrary) for l in host_linkables):
             self._host_compile_dirs.add(context.objdir)
             # TODO: objdirs with only host things in them shouldn't need target
@@ -941,7 +948,6 @@ class TreeMetadataEmitter(LoggingMixin):
             'RCINCLUDE',
             'DEFFILE',
             'WIN32_EXE_LDFLAGS',
-            'LD_VERSION_SCRIPT',
             'USE_EXTENSION_MANIFEST',
             'NO_JS_MANIFEST',
             'HAS_MISC_RULE',
@@ -1201,6 +1207,9 @@ class TreeMetadataEmitter(LoggingMixin):
         if context.objdir in self._compile_dirs:
             self._compile_flags[context.objdir] = computed_flags
             yield computed_link_flags
+        elif context.objdir in self._rust_compile_dirs:
+            yield computed_link_flags
+
         if context.objdir in self._host_compile_dirs:
             yield computed_host_flags
 

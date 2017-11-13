@@ -6,7 +6,7 @@
 
 #include "threading/Mutex.h"
 
-#include "js/Utility.h"
+#include "jsutil.h"
 
 using namespace js;
 
@@ -30,6 +30,7 @@ js::Mutex::ShutDown()
 /* static */ js::Mutex::MutexVector&
 js::Mutex::heldMutexStack()
 {
+  MOZ_ASSERT(js::IsInitialized());
   auto stack = HeldMutexStack.get();
   if (!stack) {
     AutoEnterOOMUnsafeRegion oomUnsafe;

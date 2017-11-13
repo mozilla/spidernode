@@ -707,7 +707,7 @@ CodeRange::CodeRange(Kind kind, uint32_t funcIndex, Offsets offsets)
     u.func.lineOrBytecode_ = 0;
     u.func.beginToNormalEntry_ = 0;
     u.func.beginToTierEntry_ = 0;
-    MOZ_ASSERT(kind == Entry);
+    MOZ_ASSERT(kind == InterpEntry);
     MOZ_ASSERT(begin_ <= end_);
 }
 
@@ -759,6 +759,8 @@ CodeRange::CodeRange(uint32_t funcIndex, JitExitOffsets offsets)
     u.funcIndex_ = funcIndex;
     u.jitExit.beginToUntrustedFPStart_ = offsets.untrustedFPStart - begin_;
     u.jitExit.beginToUntrustedFPEnd_ = offsets.untrustedFPEnd - begin_;
+    MOZ_ASSERT(jitExitUntrustedFPStart() == offsets.untrustedFPStart);
+    MOZ_ASSERT(jitExitUntrustedFPEnd() == offsets.untrustedFPEnd);
 }
 
 CodeRange::CodeRange(Trap trap, CallableOffsets offsets)
