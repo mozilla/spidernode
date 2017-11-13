@@ -368,6 +368,20 @@ class Http2Settings {
   MaybeStackBuffer<nghttp2_settings_entry, IDX_SETTINGS_COUNT> entries_;
 };
 
+class Http2Priority {
+ public:
+  Http2Priority(Environment* env,
+                Local<Value> parent,
+                Local<Value> weight,
+                Local<Value> exclusive);
+
+  nghttp2_priority_spec* operator*() {
+    return &spec;
+  }
+ private:
+  nghttp2_priority_spec spec;
+};
+
 class Http2Session : public AsyncWrap,
                      public StreamBase,
                      public Nghttp2Session {
@@ -431,7 +445,7 @@ class Http2Session : public AsyncWrap,
                   const SubmitTrailers& submit_trailers) override;
 
   void Send(WriteWrap* req, char* buf, size_t length) override;
-  WriteWrap* AllocateSend();
+  WriteWrap* AllocateSend() override;
 
   int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;

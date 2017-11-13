@@ -33,12 +33,7 @@ function errExec(script, callback) {
 
     if (!common.isChakraEngine) {
       // More than one line of error output. (not necessarily for chakra engine)
-      assert.ok(stderr.split('\n').length > 2);
-    }
-
-    if (!common.isChakraEngine) { // chakra does not output script
-      // Assert the script is mentioned in error output.
-      assert.ok(stderr.includes(script));
+      assert.ok(stderr.split('\n').length);
     }
 
     // Proxy the args for more tests.
@@ -46,7 +41,7 @@ function errExec(script, callback) {
   });
 }
 
-const syntaxErrorMessage = /SyntaxError/;
+const syntaxErrorMessage = /\bSyntaxError\b/;
 
 
 // Simple throw error
@@ -69,9 +64,12 @@ errExec('throws_error3.js', common.mustCall(function(err, stdout, stderr) {
 
 // throw ILLEGAL error
 errExec('throws_error4.js', common.mustCall(function(err, stdout, stderr) {
+<<<<<<< HEAD
   if (!common.isChakraEngine) { // chakra does not output source line
     assert.ok(/\/\*\*/.test(stderr));
   }
+=======
+>>>>>>> upstream-node/master
   assert.ok(syntaxErrorMessage.test(stderr));
 }));
 

@@ -122,7 +122,7 @@ to the `constants` property exposed by the relevant module. For instance,
 Type: End-of-life
 
 Use of the [`crypto.pbkdf2()`][] API without specifying a digest was deprecated
-in Node.js 6.0 because the method defaulted to using the non-recommendend
+in Node.js 6.0 because the method defaulted to using the non-recommended
 `'SHA1'` digest. Previously, a deprecation warning was printed. Starting in
 Node.js 8.0.0, calling `crypto.pbkdf2()` or `crypto.pbkdf2Sync()` with an
 undefined `digest` will throw a `TypeError`.
@@ -736,6 +736,16 @@ Type: Runtime
 `REPLServer.prototype.memory()` is a function only necessary for the
 internal mechanics of the `REPLServer` itself, and is therefore not
 necessary in user space.
+
+<a id="DEP0083"></a>
+### DEP0083: Disabling ECDH by setting ecdhCurve to false
+
+Type: Runtime
+
+The `ecdhCurve` option to `tls.createSecureContext()` and `tls.TLSSocket` could
+be set to `false` to disable ECDH entirely on the server only. This mode is
+deprecated in preparation for migrating to OpenSSL 1.1.0 and consistency with
+the client. Use the `ciphers` parameter instead.
 
 
 [`Buffer.allocUnsafeSlow(size)`]: buffer.html#buffer_class_method_buffer_allocunsafeslow_size
