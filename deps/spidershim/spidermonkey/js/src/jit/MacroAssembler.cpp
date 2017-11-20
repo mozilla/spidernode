@@ -1505,7 +1505,7 @@ void
 MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
 {
     loadJSContext(scratch);
-    enterExitFrame(scratch, scratch);
+    enterFakeExitFrame(scratch, scratch, ExitFrameType::Bare);
 
     Label baseline;
 
@@ -1568,7 +1568,7 @@ MacroAssembler::generateBailoutTail(Register scratch, Register bailoutInfo)
         push(Address(bailoutInfo, offsetof(BaselineBailoutInfo, resumeAddr)));
         // No GC things to mark on the stack, push a bare token.
         loadJSContext(scratch);
-        enterFakeExitFrame(scratch, scratch, ExitFrameToken::Bare);
+        enterFakeExitFrame(scratch, scratch, ExitFrameType::Bare);
 
         // If monitorStub is non-null, handle resumeAddr appropriately.
         Label noMonitor;
@@ -1672,17 +1672,19 @@ MacroAssembler::assertRectifierFrameParentType(Register frameType)
 }
 
 void
-MacroAssembler::loadBaselineOrIonRaw(Register script, Register dest, Label* failure)
+MacroAssembler::loadJitCodeRaw(Register func, Register dest, Label* failure)
 {
-    loadPtr(Address(script, JSScript::offsetOfBaselineOrIonRaw()), dest);
+    loadPtr(Address(func, JSFunction::offsetOfScript()), dest);
+    loadPtr(Address(dest, JSScript::offsetOfBaselineOrIonRaw()), dest);
     if (failure)
         branchTestPtr(Assembler::Zero, dest, dest, failure);
 }
 
 void
-MacroAssembler::loadBaselineOrIonNoArgCheck(Register script, Register dest, Label* failure)
+MacroAssembler::loadJitCodeNoArgCheck(Register func, Register dest, Label* failure)
 {
-    loadPtr(Address(script, JSScript::offsetOfBaselineOrIonSkipArgCheck()), dest);
+    loadPtr(Address(func, JSFunction::offsetOfScript()), dest);
+    loadPtr(Address(dest, JSScript::offsetOfBaselineOrIonSkipArgCheck()), dest);
     if (failure)
         branchTestPtr(Assembler::Zero, dest, dest, failure);
 }
@@ -1700,7 +1702,7 @@ MacroAssembler::handleFailure()
 {
     // Re-entry code is irrelevant because the exception will leave the
     // running function and never come back
-    JitCode* excTail = GetJitContext()->runtime->jitRuntime()->getExceptionTail();
+    TrampolinePtr excTail = GetJitContext()->runtime->jitRuntime()->getExceptionTail();
     jump(excTail);
 }
 
@@ -2361,7 +2363,6 @@ void
 MacroAssembler::link(JitCode* code)
 {
     MOZ_ASSERT(!oom());
-    linkSelfReference(code);
     linkProfilerCallSites(code);
 }
 
@@ -2881,19 +2882,6 @@ MacroAssembler::linkExitFrame(Register cxreg, Register scratch)
     storeStackPtr(Address(scratch, JitActivation::offsetOfPackedExitFP()));
 }
 
-void
-MacroAssembler::linkSelfReference(JitCode* code)
-{
-    // If this code can transition to C++ code and witness a GC, then we need to store
-    // the JitCode onto the stack in order to GC it correctly.  exitCodePatch should
-    // be unset if the code never needed to push its JitCode*.
-    if (hasSelfReference()) {
-        PatchDataWithValueCheck(CodeLocationLabel(code, selfReferencePatch_),
-                                ImmPtr(code),
-                                ImmPtr((void*)-1));
-    }
-}
-
 // ===============================================================
 // Branch functions
 
@@ -2954,7 +2942,7 @@ MacroAssembler::wasmCallImport(const wasm::CallSiteDesc& desc, const wasm::Calle
     uint32_t globalDataOffset = callee.importGlobalDataOffset();
     loadWasmGlobalPtr(globalDataOffset + offsetof(wasm::FuncImportTls, code), ABINonArgReg0);
 
-    MOZ_ASSERT(ABINonArgReg0 != WasmTlsReg, "by constraint");
+    static_assert(ABINonArgReg0 != WasmTlsReg, "by constraint");
 
     // Switch to the callee's TLS and pinned registers and make the call.
     loadWasmGlobalPtr(globalDataOffset + offsetof(wasm::FuncImportTls, tls), WasmTlsReg);

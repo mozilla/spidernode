@@ -58,9 +58,7 @@ BaselineCompilerShared::prepareVMCall()
 bool
 BaselineCompilerShared::callVM(const VMFunction& fun, CallVMPhase phase)
 {
-    JitCode* code = cx->runtime()->jitRuntime()->getVMWrapper(fun);
-    if (!code)
-        return false;
+    TrampolinePtr code = cx->runtime()->jitRuntime()->getVMWrapper(fun);
 
 #ifdef DEBUG
     // Assert prepareVMCall() has been called.

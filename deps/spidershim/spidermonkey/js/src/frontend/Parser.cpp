@@ -465,14 +465,13 @@ FunctionBox::FunctionBox(JSContext* cx, LifoAlloc& alloc, ObjectBox* traceListHe
     toStringStart(toStringStart),
     toStringEnd(0),
     length(0),
-    generatorKind_(GeneratorKindAsBit(generatorKind)),
-    asyncKindBits_(AsyncKindAsBits(asyncKind)),
+    isGenerator_(generatorKind == GeneratorKind::Generator),
+    isAsync_(asyncKind == FunctionAsyncKind::AsyncFunction),
     hasDestructuringArgs(false),
     hasParameterExprs(false),
     hasDirectEvalInParameterExpr(false),
     hasDuplicateParameters(false),
     useAsm(false),
-    insideUseAsm(false),
     isAnnexB(false),
     wasEmitted(false),
     declaredArguments(false),
@@ -482,7 +481,13 @@ FunctionBox::FunctionBox(JSContext* cx, LifoAlloc& alloc, ObjectBox* traceListHe
     usesReturn(false),
     hasRest_(false),
     isExprBody_(false),
-    funCxFlags()
+    hasExtensibleScope_(false),
+    argumentsHasLocalBinding_(false),
+    definitelyNeedsArgsObj_(false),
+    needsHomeObject_(false),
+    isDerivedClassConstructor_(false),
+    hasThisBinding_(false),
+    hasInnerFunctions_(false)
 {
     // Functions created at parse time may be set singleton after parsing and
     // baked into JIT code, so they must be allocated tenured. They are held by
@@ -521,8 +526,7 @@ FunctionBox::initWithEnclosingParseContext(ParseContext* enclosing, FunctionSynt
 
     JSFunction* fun = function();
 
-    // Arrow functions and generator expression lambdas don't have
-    // their own `this` binding.
+    // Arrow functions don't have their own `this` binding.
     if (fun->isArrow()) {
         allowNewTarget_ = sc->allowNewTarget();
         allowSuperProperty_ = sc->allowSuperProperty();
@@ -944,7 +948,8 @@ template <class ParseHandler, typename CharT>
 FunctionBox*
 Parser<ParseHandler, CharT>::newFunctionBox(Node fn, JSFunction* fun, uint32_t toStringStart,
                                             Directives inheritedDirectives,
-                                            GeneratorKind generatorKind, FunctionAsyncKind asyncKind)
+                                            GeneratorKind generatorKind,
+                                            FunctionAsyncKind asyncKind)
 {
     MOZ_ASSERT(fun);
 
@@ -2471,7 +2476,7 @@ Parser<SyntaxParseHandler, char16_t>::finishFunction(bool isStandaloneFunction /
     FunctionBox* funbox = pc->functionBox();
     RootedFunction fun(context, funbox->function());
     LazyScript* lazy = LazyScript::Create(context, fun, pc->closedOverBindingsForLazy(),
-                                          pc->innerFunctionsForLazy, versionNumber(),
+                                          pc->innerFunctionsForLazy,
                                           funbox->bufStart, funbox->bufEnd,
                                           funbox->toStringStart,
                                           funbox->startLine, funbox->startColumn);
@@ -2518,7 +2523,7 @@ GetYieldHandling(GeneratorKind generatorKind)
 static AwaitHandling
 GetAwaitHandling(FunctionAsyncKind asyncKind)
 {
-    if (asyncKind == SyncFunction)
+    if (asyncKind == FunctionAsyncKind::SyncFunction)
         return AwaitIsName;
     return AwaitIsKeyword;
 }
@@ -2539,7 +2544,7 @@ Parser<FullParseHandler, char16_t>::standaloneFunction(HandleFunction fun,
     TokenKind tt;
     if (!tokenStream.getToken(&tt, TokenStream::Operand))
         return null();
-    if (asyncKind == AsyncFunction) {
+    if (asyncKind == FunctionAsyncKind::AsyncFunction) {
         MOZ_ASSERT(tt == TOK_ASYNC);
         if (!tokenStream.getToken(&tt, TokenStream::Operand))
             return null();
@@ -2687,7 +2692,6 @@ Parser<ParseHandler, CharT>::functionBody(InHandling inHandling, YieldHandling y
                                           FunctionSyntaxKind kind, FunctionBodyType type)
 {
     MOZ_ASSERT(pc->isFunctionBox());
-    MOZ_ASSERT(!pc->funHasReturnExpr && !pc->funHasReturnVoid);
 
 #ifdef DEBUG
     uint32_t startYieldOffset = pc->lastYieldOffset;
@@ -2738,16 +2742,9 @@ Parser<ParseHandler, CharT>::functionBody(InHandling inHandling, YieldHandling y
         }
     }
 
-    switch (pc->generatorKind()) {
-      case GeneratorKind::NotGenerator:
-        MOZ_ASSERT_IF(!pc->isAsync(), pc->lastYieldOffset == startYieldOffset);
-        break;
-
-      case GeneratorKind::Generator:
-        MOZ_ASSERT(kind != Arrow);
-        MOZ_ASSERT(type == StatementListBody);
-        break;
-    }
+    MOZ_ASSERT_IF(!pc->isGenerator() && !pc->isAsync(), pc->lastYieldOffset == startYieldOffset);
+    MOZ_ASSERT_IF(pc->isGenerator(), kind != Arrow);
+    MOZ_ASSERT_IF(pc->isGenerator(), type == StatementListBody);
 
     if (pc->needsDotGeneratorName()) {
         MOZ_ASSERT_IF(!pc->isAsync(), type == StatementListBody);
@@ -2789,7 +2786,8 @@ ParserBase::newFunction(HandleAtom atom, FunctionSyntaxKind kind,
 #endif
     switch (kind) {
       case Expression:
-        flags = (generatorKind == GeneratorKind::NotGenerator && asyncKind == SyncFunction
+        flags = (generatorKind == GeneratorKind::NotGenerator &&
+                 asyncKind == FunctionAsyncKind::SyncFunction
                  ? JSFunction::INTERPRETED_LAMBDA
                  : JSFunction::INTERPRETED_LAMBDA_GENERATOR_OR_ASYNC);
         break;
@@ -2798,7 +2796,8 @@ ParserBase::newFunction(HandleAtom atom, FunctionSyntaxKind kind,
         allocKind = gc::AllocKind::FUNCTION_EXTENDED;
         break;
       case Method:
-        flags = (generatorKind == GeneratorKind::NotGenerator && asyncKind == SyncFunction
+        flags = (generatorKind == GeneratorKind::NotGenerator &&
+                 asyncKind == FunctionAsyncKind::SyncFunction
                  ? JSFunction::INTERPRETED_METHOD
                  : JSFunction::INTERPRETED_METHOD_GENERATOR_OR_ASYNC);
         allocKind = gc::AllocKind::FUNCTION_EXTENDED;
@@ -2826,13 +2825,14 @@ ParserBase::newFunction(HandleAtom atom, FunctionSyntaxKind kind,
             allocKind = gc::AllocKind::FUNCTION_EXTENDED;
         }
 #endif
-        flags = (generatorKind == GeneratorKind::NotGenerator && asyncKind == SyncFunction
+        flags = (generatorKind == GeneratorKind::NotGenerator &&
+                 asyncKind == FunctionAsyncKind::SyncFunction
                  ? JSFunction::INTERPRETED_NORMAL
                  : JSFunction::INTERPRETED_GENERATOR_OR_ASYNC);
     }
 
     // We store the async wrapper in a slot for later access.
-    if (asyncKind == AsyncFunction)
+    if (asyncKind == FunctionAsyncKind::AsyncFunction)
         allocKind = gc::AllocKind::FUNCTION_EXTENDED;
 
     fun = NewFunctionWithProto(context, nullptr, 0, flags, nullptr, atom, proto,
@@ -3363,7 +3363,9 @@ Parser<ParseHandler, CharT>::functionDefinition(Node pn, uint32_t toStringStart,
     }
 
     RootedObject proto(context);
-    if (generatorKind == GeneratorKind::Generator || asyncKind == AsyncFunction) {
+    if (generatorKind == GeneratorKind::Generator ||
+        asyncKind == FunctionAsyncKind::AsyncFunction)
+    {
         // If we are off thread, the generator meta-objects have
         // already been created by js::StartOffThreadParseTask, so cx will not
         // be necessary.
@@ -3437,7 +3439,7 @@ Parser<FullParseHandler, char16_t>::trySyntaxParseInnerFunction(ParseNode* pn, H
         // pays off for lots of code.
         if (pn->isLikelyIIFE() &&
             generatorKind == GeneratorKind::NotGenerator &&
-            asyncKind == SyncFunction)
+            asyncKind == FunctionAsyncKind::SyncFunction)
         {
             break;
         }
@@ -3628,7 +3630,8 @@ Parser<FullParseHandler, char16_t>::standaloneLazyFunction(HandleFunction fun,
     // is a not-async arrow, use TokenStream::Operand to keep
     // verifyConsistentModifier from complaining (we will use
     // TokenStream::Operand in functionArguments).
-    TokenStream::Modifier modifier = (fun->isArrow() && asyncKind == SyncFunction)
+    TokenStream::Modifier modifier = (fun->isArrow() &&
+                                      asyncKind == FunctionAsyncKind::SyncFunction)
                                      ? TokenStream::Operand : TokenStream::None;
     if (!tokenStream.peekTokenPos(&pn->pn_pos, modifier))
         return null();
@@ -3875,7 +3878,7 @@ Parser<ParseHandler, CharT>::functionStmt(uint32_t toStringStart, YieldHandling 
 
         kind = (!pc->sc()->strict() &&
                 generatorKind == GeneratorKind::NotGenerator &&
-                asyncKind == SyncFunction)
+                asyncKind == FunctionAsyncKind::SyncFunction)
                 ? DeclarationKind::SloppyLexicalFunction
                 : DeclarationKind::LexicalFunction;
     } else {
@@ -5742,7 +5745,8 @@ Parser<ParseHandler, CharT>::exportDefault(uint32_t begin)
         if (nextSameLine == TOK_FUNCTION) {
             uint32_t toStringStart = pos().begin;
             tokenStream.consumeKnownToken(TOK_FUNCTION);
-            return exportDefaultFunctionDeclaration(begin, toStringStart, AsyncFunction);
+            return exportDefaultFunctionDeclaration(begin, toStringStart,
+                                                    FunctionAsyncKind::AsyncFunction);
         }
 
         tokenStream.ungetToken();
@@ -5798,7 +5802,8 @@ Parser<ParseHandler, CharT>::exportDeclaration()
         if (nextSameLine == TOK_FUNCTION) {
             uint32_t toStringStart = pos().begin;
             tokenStream.consumeKnownToken(TOK_FUNCTION);
-            return exportFunctionDeclaration(begin, toStringStart, AsyncFunction);
+            return exportFunctionDeclaration(begin, toStringStart,
+                                             FunctionAsyncKind::AsyncFunction);
         }
 
         error(JSMSG_DECLARATION_AFTER_EXPORT);
@@ -6136,9 +6141,8 @@ Parser<ParseHandler, CharT>::forHeadStart(YieldHandling yieldHandling,
     if (handler.isUnparenthesizedDestructuringPattern(*forInitialPart)) {
         if (!possibleError.checkForDestructuringErrorOrWarning())
             return false;
-    } else if (handler.isNameAnyParentheses(*forInitialPart)) {
-        const char* chars = handler.nameIsArgumentsEvalAnyParentheses(*forInitialPart, context);
-        if (chars) {
+    } else if (handler.isName(*forInitialPart)) {
+        if (const char* chars = nameIsArgumentsOrEval(*forInitialPart)) {
             // |chars| is "arguments" or "eval" here.
             if (!strictModeErrorAt(exprOffset, JSMSG_BAD_STRICT_ASSIGN, chars))
                 return false;
@@ -6173,22 +6177,8 @@ Parser<ParseHandler, CharT>::forStatement(YieldHandling yieldHandling)
 
     ParseContext::Statement stmt(pc, StatementKind::ForLoop);
 
-    bool isForEach = false;
     IteratorKind iterKind = IteratorKind::Sync;
     unsigned iflags = 0;
-
-    if (allowsForEachIn()) {
-        bool matched;
-        if (!tokenStream.matchToken(&matched, TOK_EACH))
-            return null();
-        if (matched) {
-            iflags = JSITER_FOREACH;
-            isForEach = true;
-            addTelemetry(DeprecatedLanguageExtension::ForEach);
-            if (!warnOnceAboutForEach())
-                return null();
-        }
-    }
 
     if (pc->isAsync()) {
         bool matched;
@@ -6251,10 +6241,6 @@ Parser<ParseHandler, CharT>::forStatement(YieldHandling yieldHandling)
 
     if (iterKind == IteratorKind::Async && headKind != PNK_FOROF) {
         errorAt(begin, JSMSG_FOR_AWAIT_NOT_OF);
-        return null();
-    }
-    if (isForEach && headKind != PNK_FORIN) {
-        errorAt(begin, JSMSG_BAD_FOR_EACH_LOOP);
         return null();
     }
 
@@ -6568,13 +6554,11 @@ Parser<ParseHandler, CharT>::returnStatement(YieldHandling yieldHandling)
       case TOK_SEMI:
       case TOK_RC:
         exprNode = null();
-        pc->funHasReturnVoid = true;
         break;
       default: {
         exprNode = expr(InAllowed, yieldHandling, TripledotProhibited);
         if (!exprNode)
             return null();
-        pc->funHasReturnExpr = true;
       }
     }
 
@@ -7609,7 +7593,8 @@ Parser<ParseHandler, CharT>::statementListItem(YieldHandling yieldHandling,
             if (nextSameLine == TOK_FUNCTION) {
                 uint32_t toStringStart = pos().begin;
                 tokenStream.consumeKnownToken(TOK_FUNCTION);
-                return functionStmt(toStringStart, yieldHandling, NameRequired, AsyncFunction);
+                return functionStmt(toStringStart, yieldHandling, NameRequired,
+                                    FunctionAsyncKind::AsyncFunction);
             }
         }
 
@@ -8083,7 +8068,7 @@ Parser<ParseHandler, CharT>::assignExpr(InHandling inHandling, YieldHandling yie
         uint32_t toStringStart = pos().begin;
         tokenStream.ungetToken();
 
-        FunctionAsyncKind asyncKind = SyncFunction;
+        FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction;
 
         if (next == TOK_ASYNC) {
             tokenStream.consumeKnownToken(next, TokenStream::Operand);
@@ -8096,7 +8081,7 @@ Parser<ParseHandler, CharT>::assignExpr(InHandling inHandling, YieldHandling yie
             //   async [no LineTerminator here] AsyncArrowBindingIdentifier ...
             //   async [no LineTerminator here] ArrowFormalParameters ...
             if (TokenKindIsPossibleIdentifier(nextSameLine) || nextSameLine == TOK_LP)
-                asyncKind = AsyncFunction;
+                asyncKind = FunctionAsyncKind::AsyncFunction;
             else
                 tokenStream.ungetToken();
         }
@@ -8149,8 +8134,8 @@ Parser<ParseHandler, CharT>::assignExpr(InHandling inHandling, YieldHandling yie
 
         if (!possibleErrorInner.checkForDestructuringErrorOrWarning())
             return null();
-    } else if (handler.isNameAnyParentheses(lhs)) {
-        if (const char* chars = handler.nameIsArgumentsEvalAnyParentheses(lhs, context)) {
+    } else if (handler.isName(lhs)) {
+        if (const char* chars = nameIsArgumentsOrEval(lhs)) {
             // |chars| is "arguments" or "eval" here.
             if (!strictModeErrorAt(exprPos.begin, JSMSG_BAD_STRICT_ASSIGN, chars))
                 return null();
@@ -8192,11 +8177,11 @@ Parser<ParseHandler, CharT>::isValidSimpleAssignmentTarget(Node node,
     // error for the various syntaxes that fail this, and warning for the
     // various syntaxes that "pass" this but should not, occurs elsewhere.
 
-    if (handler.isNameAnyParentheses(node)) {
+    if (handler.isName(node)) {
         if (!pc->sc()->strict())
             return true;
 
-        return !handler.nameIsArgumentsEvalAnyParentheses(node, context);
+        return !nameIsArgumentsOrEval(node);
     }
 
     if (handler.isPropertyAccess(node))
@@ -8211,11 +8196,24 @@ Parser<ParseHandler, CharT>::isValidSimpleAssignmentTarget(Node node,
 }
 
 template <class ParseHandler, typename CharT>
+const char*
+Parser<ParseHandler, CharT>::nameIsArgumentsOrEval(Node node)
+{
+    MOZ_ASSERT(handler.isName(node), "must only call this function on known names");
+
+    if (handler.isEvalName(node, context))
+        return js_eval_str;
+    if (handler.isArgumentsName(node, context))
+        return js_arguments_str;
+    return nullptr;
+}
+
+template <class ParseHandler, typename CharT>
 bool
 Parser<ParseHandler, CharT>::checkIncDecOperand(Node operand, uint32_t operandOffset)
 {
-    if (handler.isNameAnyParentheses(operand)) {
-        if (const char* chars = handler.nameIsArgumentsEvalAnyParentheses(operand, context)) {
+    if (handler.isName(operand)) {
+        if (const char* chars = nameIsArgumentsOrEval(operand)) {
             if (!strictModeErrorAt(operandOffset, JSMSG_BAD_STRICT_ASSIGN, chars))
                 return false;
         }
@@ -8321,7 +8319,7 @@ Parser<ParseHandler, CharT>::unaryExpr(YieldHandling yieldHandling,
 
         // Per spec, deleting any unary expression is valid -- it simply
         // returns true -- except for one case that is illegal in strict mode.
-        if (handler.isNameAnyParentheses(expr)) {
+        if (handler.isName(expr)) {
             if (!strictModeErrorAt(exprOffset, JSMSG_DEPRECATED_DELETE_OPERAND))
                 return null();
 
@@ -8621,7 +8619,7 @@ Parser<ParseHandler, CharT>::memberExpr(YieldHandling yieldHandling,
                         // part of the CoverCallExpressionAndAsyncArrowHead
                         // syntax when the initial name is "async".
                         maybeAsyncArrow = true;
-                    } else if (handler.isEvalAnyParentheses(lhs, context)) {
+                    } else if (handler.isEvalName(lhs, context)) {
                         // Select the right EVAL op and flag pc as having a
                         // direct eval.
                         op = pc->sc()->strict() ? JSOP_STRICTEVAL : JSOP_EVAL;
@@ -8930,7 +8928,7 @@ Parser<ParseHandler, CharT>::checkDestructuringAssignmentTarget(Node expr, Token
     if (possibleError->hasPendingDestructuringError())
         return true;
 
-    if (handler.isNameAnyParentheses(expr)) {
+    if (handler.isName(expr)) {
         checkDestructuringAssignmentName(expr, exprPos, possibleError);
         return true;
     }
@@ -8960,14 +8958,14 @@ void
 Parser<ParseHandler, CharT>::checkDestructuringAssignmentName(Node name, TokenPos namePos,
                                                               PossibleError* possibleError)
 {
-    MOZ_ASSERT(handler.isNameAnyParentheses(name));
+    MOZ_ASSERT(handler.isName(name));
 
     // Return early if a pending destructuring error is already present.
     if (possibleError->hasPendingDestructuringError())
         return;
 
     if (pc->sc()->needStrictChecks()) {
-        if (handler.isArgumentsAnyParentheses(name, context)) {
+        if (handler.isArgumentsName(name, context)) {
             if (pc->sc()->strict()) {
                 possibleError->setPendingDestructuringErrorAt(namePos,
                                                               JSMSG_BAD_STRICT_ASSIGN_ARGUMENTS);
@@ -8978,7 +8976,7 @@ Parser<ParseHandler, CharT>::checkDestructuringAssignmentName(Node name, TokenPo
             return;
         }
 
-        if (handler.isEvalAnyParentheses(name, context)) {
+        if (handler.isEvalName(name, context)) {
             if (pc->sc()->strict()) {
                 possibleError->setPendingDestructuringErrorAt(namePos,
                                                               JSMSG_BAD_STRICT_ASSIGN_EVAL);
@@ -9513,7 +9511,7 @@ Parser<ParseHandler, CharT>::objectLiteral(YieldHandling yieldHandling,
                     possibleError->setPendingExpressionErrorAt(pos(), JSMSG_COLON_AFTER_ID);
                 }
 
-                if (const char* chars = handler.nameIsArgumentsEvalAnyParentheses(lhs, context)) {
+                if (const char* chars = nameIsArgumentsOrEval(lhs)) {
                     // |chars| is "arguments" or "eval" here.
                     if (!strictModeErrorAt(namePos.begin, JSMSG_BAD_STRICT_ASSIGN, chars))
                         return null();
@@ -9626,8 +9624,8 @@ Parser<ParseHandler, CharT>::methodDefinition(uint32_t toStringStart, PropertyTy
 
     FunctionAsyncKind asyncKind = (propType == PropertyType::AsyncMethod ||
                                    propType == PropertyType::AsyncGeneratorMethod)
-                                  ? AsyncFunction
-                                  : SyncFunction;
+                                  ? FunctionAsyncKind::AsyncFunction
+                                  : FunctionAsyncKind::SyncFunction;
 
     YieldHandling yieldHandling = GetYieldHandling(generatorKind);
 
@@ -9761,7 +9759,8 @@ Parser<ParseHandler, CharT>::primaryExpr(YieldHandling yieldHandling,
             if (nextSameLine == TOK_FUNCTION) {
                 uint32_t toStringStart = pos().begin;
                 tokenStream.consumeKnownToken(TOK_FUNCTION);
-                return functionExpr(toStringStart, PredictUninvoked, AsyncFunction);
+                return functionExpr(toStringStart, PredictUninvoked,
+                                    FunctionAsyncKind::AsyncFunction);
             }
         }
 
@@ -9886,20 +9885,6 @@ ParserBase::warnOnceAboutExprClosure()
         context->compartment()->warnedAboutExprClosure = true;
     }
 #endif
-    return true;
-}
-
-bool
-ParserBase::warnOnceAboutForEach()
-{
-    if (context->helperThread())
-        return true;
-
-    if (!context->compartment()->warnedAboutForEach) {
-        if (!warning(JSMSG_DEPRECATED_FOR_EACH))
-            return false;
-        context->compartment()->warnedAboutForEach = true;
-    }
     return true;
 }
 

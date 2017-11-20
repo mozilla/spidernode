@@ -81,10 +81,7 @@ function forOfStmt(lhs, rhs, body) {
     return Pattern({ type: "ForOfStatement", left: lhs, right: rhs, body: body });
 }
 function forInStmt(lhs, rhs, body) {
-    return Pattern({ type: "ForInStatement", left: lhs, right: rhs, body: body, each: false });
-}
-function forEachInStmt(lhs, rhs, body) {
-    return Pattern({ type: "ForInStatement", left: lhs, right: rhs, body: body, each: true });
+    return Pattern({ type: "ForInStatement", left: lhs, right: rhs, body: body });
 }
 function breakStmt(lab) {
     return Pattern({ type: "BreakStatement", label: lab });
@@ -128,9 +125,6 @@ function catchClause(id, guard, body) {
 }
 function tryStmt(body, guarded, unguarded, fin) {
     return Pattern({ type: "TryStatement", block: body, guardedHandlers: guarded, handler: unguarded, finalizer: fin });
-}
-function letStmt(head, body) {
-    return Pattern({ type: "LetStatement", head: head, body: body });
 }
 
 function superProp(id) {
@@ -254,38 +248,6 @@ function taggedTemplate(tagPart, templatePart) {
 }
 function template(raw, cooked, ...args) {
     return Pattern([{ type: "CallSiteObject", raw: raw, cooked: cooked}, ...args]);
-}
-
-function compExpr(body, blocks, filter, style) {
-    if (style == "legacy" || !filter)
-        return Pattern({ type: "ComprehensionExpression", body, blocks, filter, style });
-    else
-        return Pattern({ type: "ComprehensionExpression", body, blocks: blocks.concat(compIf(filter)), filter: null, style });
-}
-function genExpr(body, blocks, filter, style) {
-    if (style == "legacy" || !filter)
-        return Pattern({ type: "GeneratorExpression", body, blocks, filter, style });
-    else
-        return Pattern({ type: "GeneratorExpression", body, blocks: blocks.concat(compIf(filter)), filter: null, style });
-}
-function graphExpr(idx, body) {
-    return Pattern({ type: "GraphExpression", index: idx, expression: body });
-}
-function idxExpr(idx) {
-    return Pattern({ type: "GraphIndexExpression", index: idx });
-}
-
-function compBlock(left, right) {
-    return Pattern({ type: "ComprehensionBlock", left: left, right: right, each: false, of: false });
-}
-function compEachBlock(left, right) {
-    return Pattern({ type: "ComprehensionBlock", left: left, right: right, each: true, of: false });
-}
-function compOfBlock(left, right) {
-    return Pattern({ type: "ComprehensionBlock", left: left, right: right, each: false, of: true });
-}
-function compIf(test) {
-    return Pattern({ type: "ComprehensionIf", test: test });
 }
 
 function arrPatt(elts) {

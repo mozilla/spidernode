@@ -47,7 +47,7 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph, Mac
     current(nullptr),
     snapshots_(),
     recovers_(),
-    deoptTable_(nullptr),
+    deoptTable_(),
 #ifdef DEBUG
     pushedArgs_(0),
 #endif
@@ -1366,11 +1366,7 @@ CodeGeneratorShared::callVM(const VMFunction& fun, LInstruction* ins, const Regi
 #endif
 
     // Get the wrapper of the VM function.
-    JitCode* wrapper = gen->jitRuntime()->getVMWrapper(fun);
-    if (!wrapper) {
-        masm.setOOM();
-        return;
-    }
+    TrampolinePtr wrapper = gen->jitRuntime()->getVMWrapper(fun);
 
 #ifdef CHECK_OSIPOINT_REGISTERS
     if (shouldVerifyOsiPointRegs(ins->safepoint()))

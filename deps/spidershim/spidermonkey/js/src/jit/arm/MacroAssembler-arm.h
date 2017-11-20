@@ -664,6 +664,11 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void jump(JitCode* code) {
         branch(code);
     }
+    void jump(TrampolinePtr code) {
+        ScratchRegisterScope scratch(asMasm());
+        movePtr(ImmPtr(code.value), scratch);
+        ma_bx(scratch);
+    }
     void jump(Register reg) {
         ma_bx(reg);
     }
@@ -975,7 +980,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void storeTypeTag(ImmTag tag, const Address& dest);
     void storeTypeTag(ImmTag tag, const BaseIndex& dest);
 
-    void handleFailureWithHandlerTail(void* handler);
+    void handleFailureWithHandlerTail(void* handler, Label* profilerExitTail);
 
     /////////////////////////////////////////////////////////////////
     // Common interface.

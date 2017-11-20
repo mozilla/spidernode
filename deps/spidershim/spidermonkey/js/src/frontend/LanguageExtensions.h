@@ -23,7 +23,7 @@ namespace js {
  */
 enum class DeprecatedLanguageExtension
 {
-    ForEach = 0, // JS 1.6+
+    // NO LONGER USING 0
     // NO LONGER USING 1
     // NO LONGER USING 2
     ExpressionClosure = 3, // Added in JS 1.8
@@ -33,7 +33,7 @@ enum class DeprecatedLanguageExtension
     // NO LONGER USING 7
     // NO LONGER USING 8
     // NO LONGER USING 9
-    BlockScopeFunRedecl = 10,
+    // NO LONGER USING 10
 
     // Sentinel value.  MAY change as extension initializers are added (only to
     // the end) above.

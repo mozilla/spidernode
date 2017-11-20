@@ -30,7 +30,7 @@ struct ImmType : public ImmTag
     { }
 };
 
-static const ValueOperand JSReturnOperand = ValueOperand(JSReturnReg_Type, JSReturnReg_Data);
+static constexpr ValueOperand JSReturnOperand{JSReturnReg_Type, JSReturnReg_Data};
 static const ValueOperand softfpReturnOperand = ValueOperand(v1, v0);
 
 static const int defaultShift = 3;
@@ -505,7 +505,7 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     void storeTypeTag(ImmTag tag, Address dest);
     void storeTypeTag(ImmTag tag, const BaseIndex& dest);
 
-    void handleFailureWithHandlerTail(void* handler);
+    void handleFailureWithHandlerTail(void* handler, Label* profilerExitTail);
 
     /////////////////////////////////////////////////////////////////
     // Common interface.

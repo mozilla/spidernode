@@ -358,9 +358,7 @@ IonCacheIRCompiler::callVM(MacroAssembler& masm, const VMFunction& fun)
 {
     MOZ_ASSERT(calledPrepareVMCall_);
 
-    JitCode* code = cx_->runtime()->jitRuntime()->getVMWrapper(fun);
-    if (!code)
-        return false;
+    TrampolinePtr code = cx_->runtime()->jitRuntime()->getVMWrapper(fun);
 
     uint32_t frameSize = fun.explicitStackSlots() * sizeof(void*);
     uint32_t descriptor = MakeFrameDescriptor(frameSize, JitFrame_IonICCall,
@@ -1047,8 +1045,7 @@ IonCacheIRCompiler::emitCallScriptedGetterResult()
     // code when discarding all JIT code in the Zone, so we can assume it'll
     // still have JIT code.
     MOZ_ASSERT(target->hasJITCode());
-    masm.loadPtr(Address(scratch, JSFunction::offsetOfNativeOrScript()), scratch);
-    masm.loadBaselineOrIonRaw(scratch, scratch, nullptr);
+    masm.loadJitCodeRaw(scratch, scratch, nullptr);
     masm.callJit(scratch);
     masm.storeCallResultValue(output);
 
@@ -1095,7 +1092,7 @@ IonCacheIRCompiler::emitCallNativeGetterResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLNative);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameType::IonOOLNative);
 
     // Construct and execute call.
     masm.setupUnalignedABICall(scratch);
@@ -1153,7 +1150,7 @@ IonCacheIRCompiler::emitCallProxyGetResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLProxy);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameType::IonOOLProxy);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
@@ -2006,7 +2003,7 @@ IonCacheIRCompiler::emitCallNativeSetter()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLNative);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameType::IonOOLNative);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
@@ -2075,8 +2072,7 @@ IonCacheIRCompiler::emitCallScriptedSetter()
     // code when discarding all JIT code in the Zone, so we can assume it'll
     // still have JIT code.
     MOZ_ASSERT(target->hasJITCode());
-    masm.loadPtr(Address(scratch, JSFunction::offsetOfNativeOrScript()), scratch);
-    masm.loadBaselineOrIonRaw(scratch, scratch, nullptr);
+    masm.loadJitCodeRaw(scratch, scratch, nullptr);
     masm.callJit(scratch);
 
     masm.freeStack(masm.framePushed() - framePushedBefore);

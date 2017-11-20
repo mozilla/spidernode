@@ -436,7 +436,8 @@ Module::deserialize(const uint8_t* bytecodeBegin, size_t bytecodeSize,
     if (!bytecode || !bytecode->bytes.initLengthUninitialized(bytecodeSize))
         return nullptr;
 
-    memcpy(bytecode->bytes.begin(), bytecodeBegin, bytecodeSize);
+    if (bytecodeSize)
+        memcpy(bytecode->bytes.begin(), bytecodeBegin, bytecodeSize);
 
     Assumptions assumptions;
     const uint8_t* cursor = assumptions.deserialize(compiledBegin, compiledSize);
@@ -729,8 +730,8 @@ Module::initSegments(JSContext* cx,
         uint32_t offset = EvaluateInitExpr(globalImports, seg.offset);
 
         if (offset > tableLength || tableLength - offset < numElems) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_FIT,
-                                      "elem", "table");
+            JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_FIT,
+                                     "elem", "table");
             return false;
         }
     }
@@ -741,8 +742,8 @@ Module::initSegments(JSContext* cx,
             uint32_t offset = EvaluateInitExpr(globalImports, seg.offset);
 
             if (offset > memoryLength || memoryLength - offset < seg.length) {
-                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_FIT,
-                                          "data", "memory");
+                JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_FIT,
+                                         "data", "memory");
                 return false;
             }
         }
@@ -832,8 +833,8 @@ Module::instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) 
 
         if (funcExport.sig() != metadata(tier).funcImports[i].sig()) {
             const Import& import = FindImportForFuncImport(imports_, i);
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMPORT_SIG,
-                                      import.module.get(), import.field.get());
+            JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMPORT_SIG,
+                                     import.module.get(), import.field.get());
             return false;
         }
     }
@@ -853,12 +854,12 @@ CheckLimits(JSContext* cx, uint32_t declaredMin, const Maybe<uint32_t>& declared
     }
 
     if (actualLength < declaredMin || actualLength > declaredMax.valueOr(UINT32_MAX)) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE, kind);
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE, kind);
         return false;
     }
 
     if ((actualMax && declaredMax && *actualMax > *declaredMax) || (!actualMax && declaredMax)) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_MAX, kind);
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_MAX, kind);
         return false;
     }
 
@@ -1019,34 +1020,16 @@ GetGlobalExport(JSContext* cx, const GlobalDescVector& globals, uint32_t globalI
         return true;
       }
       case ValType::I64: {
-        MOZ_ASSERT(JitOptions.wasmTestMode, "no int64 in asm.js/wasm");
-        RootedObject obj(cx, CreateI64Object(cx, val.i64()));
-        if (!obj)
-            return false;
-        jsval.set(ObjectValue(*obj));
-        return true;
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_I64_LINK);
+        return false;
       }
       case ValType::F32: {
         float f = val.f32();
-        if (JitOptions.wasmTestMode && IsNaN(f)) {
-            RootedObject obj(cx, CreateCustomNaNObject(cx, &f));
-            if (!obj)
-                return false;
-            jsval.set(ObjectValue(*obj));
-            return true;
-        }
         jsval.set(DoubleValue(JS::CanonicalizeNaN(double(f))));
         return true;
       }
       case ValType::F64: {
         double d = val.f64();
-        if (JitOptions.wasmTestMode && IsNaN(d)) {
-            RootedObject obj(cx, CreateCustomNaNObject(cx, &d));
-            if (!obj)
-                return false;
-            jsval.set(ObjectValue(*obj));
-            return true;
-        }
         jsval.set(DoubleValue(JS::CanonicalizeNaN(d)));
         return true;
       }

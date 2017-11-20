@@ -81,20 +81,20 @@ add_old_configure_assignment('_YASM_MINOR_VERSION',
 def yasm_asflags(yasm, target):
     if yasm:
         asflags = {
-            ('OSX', 'x86'): '-f macho32',
-            ('OSX', 'x86_64'): '-f macho64',
-            ('WINNT', 'x86'): '-f win32',
-            ('WINNT', 'x86_64'): '-f x64',
+            ('OSX', 'x86'): ['-f', 'macho32'],
+            ('OSX', 'x86_64'): ['-f', 'macho64'],
+            ('WINNT', 'x86'): ['-f', 'win32'],
+            ('WINNT', 'x86_64'): ['-f', 'x64'],
         }.get((target.os, target.cpu), None)
         if asflags is None:
             # We're assuming every x86 platform we support that's
             # not Windows or Mac is ELF.
             if target.cpu == 'x86':
-                asflags = '-f elf32'
+                asflags = ['-f', 'elf32']
             elif target.cpu == 'x86_64':
-                asflags = '-f elf64'
+                asflags = ['-f', 'elf64']
         if asflags:
-            asflags += ' -rnasm -pnasm'
+            asflags += ['-rnasm', '-pnasm']
         return asflags
 
 
@@ -488,28 +488,24 @@ def check_compiler(compiler, language, target):
         if info.type in ('clang-cl', 'clang', 'gcc'):
             append_flag('-std=gnu99')
 
-    # Note: MSVC, while supporting C++11, still reports 199711L for __cplusplus.
+    # Note: MSVC, while supporting C++14, still reports 199711L for __cplusplus.
     # Note: this is a strict version check because we used to always add
-    # -std=gnu++11.
+    # -std=gnu++14.
     draft_cxx14_version = 201300
     cxx14_version = 201402
     if info.language == 'C++':
-        if target.kernel != 'WINNT':
-            if info.type in ('clang', 'gcc') and info.language_version != 201103:
-                append_flag('-std=gnu++11')
-        else:
-            if info.type == 'clang' and info.language_version != 201103:
-                append_flag('-std=gnu++11')
-            # MSVC 2015 headers include C++14 features, but don't guard them
-            # with appropriate checks.
-            if info.type == 'clang-cl' and info.language_version != cxx14_version:
-                append_flag('-std=c++14')
-            # GCC 4.9 indicates that it implements draft C++14 features
-            # instead of the full language.
-            elif info.type == 'gcc' and not \
-                (info.language_version == draft_cxx14_version or
-                 info.language_version == cxx14_version):
-                append_flag('-std=gnu++14')
+        if info.type == 'clang' and info.language_version != cxx14_version:
+            append_flag('-std=gnu++14')
+        # MSVC 2015 headers include C++14 features, but don't guard them
+        # with appropriate checks.
+        elif info.type == 'clang-cl' and info.language_version != cxx14_version:
+            append_flag('-std=c++14')
+        # GCC 4.9 indicates that it implements draft C++14 features
+        # instead of the full language.
+        elif info.type == 'gcc' and \
+                info.language_version not in (draft_cxx14_version,
+                                              cxx14_version):
+            append_flag('-std=gnu++14')
 
     # We force clang-cl to emulate Visual C++ 2017 version 15.4
     if info.type == 'clang-cl' and info.version != '19.11.25547':
@@ -1330,9 +1326,9 @@ imply_option('RUSTC_OPT_LEVEL', '2', when='--enable-release')
 
 
 @depends('RUSTC_OPT_LEVEL', debug_rust, '--enable-debug-symbols',
-         moz_optimize)
+         moz_optimize, host, target)
 def rust_compiler_flags(opt_level_option, debug_rust, debug_symbols,
-                        moz_optimize):
+                        moz_optimize, host, target):
     optimize = moz_optimize.optimize
 
     # Cargo currently supports only two interesting profiles for building:
@@ -1351,7 +1347,7 @@ def rust_compiler_flags(opt_level_option, debug_rust, debug_symbols,
     debug_assertions = None
     debug_info = None
 
-    if opt_level_option.origin != 'default':
+    if opt_level_option:
         opt_level = opt_level_option[0]
     else:
         opt_level = '1' if optimize else '0'
@@ -1362,7 +1358,11 @@ def rust_compiler_flags(opt_level_option, debug_rust, debug_symbols,
         debug_assertions = False
 
     if debug_symbols:
-        debug_info = '2'
+        if host.kernel == 'Linux' and target.kernel == 'Darwin':
+            # hack to work around dsymutil failing on cross-OSX builds (bug 1410148)
+            debug_info = '1'
+        else:
+            debug_info = '2'
 
     opts = []
 
@@ -1513,6 +1513,12 @@ js_option('--enable-clang-plugin', env='ENABLE_CLANG_PLUGIN',
 
 add_old_configure_assignment('ENABLE_CLANG_PLUGIN',
                              depends_if('--enable-clang-plugin')(lambda _: True))
+
+js_option('--enable-mozsearch-plugin', env='ENABLE_MOZSEARCH_PLUGIN',
+          help="Enable building with the mozsearch indexer plugin")
+
+add_old_configure_assignment('ENABLE_MOZSEARCH_PLUGIN',
+                             depends_if('--enable-mozsearch-plugin')(lambda _: True))
 
 # Code Coverage
 # ==============================================================

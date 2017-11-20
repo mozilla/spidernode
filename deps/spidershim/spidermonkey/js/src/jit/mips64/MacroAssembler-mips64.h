@@ -40,7 +40,7 @@ struct ImmTag : public Imm32
     { }
 };
 
-static const ValueOperand JSReturnOperand = ValueOperand(JSReturnReg);
+static constexpr ValueOperand JSReturnOperand{JSReturnReg};
 
 static const int defaultShift = 3;
 static_assert(1 << defaultShift == sizeof(JS::Value), "The defaultShift is wrong");
@@ -511,7 +511,7 @@ class MacroAssemblerMIPS64Compat : public MacroAssemblerMIPS64
     }
     void pushValue(const Address& addr);
 
-    void handleFailureWithHandlerTail(void* handler);
+    void handleFailureWithHandlerTail(void* handler, Label* profilerExitTail);
 
     /////////////////////////////////////////////////////////////////
     // Common interface.

@@ -3508,7 +3508,7 @@ IonBuilder::atomicsMeetsPreconditions(CallInfo& callInfo, Scalar::Type* arrayTyp
     if (!arg0Types)
         return false;
 
-    TemporaryTypeSet::TypedArraySharedness sharedness;
+    TemporaryTypeSet::TypedArraySharedness sharedness = TemporaryTypeSet::UnknownSharedness;
     *arrayType = arg0Types->getTypedArrayType(constraints(), &sharedness);
     *requiresTagCheck = sharedness != TemporaryTypeSet::KnownShared;
     switch (*arrayType) {
@@ -3607,9 +3607,7 @@ IonBuilder::inlineSimd(CallInfo& callInfo, JSFunction* target, SimdType type)
     }
 
     JSNative native = target->native();
-    const JSJitInfo* jitInfo = target->jitInfo();
-    MOZ_ASSERT(jitInfo && jitInfo->type() == JSJitInfo::InlinableNative);
-    SimdOperation simdOp = SimdOperation(jitInfo->nativeOp);
+    SimdOperation simdOp = SimdOperation(target->jitInfo()->nativeOp);
 
     switch(simdOp) {
       case SimdOperation::Constructor:

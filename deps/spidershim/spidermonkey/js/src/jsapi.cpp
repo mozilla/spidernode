@@ -589,12 +589,6 @@ JS::SetSingleThreadedExecutionCallbacks(JSContext* cx,
     cx->runtime()->endSingleThreadedExecutionCallback = end;
 }
 
-JS_PUBLIC_API(JSVersion)
-JS_GetVersion(JSContext* cx)
-{
-    return VersionNumber(cx->findVersion());
-}
-
 static const struct v2smap {
     JSVersion   version;
     const char* string;
@@ -3981,8 +3975,6 @@ void
 JS::TransitiveCompileOptions::copyPODTransitiveOptions(const TransitiveCompileOptions& rhs)
 {
     mutedErrors_ = rhs.mutedErrors_;
-    version = rhs.version;
-    versionSet = rhs.versionSet;
     utf8 = rhs.utf8;
     selfHostingMode = rhs.selfHostingMode;
     canLazilyParse = rhs.canLazilyParse;
@@ -4103,12 +4095,10 @@ JS::OwningCompileOptions::setIntroducerFilename(JSContext* cx, const char* s)
     return true;
 }
 
-JS::CompileOptions::CompileOptions(JSContext* cx, JSVersion version)
+JS::CompileOptions::CompileOptions(JSContext* cx)
     : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
       introductionScriptRoot(cx)
 {
-    this->version = (version != JSVERSION_UNKNOWN) ? version : cx->findVersion();
-
     strictOption = cx->options().strictMode();
     extraWarningsOption = cx->compartment()->behaviors().extraWarnings(cx);
     forEachStatementOption = cx->options().forEachStatement();
@@ -4799,8 +4789,6 @@ Evaluate(JSContext* cx, ScopeKind scopeKind, HandleObject env,
                                                           scopeKind, options, srcBuf));
     if (!script)
         return false;
-
-    MOZ_ASSERT(script->getVersion() == options.version);
 
     bool result = Execute(cx, script, *env,
                           options.noScriptRval ? nullptr : rval.address());
@@ -6445,7 +6433,7 @@ JS_ReportErrorNumberLatin1VA(JSContext* cx, JSErrorCallback errorCallback,
 
 JS_PUBLIC_API(void)
 JS_ReportErrorNumberUTF8(JSContext* cx, JSErrorCallback errorCallback,
-                           void* userRef, const unsigned errorNumber, ...)
+                         void* userRef, const unsigned errorNumber, ...)
 {
     va_list ap;
     va_start(ap, errorNumber);
@@ -7252,9 +7240,6 @@ JS_SetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t v
       case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
         jit::JitOptions.asmJSAtomicsEnable = !!value;
         break;
-      case JSJITCOMPILER_WASM_TEST_MODE:
-        jit::JitOptions.wasmTestMode = !!value;
-        break;
       case JSJITCOMPILER_WASM_FOLD_OFFSETS:
         jit::JitOptions.wasmFoldOffsets = !!value;
         break;
@@ -7282,9 +7267,8 @@ JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t* 
         *valueOut = jit::JitOptions.baselineWarmUpThreshold;
         break;
       case JSJITCOMPILER_ION_WARMUP_TRIGGER:
-        *valueOut = jit::JitOptions.forcedDefaultIonWarmUpThreshold.isSome()
-                  ? jit::JitOptions.forcedDefaultIonWarmUpThreshold.ref()
-                  : jit::OptimizationInfo::CompilerWarmupThreshold;
+        *valueOut = jit::JitOptions.forcedDefaultIonWarmUpThreshold
+            .valueOr(jit::OptimizationInfo::CompilerWarmupThreshold);
         break;
       case JSJITCOMPILER_ION_FORCE_IC:
         *valueOut = jit::JitOptions.forceInlineCaches;
@@ -7303,9 +7287,6 @@ JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t* 
         break;
       case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
         *valueOut = jit::JitOptions.asmJSAtomicsEnable ? 1 : 0;
-        break;
-      case JSJITCOMPILER_WASM_TEST_MODE:
-        *valueOut = jit::JitOptions.wasmTestMode ? 1 : 0;
         break;
       case JSJITCOMPILER_WASM_FOLD_OFFSETS:
         *valueOut = jit::JitOptions.wasmFoldOffsets ? 1 : 0;

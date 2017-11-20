@@ -168,7 +168,6 @@ class ParserBase : public StrictModeGetter
     ~ParserBase();
 
     const char* getFilename() const { return tokenStream.getFilename(); }
-    JSVersion versionNumber() const { return tokenStream.versionNumber(); }
     TokenPos pos() const { return tokenStream.currentToken().pos; }
 
     // Determine whether |yield| is a valid name in the current context.
@@ -236,15 +235,6 @@ class ParserBase : public StrictModeGetter
     void addTelemetry(DeprecatedLanguageExtension e);
 
     bool warnOnceAboutExprClosure();
-    bool warnOnceAboutForEach();
-
-    bool allowsForEachIn() {
-#if !JS_HAS_FOR_EACH_IN
-        return false;
-#else
-        return options().forEachStatementOption && versionNumber() >= JSVERSION_1_6;
-#endif
-    }
 
     bool hasValidSimpleStrictParameterNames();
 
@@ -602,9 +592,9 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
      */
     Node functionStmt(uint32_t toStringStart,
                       YieldHandling yieldHandling, DefaultHandling defaultHandling,
-                      FunctionAsyncKind asyncKind = SyncFunction);
+                      FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
     Node functionExpr(uint32_t toStringStart, InvokedPrediction invoked = PredictUninvoked,
-                      FunctionAsyncKind asyncKind = SyncFunction);
+                      FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
 
     Node statementList(YieldHandling yieldHandling);
     Node statement(YieldHandling yieldHandling);
@@ -659,12 +649,12 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool checkLocalExportNames(Node node);
     Node exportClause(uint32_t begin);
     Node exportFunctionDeclaration(uint32_t begin, uint32_t toStringStart,
-                                   FunctionAsyncKind asyncKind = SyncFunction);
+                                   FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
     Node exportVariableStatement(uint32_t begin);
     Node exportClassDeclaration(uint32_t begin);
     Node exportLexicalDeclaration(uint32_t begin, DeclarationKind kind);
     Node exportDefaultFunctionDeclaration(uint32_t begin, uint32_t toStringStart,
-                                          FunctionAsyncKind asyncKind = SyncFunction);
+                                          FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
     Node exportDefaultClassDeclaration(uint32_t begin);
     Node exportDefaultAssignExpr(uint32_t begin);
     Node exportDefault(uint32_t begin);
@@ -871,6 +861,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
                                        FunctionCallBehavior behavior = ForbidAssignmentToFunctionCalls);
 
   private:
+    const char* nameIsArgumentsOrEval(Node node);
     bool checkIncDecOperand(Node operand, uint32_t operandOffset);
     bool checkStrictAssignment(Node lhs);
 

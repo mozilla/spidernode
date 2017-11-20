@@ -72,7 +72,7 @@ using mozilla::Move;
 
 // If fuzzingSafe is set, remove functionality that could cause problems with
 // fuzzers. Set this via the environment variable MOZ_FUZZING_SAFE.
-static mozilla::Atomic<bool> fuzzingSafe(false);
+mozilla::Atomic<bool> fuzzingSafe(false);
 
 // If disableOOMFunctions is set, disable functionality that causes artificial
 // OOM conditions.
@@ -2054,6 +2054,11 @@ ResolvePromise(JSContext* cx, unsigned argc, Value* vp)
             return false;
     }
 
+    if (IsPromiseForAsync(promise)) {
+        JS_ReportErrorASCII(cx, "async function's promise shouldn't be manually resolved");
+        return false;
+    }
+
     bool result = JS::ResolvePromise(cx, promise, resolution);
     if (result)
         args.rval().setUndefined();
@@ -2079,6 +2084,11 @@ RejectPromise(JSContext* cx, unsigned argc, Value* vp)
         ac.emplace(cx, promise);
         if (!cx->compartment()->wrap(cx, &reason))
             return false;
+    }
+
+    if (IsPromiseForAsync(promise)) {
+        JS_ReportErrorASCII(cx, "async function's promise shouldn't be manually rejected");
+        return false;
     }
 
     bool result = JS::RejectPromise(cx, promise, reason);
@@ -4757,24 +4767,6 @@ DisRegExp(JSContext* cx, unsigned argc, Value* vp)
 #endif // DEBUG
 
 static bool
-EnableForEach(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    JS::ContextOptionsRef(cx).setForEachStatement(true);
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
-DisableForEach(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    JS::ContextOptionsRef(cx).setForEachStatement(false);
-    args.rval().setUndefined();
-    return true;
-}
-
-static bool
 GetTimeZone(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -5540,14 +5532,6 @@ gc::ZealModeHelpText),
     JS_FN_HELP("getModuleEnvironmentValue", GetModuleEnvironmentValue, 2, 0,
 "getModuleEnvironmentValue(module, name)",
 "  Get the value of a bound name in a module environment.\n"),
-
-    JS_FN_HELP("enableForEach", EnableForEach, 0, 0,
-"enableForEach()",
-"  Enables the deprecated, non-standard for-each.\n"),
-
-    JS_FN_HELP("disableForEach", DisableForEach, 0, 0,
-"disableForEach()",
-"  Disables the deprecated, non-standard for-each.\n"),
 
 #if defined(FUZZING) && defined(__AFL_COMPILER)
     JS_FN_HELP("aflloop", AflLoop, 1, 0,
