@@ -29,7 +29,7 @@
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.10',
+    'v8_embedder_string': '-node.11',
 
     # Enable disassembler for `--print-code` v8 options
     'v8_enable_disassembler': 1,
@@ -79,10 +79,12 @@
         'OBJ_DIR': '<(PRODUCT_DIR)/obj',
       }, {
         'os_posix': 1,
+        'v8_postmortem_support%': 'true',
       }],
       ['OS=="mac"', {
         'clang%': 1,
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
+        'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+        'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
       }, {
         'clang%': 0,
         'conditions': [
@@ -92,6 +94,11 @@
             'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
           }],
         ],
+      }],
+      ['openssl_fips != ""', {
+        'OPENSSL_PRODUCT': '<(STATIC_LIB_PREFIX)crypto<(STATIC_LIB_SUFFIX)',
+      }, {
+        'OPENSSL_PRODUCT': '<(STATIC_LIB_PREFIX)openssl<(STATIC_LIB_SUFFIX)',
       }],
     ],
   },

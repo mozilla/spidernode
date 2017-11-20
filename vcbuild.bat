@@ -114,7 +114,7 @@ if /i "%1"=="dll"           set dll=1&goto arg-ok
 if /i "%1"=="v8"            set engine=v8&goto arg-ok
 if /i "%1"=="chakracore"    set engine=chakracore&set chakra_jslint=deps\chakrashim\lib&goto arg-ok
 if /i "%1"=="spidermonkey"  set engine=spidermonkey&goto arg-ok
-if /i "%1"=="static"        set enable_static=1&goto arg-ok
+if /i "%1"=="static"           set enable_static=1&goto arg-ok
 if /i "%1"=="no-NODE-OPTIONS"	set no_NODE_OPTIONS=1&goto arg-ok
 if /i "%1"=="debug-http2"   set debug_http2=1&goto arg-ok
 if /i "%1"=="debug-nghttp2" set debug_nghttp2=1&goto arg-ok
@@ -471,9 +471,8 @@ if "%config%"=="Debug" set test_args=--mode=debug %test_args%
 if "%config%"=="Release" set test_args=--mode=release %test_args%
 echo running 'cctest %cctest_args%'
 "%config%\cctest" %cctest_args%
-REM when building a static library there's no binary to run tests
-if defined enable_static goto test-v8
 call :run-python tools\test.py %test_args%
+goto test-v8
 
 :test-v8
 if not defined custom_v8_test goto lint-cpp
@@ -526,7 +525,6 @@ set "localcppfilelist=%localcppfilelist% %1"
 goto exit
 
 :lint-js
-if defined enable_static goto exit
 if defined lint_js_ci goto lint-js-ci
 if not defined lint_js goto exit
 if not exist tools\eslint goto no-lint

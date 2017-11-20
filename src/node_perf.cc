@@ -196,7 +196,9 @@ void PerformanceGCCallback(uv_async_t* handle) {
 
  cleanup:
   delete data;
-  auto closeCB = [](uv_handle_t* handle) { delete handle; };
+  auto closeCB = [](uv_handle_t* handle) {
+    delete reinterpret_cast<uv_async_t*>(handle);
+  };
   uv_close(reinterpret_cast<uv_handle_t*>(handle), closeCB);
 }
 
@@ -388,4 +390,4 @@ void Init(Local<Object> target,
 }  // namespace performance
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(performance, node::performance::Init)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(performance, node::performance::Init)

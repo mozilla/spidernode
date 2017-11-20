@@ -23,7 +23,7 @@
 #include "env-inl.h"
 #include "node_buffer.h"
 #include "handle_wrap.h"
-#include "req-wrap-inl.h"
+#include "req_wrap-inl.h"
 #include "util-inl.h"
 
 #include <stdlib.h>
@@ -514,4 +514,4 @@ uv_udp_t* UDPWrap::UVHandle() {
 
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(udp_wrap, node::UDPWrap::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(udp_wrap, node::UDPWrap::Initialize)

@@ -55,6 +55,12 @@
 #define Z_MAX_LEVEL 9
 #define Z_DEFAULT_LEVEL Z_DEFAULT_COMPRESSION
 
+enum {
+  NM_F_BUILTIN  = 1 << 0,
+  NM_F_LINKED   = 1 << 1,
+  NM_F_INTERNAL = 1 << 2,
+};
+
 struct sockaddr;
 
 // Variation on NODE_DEFINE_CONSTANT that sets a String value.
@@ -72,6 +78,82 @@ struct sockaddr;
                               constant_value,                                 \
                               constant_attributes).FromJust();                \
   } while (0)
+
+
+#if HAVE_OPENSSL
+#define NODE_BUILTIN_OPENSSL_MODULES(V) V(crypto) V(tls_wrap)
+#else
+#define NODE_BUILTIN_OPENSSL_MODULES(V)
+#endif
+
+#if NODE_HAVE_I18N_SUPPORT
+#define NODE_BUILTIN_ICU_MODULES(V) V(icu)
+#else
+#define NODE_BUILTIN_ICU_MODULES(V)
+#endif
+
+// A list of built-in modules. In order to do module registration
+// in node::Init(), need to add built-in modules in the following list.
+// Then in node::RegisterBuiltinModules(), it calls modules' registration
+// function. This helps the built-in modules are loaded properly when
+// node is built as static library. No need to depends on the
+// __attribute__((constructor)) like mechanism in GCC.
+#define NODE_BUILTIN_STANDARD_MODULES(V)                                      \
+    V(async_wrap)                                                             \
+    V(buffer)                                                                 \
+    V(cares_wrap)                                                             \
+    V(config)                                                                 \
+    V(contextify)                                                             \
+    V(fs)                                                                     \
+    V(fs_event_wrap)                                                          \
+    V(http2)                                                                  \
+    V(http_parser)                                                            \
+    V(inspector)                                                              \
+    V(js_stream)                                                              \
+    V(module_wrap)                                                            \
+    V(os)                                                                     \
+    V(performance)                                                            \
+    V(pipe_wrap)                                                              \
+    V(process_wrap)                                                           \
+    V(serdes)                                                                 \
+    V(signal_wrap)                                                            \
+    V(spawn_sync)                                                             \
+    V(stream_wrap)                                                            \
+    V(tcp_wrap)                                                               \
+    V(timer_wrap)                                                             \
+    V(trace_events)                                                           \
+    V(tty_wrap)                                                               \
+    V(udp_wrap)                                                               \
+    V(url)                                                                    \
+    V(util)                                                                   \
+    V(uv)                                                                     \
+    V(v8)                                                                     \
+    V(zlib)
+
+#define NODE_BUILTIN_MODULES(V)                                               \
+  NODE_BUILTIN_STANDARD_MODULES(V)                                            \
+  NODE_BUILTIN_OPENSSL_MODULES(V)                                             \
+  NODE_BUILTIN_ICU_MODULES(V)
+
+#define NODE_MODULE_CONTEXT_AWARE_CPP(modname, regfunc, priv, flags)          \
+  static node::node_module _module = {                                        \
+    NODE_MODULE_VERSION,                                                      \
+    flags,                                                                    \
+    nullptr,                                                                  \
+    __FILE__,                                                                 \
+    nullptr,                                                                  \
+    (node::addon_context_register_func) (regfunc),                            \
+    NODE_STRINGIFY(modname),                                                  \
+    priv,                                                                     \
+    nullptr                                                                   \
+  };                                                                          \
+  void _register_ ## modname() {                                              \
+    node_module_register(&_module);                                           \
+  }
+
+
+#define NODE_BUILTIN_MODULE_CONTEXT_AWARE(modname, regfunc)                   \
+  NODE_MODULE_CONTEXT_AWARE_CPP(modname, regfunc, nullptr, NM_F_BUILTIN)
 
 namespace node {
 
@@ -200,6 +282,12 @@ void SetupProcessObject(Environment* env,
                         const char* const* argv,
                         int exec_argc,
                         const char* const* exec_argv);
+
+// Call _register<module_name> functions for all of
+// the built-in modules. Because built-in modules don't
+// use the __attribute__((constructor)). Need to
+// explicitly call the _register* functions.
+void RegisterBuiltinModules();
 
 enum Endianness {
   kLittleEndian,  // _Not_ LITTLE_ENDIAN, clashes with endian.h.
@@ -650,8 +738,8 @@ static inline const char *errno_string(int errorno) {
   }
 }
 
-#define NODE_MODULE_CONTEXT_AWARE_INTERNAL(modname, regfunc)          \
-  NODE_MODULE_CONTEXT_AWARE_X(modname, regfunc, NULL, NM_F_INTERNAL)  \
+#define NODE_MODULE_CONTEXT_AWARE_INTERNAL(modname, regfunc)                  \
+  NODE_MODULE_CONTEXT_AWARE_CPP(modname, regfunc, nullptr, NM_F_INTERNAL)
 
 }  // namespace node
 

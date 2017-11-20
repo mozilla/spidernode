@@ -200,22 +200,6 @@ inline bool Environment::AsyncCallbackScope::in_makecallback() const {
   return env_->makecallback_cntr_ > 1;
 }
 
-inline Environment::DomainFlag::DomainFlag() {
-  for (int i = 0; i < kFieldsCount; ++i) fields_[i] = 0;
-}
-
-inline uint32_t* Environment::DomainFlag::fields() {
-  return fields_;
-}
-
-inline int Environment::DomainFlag::fields_count() const {
-  return kFieldsCount;
-}
-
-inline uint32_t Environment::DomainFlag::count() const {
-  return fields_[kCount];
-}
-
 inline Environment::TickInfo::TickInfo() {
   for (int i = 0; i < kFieldsCount; ++i)
     fields_[i] = 0;
@@ -283,6 +267,7 @@ inline Environment::Environment(IsolateData* isolate_data,
       abort_on_uncaught_exception_(false),
       emit_napi_warning_(true),
       makecallback_cntr_(0),
+      scheduled_immediate_count_(isolate_, 1),
 #if HAVE_INSPECTOR
       inspector_agent_(new inspector::Agent(this)),
 #endif
@@ -326,8 +311,9 @@ inline Environment::~Environment() {
   v8::HandleScope handle_scope(isolate());
 
 #if HAVE_INSPECTOR
-  // Destroy inspector agent before erasing the context.
-  delete inspector_agent_;
+  // Destroy inspector agent before erasing the context. The inspector
+  // destructor depends on the context still being accessible.
+  inspector_agent_.reset();
 #endif
 
   context()->SetAlignedPointerInEmbedderData(kContextEmbedderDataIndex,
@@ -339,18 +325,11 @@ inline Environment::~Environment() {
   delete[] heap_statistics_buffer_;
   delete[] heap_space_statistics_buffer_;
   delete[] http_parser_buffer_;
-  delete http2_state_;
   free(performance_state_);
 }
 
 inline v8::Isolate* Environment::isolate() const {
   return isolate_;
-}
-
-inline bool Environment::in_domain() const {
-  // The const_cast is okay, it doesn't violate conceptual const-ness.
-  return using_domains() &&
-         const_cast<Environment*>(this)->domain_flag()->count() > 0;
 }
 
 inline Environment* Environment::from_immediate_check_handle(
@@ -391,10 +370,6 @@ inline uv_loop_t* Environment::event_loop() const {
 
 inline Environment::AsyncHooks* Environment::async_hooks() {
   return &async_hooks_;
-}
-
-inline Environment::DomainFlag* Environment::domain_flag() {
-  return &domain_flag_;
 }
 
 inline Environment::TickInfo* Environment::tick_info() {
@@ -494,12 +469,13 @@ inline void Environment::set_http_parser_buffer(char* buffer) {
 }
 
 inline http2::http2_state* Environment::http2_state() const {
-  return http2_state_;
+  return http2_state_.get();
 }
 
-inline void Environment::set_http2_state(http2::http2_state* buffer) {
-  CHECK_EQ(http2_state_, nullptr);  // Should be set only once.
-  http2_state_ = buffer;
+inline void Environment::set_http2_state(
+    std::unique_ptr<http2::http2_state> buffer) {
+  CHECK(!http2_state_);  // Should be set only once.
+  http2_state_ = std::move(buffer);
 }
 
 inline double* Environment::fs_stats_field_array() const {
@@ -509,6 +485,11 @@ inline double* Environment::fs_stats_field_array() const {
 inline void Environment::set_fs_stats_field_array(double* fields) {
   CHECK_EQ(fs_stats_field_array_, nullptr);  // Should be set only once.
   fs_stats_field_array_ = fields;
+}
+
+inline AliasedBuffer<uint32_t, v8::Uint32Array>&
+Environment::scheduled_immediate_count() {
+  return scheduled_immediate_count_;
 }
 
 inline performance::performance_state* Environment::performance_state() {

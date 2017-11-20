@@ -21,10 +21,10 @@
 
 #define CARES_STATICLIB
 #include "ares.h"
-#include "async-wrap-inl.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "node.h"
-#include "req-wrap-inl.h"
+#include "req_wrap-inl.h"
 #include "util-inl.h"
 #include "uv.h"
 
@@ -160,7 +160,7 @@ class ChannelWrap : public AsyncWrap {
   }
   inline node_ares_task_list* task_list() { return &task_list_; }
 
-  size_t self_size() const override { return sizeof(this); }
+  size_t self_size() const override { return sizeof(*this); }
 
   static void AresTimeout(uv_timer_t* handle);
 
@@ -596,12 +596,6 @@ class QueryWrap : public AsyncWrap {
   QueryWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
       : AsyncWrap(channel->env(), req_wrap_obj, AsyncWrap::PROVIDER_QUERYWRAP),
         channel_(channel) {
-    if (env()->in_domain()) {
-      req_wrap_obj->Set(env()->domain_string(),
-                        env()->domain_array()->Get(env()->context(), 0)
-                            .ToLocalChecked());
-    }
-
     Wrap(req_wrap_obj, this);
 
     // Make sure the channel object stays alive during the query lifetime.
@@ -2265,4 +2259,4 @@ void Initialize(Local<Object> target,
 }  // namespace cares_wrap
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(cares_wrap, node::cares_wrap::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(cares_wrap, node::cares_wrap::Initialize)

@@ -54,12 +54,12 @@
 #endif
 
 #include "ares.h"
-#include "async-wrap-inl.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "handle_wrap.h"
 #include "http_parser.h"
 #include "nghttp2/nghttp2ver.h"
-#include "req-wrap-inl.h"
+#include "req_wrap-inl.h"
 #include "string_bytes.h"
 #include "tracing/agent.h"
 #include "util.h"
@@ -124,6 +124,16 @@ typedef int mode_t;
 extern char **environ;
 #endif
 
+// This is used to load built-in modules. Instead of using
+// __attribute__((constructor)), we call the _register_<modname>
+// function for each built-in modules explicitly in
+// node::RegisterBuiltinModules(). This is only forward declaration.
+// The definitions are in each module's implementation when calling
+// the NODE_BUILTIN_MODULE_CONTEXT_AWARE.
+#define V(modname) void _register_##modname();
+  NODE_BUILTIN_MODULES(V)
+#undef V
+
 namespace node {
 
 using v8::Array;
@@ -150,7 +160,6 @@ using v8::Number;
 using v8::Object;
 using v8::ObjectTemplate;
 using v8::Promise;
-using v8::PromiseHookType;
 using v8::PromiseRejectMessage;
 using v8::PropertyCallbackInfo;
 using v8::ScriptOrigin;
@@ -263,21 +272,27 @@ node::DebugOptions debug_options;
 static struct {
 #if NODE_USE_V8_PLATFORM
   void Initialize(int thread_pool_size) {
-    tracing_agent_ =
-        trace_enabled ? new tracing::Agent() : nullptr;
-    platform_ = new NodePlatform(thread_pool_size,
-        trace_enabled ? tracing_agent_->GetTracingController() : nullptr);
-    V8::InitializePlatform(platform_);
-    tracing::TraceEventHelper::SetTracingController(
-        trace_enabled ? tracing_agent_->GetTracingController() : nullptr);
+    if (trace_enabled) {
+      tracing_agent_.reset(new tracing::Agent());
+      platform_ = new NodePlatform(thread_pool_size,
+        tracing_agent_->GetTracingController());
+      V8::InitializePlatform(platform_);
+      tracing::TraceEventHelper::SetTracingController(
+        tracing_agent_->GetTracingController());
+    } else {
+      tracing_agent_.reset(nullptr);
+      platform_ = new NodePlatform(thread_pool_size, nullptr);
+      V8::InitializePlatform(platform_);
+      tracing::TraceEventHelper::SetTracingController(
+        new v8::TracingController());
+    }
   }
 
   void Dispose() {
     platform_->Shutdown();
     delete platform_;
     platform_ = nullptr;
-    delete tracing_agent_;
-    tracing_agent_ = nullptr;
+    tracing_agent_.reset(nullptr);
   }
 
   void DrainVMTasks(Isolate* isolate) {
@@ -314,7 +329,7 @@ static struct {
     return platform_;
   }
 
-  tracing::Agent* tracing_agent_;
+  std::unique_ptr<tracing::Agent> tracing_agent_;
   NodePlatform* platform_;
 #else  // !NODE_USE_V8_PLATFORM
   void Initialize(int thread_pool_size) {}
@@ -382,25 +397,6 @@ static void PrintErrorString(const char* format, ...) {
   vfprintf(stderr, format, ap);
 #endif
   va_end(ap);
-}
-
-
-static void CheckImmediate(uv_check_t* handle) {
-  Environment* env = Environment::from_immediate_check_handle(handle);
-  HandleScope scope(env->isolate());
-  Context::Scope context_scope(env->context());
-  MakeCallback(env->isolate(),
-               env->process_object(),
-               env->immediate_callback_string(),
-               0,
-               nullptr,
-               {0, 0}).ToLocalChecked();
-}
-
-
-static void IdleImmediateDummy(uv_idle_t* handle) {
-  // Do nothing. Only for maintaining event loop.
-  // TODO(bnoordhuis) Maybe make libuv accept nullptr idle callbacks.
 }
 
 const char *signo_string(int signo) {
@@ -845,7 +841,6 @@ bool ShouldAbortOnUncaughtException(Isolate* isolate) {
   return isEmittingTopLevelDomainError || !DomainsStackHasErrorHandler(env);
 }
 
-
 Local<Value> GetDomainProperty(Environment* env, Local<Object> object) {
   Local<Value> domain_v =
       object->GetPrivate(env->context(), env->domain_private_symbol())
@@ -886,36 +881,6 @@ void DomainExit(Environment* env, v8::Local<v8::Object> object) {
   }
 }
 
-
-void DomainPromiseHook(PromiseHookType type,
-                       Local<Promise> promise,
-                       Local<Value> parent,
-                       void* arg) {
-  Environment* env = static_cast<Environment*>(arg);
-  Local<Context> context = env->context();
-
-  if (type == PromiseHookType::kInit && env->in_domain()) {
-    Local<Value> domain_obj =
-        env->domain_array()->Get(context, 0).ToLocalChecked();
-    if (promise->CreationContext() == context) {
-      promise->Set(context, env->domain_string(), domain_obj).FromJust();
-    } else {
-      // Do not expose object from another context publicly in promises created
-      // in non-main contexts.
-      promise->SetPrivate(context, env->domain_private_symbol(), domain_obj)
-          .FromJust();
-    }
-    return;
-  }
-
-  if (type == PromiseHookType::kBefore) {
-    DomainEnter(env, promise);
-  } else if (type == PromiseHookType::kAfter) {
-    DomainExit(env, promise);
-  }
-}
-
-
 void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -926,38 +891,13 @@ void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
   HandleScope scope(env->isolate());
   Local<Object> process_object = env->process_object();
 
-  Local<String> tick_callback_function_key = env->tick_domain_cb_string();
-  Local<Function> tick_callback_function =
-      process_object->Get(tick_callback_function_key).As<Function>();
-
-  if (!tick_callback_function->IsFunction()) {
-    fprintf(stderr, "process._tickDomainCallback assigned to non-function\n");
-    ABORT();
-  }
-
-  process_object->Set(env->tick_callback_string(), tick_callback_function);
-  env->set_tick_callback_function(tick_callback_function);
-
   CHECK(args[0]->IsArray());
-  env->set_domain_array(args[0].As<Array>());
-
-  CHECK(args[1]->IsArray());
-  env->set_domains_stack_array(args[1].As<Array>());
+  env->set_domains_stack_array(args[0].As<Array>());
 
   // Do a little housekeeping.
   env->process_object()->Delete(
       env->context(),
       FIXED_ONE_BYTE_STRING(args.GetIsolate(), "_setupDomainUse")).FromJust();
-
-  uint32_t* const fields = env->domain_flag()->fields();
-  uint32_t const fields_count = env->domain_flag()->fields_count();
-
-  Local<ArrayBuffer> array_buffer =
-      ArrayBuffer::New(env->isolate(), fields, sizeof(*fields) * fields_count);
-
-  env->AddPromiseHook(DomainPromiseHook, static_cast<void*>(env));
-
-  args.GetReturnValue().Set(Uint32Array::New(array_buffer, 0, fields_count));
 }
 
 
@@ -1081,7 +1021,8 @@ InternalCallbackScope::InternalCallbackScope(Environment* env,
   // If you hit this assertion, you forgot to enter the v8::Context first.
   CHECK_EQ(Environment::GetCurrent(env->isolate()), env);
 
-  if (env->using_domains() && !object_.IsEmpty()) {
+  if (asyncContext.async_id == 0 && env->using_domains() &&
+      !object_.IsEmpty()) {
     DomainEnter(env, object_);
   }
 
@@ -1114,7 +1055,8 @@ void InternalCallbackScope::Close() {
     AsyncWrap::EmitAfter(env_, async_context_.async_id);
   }
 
-  if (env_->using_domains() && !object_.IsEmpty()) {
+  if (async_context_.async_id == 0 && env_->using_domains() &&
+      !object_.IsEmpty()) {
     DomainExit(env_, object_);
   }
 
@@ -3003,39 +2945,40 @@ static void DebugEnd(const FunctionCallbackInfo<Value>& args);
 
 namespace {
 
-void NeedImmediateCallbackGetter(Local<Name> property,
-                                 const PropertyCallbackInfo<Value>& info) {
-  Environment* env = Environment::GetCurrent(info);
-  const uv_check_t* immediate_check_handle = env->immediate_check_handle();
-  bool active = uv_is_active(
-      reinterpret_cast<const uv_handle_t*>(immediate_check_handle));
-  info.GetReturnValue().Set(active);
+bool MaybeStopImmediate(Environment* env) {
+  if (env->scheduled_immediate_count()[0] == 0) {
+    uv_check_stop(env->immediate_check_handle());
+    uv_idle_stop(env->immediate_idle_handle());
+    return true;
+  }
+  return false;
+}
+
+void CheckImmediate(uv_check_t* handle) {
+  Environment* env = Environment::from_immediate_check_handle(handle);
+  HandleScope scope(env->isolate());
+  Context::Scope context_scope(env->context());
+
+  if (MaybeStopImmediate(env))
+    return;
+
+  MakeCallback(env->isolate(),
+               env->process_object(),
+               env->immediate_callback_string(),
+               0,
+               nullptr,
+               {0, 0}).ToLocalChecked();
+
+  MaybeStopImmediate(env);
 }
 
 
-void NeedImmediateCallbackSetter(
-    Local<Name> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Environment* env = Environment::GetCurrent(info);
-
-  uv_check_t* immediate_check_handle = env->immediate_check_handle();
-  bool active = uv_is_active(
-      reinterpret_cast<const uv_handle_t*>(immediate_check_handle));
-
-  if (active == value->BooleanValue())
-    return;
-
-  uv_idle_t* immediate_idle_handle = env->immediate_idle_handle();
-
-  if (active) {
-    uv_check_stop(immediate_check_handle);
-    uv_idle_stop(immediate_idle_handle);
-  } else {
-    uv_check_start(immediate_check_handle, CheckImmediate);
-    // Idle handle is needed only to stop the event loop from blocking in poll.
-    uv_idle_start(immediate_idle_handle, IdleImmediateDummy);
-  }
+void ActivateImmediateCheck(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  uv_check_start(env->immediate_check_handle(), CheckImmediate);
+  // Idle handle is needed only to stop the event loop from blocking in poll.
+  uv_idle_start(env->immediate_idle_handle(),
+                [](uv_idle_t*){ /* do nothing, just keep the loop running */ });
 }
 
 
@@ -3262,15 +3205,15 @@ void SetupProcessObject(Environment* env,
   READONLY_PROPERTY(process, "pid", Integer::New(env->isolate(), getpid()));
   READONLY_PROPERTY(process, "features", GetFeatures(env));
 
-  process->SetAccessor(FIXED_ONE_BYTE_STRING(env->isolate(), "ppid"),
-                       GetParentProcessId);
+  CHECK(process->SetAccessor(env->context(),
+                             FIXED_ONE_BYTE_STRING(env->isolate(), "ppid"),
+                             GetParentProcessId).FromJust());
 
-  auto need_immediate_callback_string =
-      FIXED_ONE_BYTE_STRING(env->isolate(), "_needImmediateCallback");
-  CHECK(process->SetAccessor(env->context(), need_immediate_callback_string,
-                             NeedImmediateCallbackGetter,
-                             NeedImmediateCallbackSetter,
-                             env->as_external()).FromJust());
+  auto scheduled_immediate_count =
+      FIXED_ONE_BYTE_STRING(env->isolate(), "_scheduledImmediateCount");
+  CHECK(process->Set(env->context(),
+                     scheduled_immediate_count,
+                     env->scheduled_immediate_count().GetJSArray()).FromJust());
 
   // -e, --eval
   if (eval_string) {
@@ -3396,6 +3339,9 @@ void SetupProcessObject(Environment* env,
                              env->as_external()).FromJust());
 
   // define various internal methods
+  env->SetMethod(process,
+                 "_activateImmediateCheck",
+                 ActivateImmediateCheck);
   env->SetMethod(process,
                  "_startProfilerIdleNotifier",
                  StartProfilerIdleNotifier);
@@ -4310,6 +4256,9 @@ void Init(int* argc,
   // Initialize prog_start_time to get relative uptime.
   prog_start_time = static_cast<double>(uv_now(uv_default_loop()));
 
+  // Register built-in modules
+  node::RegisterBuiltinModules();
+
   // Make inherited handles noninheritable.
   uv_disable_stdio_inheritance();
 
@@ -4699,11 +4648,18 @@ int Start(int argc, char** argv) {
   return exit_code;
 }
 
+// Call built-in modules' _register_<module name> function to
+// do module registration explicitly.
+void RegisterBuiltinModules() {
+#define V(modname) _register_##modname();
+  NODE_BUILTIN_MODULES(V)
+#undef V
+}
 
 }  // namespace node
 
 #if !HAVE_INSPECTOR
-static void InitEmptyBindings() {}
+void InitEmptyBindings() {}
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(inspector, InitEmptyBindings)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(inspector, InitEmptyBindings)
 #endif  // !HAVE_INSPECTOR

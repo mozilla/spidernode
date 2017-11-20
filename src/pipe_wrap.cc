@@ -21,7 +21,7 @@
 
 #include "pipe_wrap.h"
 
-#include "async-wrap.h"
+#include "async_wrap.h"
 #include "connection_wrap.h"
 #include "env-inl.h"
 #include "handle_wrap.h"
@@ -204,4 +204,4 @@ void PipeWrap::Connect(const FunctionCallbackInfo<Value>& args) {
 
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(pipe_wrap, node::PipeWrap::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(pipe_wrap, node::PipeWrap::Initialize)

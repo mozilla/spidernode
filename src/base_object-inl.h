@@ -24,7 +24,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "base-object.h"
+#include "base_object.h"
 #include "env-inl.h"
 #include "util-inl.h"
 #include "v8.h"
@@ -65,9 +65,8 @@ inline Environment* BaseObject::env() const {
 template <typename Type>
 inline void BaseObject::WeakCallback(
     const v8::WeakCallbackInfo<Type>& data) {
-  Type* self = data.GetParameter();
+  std::unique_ptr<Type> self(data.GetParameter());
   self->persistent().Reset();
-  delete self;
 }
 
 

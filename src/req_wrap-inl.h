@@ -3,8 +3,8 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "req-wrap.h"
-#include "async-wrap-inl.h"
+#include "req_wrap.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "util-inl.h"
 
@@ -15,8 +15,6 @@ ReqWrap<T>::ReqWrap(Environment* env,
                     v8::Local<v8::Object> object,
                     AsyncWrap::ProviderType provider)
     : AsyncWrap(env, object, provider) {
-  if (env->in_domain())
-    object->Set(env->domain_string(), env->domain_array()->Get(0));
 
   // FIXME(bnoordhuis) The fact that a reinterpret_cast is needed is
   // arguably a good indicator that there should be more than one queue.

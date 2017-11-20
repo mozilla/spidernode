@@ -18,9 +18,8 @@ using v8::TracingController;
 
 static void BackgroundRunner(void* data) {
   TaskQueue<Task>* background_tasks = static_cast<TaskQueue<Task>*>(data);
-  while (Task* task = background_tasks->BlockingPop()) {
+  while (std::unique_ptr<Task> task = background_tasks->BlockingPop()) {
     task->Run();
-    delete task;
     background_tasks->NotifyOfCompletion();
   }
 }
@@ -39,18 +38,19 @@ void PerIsolatePlatformData::FlushTasks(uv_async_t* handle) {
   platform_data->FlushForegroundTasksInternal();
 }
 
-void PerIsolatePlatformData::CallOnForegroundThread(Task* task) {
-  foreground_tasks_.Push(task);
+void PerIsolatePlatformData::CallOnForegroundThread(
+    std::unique_ptr<Task> task) {
+  foreground_tasks_.Push(std::move(task));
   uv_async_send(flush_tasks_);
 }
 
 void PerIsolatePlatformData::CallDelayedOnForegroundThread(
-    Task* task, double delay_in_seconds) {
-  auto delayed = new DelayedTask();
-  delayed->task = task;
+  std::unique_ptr<Task> task, double delay_in_seconds) {
+  std::unique_ptr<DelayedTask> delayed(new DelayedTask());
+  delayed->task = std::move(task);
   delayed->platform_data = this;
   delayed->timeout = delay_in_seconds;
-  foreground_delayed_tasks_.Push(delayed);
+  foreground_delayed_tasks_.Push(std::move(delayed));
   uv_async_send(flush_tasks_);
 }
 
@@ -125,36 +125,32 @@ size_t NodePlatform::NumberOfAvailableBackgroundThreads() {
   return threads_.size();
 }
 
-void PerIsolatePlatformData::RunForegroundTask(Task* task) {
+void PerIsolatePlatformData::RunForegroundTask(std::unique_ptr<Task> task) {
   Isolate* isolate = Isolate::GetCurrent();
   HandleScope scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
   InternalCallbackScope cb_scope(env, Local<Object>(), { 0, 0 },
                                  InternalCallbackScope::kAllowEmptyResource);
   task->Run();
-  delete task;
+}
+
+void PerIsolatePlatformData::DeleteFromScheduledTasks(DelayedTask* task) {
+  auto it = std::find_if(scheduled_delayed_tasks_.begin(),
+                         scheduled_delayed_tasks_.end(),
+                         [task](const DelayedTaskPointer& delayed) -> bool {
+          return delayed.get() == task;
+      });
+  CHECK_NE(it, scheduled_delayed_tasks_.end());
+  scheduled_delayed_tasks_.erase(it);
 }
 
 void PerIsolatePlatformData::RunForegroundTask(uv_timer_t* handle) {
   DelayedTask* delayed = static_cast<DelayedTask*>(handle->data);
-  auto& tasklist = delayed->platform_data->scheduled_delayed_tasks_;
-  auto it = std::find(tasklist.begin(), tasklist.end(), delayed);
-  CHECK_NE(it, tasklist.end());
-  tasklist.erase(it);
-  RunForegroundTask(delayed->task);
-  uv_close(reinterpret_cast<uv_handle_t*>(&delayed->timer),
-           [](uv_handle_t* handle) {
-    delete static_cast<DelayedTask*>(handle->data);
-  });
+  RunForegroundTask(std::move(delayed->task));
+  delayed->platform_data->DeleteFromScheduledTasks(delayed);
 }
 
 void PerIsolatePlatformData::CancelPendingDelayedTasks() {
-  for (auto delayed : scheduled_delayed_tasks_) {
-    uv_close(reinterpret_cast<uv_handle_t*>(&delayed->timer),
-             [](uv_handle_t* handle) {
-      delete static_cast<DelayedTask*>(handle->data);
-    });
-  }
   scheduled_delayed_tasks_.clear();
 }
 
@@ -162,10 +158,10 @@ void NodePlatform::DrainBackgroundTasks(Isolate* isolate) {
   PerIsolatePlatformData* per_isolate = ForIsolate(isolate);
 
   do {
-    // Right now, there is no way to drain only background tasks associated with
-    // a specific isolate, so this sometimes does more work than necessary.
-    // In the long run, that functionality is probably going to be available
-    // anyway, though.
+    // Right now, there is no way to drain only background tasks associated
+    // with a specific isolate, so this sometimes does more work than
+    // necessary. In the long run, that functionality is probably going to
+    // be available anyway, though.
     background_tasks_.BlockingDrain();
   } while (per_isolate->FlushForegroundTasksInternal());
 }
@@ -173,28 +169,36 @@ void NodePlatform::DrainBackgroundTasks(Isolate* isolate) {
 bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
   bool did_work = false;
 
-  while (auto delayed = foreground_delayed_tasks_.Pop()) {
+  while (std::unique_ptr<DelayedTask> delayed =
+      foreground_delayed_tasks_.Pop()) {
     did_work = true;
     uint64_t delay_millis =
         static_cast<uint64_t>(delayed->timeout + 0.5) * 1000;
-    delayed->timer.data = static_cast<void*>(delayed);
+    delayed->timer.data = static_cast<void*>(delayed.get());
     uv_timer_init(loop_, &delayed->timer);
     // Timers may not guarantee queue ordering of events with the same delay if
     // the delay is non-zero. This should not be a problem in practice.
     uv_timer_start(&delayed->timer, RunForegroundTask, delay_millis, 0);
     uv_unref(reinterpret_cast<uv_handle_t*>(&delayed->timer));
-    scheduled_delayed_tasks_.push_back(delayed);
+
+    scheduled_delayed_tasks_.emplace_back(delayed.release(),
+                                          [](DelayedTask* delayed) {
+      uv_close(reinterpret_cast<uv_handle_t*>(&delayed->timer),
+               [](uv_handle_t* handle) {
+        delete static_cast<DelayedTask*>(handle->data);
+      });
+    });
   }
-  while (Task* task = foreground_tasks_.Pop()) {
+  while (std::unique_ptr<Task> task = foreground_tasks_.Pop()) {
     did_work = true;
-    RunForegroundTask(task);
+    RunForegroundTask(std::move(task));
   }
   return did_work;
 }
 
 void NodePlatform::CallOnBackgroundThread(Task* task,
                                           ExpectedRuntime expected_runtime) {
-  background_tasks_.Push(task);
+  background_tasks_.Push(std::unique_ptr<Task>(task));
 }
 
 PerIsolatePlatformData* NodePlatform::ForIsolate(Isolate* isolate) {
@@ -205,14 +209,14 @@ PerIsolatePlatformData* NodePlatform::ForIsolate(Isolate* isolate) {
 }
 
 void NodePlatform::CallOnForegroundThread(Isolate* isolate, Task* task) {
-  ForIsolate(isolate)->CallOnForegroundThread(task);
+  ForIsolate(isolate)->CallOnForegroundThread(std::unique_ptr<Task>(task));
 }
 
 void NodePlatform::CallDelayedOnForegroundThread(Isolate* isolate,
                                                  Task* task,
                                                  double delay_in_seconds) {
-  ForIsolate(isolate)->CallDelayedOnForegroundThread(task,
-                                                     delay_in_seconds);
+  ForIsolate(isolate)->CallDelayedOnForegroundThread(
+    std::unique_ptr<Task>(task), delay_in_seconds);
 }
 
 void NodePlatform::FlushForegroundTasks(v8::Isolate* isolate) {
@@ -240,34 +244,34 @@ TaskQueue<T>::TaskQueue()
       outstanding_tasks_(0), stopped_(false), task_queue_() { }
 
 template <class T>
-void TaskQueue<T>::Push(T* task) {
+void TaskQueue<T>::Push(std::unique_ptr<T> task) {
   Mutex::ScopedLock scoped_lock(lock_);
   outstanding_tasks_++;
-  task_queue_.push(task);
+  task_queue_.push(std::move(task));
   tasks_available_.Signal(scoped_lock);
 }
 
 template <class T>
-T* TaskQueue<T>::Pop() {
+std::unique_ptr<T> TaskQueue<T>::Pop() {
   Mutex::ScopedLock scoped_lock(lock_);
-  T* result = nullptr;
-  if (!task_queue_.empty()) {
-    result = task_queue_.front();
-    task_queue_.pop();
+  if (task_queue_.empty()) {
+    return std::unique_ptr<T>(nullptr);
   }
+  std::unique_ptr<T> result = std::move(task_queue_.front());
+  task_queue_.pop();
   return result;
 }
 
 template <class T>
-T* TaskQueue<T>::BlockingPop() {
+std::unique_ptr<T> TaskQueue<T>::BlockingPop() {
   Mutex::ScopedLock scoped_lock(lock_);
   while (task_queue_.empty() && !stopped_) {
     tasks_available_.Wait(scoped_lock);
   }
   if (stopped_) {
-    return nullptr;
+    return std::unique_ptr<T>(nullptr);
   }
-  T* result = task_queue_.front();
+  std::unique_ptr<T> result = std::move(task_queue_.front());
   task_queue_.pop();
   return result;
 }
