@@ -32,7 +32,7 @@ rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/intl/
 test -d spidermonkey/layout/tools/reftest || mkdir -p spidermonkey/layout/tools/reftest
 test -d spidermonkey/dom/bindings || mkdir -p spidermonkey/dom/bindings
 test -d spidermonkey/taskcluster || mkdir -p spidermonkey/taskcluster
-rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/taskcluster/moz.build spidermonkey/taskcluster/
+rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/taskcluster spidermonkey/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' --exclude='/src/configure' --exclude='/src/old-configure' "$SM_DIR"/js/src spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/public spidermonkey/js/
