@@ -36,6 +36,7 @@ rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/taskc
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/modules/fdlibm spidermonkey/modules/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' --exclude='/src/configure' --exclude='/src/old-configure' "$SM_DIR"/js/src spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/public spidermonkey/js/
+rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/app.mozbuild spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/moz.configure spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/ffi.configure spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/.cargo spidermonkey/
