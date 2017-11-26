@@ -40,12 +40,7 @@ rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/mo
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/js/ffi.configure spidermonkey/js/
 rsync -av --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/.cargo spidermonkey/
 
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/futures spidermonkey/
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/jsmin spidermonkey/
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/moz.build spidermonkey/
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/pytoml spidermonkey/
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/virtualenv spidermonkey/
-rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python/which spidermonkey/
+rsync -avR --delete --exclude-from='scripts/rsync-exclusions.txt' "$SM_DIR"/./third_party/python spidermonkey/
 
 for patch in `ls spidermonkey-patches/* | sort`; do
   (cd spidermonkey && patch -p1 --no-backup < "../$patch")
