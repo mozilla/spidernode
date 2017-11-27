@@ -16,6 +16,9 @@
 #include "mozilla/Sprintf.h"
 
 #include <ctype.h>
+#ifdef __linux__
+# include <dlfcn.h>
+#endif
 #include <stdarg.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -179,9 +182,11 @@ JS::ObjectOpResult::reportStrictErrorOrWarning(JSContext* cx, HandleObject obj, 
 
         if (code_ == JSMSG_SET_NON_OBJECT_RECEIVER) {
             // We know that the original receiver was a primitive, so unbox it.
-            RootedValue val(cx);
-            if (!Unbox(cx, obj, &val))
-                return false;
+            RootedValue val(cx, ObjectValue(*obj));
+            if (!obj->is<ProxyObject>()) {
+                if (!Unbox(cx, obj, &val))
+                    return false;
+            }
             return ReportValueErrorFlags(cx, flags, code_, JSDVG_IGNORE_STACK, val,
                                          nullptr, propName.ptr(), nullptr);
         }
@@ -649,6 +654,11 @@ JS::InitSelfHostedCode(JSContext* cx)
     JSAutoRequest ar(cx);
     if (!rt->initializeAtoms(cx))
         return false;
+
+#ifndef JS_CODEGEN_NONE
+    if (!rt->getJitRuntime(cx))
+        return false;
+#endif
 
     if (!rt->initSelfHosting(cx))
         return false;
@@ -7745,3 +7755,17 @@ js::GetStackFormat(JSContext* cx)
 {
     return cx->runtime()->stackFormat();
 }
+
+namespace js {
+
+JS_PUBLIC_API(void)
+NoteIntentionalCrash()
+{
+#ifdef __linux__
+    static bool* addr = reinterpret_cast<bool*>(dlsym(RTLD_DEFAULT, "gBreakpadInjectorEnabled"));
+    if (addr)
+        *addr = false;
+#endif
+}
+
+} // namespace js

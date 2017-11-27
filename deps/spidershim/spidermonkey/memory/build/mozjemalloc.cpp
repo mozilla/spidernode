@@ -542,7 +542,7 @@ base_alloc(size_t aSize);
 struct Mutex
 {
 #if defined(XP_WIN)
-  SRWLOCK mMutex;
+  CRITICAL_SECTION mMutex;
 #elif defined(XP_DARWIN)
   OSSpinLock mMutex;
 #else
@@ -556,34 +556,66 @@ struct Mutex
   inline void Unlock();
 };
 
-struct MOZ_RAII MutexAutoLock
+// Mutex that can be used for static initialization.
+// On Windows, CRITICAL_SECTION requires a function call to be initialized,
+// but for the initialization lock, a static initializer calling the
+// function would be called too late. We need no-function-call
+// initialization, which SRWLock provides.
+// Ideally, we'd use the same type of locks everywhere, but SRWLocks
+// everywhere incur a performance penalty. See bug 1418389.
+#if defined(XP_WIN)
+struct StaticMutex
 {
-  explicit MutexAutoLock(Mutex& aMutex MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+  SRWLOCK mMutex;
+
+  constexpr StaticMutex()
+    : mMutex(SRWLOCK_INIT)
+  {
+  }
+
+  inline void Lock();
+
+  inline void Unlock();
+};
+#else
+struct StaticMutex : public Mutex
+{
+  constexpr StaticMutex()
+#if defined(XP_DARWIN)
+    : Mutex{ OS_SPINLOCK_INIT }
+#elif defined(XP_LINUX) && !defined(ANDROID)
+    : Mutex{ PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP }
+#else
+    : Mutex{ PTHREAD_MUTEX_INITIALIZER }
+#endif
+  {
+  }
+};
+#endif
+
+template<typename T>
+struct MOZ_RAII AutoLock
+{
+  explicit AutoLock(T& aMutex MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
     : mMutex(aMutex)
   {
     MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     mMutex.Lock();
   }
 
-  ~MutexAutoLock() { mMutex.Unlock(); }
+  ~AutoLock() { mMutex.Unlock(); }
 
 private:
   MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER;
-  Mutex& mMutex;
+  T& mMutex;
 };
+
+using MutexAutoLock = AutoLock<Mutex>;
 
 // Set to true once the allocator has been initialized.
 static Atomic<bool> malloc_initialized(false);
 
-#if defined(XP_WIN)
-static Mutex gInitLock = { SRWLOCK_INIT };
-#elif defined(XP_DARWIN)
-static Mutex gInitLock = { OS_SPINLOCK_INIT };
-#elif defined(XP_LINUX) && !defined(ANDROID)
-static Mutex gInitLock = { PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP };
-#else
-static Mutex gInitLock = { PTHREAD_MUTEX_INITIALIZER };
-#endif
+static StaticMutex gInitLock;
 
 // ***************************************************************************
 // Statistics data structures.
@@ -645,10 +677,11 @@ struct ExtentTreeSzTrait
     return aThis->mLinkBySize;
   }
 
-  static inline int Compare(extent_node_t* aNode, extent_node_t* aOther)
+  static inline Order Compare(extent_node_t* aNode, extent_node_t* aOther)
   {
-    int ret = (aNode->mSize > aOther->mSize) - (aNode->mSize < aOther->mSize);
-    return ret ? ret : CompareAddr(aNode->mAddr, aOther->mAddr);
+    Order ret = CompareInt(aNode->mSize, aOther->mSize);
+    return (ret != Order::eEqual) ? ret
+                                  : CompareAddr(aNode->mAddr, aOther->mAddr);
   }
 };
 
@@ -659,7 +692,7 @@ struct ExtentTreeTrait
     return aThis->mLinkByAddr;
   }
 
-  static inline int Compare(extent_node_t* aNode, extent_node_t* aOther)
+  static inline Order Compare(extent_node_t* aNode, extent_node_t* aOther)
   {
     return CompareAddr(aNode->mAddr, aOther->mAddr);
   }
@@ -667,7 +700,7 @@ struct ExtentTreeTrait
 
 struct ExtentTreeBoundsTrait : public ExtentTreeTrait
 {
-  static inline int Compare(extent_node_t* aKey, extent_node_t* aNode)
+  static inline Order Compare(extent_node_t* aKey, extent_node_t* aNode)
   {
     uintptr_t key_addr = reinterpret_cast<uintptr_t>(aKey->mAddr);
     uintptr_t node_addr = reinterpret_cast<uintptr_t>(aNode->mAddr);
@@ -675,10 +708,10 @@ struct ExtentTreeBoundsTrait : public ExtentTreeTrait
 
     // Is aKey within aNode?
     if (node_addr <= key_addr && key_addr < node_addr + node_size) {
-      return 0;
+      return Order::eEqual;
     }
 
-    return (key_addr > node_addr) - (key_addr < node_addr);
+    return CompareAddr(aKey->mAddr, aNode->mAddr);
   }
 };
 
@@ -793,7 +826,8 @@ struct ArenaChunkMapLink
 
 struct ArenaRunTreeTrait : public ArenaChunkMapLink
 {
-  static inline int Compare(arena_chunk_map_t* aNode, arena_chunk_map_t* aOther)
+  static inline Order Compare(arena_chunk_map_t* aNode,
+                              arena_chunk_map_t* aOther)
   {
     MOZ_ASSERT(aNode);
     MOZ_ASSERT(aOther);
@@ -803,14 +837,16 @@ struct ArenaRunTreeTrait : public ArenaChunkMapLink
 
 struct ArenaAvailTreeTrait : public ArenaChunkMapLink
 {
-  static inline int Compare(arena_chunk_map_t* aNode, arena_chunk_map_t* aOther)
+  static inline Order Compare(arena_chunk_map_t* aNode,
+                              arena_chunk_map_t* aOther)
   {
     size_t size1 = aNode->bits & ~gPageSizeMask;
     size_t size2 = aOther->bits & ~gPageSizeMask;
-    int ret = (size1 > size2) - (size1 < size2);
-    return ret ? ret
-               : CompareAddr((aNode->bits & CHUNK_MAP_KEY) ? nullptr : aNode,
-                             aOther);
+    Order ret = CompareInt(size1, size2);
+    return (ret != Order::eEqual)
+             ? ret
+             : CompareAddr((aNode->bits & CHUNK_MAP_KEY) ? nullptr : aNode,
+                           aOther);
   }
 };
 
@@ -821,7 +857,7 @@ struct ArenaDirtyChunkTrait
     return aThis->link_dirty;
   }
 
-  static inline int Compare(arena_chunk_t* aNode, arena_chunk_t* aOther)
+  static inline Order Compare(arena_chunk_t* aNode, arena_chunk_t* aOther)
   {
     MOZ_ASSERT(aNode);
     MOZ_ASSERT(aOther);
@@ -909,8 +945,8 @@ struct arena_bin_t
   unsigned long mNumRuns;
 
   // Amount of overhead runs are allowed to have.
-  static constexpr long double kRunOverhead = 1.6_percent;
-  static constexpr long double kRunRelaxedOverhead = 2.4_percent;
+  static constexpr double kRunOverhead = 1.6_percent;
+  static constexpr double kRunRelaxedOverhead = 2.4_percent;
 
   // Initialize a bin for the given size class.
   // The generated run sizes, for a page size of 4 KiB, are:
@@ -1097,11 +1133,11 @@ struct ArenaTreeTrait
     return aThis->mLink;
   }
 
-  static inline int Compare(arena_t* aNode, arena_t* aOther)
+  static inline Order Compare(arena_t* aNode, arena_t* aOther)
   {
     MOZ_ASSERT(aNode);
     MOZ_ASSERT(aOther);
-    return (aNode->mId > aOther->mId) - (aNode->mId < aOther->mId);
+    return CompareInt(aNode->mId, aOther->mId);
   }
 };
 
@@ -1337,7 +1373,9 @@ bool
 Mutex::Init()
 {
 #if defined(XP_WIN)
-  InitializeSRWLock(&mMutex);
+  if (!InitializeCriticalSectionAndSpinCount(&mMutex, 5000)) {
+    return false;
+  }
 #elif defined(XP_DARWIN)
   mMutex = OS_SPINLOCK_INIT;
 #elif defined(XP_LINUX) && !defined(ANDROID)
@@ -1363,7 +1401,7 @@ void
 Mutex::Lock()
 {
 #if defined(XP_WIN)
-  AcquireSRWLockExclusive(&mMutex);
+  EnterCriticalSection(&mMutex);
 #elif defined(XP_DARWIN)
   OSSpinLockLock(&mMutex);
 #else
@@ -1375,13 +1413,27 @@ void
 Mutex::Unlock()
 {
 #if defined(XP_WIN)
-  ReleaseSRWLockExclusive(&mMutex);
+  LeaveCriticalSection(&mMutex);
 #elif defined(XP_DARWIN)
   OSSpinLockUnlock(&mMutex);
 #else
   pthread_mutex_unlock(&mMutex);
 #endif
 }
+
+#if defined(XP_WIN)
+void
+StaticMutex::Lock()
+{
+  AcquireSRWLockExclusive(&mMutex);
+}
+
+void
+StaticMutex::Unlock()
+{
+  ReleaseSRWLockExclusive(&mMutex);
+}
+#endif
 
 // End mutex.
 // ***************************************************************************
@@ -4028,7 +4080,7 @@ malloc_init_hard()
   const char* opts;
   long result;
 
-  MutexAutoLock lock(gInitLock);
+  AutoLock<StaticMutex> lock(gInitLock);
 
   if (malloc_initialized) {
     // Another thread initialized the allocator before this one
@@ -4760,8 +4812,9 @@ static
 // the zygote.
 #ifdef XP_DARWIN
 #define MOZ_REPLACE_WEAK __attribute__((weak_import))
-#elif defined(XP_WIN) || defined(MOZ_WIDGET_ANDROID)
-#define MOZ_NO_REPLACE_FUNC_DECL
+#elif defined(XP_WIN) || defined(ANDROID)
+#define MOZ_DYNAMIC_REPLACE_INIT
+#define replace_init replace_init_decl
 #elif defined(__GNUC__)
 #define MOZ_REPLACE_WEAK __attribute__((weak))
 #endif
@@ -4770,18 +4823,14 @@ static
 
 #define MALLOC_DECL(name, return_type, ...) MozJemalloc::name,
 
-static const malloc_table_t malloc_table = {
+static malloc_table_t gReplaceMallocTable = {
 #include "malloc_decls.h"
 };
 
-static malloc_table_t replace_malloc_table;
-
-#ifdef MOZ_NO_REPLACE_FUNC_DECL
-#define MALLOC_DECL(name, return_type, ...)                                    \
-  typedef return_type(name##_impl_t)(__VA_ARGS__);                             \
-  name##_impl_t* replace_##name = nullptr;
-#define MALLOC_FUNCS (MALLOC_FUNCS_INIT | MALLOC_FUNCS_BRIDGE)
-#include "malloc_decls.h"
+#ifdef MOZ_DYNAMIC_REPLACE_INIT
+#undef replace_init
+typedef decltype(replace_init_decl) replace_init_impl_t;
+static replace_init_impl_t* replace_init = nullptr;
 #endif
 
 #ifdef XP_WIN
@@ -4799,8 +4848,8 @@ replace_malloc_handle()
   return nullptr;
 }
 
-#define REPLACE_MALLOC_GET_FUNC(handle, name)                                  \
-  (name##_impl_t*)GetProcAddress(handle, "replace_" #name)
+#define REPLACE_MALLOC_GET_INIT_FUNC(handle)                                   \
+  (replace_init_impl_t*)GetProcAddress(handle, "replace_init")
 
 #elif defined(ANDROID)
 #include <dlfcn.h>
@@ -4817,20 +4866,8 @@ replace_malloc_handle()
   return nullptr;
 }
 
-#define REPLACE_MALLOC_GET_FUNC(handle, name)                                  \
-  (name##_impl_t*)dlsym(handle, "replace_" #name)
-
-#else
-
-typedef bool replace_malloc_handle_t;
-
-static replace_malloc_handle_t
-replace_malloc_handle()
-{
-  return true;
-}
-
-#define REPLACE_MALLOC_GET_FUNC(handle, name) replace_##name
+#define REPLACE_MALLOC_GET_INIT_FUNC(handle)                                   \
+  (replace_init_impl_t*)dlsym(handle, "replace_init")
 
 #endif
 
@@ -4839,17 +4876,25 @@ replace_malloc_init_funcs();
 
 // Below is the malloc implementation overriding jemalloc and calling the
 // replacement functions if they exist.
-static int replace_malloc_initialized = 0;
+static bool gReplaceMallocInitialized = false;
+static ReplaceMallocBridge* gReplaceMallocBridge = nullptr;
 static void
 init()
 {
-  replace_malloc_init_funcs();
+#ifdef MOZ_DYNAMIC_REPLACE_INIT
+  replace_malloc_handle_t handle = replace_malloc_handle();
+  if (handle) {
+    replace_init = REPLACE_MALLOC_GET_INIT_FUNC(handle);
+  }
+#endif
+
   // Set this *before* calling replace_init, otherwise if replace_init calls
   // malloc() we'll get an infinite loop.
-  replace_malloc_initialized = 1;
+  gReplaceMallocInitialized = true;
   if (replace_init) {
-    replace_init(&malloc_table);
+    replace_init(&gReplaceMallocTable, &gReplaceMallocBridge);
   }
+  replace_malloc_init_funcs();
 }
 
 #define MALLOC_DECL(name, return_type, ...)                                    \
@@ -4857,23 +4902,20 @@ init()
   inline return_type ReplaceMalloc::name(                                      \
     ARGS_HELPER(TYPED_ARGS, ##__VA_ARGS__))                                    \
   {                                                                            \
-    if (MOZ_UNLIKELY(!replace_malloc_initialized)) {                           \
+    if (MOZ_UNLIKELY(!gReplaceMallocInitialized)) {                            \
       init();                                                                  \
     }                                                                          \
-    return replace_malloc_table.name(ARGS_HELPER(ARGS, ##__VA_ARGS__));        \
+    return gReplaceMallocTable.name(ARGS_HELPER(ARGS, ##__VA_ARGS__));         \
   }
 #include "malloc_decls.h"
 
 MOZ_JEMALLOC_API struct ReplaceMallocBridge*
 get_bridge(void)
 {
-  if (MOZ_UNLIKELY(!replace_malloc_initialized)) {
+  if (MOZ_UNLIKELY(!gReplaceMallocInitialized)) {
     init();
   }
-  if (MOZ_LIKELY(!replace_get_bridge)) {
-    return nullptr;
-  }
-  return replace_get_bridge();
+  return gReplaceMallocBridge;
 }
 
 // posix_memalign, aligned_alloc, memalign and valloc all implement some kind
@@ -4884,46 +4926,29 @@ get_bridge(void)
 static void
 replace_malloc_init_funcs()
 {
-  replace_malloc_handle_t handle = replace_malloc_handle();
-  if (handle) {
-#ifdef MOZ_NO_REPLACE_FUNC_DECL
-#define MALLOC_DECL(name, ...)                                                 \
-  replace_##name = REPLACE_MALLOC_GET_FUNC(handle, name);
-
-#define MALLOC_FUNCS (MALLOC_FUNCS_INIT | MALLOC_FUNCS_BRIDGE)
-#include "malloc_decls.h"
-#endif
-
-#define MALLOC_DECL(name, ...)                                                 \
-  replace_malloc_table.name = REPLACE_MALLOC_GET_FUNC(handle, name);
-#include "malloc_decls.h"
-  }
-
-  if (!replace_malloc_table.posix_memalign && replace_malloc_table.memalign) {
-    replace_malloc_table.posix_memalign =
+  if (gReplaceMallocTable.posix_memalign == MozJemalloc::posix_memalign &&
+      gReplaceMallocTable.memalign != MozJemalloc::memalign) {
+    gReplaceMallocTable.posix_memalign =
       AlignedAllocator<ReplaceMalloc::memalign>::posix_memalign;
   }
-  if (!replace_malloc_table.aligned_alloc && replace_malloc_table.memalign) {
-    replace_malloc_table.aligned_alloc =
+  if (gReplaceMallocTable.aligned_alloc == MozJemalloc::aligned_alloc &&
+      gReplaceMallocTable.memalign != MozJemalloc::memalign) {
+    gReplaceMallocTable.aligned_alloc =
       AlignedAllocator<ReplaceMalloc::memalign>::aligned_alloc;
   }
-  if (!replace_malloc_table.valloc && replace_malloc_table.memalign) {
-    replace_malloc_table.valloc =
+  if (gReplaceMallocTable.valloc == MozJemalloc::valloc &&
+      gReplaceMallocTable.memalign != MozJemalloc::memalign) {
+    gReplaceMallocTable.valloc =
       AlignedAllocator<ReplaceMalloc::memalign>::valloc;
   }
-  if (!replace_malloc_table.moz_create_arena_with_params &&
-      replace_malloc_table.malloc) {
+  if (gReplaceMallocTable.moz_create_arena_with_params ==
+        MozJemalloc::moz_create_arena_with_params &&
+      gReplaceMallocTable.malloc != MozJemalloc::malloc) {
 #define MALLOC_DECL(name, ...)                                                 \
-  replace_malloc_table.name = DummyArenaAllocator<ReplaceMalloc>::name;
+  gReplaceMallocTable.name = DummyArenaAllocator<ReplaceMalloc>::name;
 #define MALLOC_FUNCS MALLOC_FUNCS_ARENA
 #include "malloc_decls.h"
   }
-
-#define MALLOC_DECL(name, ...)                                                 \
-  if (!replace_malloc_table.name) {                                            \
-    replace_malloc_table.name = MozJemalloc::name;                             \
-  }
-#include "malloc_decls.h"
 }
 
 #endif // MOZ_REPLACE_MALLOC

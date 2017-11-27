@@ -277,12 +277,13 @@ static const unsigned SetFP = 28;
 static const unsigned PoppedFP = 16;
 static const unsigned PoppedTLSReg = 8;
 #elif defined(JS_CODEGEN_NONE)
+// Synthetic values to satisfy asserts and avoid compiler warnings.
 static const unsigned PushedRetAddr = 0;
 static const unsigned PushedTLS = 1;
-static const unsigned PushedFP = 0;
-static const unsigned SetFP = 0;
-static const unsigned PoppedFP = 0;
-static const unsigned PoppedTLSReg = 0;
+static const unsigned PushedFP = 2;
+static const unsigned SetFP = 3;
+static const unsigned PoppedFP = 4;
+static const unsigned PoppedTLSReg = 5;
 #else
 # error "Unknown architecture!"
 #endif
@@ -1039,6 +1040,12 @@ ThunkedNativeToDescription(SymbolicAddress func)
         return "call to native grow_memory (in wasm)";
       case SymbolicAddress::CurrentMemory:
         return "call to native current_memory (in wasm)";
+      case SymbolicAddress::WaitI32:
+        return "call to native i32.wait (in wasm)";
+      case SymbolicAddress::WaitI64:
+        return "call to native i64.wait (in wasm)";
+      case SymbolicAddress::Wake:
+        return "call to native wake (in wasm)";
       case SymbolicAddress::Limit:
         break;
     }

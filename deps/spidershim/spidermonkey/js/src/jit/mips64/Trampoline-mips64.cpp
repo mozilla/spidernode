@@ -549,9 +549,8 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm)
     masm.storePtr(t2, Address(StackPointer, 0));
 
     // Call the target function.
-    // Note that this code assumes the function is JITted.
     masm.andPtr(Imm32(uint32_t(CalleeTokenMask)), calleeTokenReg);
-    masm.loadJitCodeRaw(calleeTokenReg, t1, nullptr);
+    masm.loadJitCodeRaw(calleeTokenReg, t1);
     argumentsRectifierReturnOffset_ = masm.callJitNoProfiler(t1);
 
     // Remove the rectifier frame.
@@ -824,6 +823,22 @@ JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm, MIRType type
 {
     uint32_t offset = startTrampolineCode(masm);
 
+    MOZ_ASSERT(PreBarrierReg == a1);
+    Register temp1 = a0;
+    Register temp2 = a2;
+    Register temp3 = a3;
+    masm.push(temp1);
+    masm.push(temp2);
+    masm.push(temp3);
+
+    Label noBarrier;
+    masm.emitPreBarrierFastPath(cx->runtime(), type, temp1, temp2, temp3, &noBarrier);
+
+    // Call into C++ to mark this GC thing.
+    masm.pop(temp3);
+    masm.pop(temp2);
+    masm.pop(temp1);
+
     LiveRegisterSet save;
     if (cx->runtime()->jitSupportsFloatingPoint) {
         save.set() = RegisterSet(GeneralRegisterSet(Registers::VolatileMask),
@@ -835,17 +850,22 @@ JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm, MIRType type
     save.add(ra);
     masm.PushRegsInMask(save);
 
-    MOZ_ASSERT(PreBarrierReg == a1);
     masm.movePtr(ImmPtr(cx->runtime()), a0);
 
     masm.setupUnalignedABICall(a2);
     masm.passABIArg(a0);
     masm.passABIArg(a1);
-    masm.callWithABI(IonMarkFunction(type));
+    masm.callWithABI(JitMarkFunction(type));
 
     save.take(AnyRegister(ra));
     masm.PopRegsInMask(save);
     masm.ret();
+
+    masm.bind(&noBarrier);
+    masm.pop(temp3);
+    masm.pop(temp2);
+    masm.pop(temp1);
+    masm.abiret();
 
     return offset;
 }

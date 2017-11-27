@@ -9101,6 +9101,32 @@ BytecodeEmitter::emitSelfHostedHasOwn(ParseNode* pn)
 }
 
 bool
+BytecodeEmitter::emitSelfHostedGetPropertySuper(ParseNode* pn)
+{
+    if (pn->pn_count != 4) {
+        reportError(pn, JSMSG_MORE_ARGS_NEEDED, "getPropertySuper", "3", "");
+        return false;
+    }
+
+    ParseNode* funNode = pn->pn_head;  // The getPropertySuper node.
+
+    ParseNode* objNode = funNode->pn_next;
+    ParseNode* idNode = objNode->pn_next;
+    ParseNode* receiverNode = idNode->pn_next;
+
+    if (!emitTree(idNode))
+        return false;
+
+    if (!emitTree(receiverNode))
+        return false;
+
+    if (!emitTree(objNode))
+        return false;
+
+    return emitElemOpBase(JSOP_GETELEM_SUPER);
+}
+
+bool
 BytecodeEmitter::isRestParameter(ParseNode* pn)
 {
     if (!sc->isFunctionBox())
@@ -9291,6 +9317,8 @@ BytecodeEmitter::emitCallOrNew(ParseNode* pn, ValueUsage valueUsage /* = ValueUs
             return emitSelfHostedDefineDataProperty(pn);
         if (pn2->name() == cx->names().hasOwn)
             return emitSelfHostedHasOwn(pn);
+        if (pn2->name() == cx->names().getPropertySuper)
+            return emitSelfHostedGetPropertySuper(pn);
         // Fall through
     }
 
@@ -10584,6 +10612,29 @@ BytecodeEmitter::emitClass(ParseNode* pn)
 }
 
 bool
+BytecodeEmitter::emitExportDefault(ParseNode* pn)
+{
+    if (!emitTree(pn->pn_left))
+        return false;
+
+    if (pn->pn_right) {
+        if (!emitLexicalInitialization(pn->pn_right))
+            return false;
+
+        if (pn->pn_left->isDirectRHSAnonFunction()) {
+            HandlePropertyName name = cx->names().default_;
+            if (!setOrEmitSetFunName(pn->pn_left, name, FunctionPrefixKind::None))
+                return false;
+        }
+
+        if (!emit1(JSOP_POP))
+            return false;
+    }
+
+    return true;
+}
+
+bool
 BytecodeEmitter::emitTree(ParseNode* pn, ValueUsage valueUsage /* = ValueUsage::WantValue */,
                           EmitLineNumberNote emitLineNote /* = EMIT_LINENOTE */)
 {
@@ -10880,14 +10931,8 @@ BytecodeEmitter::emitTree(ParseNode* pn, ValueUsage valueUsage /* = ValueUsage::
 
       case PNK_EXPORT_DEFAULT:
         MOZ_ASSERT(sc->isModuleContext());
-        if (!emitTree(pn->pn_kid))
+        if (!emitExportDefault(pn))
             return false;
-        if (pn->pn_right) {
-            if (!emitLexicalInitialization(pn->pn_right))
-                return false;
-            if (!emit1(JSOP_POP))
-                return false;
-        }
         break;
 
       case PNK_EXPORT_FROM:

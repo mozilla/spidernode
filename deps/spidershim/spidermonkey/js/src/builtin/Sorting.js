@@ -8,6 +8,8 @@
 
 // For sorting values with limited range; uint8 and int8.
 function CountingSort(array, len, signed, comparefn) {
+    assert(IsPossiblyWrappedTypedArray(array), "CountingSort works only with typed arrays.");
+
     // Determined by performance testing.
     if (len < 128) {
         QuickSort(array, len, comparefn);
@@ -109,6 +111,8 @@ function SortByColumn(array, len, aux, col, counts) {
 // Sorts integers and float32. |signed| is true for int16 and int32, |floating|
 // is true for float32.
 function RadixSort(array, len, buffer, nbytes, signed, floating, comparefn) {
+    assert(IsPossiblyWrappedTypedArray(array), "RadixSort works only with typed arrays.");
+
     // Determined by performance testing.
     if (len < 512) {
         QuickSort(array, len, comparefn);
@@ -131,13 +135,21 @@ function RadixSort(array, len, buffer, nbytes, signed, floating, comparefn) {
             assert(buffer !== null, "Attached data buffer should be reified");
         }
 
-        view = new Int32Array(buffer);
+        // |array| is a possibly cross-compartment wrapped typed array.
+        let offset = IsTypedArray(array)
+                     ? TypedArrayByteOffset(array)
+                     : callFunction(CallTypedArrayMethodIfWrapped, array, array,
+                                    "TypedArrayByteOffset");
+
+        view = new Int32Array(buffer, offset, len);
 
         // Flip sign bit for positive numbers; flip all bits for negative
-        // numbers
+        // numbers, except negative NaNs.
         for (let i = 0; i < len; i++) {
             if (view[i] & signMask) {
-                view[i] ^= 0xFFFFFFFF;
+                if ((view[i] & 0x7F800000) !== 0x7F800000 || (view[i] & 0x007FFFFF) === 0) {
+                    view[i] ^= 0xFFFFFFFF;
+                }
             } else {
                 view[i] ^= signMask;
             }
@@ -262,14 +274,6 @@ function MoveHoles(sparse, sparseLen, dense, denseLen) {
 
 // Iterative, bottom up, mergesort.
 function MergeSort(array, len, comparefn) {
-    // Until recently typed arrays had no sort method. To work around that
-    // many users passed them to Array.prototype.sort. Now that we have a
-    // typed array specific sorting method it makes sense to divert to it
-    // when possible.
-    if (IsPossiblyWrappedTypedArray(array)) {
-        return callFunction(TypedArraySort, array, comparefn);
-    }
-
     // To save effort we will do all of our work on a dense list,
     // then create holes at the end.
     var denseList = [];

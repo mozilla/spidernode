@@ -787,9 +787,9 @@ class SharedScriptData
     // script data table.
     mozilla::Atomic<uint32_t> refCount_;
 
-    uint32_t dataLength_;
     uint32_t natoms_;
     uint32_t codeLength_;
+    uint32_t noteLength_;
     uintptr_t data_[1];
 
   public:
@@ -804,13 +804,16 @@ class SharedScriptData
     }
     void decRefCount() {
         MOZ_ASSERT(refCount_ != 0);
-        refCount_--;
-        if (refCount_ == 0)
+        uint32_t remain = --refCount_;
+        if (remain == 0)
             js_free(this);
     }
 
-    uint32_t dataLength() const {
-        return dataLength_;
+    size_t dataLength() const {
+        return (natoms_ * sizeof(GCPtrAtom)) + codeLength_ + noteLength_;
+    }
+    const uint8_t* data() const {
+        return reinterpret_cast<const uint8_t*>(data_);
     }
     uint8_t* data() {
         return reinterpret_cast<uint8_t*>(data_);
@@ -832,6 +835,13 @@ class SharedScriptData
         return reinterpret_cast<jsbytecode*>(data() + natoms_ * sizeof(GCPtrAtom));
     }
 
+    uint32_t numNotes() const {
+        return noteLength_;
+    }
+    jssrcnote* notes() {
+        return reinterpret_cast<jssrcnote*>(data() + natoms_ * sizeof(GCPtrAtom) + codeLength_);
+    }
+
     void traceChildren(JSTracer* trc);
 
   private:
@@ -842,18 +852,19 @@ class SharedScriptData
 
 struct ScriptBytecodeHasher
 {
-    struct Lookup
-    {
-        const uint8_t* data;
-        uint32_t length;
+    typedef SharedScriptData Lookup;
 
-        explicit Lookup(SharedScriptData* ssd) : data(ssd->data()), length(ssd->dataLength()) {}
-    };
-    static HashNumber hash(const Lookup& l) { return mozilla::HashBytes(l.data, l.length); }
+    static HashNumber hash(const Lookup& l) {
+        return mozilla::HashBytes(l.data(), l.dataLength());
+    }
     static bool match(SharedScriptData* entry, const Lookup& lookup) {
-        if (entry->dataLength() != lookup.length)
+        if (entry->natoms() != lookup.natoms())
             return false;
-        return mozilla::PodEqual<uint8_t>(entry->data(), lookup.data, lookup.length);
+        if (entry->codeLength() != lookup.codeLength())
+            return false;
+        if (entry->numNotes() != lookup.numNotes())
+            return false;
+        return mozilla::PodEqual<uint8_t>(entry->data(), lookup.data(), lookup.dataLength());
     }
 };
 
@@ -915,11 +926,11 @@ class JSScript : public js::gc::TenuredCell
     js::LazyScript* lazyScript;
 
     /*
-     * Pointer to either baseline->method()->raw() or ion->method()->raw(), or
-     * nullptr if there's no Baseline or Ion script.
+     * Pointer to baseline->method()->raw(), ion->method()->raw(), the JIT's
+     * EnterInterpreter stub, or the lazy link stub. Must be non-null.
      */
-    uint8_t* baselineOrIonRaw;
-    uint8_t* baselineOrIonSkipArgCheck;
+    uint8_t* jitCodeRaw_;
+    uint8_t* jitCodeSkipArgCheck_;
 
     // 32-bit fields.
 
@@ -1547,7 +1558,7 @@ class JSScript : public js::gc::TenuredCell
     js::jit::IonScript* const* addressOfIonScript() const {
         return &ion;
     }
-    void setIonScript(JSRuntime* maybeRuntime, js::jit::IonScript* ionScript);
+    void setIonScript(JSRuntime* rt, js::jit::IonScript* ionScript);
 
     bool hasBaselineScript() const {
         bool res = baseline && baseline != BASELINE_DISABLED_SCRIPT;
@@ -1561,9 +1572,9 @@ class JSScript : public js::gc::TenuredCell
         MOZ_ASSERT(hasBaselineScript());
         return baseline;
     }
-    inline void setBaselineScript(JSRuntime* maybeRuntime, js::jit::BaselineScript* baselineScript);
+    inline void setBaselineScript(JSRuntime* rt, js::jit::BaselineScript* baselineScript);
 
-    void updateBaselineOrIonRaw(JSRuntime* maybeRuntime);
+    void updateJitCodeRaw(JSRuntime* rt);
 
     static size_t offsetOfBaselineScript() {
         return offsetof(JSScript, baseline);
@@ -1571,14 +1582,14 @@ class JSScript : public js::gc::TenuredCell
     static size_t offsetOfIonScript() {
         return offsetof(JSScript, ion);
     }
-    static size_t offsetOfBaselineOrIonRaw() {
-        return offsetof(JSScript, baselineOrIonRaw);
+    static size_t offsetOfJitCodeRaw() {
+        return offsetof(JSScript, jitCodeRaw_);
     }
-    uint8_t* baselineOrIonRawPointer() const {
-        return baselineOrIonRaw;
+    static size_t offsetOfJitCodeSkipArgCheck() {
+        return offsetof(JSScript, jitCodeSkipArgCheck_);
     }
-    static size_t offsetOfBaselineOrIonSkipArgCheck() {
-        return offsetof(JSScript, baselineOrIonSkipArgCheck);
+    uint8_t* jitCodeRaw() const {
+        return jitCodeRaw_;
     }
 
     bool isRelazifiable() const {
@@ -1789,11 +1800,6 @@ class JSScript : public js::gc::TenuredCell
     size_t sizeOfData(mozilla::MallocSizeOf mallocSizeOf) const;
     size_t sizeOfTypeScript(mozilla::MallocSizeOf mallocSizeOf) const;
 
-    uint32_t numNotes();  /* Number of srcnote slots in the srcnotes section */
-
-    /* Script notes are allocated right after the code. */
-    jssrcnote* notes() { return (jssrcnote*)(code() + length()); }
-
     bool hasArray(ArrayKind kind) const {
         return hasArrayBits & (1 << kind);
     }
@@ -1854,6 +1860,15 @@ class JSScript : public js::gc::TenuredCell
     }
 
     bool hasLoops();
+
+    uint32_t numNotes() const {
+        MOZ_ASSERT(scriptData_);
+        return scriptData_->numNotes();
+    }
+    jssrcnote* notes() const {
+        MOZ_ASSERT(scriptData_);
+        return scriptData_->notes();
+    }
 
     size_t natoms() const {
         MOZ_ASSERT(scriptData_);

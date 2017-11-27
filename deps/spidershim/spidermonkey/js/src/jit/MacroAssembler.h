@@ -1503,6 +1503,9 @@ class MacroAssembler : public MacroAssemblerSpecific
     // Perform a stack-overflow test, branching to the given Label on overflow.
     void wasmEmitStackCheck(Register sp, Register scratch, Label* onOverflow);
 
+    void emitPreBarrierFastPath(JSRuntime* rt, MIRType type, Register temp1, Register temp2,
+                                Register temp3, Label* noBarrier);
+
   public:
     // ========================================================================
     // Clamping functions.
@@ -1917,8 +1920,8 @@ class MacroAssembler : public MacroAssemblerSpecific
     Vector<CodeOffset, 0, SystemAllocPolicy> profilerCallSites_;
 
   public:
-    void loadJitCodeRaw(Register callee, Register dest, Label* failure);
-    void loadJitCodeNoArgCheck(Register callee, Register dest, Label* failure);
+    void loadJitCodeRaw(Register callee, Register dest);
+    void loadJitCodeNoArgCheck(Register callee, Register dest);
 
     void loadBaselineFramePtr(Register framePtr, Register dest);
 

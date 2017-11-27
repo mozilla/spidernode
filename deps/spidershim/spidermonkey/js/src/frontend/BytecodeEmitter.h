@@ -791,6 +791,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitSelfHostedForceInterpreter(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedAllowContentIter(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedDefineDataProperty(ParseNode* pn);
+    MOZ_MUST_USE bool emitSelfHostedGetPropertySuper(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedHasOwn(ParseNode* pn);
 
     MOZ_MUST_USE bool emitDo(ParseNode* pn);
@@ -832,6 +833,8 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitCallee(ParseNode* callee, ParseNode* call, bool spread, bool* callop);
 
     MOZ_MUST_USE bool emitPipeline(ParseNode* pn);
+
+    MOZ_MUST_USE bool emitExportDefault(ParseNode* pn);
 };
 
 } /* namespace frontend */

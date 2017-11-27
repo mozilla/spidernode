@@ -4269,7 +4269,7 @@ CodeGenerator::visitCallGeneric(LCallGeneric* call)
     }
 
     // Knowing that calleereg is a non-native function, load the jit code.
-    masm.loadJitCodeRaw(calleereg, objreg, &invoke);
+    masm.loadJitCodeRaw(calleereg, objreg);
 
     // Nestle the StackPointer up to the argument vector.
     masm.freeStack(unusedStack);
@@ -4379,9 +4379,9 @@ CodeGenerator::visitCallKnown(LCallKnown* call)
 
     // Load non-native jitcode from the script.
     if (call->mir()->needsArgCheck())
-        masm.loadJitCodeRaw(calleereg, objreg, &uncompiled);
+        masm.loadJitCodeRaw(calleereg, objreg);
     else
-        masm.loadJitCodeNoArgCheck(calleereg, objreg, &uncompiled);
+        masm.loadJitCodeNoArgCheck(calleereg, objreg);
 
     // Nestle the StackPointer up to the argument vector.
     masm.freeStack(unusedStack);
@@ -4681,7 +4681,7 @@ CodeGenerator::emitApplyGeneric(T* apply)
                             calleereg, objreg, &invoke);
 
     // Knowing that calleereg is a non-native function, load script's jitcode.
-    masm.loadJitCodeRaw(calleereg, objreg, &invoke);
+    masm.loadJitCodeRaw(calleereg, objreg);
 
     // Call with an Ion frame or a rectifier frame.
     {
@@ -8008,12 +8008,16 @@ JitRuntime::generateLazyLinkStub(MacroAssembler& masm)
 
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
     Register temp0 = regs.takeAny();
+    Register temp1 = regs.takeAny();
+    Register temp2 = regs.takeAny();
 
     masm.loadJSContext(temp0);
-    masm.enterFakeExitFrame(temp0, temp0, ExitFrameType::LazyLink);
+    masm.enterFakeExitFrame(temp0, temp2, ExitFrameType::LazyLink);
+    masm.moveStackPtrTo(temp1);
 
-    masm.setupUnalignedABICall(temp0);
+    masm.setupUnalignedABICall(temp2);
     masm.passABIArg(temp0);
+    masm.passABIArg(temp1);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, LazyLinkTopActivation), MoveOp::GENERAL,
                      CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
@@ -8025,8 +8029,40 @@ JitRuntime::generateLazyLinkStub(MacroAssembler& masm)
     masm.popReturnAddress();
 #endif
     masm.jump(ReturnReg);
+}
 
-    lazyLinkStubEndOffset_ = masm.currentOffset();
+void
+JitRuntime::generateInterpreterStub(MacroAssembler& masm)
+{
+    interpreterStubOffset_ = startTrampolineCode(masm);
+
+#ifdef JS_USE_LINK_REGISTER
+    masm.pushReturnAddress();
+#endif
+
+    AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
+    Register temp0 = regs.takeAny();
+    Register temp1 = regs.takeAny();
+    Register temp2 = regs.takeAny();
+
+    masm.loadJSContext(temp0);
+    masm.enterFakeExitFrame(temp0, temp2, ExitFrameType::InterpreterStub);
+    masm.moveStackPtrTo(temp1);
+
+    masm.setupUnalignedABICall(temp2);
+    masm.passABIArg(temp0);
+    masm.passABIArg(temp1);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, InvokeFromInterpreterStub), MoveOp::GENERAL,
+                     CheckUnsafeCallWithABI::DontCheckHasExitFrame);
+
+    masm.branchIfFalseBool(ReturnReg, masm.failureLabel());
+    masm.leaveExitFrame();
+
+    // InvokeFromInterpreterStub stores the return value in argv[0], where the
+    // caller stored |this|.
+    masm.loadValue(Address(masm.getStackPointer(), JitFrameLayout::offsetOfThis()),
+                   JSReturnOperand);
+    masm.ret();
 }
 
 bool
@@ -12335,6 +12371,15 @@ CodeGenerator::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
     masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, boundsCheckLimit,
                          trap(mir, wasm::Trap::OutOfBounds));
 #endif
+}
+
+void
+CodeGenerator::visitWasmAlignmentCheck(LWasmAlignmentCheck* ins)
+{
+    const MWasmAlignmentCheck* mir = ins->mir();
+    Register ptr = ToRegister(ins->ptr());
+    masm.branchTest32(Assembler::NonZero, ptr, Imm32(mir->byteSize() - 1),
+                      trap(mir, wasm::Trap::UnalignedAccess));
 }
 
 void

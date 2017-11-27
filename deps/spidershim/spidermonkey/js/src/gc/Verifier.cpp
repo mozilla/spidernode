@@ -17,7 +17,6 @@
 
 #include "gc/GCInternals.h"
 #include "gc/Zone.h"
-#include "js/GCAPI.h"
 #include "js/HashTable.h"
 
 #include "jscntxtinlines.h"
@@ -691,9 +690,9 @@ CheckGrayMarkingTracer::checkCell(Cell* cell)
         dumpCellPath();
 
 #ifdef DEBUG
-        if (cell->getTraceKind() == JS::TraceKind::Object) {
+        if (cell->is<JSObject>()) {
             fprintf(stderr, "\n");
-            DumpObject(static_cast<JSObject*>(cell), stderr);
+            DumpObject(cell->as<JSObject>(), stderr);
         }
 #endif
     }

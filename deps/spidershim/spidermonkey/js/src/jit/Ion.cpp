@@ -59,6 +59,7 @@
 
 #include "gc/Iteration-inl.h"
 #include "jit/JitFrames-inl.h"
+#include "jit/MacroAssembler-inl.h"
 #include "jit/shared/Lowering-shared-inl.h"
 #include "vm/Debugger-inl.h"
 #include "vm/EnvironmentObject-inl.h"
@@ -202,6 +203,8 @@ JitRuntime::JitRuntime(JSRuntime* rt)
     argumentsRectifierOffset_(0),
     argumentsRectifierReturnOffset_(0),
     invalidatorOffset_(0),
+    lazyLinkStubOffset_(0),
+    interpreterStubOffset_(0),
     debugTrapHandler_(nullptr),
     baselineDebugModeOSRHandler_(nullptr),
     trampolineCode_(nullptr),
@@ -226,6 +229,7 @@ JitRuntime::startTrampolineCode(MacroAssembler& masm)
     masm.assumeUnreachable("Shouldn't get here");
     masm.flushBuffer();
     masm.haltingAlign(CodeAlignment);
+    masm.setFramePushed(0);
     return masm.currentOffset();
 }
 
@@ -310,6 +314,9 @@ JitRuntime::initialize(JSContext* cx, AutoLockForExclusiveAccess& lock)
 
     JitSpew(JitSpew_Codegen, "# Emitting lazy link stub");
     generateLazyLinkStub(masm);
+
+    JitSpew(JitSpew_Codegen, "# Emitting interpreter stub");
+    generateInterpreterStub(masm);
 
     JitSpew(JitSpew_Codegen, "# Emitting VM function wrappers");
     for (VMFunction* fun = VMFunction::functions; fun; fun = fun->next) {
@@ -489,11 +496,13 @@ void
 jit::FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder,
                             const AutoLockHelperThreadState& locked)
 {
+    MOZ_ASSERT(runtime);
+
     // Clean the references to the pending IonBuilder, if we just finished it.
     if (builder->script()->baselineScript()->hasPendingIonBuilder() &&
         builder->script()->baselineScript()->pendingIonBuilder() == builder)
     {
-        builder->script()->baselineScript()->removePendingIonBuilder(builder->script());
+        builder->script()->baselineScript()->removePendingIonBuilder(runtime, builder->script());
     }
 
     // If the builder is still in one of the helper thread list, then remove it.
@@ -562,7 +571,7 @@ jit::LinkIonScript(JSContext* cx, HandleScript calleeScript)
         // Get the pending builder from the Ion frame.
         MOZ_ASSERT(calleeScript->hasBaselineScript());
         builder = calleeScript->baselineScript()->pendingIonBuilder();
-        calleeScript->baselineScript()->removePendingIonBuilder(calleeScript);
+        calleeScript->baselineScript()->removePendingIonBuilder(cx->runtime(), calleeScript);
 
         // Remove from pending.
         cx->zone()->group()->ionLazyLinkListRemove(builder);
@@ -585,20 +594,16 @@ jit::LinkIonScript(JSContext* cx, HandleScript calleeScript)
 }
 
 uint8_t*
-jit::LazyLinkTopActivation()
+jit::LazyLinkTopActivation(JSContext* cx, LazyLinkExitFrameLayout* frame)
 {
-    // First frame should be an exit frame.
-    JSContext* cx = TlsContext.get();
-    JSJitFrameIter frame(cx);
-    LazyLinkExitFrameLayout* ll = frame.exitFrame()->as<LazyLinkExitFrameLayout>();
-    RootedScript calleeScript(cx, ScriptFromCalleeToken(ll->jsFrame()->calleeToken()));
+    RootedScript calleeScript(cx, ScriptFromCalleeToken(frame->jsFrame()->calleeToken()));
 
     LinkIonScript(cx, calleeScript);
 
     MOZ_ASSERT(calleeScript->hasBaselineScript());
-    MOZ_ASSERT(calleeScript->baselineOrIonRawPointer());
+    MOZ_ASSERT(calleeScript->jitCodeRaw());
 
-    return calleeScript->baselineOrIonRawPointer();
+    return calleeScript->jitCodeRaw();
 }
 
 /* static */ void
@@ -2795,17 +2800,8 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
         if (!frame.isIonScripted())
             continue;
 
-        JitRuntime* jrt = fop->runtime()->jitRuntime();
-
-        bool calledFromLinkStub = false;
-        if (frame.returnAddressToFp() >= jrt->lazyLinkStub().value &&
-            frame.returnAddressToFp() < jrt->lazyLinkStubEnd().value)
-        {
-            calledFromLinkStub = true;
-        }
-
         // See if the frame has already been invalidated.
-        if (!calledFromLinkStub && frame.checkInvalidation())
+        if (frame.checkInvalidation())
             continue;
 
         JSScript* script = frame.script();
@@ -2862,9 +2858,8 @@ InvalidateActivation(FreeOp* fop, const JitActivationIterator& activations, bool
         }
         ionCode->setInvalidated();
 
-        // Don't adjust OSI points in the linkStub (which don't exist), or in a
-        // bailout path.
-        if (calledFromLinkStub || frame.isBailoutJS())
+        // Don't adjust OSI points in a bailout path.
+        if (frame.isBailoutJS())
             continue;
 
         // Write the delta (from the return address offset to the
@@ -2977,7 +2972,7 @@ jit::Invalidate(TypeZone& types, FreeOp* fop,
         if (!ionScript)
             continue;
 
-        script->setIonScript(nullptr, nullptr);
+        script->setIonScript(cx->runtime(), nullptr);
         ionScript->decrementInvalidationCount(fop);
         co->invalidate();
         numInvalidations--;
@@ -3070,7 +3065,7 @@ jit::FinishInvalidation(FreeOp* fop, JSScript* script)
     // In all cases, nullptr out script->ion to avoid re-entry.
     if (script->hasIonScript()) {
         IonScript* ion = script->ionScript();
-        script->setIonScript(nullptr, nullptr);
+        script->setIonScript(fop->runtime(), nullptr);
         FinishInvalidationOf(fop, script, ion);
     }
 }
