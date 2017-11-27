@@ -1,9 +1,11 @@
+lib/internal/v8.js
 lib/internal/v8_prof_polyfill.js
 lib/punycode.js
 test/addons/??_*
 test/fixtures
 tools/eslint
 tools/icu
+tools/remark-*
 node_modules
 benchmark/tmp
 doc/**/*.js

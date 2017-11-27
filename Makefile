@@ -132,7 +132,7 @@ coverage-clean:
 	$(RM) -r node_modules
 	$(RM) -r gcovr testing
 	$(RM) -r out/$(BUILDTYPE)/.coverage
-	$(RM) -r .cov_tmp coverage
+	$(RM) -r .cov_tmp
 	$(RM) out/$(BUILDTYPE)/obj.target/node/{src,gen}/*.gcda
 	$(RM) out/$(BUILDTYPE)/obj.target/node/src/tracing/*.gcda
 	$(RM) out/$(BUILDTYPE)/obj.target/node/{src,gen}/*.gcno
@@ -579,7 +579,7 @@ available-node = \
 		exit 1; \
 	fi;
 
-run-npm-install = $(PWD)/$(NPM) install
+run-npm-install = $(PWD)/$(NPM) install --production
 
 tools/doc/node_modules/js-yaml/package.json:
 	cd tools/doc && $(call available-node,$(run-npm-install))

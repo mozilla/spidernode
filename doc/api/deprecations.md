@@ -600,10 +600,9 @@ a V8-inspector based CLI debugger available through `node inspect`.
 <a id="DEP0069"></a>
 ### DEP0069: vm.runInDebugContext(string)
 
-Type: Runtime
+Type: End-of-Life
 
-The DebugContext will be removed in V8 soon and will not be available in Node
-10+.
+DebugContext has been removed in V8 and is not available in Node 10+.
 
 *Note*: DebugContext was an experimental API.
 
@@ -640,7 +639,7 @@ Type: End-of-Life
 <a id="DEP0073"></a>
 ### DEP0073: Several internal properties of net.Server
 
-Type: Runtime
+Type: End-of-Life
 
 Accessing several internal, undocumented properties of `net.Server` instances
 with inappropriate names has been deprecated.
@@ -783,7 +782,7 @@ code modification is necessary if that is done.
 <a id="DEP0085"></a>
 ### DEP0085: AsyncHooks Sensitive API
 
-Type: Runtime
+Type: End-of-Life
 
 The AsyncHooks Sensitive API was never documented and had various of minor
 issues, see https://github.com/nodejs/node/issues/15572. Use the `AsyncResource`
@@ -793,7 +792,7 @@ API instead.
 <a id="DEP0086"></a>
 ### DEP0086: Remove runInAsyncIdScope
 
-Type: Runtime
+Type: End-of-Life
 
 `runInAsyncIdScope` doesn't emit the `before` or `after` event and can thus
 cause a lot of issues. See https://github.com/nodejs/node/issues/14328 for more

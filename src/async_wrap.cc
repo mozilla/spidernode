@@ -137,11 +137,7 @@ RetainedObjectInfo* WrapperInfo(uint16_t class_id, Local<Value> wrapper) {
 // end RetainedAsyncInfo
 
 
-static void DestroyAsyncIdsCallback(uv_timer_t* handle) {
-  Environment* env = Environment::from_destroy_async_ids_timer_handle(handle);
-
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
+static void DestroyAsyncIdsCallback(Environment* env, void* data) {
   Local<Function> fn = env->async_hooks_destroy_function();
 
   TryCatch try_catch(env->isolate());
@@ -689,8 +685,7 @@ void AsyncWrap::EmitDestroy(Environment* env, double async_id) {
     return;
 
   if (env->destroy_async_id_list()->empty()) {
-    uv_timer_start(env->destroy_async_ids_timer_handle(),
-                   DestroyAsyncIdsCallback, 0, 0);
+    env->SetImmediate(DestroyAsyncIdsCallback, nullptr);
   }
 
   env->destroy_async_id_list()->push_back(async_id);
@@ -708,9 +703,12 @@ void AsyncWrap::AsyncReset(double execution_async_id, bool silent) {
   switch (provider_type()) {
 #define V(PROVIDER)                                                           \
     case PROVIDER_ ## PROVIDER:                                               \
-      TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("node.async_hooks",                   \
+      TRACE_EVENT_NESTABLE_ASYNC_BEGIN2("node.async_hooks",                   \
         #PROVIDER, static_cast<int64_t>(get_async_id()),                      \
-        "triggerAsyncId", static_cast<int64_t>(get_trigger_async_id()));      \
+        "executionAsyncId",                                                   \
+        static_cast<int64_t>(env()->execution_async_id()),                    \
+        "triggerAsyncId",                                                     \
+        static_cast<int64_t>(get_trigger_async_id()));                        \
       break;
     NODE_ASYNC_PROVIDER_TYPES(V)
 #undef V

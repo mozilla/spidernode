@@ -37,6 +37,7 @@ icu_config.gypi
 /.ycm_extra_conf.py
 .eslintcache
 node_trace.*.log
+coverage/
 
 /out
 
