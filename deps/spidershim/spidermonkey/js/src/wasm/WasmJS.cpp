@@ -74,6 +74,11 @@ wasm::HasCompilerSupport(JSContext* cx)
         return false;
 #endif
 
+#ifdef JS_SIMULATOR
+    if (!Simulator::supportsAtomics())
+        return false;
+#endif
+
 #if defined(JS_CODEGEN_NONE) || defined(JS_CODEGEN_ARM64)
     return false;
 #else
@@ -1729,6 +1734,20 @@ const JSPropertySpec WasmTableObject::properties[] =
     JS_PS_END
 };
 
+static bool
+ToTableIndex(JSContext* cx, HandleValue v, const Table& table, const char* noun, uint32_t* index)
+{
+    if (!EnforceRangeU32(cx, v, UINT32_MAX, "Table", noun, index))
+        return false;
+
+    if (*index >= table.length()) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_UINT32, "Table", noun);
+        return false;
+    }
+
+    return true;
+}
+
 /* static */ bool
 WasmTableObject::getImpl(JSContext* cx, const CallArgs& args)
 {
@@ -1736,7 +1755,7 @@ WasmTableObject::getImpl(JSContext* cx, const CallArgs& args)
     const Table& table = tableObj->table();
 
     uint32_t index;
-    if (!EnforceRangeU32(cx, args.get(0), table.length() - 1, "Table", "get index", &index))
+    if (!ToTableIndex(cx, args.get(0), table, "get index", &index))
         return false;
 
     ExternalTableElem& elem = table.externalArray()[index];
@@ -1775,7 +1794,7 @@ WasmTableObject::setImpl(JSContext* cx, const CallArgs& args)
         return false;
 
     uint32_t index;
-    if (!EnforceRangeU32(cx, args.get(0), table.length() - 1, "Table", "set index", &index))
+    if (!ToTableIndex(cx, args.get(0), table, "set index", &index))
         return false;
 
     RootedFunction value(cx);

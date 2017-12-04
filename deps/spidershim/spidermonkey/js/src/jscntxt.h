@@ -18,6 +18,7 @@
 #include "js/Vector.h"
 #include "threading/ProtectedData.h"
 #include "vm/ErrorReporting.h"
+#include "vm/MallocProvider.h"
 #include "vm/Runtime.h"
 
 #ifdef _MSC_VER
@@ -413,9 +414,6 @@ struct JSContext : public JS::RootingContext,
      * enter the correct Debugger compartment to report the error.
      */
     js::ThreadLocalData<js::EnterDebuggeeNoExecute*> noExecuteDebuggerTop;
-
-    // Set when handling a segfault in the wasm signal handler.
-    bool handlingSegFault;
 
     js::ThreadLocalData<js::ActivityCallback> activityCallback;
     js::ThreadLocalData<void*>                activityCallbackArg;

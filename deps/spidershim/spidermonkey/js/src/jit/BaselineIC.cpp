@@ -2213,6 +2213,14 @@ TryAttachCallStub(JSContext* cx, ICCall_Fallback* stub, HandleScript script, jsb
             return true;
         }
 
+        // If we're constructing, require the callee to have JIT code. This
+        // isn't required for correctness but avoids allocating a template
+        // object below for constructors that aren't hot. See bug 1419758.
+        if (constructing && !fun->hasJITCode()) {
+            *handled = true;
+            return true;
+        }
+
         // Check if this stub chain has already generalized scripted calls.
         if (stub->scriptedStubsAreGeneralized()) {
             JitSpew(JitSpew_BaselineIC, "  Chain already has generalized scripted call stub!");
@@ -4079,7 +4087,6 @@ static bool
 DoGetIteratorFallback(JSContext* cx, BaselineFrame* frame, ICGetIterator_Fallback* stub,
                       HandleValue value, MutableHandleValue res)
 {
-    jsbytecode* pc = stub->icEntry()->pc(frame->script());
     FallbackICSpew(cx, stub, "GetIterator");
 
     if (stub->state().maybeTransition())
@@ -4103,8 +4110,7 @@ DoGetIteratorFallback(JSContext* cx, BaselineFrame* frame, ICGetIterator_Fallbac
             stub->state().trackNotAttached();
     }
 
-    uint8_t flags = GET_UINT8(pc);
-    JSObject* iterobj = ValueToIterator(cx, flags, value);
+    JSObject* iterobj = ValueToIterator(cx, value);
     if (!iterobj)
         return false;
 

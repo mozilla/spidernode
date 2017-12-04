@@ -779,7 +779,7 @@ class FunctionCompiler
     bool needAlignmentCheck(MemoryAccessDesc* access, MDefinition* base, bool* mustAdd) {
         MOZ_ASSERT(!*mustAdd);
 
-        // asm.js accesses are always aligned and need no check.
+        // asm.js accesses are always aligned and need no checks.
         if (env_.isAsmJS() || !access->isAtomic())
             return false;
 
@@ -797,6 +797,24 @@ class FunctionCompiler
     void checkOffsetAndAlignmentAndBounds(MemoryAccessDesc* access, MDefinition** base)
     {
         MOZ_ASSERT(!inDeadCode());
+
+        // Fold a constant base into the offset (so the base is 0 in which case
+        // the codegen is optimized), if it doesn't wrap or trigger an
+        // MWasmAddOffset.
+        if ((*base)->isConstant()) {
+            uint32_t basePtr = (*base)->toConstant()->toInt32();
+            uint32_t offset = access->offset();
+
+            static_assert(OffsetGuardLimit < UINT32_MAX,
+                          "checking for overflow against OffsetGuardLimit is enough.");
+
+            if (offset < OffsetGuardLimit && basePtr < OffsetGuardLimit - offset) {
+                auto* ins = MConstant::New(alloc(), Int32Value(0), MIRType::Int32);
+                curBlock_->add(ins);
+                *base = ins;
+                access->setOffset(access->offset() + basePtr);
+            }
+        }
 
         bool mustAdd = false;
         bool alignmentCheck = needAlignmentCheck(access, *base, &mustAdd);
@@ -831,10 +849,10 @@ class FunctionCompiler
   public:
     MDefinition* computeEffectiveAddress(MDefinition* base, MemoryAccessDesc* access) {
         MOZ_ASSERT(!access->isPlainAsmJS());
-
         if (inDeadCode())
             return nullptr;
-
+        if (!access->offset())
+            return base;
         auto* ins = MWasmAddOffset::New(alloc(), base, access->offset(), bytecodeOffset());
         curBlock_->add(ins);
         access->clearOffset();
@@ -877,6 +895,8 @@ class FunctionCompiler
             checkOffsetAndAlignmentAndBounds(access, &base);
             load = MWasmLoad::New(alloc(), memoryBase, base, *access, ToMIRType(result));
         }
+        if (!load)
+            return nullptr;
         curBlock_->add(load);
         return load;
     }
@@ -897,6 +917,8 @@ class FunctionCompiler
             checkOffsetAndAlignmentAndBounds(access, &base);
             store = MWasmStore::New(alloc(), memoryBase, base, *access, v);
         }
+        if (!store)
+            return;
         curBlock_->add(store);
     }
 
@@ -921,6 +943,8 @@ class FunctionCompiler
         MWasmLoadTls* memoryBase = maybeLoadMemoryBase();
         MInstruction* cas = MWasmCompareExchangeHeap::New(alloc(), bytecodeOffset(), memoryBase,
                                                           base, *access, oldv, newv, tlsPointer_);
+        if (!cas)
+            return nullptr;
         curBlock_->add(cas);
 
         if (isSmallerAccessForI64(result, access)) {
@@ -948,6 +972,8 @@ class FunctionCompiler
         MWasmLoadTls* memoryBase = maybeLoadMemoryBase();
         MInstruction* xchg = MWasmAtomicExchangeHeap::New(alloc(), bytecodeOffset(), memoryBase,
                                                           base, *access, value, tlsPointer_);
+        if (!xchg)
+            return nullptr;
         curBlock_->add(xchg);
 
         if (isSmallerAccessForI64(result, access)) {
@@ -975,6 +1001,8 @@ class FunctionCompiler
         MWasmLoadTls* memoryBase = maybeLoadMemoryBase();
         MInstruction* binop = MWasmAtomicBinopHeap::New(alloc(), bytecodeOffset(), op, memoryBase,
                                                         base, *access, value, tlsPointer_);
+        if (!binop)
+            return nullptr;
         curBlock_->add(binop);
 
         if (isSmallerAccessForI64(result, access)) {
