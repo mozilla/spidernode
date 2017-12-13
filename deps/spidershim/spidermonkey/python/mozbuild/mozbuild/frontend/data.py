@@ -54,7 +54,7 @@ class ContextDerived(TreeMetadata):
         'context_all_paths',
         'topsrcdir',
         'topobjdir',
-        'relativedir',
+        'relsrcdir',
         'srcdir',
         'objdir',
         'config',
@@ -72,7 +72,7 @@ class ContextDerived(TreeMetadata):
         self.topsrcdir = context.config.topsrcdir
         self.topobjdir = context.config.topobjdir
 
-        self.relativedir = context.relsrcdir
+        self.relsrcdir = context.relsrcdir
         self.srcdir = context.srcdir
         self.objdir = context.objdir
 
@@ -234,6 +234,18 @@ class HostDefines(BaseDefines):
 
 class IPDLFile(ContextDerived):
     """Describes an individual .ipdl source file."""
+
+    __slots__ = (
+        'basename',
+    )
+
+    def __init__(self, context, path):
+        ContextDerived.__init__(self, context)
+
+        self.basename = path
+
+class PreprocessedIPDLFile(ContextDerived):
+    """Describes an individual .ipdl source file that requires preprocessing."""
 
     __slots__ = (
         'basename',
@@ -1056,15 +1068,29 @@ class GeneratedFile(ContextDerived):
         'outputs',
         'inputs',
         'flags',
+        'required_for_compile',
+        'localized',
     )
 
-    def __init__(self, context, script, method, outputs, inputs, flags=()):
+    def __init__(self, context, script, method, outputs, inputs, flags=(), localized=False):
         ContextDerived.__init__(self, context)
         self.script = script
         self.method = method
         self.outputs = outputs if isinstance(outputs, tuple) else (outputs,)
         self.inputs = inputs
         self.flags = flags
+        self.localized = localized
+
+        suffixes = (
+            '.c',
+            '.cpp',
+            '.h',
+            '.inc',
+            '.py',
+            '.rs',
+            'new', # 'new' is an output from make-stl-wrappers.py
+        )
+        self.required_for_compile = any(f.endswith(suffixes) for f in self.outputs)
 
 
 class AndroidResDirs(ContextDerived):

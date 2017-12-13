@@ -175,6 +175,7 @@ extern const char* CacheKindNames[];
     _(GuardAnyClass)                      /* Guard an arbitrary class for an object */ \
     _(GuardCompartment)                   \
     _(GuardIsNativeFunction)              \
+    _(GuardIsNativeObject)                \
     _(GuardIsProxy)                       \
     _(GuardHasProxyHandler)               \
     _(GuardNotDOMProxy)                   \
@@ -239,6 +240,7 @@ extern const char* CacheKindNames[];
     _(LoadDenseElementResult)             \
     _(LoadDenseElementHoleResult)         \
     _(LoadDenseElementExistsResult)       \
+    _(LoadTypedElementExistsResult)       \
     _(LoadDenseElementHoleExistsResult)   \
     _(LoadTypedElementResult)             \
     _(LoadInt32ArrayLengthResult)         \
@@ -258,6 +260,7 @@ extern const char* CacheKindNames[];
     _(CallProxyGetResult)                 \
     _(CallProxyGetByValueResult)          \
     _(CallProxyHasPropResult)             \
+    _(CallObjectHasSparseElementResult)   \
     _(LoadUndefinedResult)                \
     _(LoadBooleanResult)                  \
     _(LoadStringResult)                   \
@@ -554,6 +557,9 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
     void guardIsNativeFunction(ObjOperandId obj, JSNative nativeFunc) {
         writeOpWithOperandId(CacheOp::GuardIsNativeFunction, obj);
         writePointer(JS_FUNC_TO_DATA_PTR(void*, nativeFunc));
+    }
+    void guardIsNativeObject(ObjOperandId obj) {
+        writeOpWithOperandId(CacheOp::GuardIsNativeObject, obj);
     }
     void guardIsProxy(ObjOperandId obj) {
         writeOpWithOperandId(CacheOp::GuardIsProxy, obj);
@@ -930,6 +936,11 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
         writeOpWithOperandId(CacheOp::LoadDenseElementExistsResult, obj);
         writeOperandId(index);
     }
+    void loadTypedElementExistsResult(ObjOperandId obj, Int32OperandId index, TypedThingLayout layout) {
+        writeOpWithOperandId(CacheOp::LoadTypedElementExistsResult, obj);
+        writeOperandId(index);
+        buffer_.writeByte(uint32_t(layout));
+    }
     void loadDenseElementHoleExistsResult(ObjOperandId obj, Int32OperandId index) {
         writeOpWithOperandId(CacheOp::LoadDenseElementHoleExistsResult, obj);
         writeOperandId(index);
@@ -968,6 +979,10 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter
         writeOpWithOperandId(CacheOp::CallProxyHasPropResult, obj);
         writeOperandId(idVal);
         buffer_.writeByte(uint32_t(hasOwn));
+    }
+    void callObjectHasSparseElementResult(ObjOperandId obj, Int32OperandId index) {
+        writeOpWithOperandId(CacheOp::CallObjectHasSparseElementResult, obj);
+        writeOperandId(index);
     }
     void loadEnvironmentFixedSlotResult(ObjOperandId obj, size_t offset) {
         writeOpWithOperandId(CacheOp::LoadEnvironmentFixedSlotResult, obj);
@@ -1439,6 +1454,10 @@ class MOZ_RAII HasPropIRGenerator : public IRGenerator
                         uint32_t index, Int32OperandId indexId);
     bool tryAttachDenseHole(HandleObject obj, ObjOperandId objId,
                             uint32_t index, Int32OperandId indexId);
+    bool tryAttachTypedArray(HandleObject obj, ObjOperandId objId,
+                             uint32_t index, Int32OperandId indexId);
+    bool tryAttachSparse(HandleObject obj, ObjOperandId objId,
+                         uint32_t index, Int32OperandId indexId);
     bool tryAttachNamedProp(HandleObject obj, ObjOperandId objId,
                             HandleId key, ValOperandId keyId);
     bool tryAttachMegamorphic(ObjOperandId objId, ValOperandId keyId);

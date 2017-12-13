@@ -22,10 +22,10 @@
 using namespace js;
 using namespace js::frontend;
 
-static_assert(MODULE_STATUS_ERRORED < MODULE_STATUS_UNINSTANTIATED &&
-              MODULE_STATUS_UNINSTANTIATED < MODULE_STATUS_INSTANTIATING &&
+static_assert(MODULE_STATUS_UNINSTANTIATED < MODULE_STATUS_INSTANTIATING &&
               MODULE_STATUS_INSTANTIATING < MODULE_STATUS_INSTANTIATED &&
-              MODULE_STATUS_INSTANTIATED < MODULE_STATUS_EVALUATED,
+              MODULE_STATUS_INSTANTIATED < MODULE_STATUS_EVALUATED &&
+              MODULE_STATUS_EVALUATED < MODULE_STATUS_EVALUATED_ERROR,
               "Module statuses are ordered incorrectly");
 
 template<typename T, Value ValueGetter(const T* obj)>
@@ -317,21 +317,13 @@ IndirectBindingMap::Binding::Binding(ModuleEnvironmentObject* environment, Shape
   : environment(environment), shape(shape)
 {}
 
-IndirectBindingMap::IndirectBindingMap(Zone* zone)
-  : map_(ZoneAllocPolicy(zone))
-{
-}
-
-bool
-IndirectBindingMap::init()
-{
-    return map_.init();
-}
-
 void
 IndirectBindingMap::trace(JSTracer* trc)
 {
-    for (Map::Enum e(map_); !e.empty(); e.popFront()) {
+    if (!map_)
+        return;
+
+    for (Map::Enum e(*map_); !e.empty(); e.popFront()) {
         Binding& b = e.front().value();
         TraceEdge(trc, &b.environment, "module bindings environment");
         TraceEdge(trc, &b.shape, "module bindings shape");
@@ -342,12 +334,25 @@ IndirectBindingMap::trace(JSTracer* trc)
 }
 
 bool
-IndirectBindingMap::putNew(JSContext* cx, HandleId name,
-                           HandleModuleEnvironmentObject environment, HandleId localName)
+IndirectBindingMap::put(JSContext* cx, HandleId name,
+                        HandleModuleEnvironmentObject environment, HandleId localName)
 {
+    // This object might have been allocated on the background parsing thread in
+    // different zone to the final module. Lazily allocate the map so we don't
+    // have to switch its zone when merging compartments.
+    if (!map_) {
+        MOZ_ASSERT(!cx->zone()->group()->createdForHelperThread());
+        map_.emplace(cx->zone());
+        if (!map_->init()) {
+            map_.reset();
+            ReportOutOfMemory(cx);
+            return false;
+        }
+    }
+
     RootedShape shape(cx, environment->lookup(cx, localName));
     MOZ_ASSERT(shape);
-    if (!map_.putNew(name, Binding(environment, shape))) {
+    if (!map_->put(name, Binding(environment, shape))) {
         ReportOutOfMemory(cx);
         return false;
     }
@@ -358,7 +363,10 @@ IndirectBindingMap::putNew(JSContext* cx, HandleId name,
 bool
 IndirectBindingMap::lookup(jsid name, ModuleEnvironmentObject** envOut, Shape** shapeOut) const
 {
-    auto ptr = map_.lookup(name);
+    if (!map_)
+        return false;
+
+    auto ptr = map_->lookup(name);
     if (!ptr)
         return false;
 
@@ -428,7 +436,7 @@ ModuleNamespaceObject::addBinding(JSContext* cx, HandleAtom exportedName,
     RootedModuleEnvironmentObject environment(cx, &targetModule->initialEnvironment());
     RootedId exportedNameId(cx, AtomToId(exportedName));
     RootedId localNameId(cx, AtomToId(localName));
-    return bindings().putNew(cx, exportedNameId, environment, localNameId);
+    return bindings().put(cx, exportedNameId, environment, localNameId);
 }
 
 const char ModuleNamespaceObject::ProxyHandler::family = 0;
@@ -759,10 +767,9 @@ ModuleObject::create(JSContext* cx)
     RootedModuleObject self(cx, &obj->as<ModuleObject>());
 
     Zone* zone = cx->zone();
-    IndirectBindingMap* bindings = zone->new_<IndirectBindingMap>(zone);
-    if (!bindings || !bindings->init()) {
+    IndirectBindingMap* bindings = zone->new_<IndirectBindingMap>();
+    if (!bindings) {
         ReportOutOfMemory(cx);
-        js_delete<IndirectBindingMap>(bindings);
         return nullptr;
     }
 
@@ -799,7 +806,7 @@ ModuleObject::initialEnvironment() const
 ModuleEnvironmentObject*
 ModuleObject::environment() const
 {
-    MOZ_ASSERT(status() != MODULE_STATUS_ERRORED);
+    MOZ_ASSERT(!hadEvaluationError());
 
     // According to the spec the environment record is created during
     // instantiation, but we create it earlier than that.
@@ -845,7 +852,7 @@ void
 ModuleObject::init(HandleScript script)
 {
     initReservedSlot(ScriptSlot, PrivateValue(script));
-    initReservedSlot(StatusSlot, Int32Value(MODULE_STATUS_ERRORED));
+    initReservedSlot(StatusSlot, Int32Value(MODULE_STATUS_UNINSTANTIATED));
 }
 
 void
@@ -961,7 +968,8 @@ ModuleObject::script() const
 static inline void
 AssertValidModuleStatus(ModuleStatus status)
 {
-    MOZ_ASSERT(status >= MODULE_STATUS_ERRORED && status <= MODULE_STATUS_EVALUATED);
+    MOZ_ASSERT(status >= MODULE_STATUS_UNINSTANTIATED &&
+               status <= MODULE_STATUS_EVALUATED_ERROR);
 }
 
 ModuleStatus
@@ -972,11 +980,17 @@ ModuleObject::status() const
     return status;
 }
 
-Value
-ModuleObject::error() const
+bool
+ModuleObject::hadEvaluationError() const
 {
-    MOZ_ASSERT(status() == MODULE_STATUS_ERRORED);
-    return getReservedSlot(ErrorSlot);
+    return status() == MODULE_STATUS_EVALUATED_ERROR;
+}
+
+Value
+ModuleObject::evaluationError() const
+{
+    MOZ_ASSERT(hadEvaluationError());
+    return getReservedSlot(EvaluationErrorSlot);
 }
 
 Value
@@ -1098,8 +1112,8 @@ ModuleObject::createNamespace(JSContext* cx, HandleModuleObject self, HandleObje
     MOZ_ASSERT(exports->is<ArrayObject>());
 
     Zone* zone = cx->zone();
-    auto bindings = zone->make_unique<IndirectBindingMap>(zone);
-    if (!bindings || !bindings->init()) {
+    auto bindings = zone->make_unique<IndirectBindingMap>();
+    if (!bindings) {
         ReportOutOfMemory(cx);
         return nullptr;
     }
@@ -1137,7 +1151,7 @@ ModuleObject::Evaluate(JSContext* cx, HandleModuleObject self)
 
 DEFINE_GETTER_FUNCTIONS(ModuleObject, namespace_, NamespaceSlot)
 DEFINE_GETTER_FUNCTIONS(ModuleObject, status, StatusSlot)
-DEFINE_GETTER_FUNCTIONS(ModuleObject, error, ErrorSlot)
+DEFINE_GETTER_FUNCTIONS(ModuleObject, evaluationError, EvaluationErrorSlot)
 DEFINE_GETTER_FUNCTIONS(ModuleObject, requestedModules, RequestedModulesSlot)
 DEFINE_GETTER_FUNCTIONS(ModuleObject, importEntries, ImportEntriesSlot)
 DEFINE_GETTER_FUNCTIONS(ModuleObject, localExportEntries, LocalExportEntriesSlot)
@@ -1152,7 +1166,7 @@ GlobalObject::initModuleProto(JSContext* cx, Handle<GlobalObject*> global)
     static const JSPropertySpec protoAccessors[] = {
         JS_PSG("namespace", ModuleObject_namespace_Getter, 0),
         JS_PSG("status", ModuleObject_statusGetter, 0),
-        JS_PSG("error", ModuleObject_errorGetter, 0),
+        JS_PSG("evaluationError", ModuleObject_evaluationErrorGetter, 0),
         JS_PSG("requestedModules", ModuleObject_requestedModulesGetter, 0),
         JS_PSG("importEntries", ModuleObject_importEntriesGetter, 0),
         JS_PSG("localExportEntries", ModuleObject_localExportEntriesGetter, 0),

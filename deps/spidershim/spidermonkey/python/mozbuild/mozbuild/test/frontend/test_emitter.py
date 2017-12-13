@@ -35,6 +35,7 @@ from mozbuild.frontend.data import (
     LocalInclude,
     LocalizedFiles,
     LocalizedPreprocessedFiles,
+    PreprocessedIPDLFile,
     Program,
     RustLibrary,
     RustProgram,
@@ -113,7 +114,7 @@ class TestEmitterBasic(unittest.TestCase):
             self.assertTrue(os.path.isabs(o.context_main_path))
             self.assertEqual(len(o.context_all_paths), 1)
 
-        reldirs = [o.relativedir for o in objs]
+        reldirs = [o.relsrcdir for o in objs]
         self.assertEqual(reldirs, ['', 'foo', 'foo/biz', 'bar'])
 
         dirs = [[d.full_path for d in o.dirs] for o in objs]
@@ -133,11 +134,11 @@ class TestEmitterBasic(unittest.TestCase):
         for o in objs:
             self.assertIsInstance(o, DirectoryTraversal)
 
-        reldirs = set([o.relativedir for o in objs])
+        reldirs = set([o.relsrcdir for o in objs])
         self.assertEqual(reldirs, set(['', 'regular']))
 
         for o in objs:
-            reldir = o.relativedir
+            reldir = o.relsrcdir
 
             if reldir == '':
                 self.assertEqual([d.full_path for d in o.dirs], [
@@ -151,11 +152,11 @@ class TestEmitterBasic(unittest.TestCase):
         for o in objs:
             self.assertIsInstance(o, DirectoryTraversal)
 
-        reldirs = set([o.relativedir for o in objs])
+        reldirs = set([o.relsrcdir for o in objs])
         self.assertEqual(reldirs, set(['', 'regular', 'test']))
 
         for o in objs:
-            reldir = o.relativedir
+            reldir = o.relsrcdir
 
             if reldir == '':
                 self.assertEqual([d.full_path for d in o.dirs], [
@@ -215,7 +216,7 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('asflags', extra_substs={
             'ASFLAGS': ['-safeseh'],
         })
-        as_sources, sources, ldflags, asflags, lib, flags = self.read_topsrcdir(reader)
+        as_sources, sources, ldflags, lib, flags, asflags = self.read_topsrcdir(reader)
         self.assertIsInstance(asflags, ComputedFlags)
         self.assertEqual(asflags.flags['OS'], reader.config.substs['ASFLAGS'])
         self.assertEqual(asflags.flags['MOZBUILD'], ['-no-integrated-as'])
@@ -437,12 +438,12 @@ class TestEmitterBasic(unittest.TestCase):
                                  YASM_ASFLAGS='-foo',
                              ))
 
-        sources, passthru, ldflags, asflags, lib, flags = self.read_topsrcdir(reader)
+        sources, passthru, ldflags, lib, flags, asflags = self.read_topsrcdir(reader)
 
         self.assertIsInstance(passthru, VariablePassthru)
         self.assertIsInstance(ldflags, ComputedFlags)
-        self.assertIsInstance(asflags, ComputedFlags)
         self.assertIsInstance(flags, ComputedFlags)
+        self.assertIsInstance(asflags, ComputedFlags)
 
         self.assertEqual(asflags.flags['OS'], reader.config.substs['YASM_ASFLAGS'])
 
@@ -461,6 +462,7 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertEqual(len(objs), 3)
         for o in objs:
             self.assertIsInstance(o, GeneratedFile)
+            self.assertFalse(o.localized)
 
         expected = ['bar.c', 'foo.c', ('xpidllex.py', 'xpidlyacc.py'), ]
         for o, f in zip(objs, expected):
@@ -469,6 +471,53 @@ class TestEmitterBasic(unittest.TestCase):
             self.assertEqual(o.script, None)
             self.assertEqual(o.method, None)
             self.assertEqual(o.inputs, [])
+
+    def test_localized_generated_files(self):
+        reader = self.reader('localized-generated-files')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 2)
+        for o in objs:
+            self.assertIsInstance(o, GeneratedFile)
+            self.assertTrue(o.localized)
+
+        expected = ['abc.ini', ('bar', 'baz'), ]
+        for o, f in zip(objs, expected):
+            expected_filename = f if isinstance(f, tuple) else (f,)
+            self.assertEqual(o.outputs, expected_filename)
+            self.assertEqual(o.script, None)
+            self.assertEqual(o.method, None)
+            self.assertEqual(o.inputs, [])
+
+    def test_localized_files_from_generated(self):
+        """Test that using LOCALIZED_GENERATED_FILES and then putting the output in
+        LOCALIZED_FILES as an objdir path works.
+        """
+        reader = self.reader('localized-files-from-generated')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 2)
+        self.assertIsInstance(objs[0], GeneratedFile)
+        self.assertIsInstance(objs[1], LocalizedFiles)
+
+    def test_localized_files_not_localized_generated(self):
+        """Test that using GENERATED_FILES and then putting the output in
+        LOCALIZED_FILES as an objdir path produces an error.
+        """
+        reader = self.reader('localized-files-not-localized-generated')
+        with self.assertRaisesRegexp(SandboxValidationError,
+            'Objdir file listed in LOCALIZED_FILES not in LOCALIZED_GENERATED_FILES:'):
+            objs = self.read_topsrcdir(reader)
+
+
+    def test_localized_generated_files_final_target_files(self):
+        """Test that using LOCALIZED_GENERATED_FILES and then putting the output in
+        FINAL_TARGET_FILES as an objdir path produces an error.
+        """
+        reader = self.reader('localized-generated-files-final-target-files')
+        with self.assertRaisesRegexp(SandboxValidationError,
+            'Outputs of LOCALIZED_GENERATED_FILES cannot be used in FINAL_TARGET_FILES:'):
+            objs = self.read_topsrcdir(reader)
 
     def test_generated_files_method_names(self):
         reader = self.reader('generated-files-method-names')
@@ -895,9 +944,12 @@ class TestEmitterBasic(unittest.TestCase):
         objs = self.read_topsrcdir(reader)
 
         ipdls = []
+        nonstatic_ipdls = []
         for o in objs:
             if isinstance(o, IPDLFile):
-                ipdls.append('%s/%s' % (o.relativedir, o.basename))
+                ipdls.append('%s/%s' % (o.relsrcdir, o.basename))
+            elif isinstance(o, PreprocessedIPDLFile):
+                nonstatic_ipdls.append('%s/%s' % (o.relsrcdir, o.basename))
 
         expected = [
             'bar/bar.ipdl',
@@ -907,6 +959,13 @@ class TestEmitterBasic(unittest.TestCase):
         ]
 
         self.assertEqual(ipdls, expected)
+
+        expected = [
+            'bar/bar1.ipdl',
+            'foo/foo1.ipdl',
+        ]
+
+        self.assertEqual(nonstatic_ipdls, expected)
 
     def test_local_includes(self):
         """Test that LOCAL_INCLUDES is emitted correctly."""
@@ -1027,13 +1086,13 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('sources')
         objs = self.read_topsrcdir(reader)
 
-        computed_flags = objs.pop()
-        self.assertIsInstance(computed_flags, ComputedFlags)
-        # The second to last object is a Linkable.
-        linkable = objs.pop()
-        self.assertTrue(linkable.cxx_link)
         as_flags = objs.pop()
         self.assertIsInstance(as_flags, ComputedFlags)
+        computed_flags = objs.pop()
+        self.assertIsInstance(computed_flags, ComputedFlags)
+        # The third to last object is a Linkable.
+        linkable = objs.pop()
+        self.assertTrue(linkable.cxx_link)
         ld_flags = objs.pop()
         self.assertIsInstance(ld_flags, ComputedFlags)
         self.assertEqual(len(objs), 6)
@@ -1062,9 +1121,11 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('sources-just-c')
         objs = self.read_topsrcdir(reader)
 
+        as_flags = objs.pop()
+        self.assertIsInstance(as_flags, ComputedFlags)
         flags = objs.pop()
         self.assertIsInstance(flags, ComputedFlags)
-        # The second to last object is a Linkable.
+        # The third to last object is a Linkable.
         linkable = objs.pop()
         self.assertFalse(linkable.cxx_link)
 
@@ -1087,14 +1148,16 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('generated-sources')
         objs = self.read_topsrcdir(reader)
 
+        as_flags = objs.pop()
+        self.assertIsInstance(as_flags, ComputedFlags)
         flags = objs.pop()
         self.assertIsInstance(flags, ComputedFlags)
-        # The second to last object is a Linkable.
+        # The third to last object is a Linkable.
         linkable = objs.pop()
         self.assertTrue(linkable.cxx_link)
         flags = objs.pop()
         self.assertIsInstance(flags, ComputedFlags)
-        self.assertEqual(len(objs), 7)
+        self.assertEqual(len(objs), 6)
 
         generated_sources = [o for o in objs if isinstance(o, GeneratedSources)]
         self.assertEqual(len(generated_sources), 6)

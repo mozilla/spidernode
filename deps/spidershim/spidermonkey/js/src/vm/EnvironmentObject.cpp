@@ -493,10 +493,8 @@ ModuleEnvironmentObject::createImportBinding(JSContext* cx, HandleAtom importNam
     RootedId importNameId(cx, AtomToId(importName));
     RootedId localNameId(cx, AtomToId(localName));
     RootedModuleEnvironmentObject env(cx, &module->initialEnvironment());
-    if (!importBindings().putNew(cx, importNameId, env, localNameId)) {
-        ReportOutOfMemory(cx);
+    if (!importBindings().put(cx, importNameId, env, localNameId))
         return false;
-    }
 
     return true;
 }
@@ -2440,7 +2438,7 @@ DebugEnvironments::trace(JSTracer* trc)
 }
 
 void
-DebugEnvironments::sweep(JSRuntime* rt)
+DebugEnvironments::sweep()
 {
     /*
      * missingEnvs points to debug envs weakly so that debug envs can be

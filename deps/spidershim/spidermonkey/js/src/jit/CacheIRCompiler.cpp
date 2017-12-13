@@ -1417,6 +1417,22 @@ CacheIRCompiler::emitGuardIsNativeFunction()
 }
 
 bool
+CacheIRCompiler::emitGuardIsNativeObject()
+{
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    AutoScratchRegister scratch(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.loadObjClass(obj, scratch);
+    masm.branchTest32(Assembler::NonZero, Address(scratch, Class::offsetOfFlags()),
+                      Imm32(Class::NON_NATIVE), failure->label());
+    return true;
+}
+
+bool
 CacheIRCompiler::emitGuardIsProxy()
 {
     Register obj = allocator.useRegister(masm, reader.objOperandId());
@@ -1954,6 +1970,30 @@ CacheIRCompiler::emitLoadDenseElementHoleResult()
 }
 
 bool
+CacheIRCompiler::emitLoadTypedElementExistsResult()
+{
+    AutoOutputRegister output(*this);
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    Register index = allocator.useRegister(masm, reader.int32OperandId());
+    TypedThingLayout layout = reader.typedThingLayout();
+    AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
+
+    Label outOfBounds, done;
+
+    // Bound check.
+    LoadTypedThingLength(masm, layout, obj, scratch);
+    masm.branch32(Assembler::BelowOrEqual, scratch, index, &outOfBounds);
+    EmitStoreBoolean(masm, true, output);
+    masm.jump(&done);
+
+    masm.bind(&outOfBounds);
+    EmitStoreBoolean(masm, false, output);
+
+    masm.bind(&done);
+    return true;
+}
+
+bool
 CacheIRCompiler::emitLoadDenseElementExistsResult()
 {
     AutoOutputRegister output(*this);
@@ -2124,7 +2164,7 @@ CacheIRCompiler::emitLoadTypedElementResult()
 
 void
 CacheIRCompiler::emitLoadTypedObjectResultShared(const Address& fieldAddr, Register scratch,
-                                                 TypedThingLayout layout, uint32_t typeDescr,
+                                                 uint32_t typeDescr,
                                                  const AutoOutputRegister& output)
 {
     MOZ_ASSERT(output.hasValue());
@@ -2532,6 +2572,52 @@ CacheIRCompiler::emitMegamorphicHasPropResult()
     Label ok;
     uint32_t framePushed = masm.framePushed();
     masm.branchIfTrueBool(scratch, &ok);
+    masm.adjustStack(sizeof(Value));
+    masm.jump(failure->label());
+
+    masm.bind(&ok);
+    masm.setFramePushed(framePushed);
+    masm.loadTypedOrValue(Address(masm.getStackPointer(), 0), output);
+    masm.adjustStack(sizeof(Value));
+    return true;
+}
+
+bool
+CacheIRCompiler::emitCallObjectHasSparseElementResult()
+{
+    AutoOutputRegister output(*this);
+
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    Register index = allocator.useRegister(masm, reader.int32OperandId());
+
+    AutoScratchRegisterMaybeOutput scratch1(allocator, masm, output);
+    AutoScratchRegister scratch2(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.reserveStack(sizeof(Value));
+    masm.moveStackPtrTo(scratch2.get());
+
+    LiveRegisterSet volatileRegs(GeneralRegisterSet::Volatile(), liveVolatileFloatRegs());
+    volatileRegs.takeUnchecked(scratch1);
+    volatileRegs.takeUnchecked(index);
+    masm.PushRegsInMask(volatileRegs);
+
+    masm.setupUnalignedABICall(scratch1);
+    masm.loadJSContext(scratch1);
+    masm.passABIArg(scratch1);
+    masm.passABIArg(obj);
+    masm.passABIArg(index);
+    masm.passABIArg(scratch2);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, HasNativeElement));
+    masm.mov(ReturnReg, scratch1);
+    masm.PopRegsInMask(volatileRegs);
+
+    Label ok;
+    uint32_t framePushed = masm.framePushed();
+    masm.branchIfTrueBool(scratch1, &ok);
     masm.adjustStack(sizeof(Value));
     masm.jump(failure->label());
 

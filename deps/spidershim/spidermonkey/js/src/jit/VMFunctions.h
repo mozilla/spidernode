@@ -888,7 +888,7 @@ MOZ_MUST_USE bool
 BaselineThrowUninitializedThis(JSContext* cx, BaselineFrame* frame);
 
 MOZ_MUST_USE bool
-BaselineThrowInitializedThis(JSContext* cx, BaselineFrame* frame);
+BaselineThrowInitializedThis(JSContext* cx);
 
 MOZ_MUST_USE bool
 ThrowBadDerivedReturn(JSContext* cx, HandleValue v);
@@ -924,6 +924,9 @@ GetNativeDataPropertyByValue(JSContext* cx, JSObject* obj, Value* vp);
 template <bool HasOwn>
 bool
 HasNativeDataProperty(JSContext* cx, JSObject* obj, Value* vp);
+
+bool
+HasNativeElement(JSContext* cx, NativeObject* obj, int32_t index, Value* vp);
 
 template <bool NeedsTypeBarrier>
 bool

@@ -139,7 +139,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     numCompartments(0),
     localeCallbacks(nullptr),
     defaultLocale(nullptr),
-    defaultVersion_(JSVERSION_DEFAULT),
     profilingScripts(false),
     scriptAndCountsVector(nullptr),
     lcovOutput_(),
@@ -175,7 +174,7 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     oomCallback(nullptr),
     debuggerMallocSizeOf(ReturnZeroSize),
     lastAnimationTime(0),
-    performanceMonitoring_(thisFromCtor()),
+    performanceMonitoring_(),
     stackFormat_(parentRuntime ? js::StackFormat::Default
                                : js::StackFormat::SpiderMonkey)
 {

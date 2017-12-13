@@ -4053,9 +4053,9 @@ CodeGenerator::visitCallNative(LCallNative* call)
     masm.passABIArg(argUintNReg);
     masm.passABIArg(argVpReg);
     JSNative native = target->native();
-    if (call->ignoresReturnValue()) {
+    if (call->ignoresReturnValue() && target->hasJitInfo()) {
         const JSJitInfo* jitInfo = target->jitInfo();
-        if (jitInfo && jitInfo->type() == JSJitInfo::IgnoresReturnValueNative)
+        if (jitInfo->type() == JSJitInfo::IgnoresReturnValueNative)
             native = jitInfo->ignoresReturnValueMethod;
     }
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, native), MoveOp::GENERAL,
@@ -4110,7 +4110,7 @@ CodeGenerator::visitCallDOMNative(LCallDOMNative* call)
     WrappedFunction* target = call->getSingleTarget();
     MOZ_ASSERT(target);
     MOZ_ASSERT(target->isNative());
-    MOZ_ASSERT(target->jitInfo());
+    MOZ_ASSERT(target->hasJitInfo());
     MOZ_ASSERT(call->mir()->isCallDOMNative());
 
     int callargslot = call->argslot();
@@ -10697,8 +10697,7 @@ CodeGenerator::visitToAsyncIter(LToAsyncIter* lir)
     callVM(ToAsyncIterInfo, lir);
 }
 
-typedef bool (*ToIdFn)(JSContext*, HandleScript, jsbytecode*, HandleValue,
-                       MutableHandleValue);
+typedef bool (*ToIdFn)(JSContext*, HandleValue, MutableHandleValue);
 static const VMFunction ToIdInfo = FunctionInfo<ToIdFn>(ToIdOperation, "ToIdOperation");
 
 void
@@ -10710,9 +10709,7 @@ CodeGenerator::visitToIdV(LToIdV* lir)
     ValueOperand input = ToValue(lir, LToIdV::Input);
 
     OutOfLineCode* ool = oolCallVM(ToIdInfo, lir,
-                                   ArgList(ImmGCPtr(current->mir()->info().script()),
-                                           ImmPtr(lir->mir()->resumePoint()->pc()),
-                                           ToValue(lir, LToIdV::Input)),
+                                   ArgList(ToValue(lir, LToIdV::Input)),
                                    StoreValueTo(out));
 
     Register tag = masm.splitTagForTest(input);

@@ -23,6 +23,7 @@ namespace jit {
     _(GuardType)                          \
     _(GuardClass)                         \
     _(GuardIsNativeFunction)              \
+    _(GuardIsNativeObject)                \
     _(GuardIsProxy)                       \
     _(GuardNotDOMProxy)                   \
     _(GuardSpecificInt32Immediate)        \
@@ -50,6 +51,7 @@ namespace jit {
     _(LoadDenseElementHoleResult)         \
     _(LoadDenseElementExistsResult)       \
     _(LoadDenseElementHoleExistsResult)   \
+    _(LoadTypedElementExistsResult)       \
     _(LoadTypedElementResult)             \
     _(LoadObjectResult)                   \
     _(LoadTypeOfObjectResult)             \
@@ -61,6 +63,7 @@ namespace jit {
     _(Breakpoint)                         \
     _(MegamorphicLoadSlotByValueResult)   \
     _(MegamorphicHasPropResult)           \
+    _(CallObjectHasSparseElementResult)   \
     _(WrapResult)
 
 // Represents a Value on the Baseline frame's expression stack. Slot 0 is the
@@ -559,7 +562,7 @@ class MOZ_RAII CacheIRCompiler
     }
 
     void emitLoadTypedObjectResultShared(const Address& fieldAddr, Register scratch,
-                                         TypedThingLayout layout, uint32_t typeDescr,
+                                         uint32_t typeDescr,
                                          const AutoOutputRegister& output);
 
     void emitStoreTypedObjectReferenceProp(ValueOperand val, ReferenceTypeDescr::Type type,

@@ -1076,12 +1076,6 @@ class MOZ_RAII JSAutoRequest
 #endif
 };
 
-extern JS_PUBLIC_API(const char*)
-JS_VersionToString(JSVersion version);
-
-extern JS_PUBLIC_API(JSVersion)
-JS_StringToVersion(const char* string);
-
 namespace JS {
 
 class JS_PUBLIC_API(ContextOptions) {
@@ -1102,7 +1096,6 @@ class JS_PUBLIC_API(ContextOptions) {
         werror_(false),
         strictMode_(false),
         extraWarnings_(false),
-        forEachStatement_(false),
         streams_(false)
 #ifdef FUZZING
         , fuzzing_(false)
@@ -1254,12 +1247,6 @@ class JS_PUBLIC_API(ContextOptions) {
         return *this;
     }
 
-    bool forEachStatement() const { return forEachStatement_; }
-    ContextOptions& setForEachStatement(bool flag) {
-        forEachStatement_ = flag;
-        return *this;
-    }
-
 #ifdef FUZZING
     bool fuzzing() const { return fuzzing_; }
     ContextOptions& setFuzzing(bool flag) {
@@ -1294,7 +1281,6 @@ class JS_PUBLIC_API(ContextOptions) {
     bool werror_ : 1;
     bool strictMode_ : 1;
     bool extraWarnings_ : 1;
-    bool forEachStatement_: 1;
     bool streams_: 1;
 #ifdef FUZZING
     bool fuzzing_ : 1;
@@ -3638,7 +3624,6 @@ class JS_FRIEND_API(TransitiveCompileOptions)
         canLazilyParse(true),
         strictOption(false),
         extraWarningsOption(false),
-        forEachStatementOption(false),
         werrorOption(false),
         asmJSOption(AsmJSOption::Disabled),
         throwOnAsmJSValidationFailureOption(false),
@@ -3673,7 +3658,6 @@ class JS_FRIEND_API(TransitiveCompileOptions)
     bool canLazilyParse;
     bool strictOption;
     bool extraWarningsOption;
-    bool forEachStatementOption;
     bool werrorOption;
     AsmJSOption asmJSOption;
     bool throwOnAsmJSValidationFailureOption;
@@ -4272,12 +4256,6 @@ GetRequestedModuleSpecifier(JSContext* cx, JS::HandleValue requestedModuleObject
 extern JS_PUBLIC_API(void)
 GetRequestedModuleSourcePos(JSContext* cx, JS::HandleValue requestedModuleObject,
                             uint32_t* lineNumber, uint32_t* columnNumber);
-
-extern JS_PUBLIC_API(bool)
-IsModuleErrored(JSObject* moduleRecord);
-
-extern JS_PUBLIC_API(JS::Value)
-GetModuleError(JSObject* moduleRecord);
 
 } /* namespace JS */
 

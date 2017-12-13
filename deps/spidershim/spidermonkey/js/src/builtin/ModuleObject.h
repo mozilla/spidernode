@@ -7,6 +7,8 @@
 #ifndef builtin_ModuleObject_h
 #define builtin_ModuleObject_h
 
+#include "mozilla/Maybe.h"
+
 #include "jsapi.h"
 #include "jsatom.h"
 
@@ -128,27 +130,27 @@ typedef Handle<RequestedModuleObject*> HandleRequestedModuleObject;
 class IndirectBindingMap
 {
   public:
-    explicit IndirectBindingMap(Zone* zone);
-    bool init();
-
     void trace(JSTracer* trc);
 
-    bool putNew(JSContext* cx, HandleId name,
-                HandleModuleEnvironmentObject environment, HandleId localName);
+    bool put(JSContext* cx, HandleId name,
+             HandleModuleEnvironmentObject environment, HandleId localName);
 
     size_t count() const {
-        return map_.count();
+        return map_ ? map_->count() : 0;
     }
 
     bool has(jsid name) const {
-        return map_.has(name);
+        return map_ ? map_->has(name) : false;
     }
 
     bool lookup(jsid name, ModuleEnvironmentObject** envOut, Shape** shapeOut) const;
 
     template <typename Func>
     void forEachExportedName(Func func) const {
-        for (auto r = map_.all(); !r.empty(); r.popFront())
+        if (!map_)
+            return;
+
+        for (auto r = map_->all(); !r.empty(); r.popFront())
             func(r.front().key());
     }
 
@@ -162,7 +164,7 @@ class IndirectBindingMap
 
     typedef HashMap<jsid, Binding, DefaultHasher<jsid>, ZoneAllocPolicy> Map;
 
-    Map map_;
+    mozilla::Maybe<Map> map_;
 };
 
 class ModuleNamespaceObject : public ProxyObject
@@ -254,7 +256,7 @@ class ModuleObject : public NativeObject
         EnvironmentSlot,
         NamespaceSlot,
         StatusSlot,
-        ErrorSlot,
+        EvaluationErrorSlot,
         HostDefinedSlot,
         RequestedModulesSlot,
         ImportEntriesSlot,
@@ -272,8 +274,8 @@ class ModuleObject : public NativeObject
                   "EnvironmentSlot must match self-hosting define");
     static_assert(StatusSlot == MODULE_OBJECT_STATUS_SLOT,
                   "StatusSlot must match self-hosting define");
-    static_assert(ErrorSlot == MODULE_OBJECT_ERROR_SLOT,
-                  "ErrorSlot must match self-hosting define");
+    static_assert(EvaluationErrorSlot == MODULE_OBJECT_EVALUATION_ERROR_SLOT,
+                  "EvaluationErrorSlot must match self-hosting define");
     static_assert(DFSIndexSlot == MODULE_OBJECT_DFS_INDEX_SLOT,
                   "DFSIndexSlot must match self-hosting define");
     static_assert(DFSAncestorIndexSlot == MODULE_OBJECT_DFS_ANCESTOR_INDEX_SLOT,
@@ -303,7 +305,8 @@ class ModuleObject : public NativeObject
     ModuleEnvironmentObject* environment() const;
     ModuleNamespaceObject* namespace_();
     ModuleStatus status() const;
-    Value error() const;
+    bool hadEvaluationError() const;
+    Value evaluationError() const;
     Value hostDefinedField() const;
     ArrayObject& requestedModules() const;
     ArrayObject& importEntries() const;
