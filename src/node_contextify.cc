@@ -621,6 +621,7 @@ class ContextifyScript : public BaseObject {
         new ContextifyScript(env, args.This());
 
     TryCatch try_catch(env->isolate());
+    Environment::ShouldNotAbortOnUncaughtScope no_abort_scope(env);
     Local<String> code =
         args[0]->ToString(env->context()).FromMaybe(Local<String>());
 
@@ -628,16 +629,15 @@ class ContextifyScript : public BaseObject {
     MaybeLocal<String> filename = GetFilenameArg(env, options);
     MaybeLocal<Integer> lineOffset = GetLineOffsetArg(env, options);
     MaybeLocal<Integer> columnOffset = GetColumnOffsetArg(env, options);
-    Maybe<bool> maybe_display_errors = GetDisplayErrorsArg(env, options);
     MaybeLocal<Uint8Array> cached_data_buf = GetCachedData(env, options);
     Maybe<bool> maybe_produce_cached_data = GetProduceCachedData(env, options);
     MaybeLocal<Context> maybe_context = GetContext(env, options);
     if (try_catch.HasCaught()) {
+      no_abort_scope.Close();
       try_catch.ReThrow();
       return;
     }
 
-    bool display_errors = maybe_display_errors.ToChecked();
     bool produce_cached_data = maybe_produce_cached_data.ToChecked();
 
     ScriptCompiler::CachedData* cached_data = nullptr;
@@ -668,9 +668,8 @@ class ContextifyScript : public BaseObject {
         compile_options);
 
     if (v8_script.IsEmpty()) {
-      if (display_errors) {
-        DecorateErrorStack(env, try_catch);
-      }
+      DecorateErrorStack(env, try_catch);
+      no_abort_scope.Close();
       try_catch.ReThrow();
       return;
     }

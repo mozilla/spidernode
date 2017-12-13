@@ -510,6 +510,15 @@ console.log(buf2.toString());
 ### Class Method: Buffer.alloc(size[, fill[, encoding]])
 <!-- YAML
 added: v5.10.0
+changes:
+  - version: v8.9.3
+    pr-url: https://github.com/nodejs/node/pull/17428
+    description: Specifying an invalid string for `fill` now results in a
+                 zero-filled buffer.
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/17427
+    description: Specifying an invalid string for `fill` triggers a thrown
+                 exception.
 -->
 
 * `size` {integer} The desired length of the new `Buffer`.
@@ -1220,6 +1229,10 @@ changes:
   - version: v5.7.0
     pr-url: https://github.com/nodejs/node/pull/4935
     description: The `encoding` parameter is supported now.
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/17427
+    description: Specifying an invalid string for `value` triggers a thrown
+                 exception.
 -->
 
 * `value` {string|Buffer|integer} The value to fill `buf` with.
@@ -1252,6 +1265,19 @@ Example: Fill a `Buffer` with a two-byte character
 ```js
 // Prints: <Buffer c8 a2 c8>
 console.log(Buffer.allocUnsafe(3).fill('\u0222'));
+```
+
+If `value` contains invalid characters, it is truncated; if no valid
+fill data remains, an exception is thrown:
+
+```js
+const buf = Buffer.allocUnsafe(5);
+// Prints: <Buffer 61 61 61 61 61>
+console.log(buf.fill('a'));
+// Prints: <Buffer aa aa aa aa aa>
+console.log(buf.fill('aazz', 'hex'));
+// Throws an exception.
+console.log(buf.fill('zz', 'hex'));
 ```
 
 ### buf.includes(value[, byteOffset][, encoding])

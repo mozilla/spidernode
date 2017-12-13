@@ -118,20 +118,18 @@ Tests whether `name` and `expected` are part of a raised warning.
 
 Checks if `pathname` exists
 
-### fires(promise, [error], [timeoutMs])
-* promise [&lt;Promise]
-* error [&lt;String] default = 'timeout'
-* timeoutMs [&lt;Number] default = 100
-
-Returns a new promise that will propagate `promise` resolution or rejection if
-that happens within the `timeoutMs` timespan, or rejects with `error` as
-a reason otherwise.
-
 ### getArrayBufferViews(buf)
 * `buf` [&lt;Buffer>]
 * return [&lt;ArrayBufferView&#91;&#93;>]
 
 Returns an instance of all possible `ArrayBufferView`s of the provided Buffer.
+
+### getBufferSources(buf)
+* `buf` [&lt;Buffer>]
+* return [&lt;BufferSource&#91;&#93;>]
+
+Returns an instance of all possible `BufferSource`s of the provided Buffer,
+consisting of all `ArrayBufferView` and an `ArrayBuffer`.
 
 ### getCallSite(func)
 * `func` [&lt;Function>]

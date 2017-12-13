@@ -417,6 +417,8 @@ assert.strictEqual(
 // test positive/negative zero
 assert.strictEqual(util.inspect(0), '0');
 assert.strictEqual(util.inspect(-0), '-0');
+// edge case from check
+assert.strictEqual(util.inspect(-5e-324), '-5e-324');
 
 // test for sparse array
 {
@@ -1136,22 +1138,22 @@ if (typeof Symbol !== 'undefined') {
     JSON.stringify(oldOptions)
   );
 
-  assert.throws(() => {
+  common.expectsError(() => {
     util.inspect.defaultOptions = null;
-  }, common.expectsError({
+  }, {
     code: 'ERR_INVALID_ARG_TYPE',
     type: TypeError,
     message: 'The "options" argument must be of type Object'
-  })
+  }
   );
 
-  assert.throws(() => {
+  common.expectsError(() => {
     util.inspect.defaultOptions = 'bad';
-  }, common.expectsError({
+  }, {
     code: 'ERR_INVALID_ARG_TYPE',
     type: TypeError,
     message: 'The "options" argument must be of type Object'
-  })
+  }
   );
 }
 

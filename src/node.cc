@@ -147,12 +147,15 @@ using v8::HandleScope;
 using v8::HeapStatistics;
 using v8::Integer;
 using v8::Isolate;
+using v8::Just;
 using v8::Local;
 using v8::Locker;
+using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Message;
 using v8::Name;
 using v8::NamedPropertyHandlerConfiguration;
+using v8::Nothing;
 using v8::Null;
 using v8::Number;
 using v8::Object;
@@ -782,7 +785,8 @@ namespace {
 bool ShouldAbortOnUncaughtException(Isolate* isolate) {
   HandleScope scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
-  return env->should_abort_on_uncaught_toggle()[0];
+  return env->should_abort_on_uncaught_toggle()[0] &&
+         !env->inside_should_not_abort_on_uncaught_scope();
 }
 
 
@@ -1301,16 +1305,6 @@ void AppendExceptionLine(Environment* env,
   Local<Object> err_obj;
   if (!er.IsEmpty() && er->IsObject()) {
     err_obj = er.As<Object>();
-
-    auto context = env->context();
-    auto processed_private_symbol = env->processed_private_symbol();
-    // Do it only once per message
-    if (err_obj->HasPrivate(context, processed_private_symbol).FromJust())
-      return;
-    err_obj->SetPrivate(
-        context,
-        processed_private_symbol,
-        True(env->isolate()));
   }
 
   // Print (filename):(line number): (message).
@@ -1321,6 +1315,8 @@ void AppendExceptionLine(Environment* env,
   // Print line of source code.
   node::Utf8Value sourceline(env->isolate(), message->GetSourceLine());
   const char* sourceline_string = *sourceline;
+  if (strstr(sourceline_string, "node-do-not-add-exception-line") != nullptr)
+    return;
 
   // Because of how node modules work, all scripts are wrapped with a
   // "function (module, exports, __filename, ...) {"
@@ -2013,7 +2009,7 @@ static void InitGroups(const FunctionCallbackInfo<Value>& args) {
 
 static void WaitForInspectorDisconnect(Environment* env) {
 #if HAVE_INSPECTOR
-  if (env->inspector_agent()->IsConnected()) {
+  if (env->inspector_agent()->delegate() != nullptr) {
     // Restore signal dispositions, the app is done and is no longer
     // capable of handling signals.
 #if defined(__POSIX__) && !defined(NODE_SHARED_MODE)
@@ -2284,8 +2280,11 @@ static void DLOpen(const FunctionCallbackInfo<Value>& args) {
   }
   if (mp->nm_version == -1) {
     if (env->EmitNapiWarning()) {
-      ProcessEmitWarning(env, "N-API is an experimental feature and could "
-                         "change at any time.");
+      if (ProcessEmitWarning(env, "N-API is an experimental feature and could "
+                                  "change at any time.").IsNothing()) {
+        dlib.Close();
+        return;
+      }
     }
   } else if (mp->nm_version != NODE_MODULE_VERSION) {
     char errmsg[1024];
@@ -2432,8 +2431,62 @@ static void OnMessage(Local<Message> message, Local<Value> error) {
   FatalException(Isolate::GetCurrent(), error, message);
 }
 
+static Maybe<bool> ProcessEmitWarningGeneric(Environment* env,
+                                             const char* warning,
+                                             const char* type = nullptr,
+                                             const char* code = nullptr) {
+  HandleScope handle_scope(env->isolate());
+  Context::Scope context_scope(env->context());
+
+  Local<Object> process = env->process_object();
+  Local<Value> emit_warning;
+  if (!process->Get(env->context(),
+                    env->emit_warning_string()).ToLocal(&emit_warning)) {
+    return Nothing<bool>();
+  }
+
+  if (!emit_warning->IsFunction()) return Just(false);
+
+  int argc = 0;
+  Local<Value> args[3];  // warning, type, code
+
+  // The caller has to be able to handle a failure anyway, so we might as well
+  // do proper error checking for string creation.
+  if (!String::NewFromUtf8(env->isolate(),
+                           warning,
+                           v8::NewStringType::kNormal).ToLocal(&args[argc++])) {
+    return Nothing<bool>();
+  }
+  if (type != nullptr) {
+    if (!String::NewFromOneByte(env->isolate(),
+                                reinterpret_cast<const uint8_t*>(type),
+                                v8::NewStringType::kNormal)
+                                    .ToLocal(&args[argc++])) {
+      return Nothing<bool>();
+    }
+    if (code != nullptr &&
+        !String::NewFromOneByte(env->isolate(),
+                                reinterpret_cast<const uint8_t*>(code),
+                                v8::NewStringType::kNormal)
+                                    .ToLocal(&args[argc++])) {
+      return Nothing<bool>();
+    }
+  }
+
+  // MakeCallback() unneeded because emitWarning is internal code, it calls
+  // process.emit('warning', ...), but does so on the nextTick.
+  if (emit_warning.As<Function>()->Call(env->context(),
+                                        process,
+                                        argc,
+                                        args).IsEmpty()) {
+    return Nothing<bool>();
+  }
+  return Just(true);
+}
+
+
 // Call process.emitWarning(str), fmt is a snprintf() format string
-void ProcessEmitWarning(Environment* env, const char* fmt, ...) {
+Maybe<bool> ProcessEmitWarning(Environment* env, const char* fmt, ...) {
   char warning[1024];
   va_list ap;
 
@@ -2441,23 +2494,19 @@ void ProcessEmitWarning(Environment* env, const char* fmt, ...) {
   vsnprintf(warning, sizeof(warning), fmt, ap);
   va_end(ap);
 
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
-
-  Local<Object> process = env->process_object();
-  MaybeLocal<Value> emit_warning = process->Get(env->context(),
-      FIXED_ONE_BYTE_STRING(env->isolate(), "emitWarning"));
-  Local<Value> arg = node::OneByteString(env->isolate(), warning);
-
-  Local<Value> f;
-
-  if (!emit_warning.ToLocal(&f)) return;
-  if (!f->IsFunction()) return;
-
-  // MakeCallback() unneeded, because emitWarning is internal code, it calls
-  // process.emit('warning', ..), but does so on the nextTick.
-  f.As<v8::Function>()->Call(process, 1, &arg);
+  return ProcessEmitWarningGeneric(env, warning);
 }
+
+
+Maybe<bool> ProcessEmitDeprecationWarning(Environment* env,
+                                          const char* warning,
+                                          const char* deprecation_code) {
+  return ProcessEmitWarningGeneric(env,
+                                   warning,
+                                   "DeprecationWarning",
+                                   deprecation_code);
+}
+
 
 static bool PullFromCache(Environment* env,
                           const FunctionCallbackInfo<Value>& args,
@@ -4243,12 +4292,6 @@ void Init(int* argc,
     exit(9);
   }
 #endif
-
-  // Unconditionally force typed arrays to allocate outside the v8 heap. This
-  // is to prevent memory pointers from being moved around that are returned by
-  // Buffer::Data().
-  const char no_typed_array_heap[] = "--typed_array_max_size_in_heap=0";
-  V8::SetFlagsFromString(no_typed_array_heap, sizeof(no_typed_array_heap) - 1);
 
   // Needed for access to V8 intrinsics.  Disabled again during bootstrapping,
   // see lib/internal/bootstrap_node.js.

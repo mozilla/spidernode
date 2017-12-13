@@ -39,8 +39,18 @@ const noop = () => {};
 // Using a `.` prefixed name, which is the convention for "hidden" on POSIX,
 // gets tools to ignore it by default or by simple rules, especially eslint.
 let tmpDirName = '.tmp';
-// PORT should match the definition in test/testpy/__init__.py.
-exports.PORT = +process.env.NODE_COMMON_PORT || 12346;
+
+Object.defineProperty(exports, 'PORT', {
+  get: () => {
+    if (+process.env.TEST_PARALLEL) {
+      throw new Error('common.PORT cannot be used in a parallelized test');
+    }
+    return +process.env.NODE_COMMON_PORT || 12346;
+  },
+  enumerable: true
+});
+
+
 exports.isWindows = process.platform === 'win32';
 exports.isChakraEngine = process.jsEngine === 'chakracore';
 exports.isWOW64 = exports.isWindows &&
@@ -163,7 +173,6 @@ exports.refreshTmpDir = function() {
 };
 
 if (process.env.TEST_THREAD_ID) {
-  exports.PORT += process.env.TEST_THREAD_ID * 100;
   tmpDirName += `.${process.env.TEST_THREAD_ID}`;
 }
 exports.tmpDir = path.join(testRoot, tmpDirName);
@@ -494,6 +503,8 @@ exports.mustCallAtLeast = function(fn, minimum) {
 };
 
 function _mustCallInner(fn, criteria = 1, field) {
+  if (process._exiting)
+    throw new Error('Cannot use common.mustCall*() in process exit handler');
   if (typeof fn === 'number') {
     criteria = fn;
     fn = noop;
@@ -525,7 +536,7 @@ function _mustCallInner(fn, criteria = 1, field) {
 exports.hasMultiLocalhost = function hasMultiLocalhost() {
   const { TCP, constants: TCPConstants } = process.binding('tcp_wrap');
   const t = new TCP(TCPConstants.SOCKET);
-  const ret = t.bind('127.0.0.2', exports.PORT);
+  const ret = t.bind('127.0.0.2', 0);
   t.close();
   return ret === 0;
 };
@@ -734,7 +745,7 @@ exports.expectsError = function expectsError(fn, settings, exact) {
     settings = fn;
     fn = undefined;
   }
-  const innerFn = exports.mustCall(function(error) {
+  function innerFn(error) {
     assert.strictEqual(error.code, settings.code);
     if ('type' in settings) {
       const type = settings.type;
@@ -767,12 +778,12 @@ exports.expectsError = function expectsError(fn, settings, exact) {
       });
     }
     return true;
-  }, exact);
+  }
   if (fn) {
     assert.throws(fn, innerFn);
     return;
   }
-  return innerFn;
+  return exports.mustCall(innerFn, exact);
 };
 
 exports.skipIfInspectorDisabled = function skipIfInspectorDisabled() {
@@ -811,6 +822,10 @@ exports.getArrayBufferViews = function getArrayBufferViews(buf) {
     }
   }
   return out;
+};
+
+exports.getBufferSources = function getBufferSources(buf) {
+  return [...exports.getArrayBufferViews(buf), new Uint8Array(buf).buffer];
 };
 
 // Crash the process on unhandled rejections.
@@ -860,32 +875,6 @@ function restoreWritable(name) {
   delete process[name].writeTimes;
 }
 
-function onResolvedOrRejected(promise, callback) {
-  return promise.then((result) => {
-    callback();
-    return result;
-  }, (error) => {
-    callback();
-    throw error;
-  });
-}
-
-function timeoutPromise(error, timeoutMs) {
-  let clearCallback = null;
-  let done = false;
-  const promise = onResolvedOrRejected(new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(error), timeoutMs);
-    clearCallback = () => {
-      if (done)
-        return;
-      clearTimeout(timeout);
-      resolve();
-    };
-  }), () => done = true);
-  promise.clear = clearCallback;
-  return promise;
-}
-
 exports.hijackStdout = hijackStdWritable.bind(null, 'stdout');
 exports.hijackStderr = hijackStdWritable.bind(null, 'stderr');
 exports.restoreStdout = restoreWritable.bind(null, 'stdout');
@@ -898,20 +887,4 @@ exports.firstInvalidFD = function firstInvalidFD() {
     while (fs.fstatSync(++fd));
   } catch (e) {}
   return fd;
-};
-
-exports.fires = function fires(promise, error, timeoutMs) {
-  if (!timeoutMs && util.isNumber(error)) {
-    timeoutMs = error;
-    error = null;
-  }
-  if (!error)
-    error = 'timeout';
-  if (!timeoutMs)
-    timeoutMs = 100;
-  const timeout = timeoutPromise(error, timeoutMs);
-  return Promise.race([
-    onResolvedOrRejected(promise, () => timeout.clear()),
-    timeout
-  ]);
 };

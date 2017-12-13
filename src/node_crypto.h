@@ -26,7 +26,7 @@
 
 #include "node.h"
 // ClientHelloParser
-#include "node_crypto_clienthello-inl.h"
+#include "node_crypto_clienthello.h"
 
 #include "node_buffer.h"
 
@@ -712,7 +712,7 @@ class DiffieHellman : public BaseObject {
                        const BIGNUM* (*get_field)(const DH*),
                        const char* err_if_null);
   static void SetKey(const v8::FunctionCallbackInfo<v8::Value>& args,
-                     void (*set_field)(DH*, BIGNUM*), const char* what);
+                     int (*set_field)(DH*, BIGNUM*), const char* what);
   bool VerifyContext();
 
   bool initialised_;

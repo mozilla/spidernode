@@ -216,7 +216,7 @@ class InspectorSession {
   waitForNotification(methodOrPredicate, description) {
     const desc = description || methodOrPredicate;
     const message = `Timed out waiting for matching notification (${desc}))`;
-    return common.fires(
+    return fires(
       this._asyncWaitForNotification(methodOrPredicate), message, TIMEOUT);
   }
 
@@ -323,7 +323,7 @@ class NodeInstance {
     const instance = new NodeInstance(
       [], `${scriptContents}\nprocess._rawDebug('started');`, undefined);
     const msg = 'Timed out waiting for process to start';
-    while (await common.fires(instance.nextStderrString(), msg, TIMEOUT) !==
+    while (await fires(instance.nextStderrString(), msg, TIMEOUT) !==
              'started') {}
     process._debugProcess(instance._process.pid);
     return instance;
@@ -369,28 +369,43 @@ class NodeInstance {
     });
   }
 
-  wsHandshake(devtoolsUrl) {
-    return this.portPromise.then((port) => new Promise((resolve) => {
-      http.get({
-        port,
-        path: url.parse(devtoolsUrl).path,
-        headers: {
-          'Connection': 'Upgrade',
-          'Upgrade': 'websocket',
-          'Sec-WebSocket-Version': 13,
-          'Sec-WebSocket-Key': 'key=='
-        }
-      }).on('upgrade', (message, socket) => {
-        resolve(new InspectorSession(socket, this));
-      }).on('response', common.mustNotCall('Upgrade was not received'));
-    }));
+  async sendUpgradeRequest() {
+    const response = await this.httpGet(null, '/json/list');
+    const devtoolsUrl = response[0]['webSocketDebuggerUrl'];
+    const port = await this.portPromise;
+    return http.get({
+      port,
+      path: url.parse(devtoolsUrl).path,
+      headers: {
+        'Connection': 'Upgrade',
+        'Upgrade': 'websocket',
+        'Sec-WebSocket-Version': 13,
+        'Sec-WebSocket-Key': 'key=='
+      }
+    });
   }
 
   async connectInspectorSession() {
     console.log('[test]', 'Connecting to a child Node process');
-    const response = await this.httpGet(null, '/json/list');
-    const url = response[0]['webSocketDebuggerUrl'];
-    return this.wsHandshake(url);
+    const upgradeRequest = await this.sendUpgradeRequest();
+    return new Promise((resolve, reject) => {
+      upgradeRequest
+        .on('upgrade',
+            (message, socket) => resolve(new InspectorSession(socket, this)))
+        .on('response', common.mustNotCall('Upgrade was not received'));
+    });
+  }
+
+  async expectConnectionDeclined() {
+    console.log('[test]', 'Checking upgrade is not possible');
+    const upgradeRequest = await this.sendUpgradeRequest();
+    return new Promise((resolve, reject) => {
+      upgradeRequest
+          .on('upgrade', common.mustNotCall('Upgrade was received'))
+          .on('response', (response) =>
+            response.on('data', () => {})
+                    .on('end', () => resolve(response.statusCode)));
+    });
   }
 
   expectShutdown() {
@@ -403,6 +418,10 @@ class NodeInstance {
     return new Promise((resolve) => this._stderrLineCallback = resolve);
   }
 
+  write(message) {
+    this._process.stdin.write(message);
+  }
+
   kill() {
     this._process.kill();
   }
@@ -410,6 +429,43 @@ class NodeInstance {
 
 function readMainScriptSource() {
   return fs.readFileSync(_MAINSCRIPT, 'utf8');
+}
+
+function onResolvedOrRejected(promise, callback) {
+  return promise.then((result) => {
+    callback();
+    return result;
+  }, (error) => {
+    callback();
+    throw error;
+  });
+}
+
+function timeoutPromise(error, timeoutMs) {
+  let clearCallback = null;
+  let done = false;
+  const promise = onResolvedOrRejected(new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(error), timeoutMs);
+    clearCallback = () => {
+      if (done)
+        return;
+      clearTimeout(timeout);
+      resolve();
+    };
+  }), () => done = true);
+  promise.clear = clearCallback;
+  return promise;
+}
+
+// Returns a new promise that will propagate `promise` resolution or rejection
+// if that happens within the `timeoutMs` timespan, or rejects with `error` as
+// a reason otherwise.
+function fires(promise, error, timeoutMs) {
+  const timeout = timeoutPromise(error, timeoutMs);
+  return Promise.race([
+    onResolvedOrRejected(promise, () => timeout.clear()),
+    timeout
+  ]);
 }
 
 module.exports = {
