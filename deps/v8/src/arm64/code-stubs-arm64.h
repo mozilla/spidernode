@@ -9,9 +9,6 @@ namespace v8 {
 namespace internal {
 
 
-void ArrayNativeCode(MacroAssembler* masm, Label* call_generic_code);
-
-
 class StringHelper : public AllStatic {
  public:
   // Compares two flat one-byte strings and returns result in x0.
@@ -32,34 +29,6 @@ class StringHelper : public AllStatic {
       Register scratch1, Register scratch2, Label* chars_not_equal);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StringHelper);
-};
-
-
-class StoreRegistersStateStub: public PlatformCodeStub {
- public:
-  explicit StoreRegistersStateStub(Isolate* isolate)
-      : PlatformCodeStub(isolate) {}
-
-  static Register to_be_pushed_lr() { return ip0; }
-
-  static void GenerateAheadOfTime(Isolate* isolate);
-
- private:
-  DEFINE_NULL_CALL_INTERFACE_DESCRIPTOR();
-  DEFINE_PLATFORM_CODE_STUB(StoreRegistersState, PlatformCodeStub);
-};
-
-
-class RestoreRegistersStateStub: public PlatformCodeStub {
- public:
-  explicit RestoreRegistersStateStub(Isolate* isolate)
-      : PlatformCodeStub(isolate) {}
-
-  static void GenerateAheadOfTime(Isolate* isolate);
-
- private:
-  DEFINE_NULL_CALL_INTERFACE_DESCRIPTOR();
-  DEFINE_PLATFORM_CODE_STUB(RestoreRegistersState, PlatformCodeStub);
 };
 
 
@@ -99,71 +68,9 @@ class RecordWriteStub: public PlatformCodeStub {
 
   bool SometimesSetsUpAFrame() override { return false; }
 
-  static Mode GetMode(Code* stub) {
-    // Find the mode depending on the first two instructions.
-    Instruction* instr1 =
-      reinterpret_cast<Instruction*>(stub->instruction_start());
-    Instruction* instr2 = instr1->following();
+  static Mode GetMode(Code* stub);
 
-    if (instr1->IsUncondBranchImm()) {
-      DCHECK(instr2->IsPCRelAddressing() && (instr2->Rd() == xzr.code()));
-      return INCREMENTAL;
-    }
-
-    DCHECK(instr1->IsPCRelAddressing() && (instr1->Rd() == xzr.code()));
-
-    if (instr2->IsUncondBranchImm()) {
-      return INCREMENTAL_COMPACTION;
-    }
-
-    DCHECK(instr2->IsPCRelAddressing());
-
-    return STORE_BUFFER_ONLY;
-  }
-
-  // We patch the two first instructions of the stub back and forth between an
-  // adr and branch when we start and stop incremental heap marking.
-  // The branch is
-  //   b label
-  // The adr is
-  //   adr xzr label
-  // so effectively a nop.
-  static void Patch(Code* stub, Mode mode) {
-    // We are going to patch the two first instructions of the stub.
-    PatchingAssembler patcher(
-        stub->GetIsolate(),
-        reinterpret_cast<Instruction*>(stub->instruction_start()), 2);
-    Instruction* instr1 = patcher.InstructionAt(0);
-    Instruction* instr2 = patcher.InstructionAt(kInstructionSize);
-    // Instructions must be either 'adr' or 'b'.
-    DCHECK(instr1->IsPCRelAddressing() || instr1->IsUncondBranchImm());
-    DCHECK(instr2->IsPCRelAddressing() || instr2->IsUncondBranchImm());
-    // Retrieve the offsets to the labels.
-    auto offset_to_incremental_noncompacting =
-        static_cast<int32_t>(instr1->ImmPCOffset());
-    auto offset_to_incremental_compacting =
-        static_cast<int32_t>(instr2->ImmPCOffset());
-
-    switch (mode) {
-      case STORE_BUFFER_ONLY:
-        DCHECK(GetMode(stub) == INCREMENTAL ||
-               GetMode(stub) == INCREMENTAL_COMPACTION);
-        patcher.adr(xzr, offset_to_incremental_noncompacting);
-        patcher.adr(xzr, offset_to_incremental_compacting);
-        break;
-      case INCREMENTAL:
-        DCHECK(GetMode(stub) == STORE_BUFFER_ONLY);
-        patcher.b(offset_to_incremental_noncompacting >> kInstructionSizeLog2);
-        patcher.adr(xzr, offset_to_incremental_compacting);
-        break;
-      case INCREMENTAL_COMPACTION:
-        DCHECK(GetMode(stub) == STORE_BUFFER_ONLY);
-        patcher.adr(xzr, offset_to_incremental_noncompacting);
-        patcher.b(offset_to_incremental_compacting >> kInstructionSizeLog2);
-        break;
-    }
-    DCHECK(GetMode(stub) == mode);
-  }
+  static void Patch(Code* stub, Mode mode);
 
   DEFINE_NULL_CALL_INTERFACE_DESCRIPTOR();
 
@@ -172,37 +79,7 @@ class RecordWriteStub: public PlatformCodeStub {
   // The 'object' and 'address' registers must be preserved.
   class RegisterAllocation {
    public:
-    RegisterAllocation(Register object,
-                       Register address,
-                       Register scratch)
-        : object_(object),
-          address_(address),
-          scratch0_(scratch),
-          saved_regs_(kCallerSaved),
-          saved_fp_regs_(kCallerSavedFP) {
-      DCHECK(!AreAliased(scratch, object, address));
-
-      // The SaveCallerSaveRegisters method needs to save caller-saved
-      // registers, but we don't bother saving MacroAssembler scratch registers.
-      saved_regs_.Remove(MacroAssembler::DefaultTmpList());
-      saved_fp_regs_.Remove(MacroAssembler::DefaultFPTmpList());
-
-      // We would like to require more scratch registers for this stub,
-      // but the number of registers comes down to the ones used in
-      // FullCodeGen::SetVar(), which is architecture independent.
-      // We allocate 2 extra scratch registers that we'll save on the stack.
-      CPURegList pool_available = GetValidRegistersForAllocation();
-      CPURegList used_regs(object, address, scratch);
-      pool_available.Remove(used_regs);
-      scratch1_ = Register(pool_available.PopLowestIndex());
-      scratch2_ = Register(pool_available.PopLowestIndex());
-
-      // The scratch registers will be restored by other means so we don't need
-      // to save them with the other caller saved registers.
-      saved_regs_.Remove(scratch0_);
-      saved_regs_.Remove(scratch1_);
-      saved_regs_.Remove(scratch2_);
-    }
+    RegisterAllocation(Register object, Register address, Register scratch);
 
     void Save(MacroAssembler* masm) {
       // We don't have to save scratch0_ because it was given to us as
@@ -244,8 +121,8 @@ class RecordWriteStub: public PlatformCodeStub {
     Register object_;
     Register address_;
     Register scratch0_;
-    Register scratch1_;
-    Register scratch2_;
+    Register scratch1_ = NoReg;
+    Register scratch2_ = NoReg;
     CPURegList saved_regs_;
     CPURegList saved_fp_regs_;
 
@@ -288,9 +165,7 @@ class RecordWriteStub: public PlatformCodeStub {
       Mode mode);
   void InformIncrementalMarker(MacroAssembler* masm);
 
-  void Activate(Code* code) override {
-    code->GetHeap()->incremental_marking()->ActivateGeneratedStub(code);
-  }
+  void Activate(Code* code) override;
 
   Register object() const {
     return Register::from_code(ObjectBits::decode(minor_key_));

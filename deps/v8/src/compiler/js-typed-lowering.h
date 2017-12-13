@@ -6,7 +6,6 @@
 #define V8_COMPILER_JS_TYPED_LOWERING_H_
 
 #include "src/base/compiler-specific.h"
-#include "src/base/flags.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/opcodes.h"
 #include "src/globals.h"
@@ -15,7 +14,6 @@ namespace v8 {
 namespace internal {
 
 // Forward declarations.
-class CompilationDependencies;
 class Factory;
 
 namespace compiler {
@@ -31,16 +29,10 @@ class TypeCache;
 class V8_EXPORT_PRIVATE JSTypedLowering final
     : public NON_EXPORTED_BASE(AdvancedReducer) {
  public:
-  // Flags that control the mode of operation.
-  enum Flag {
-    kNoFlags = 0u,
-    kDeoptimizationEnabled = 1u << 0,
-  };
-  typedef base::Flags<Flag> Flags;
-
-  JSTypedLowering(Editor* editor, CompilationDependencies* dependencies,
-                  Flags flags, JSGraph* jsgraph, Zone* zone);
+  JSTypedLowering(Editor* editor, JSGraph* jsgraph, Zone* zone);
   ~JSTypedLowering() final {}
+
+  const char* reducer_name() const override { return "JSTypedLowering"; }
 
   Reduction Reduce(Node* node) final;
 
@@ -50,16 +42,14 @@ class V8_EXPORT_PRIVATE JSTypedLowering final
   Reduction ReduceJSAdd(Node* node);
   Reduction ReduceJSComparison(Node* node);
   Reduction ReduceJSLoadNamed(Node* node);
-  Reduction ReduceJSLoadProperty(Node* node);
-  Reduction ReduceJSStoreProperty(Node* node);
+  Reduction ReduceJSHasInPrototypeChain(Node* node);
   Reduction ReduceJSOrdinaryHasInstance(Node* node);
   Reduction ReduceJSLoadContext(Node* node);
   Reduction ReduceJSStoreContext(Node* node);
   Reduction ReduceJSLoadModule(Node* node);
   Reduction ReduceJSStoreModule(Node* node);
-  Reduction ReduceJSEqualTypeOf(Node* node, bool invert);
-  Reduction ReduceJSEqual(Node* node, bool invert);
-  Reduction ReduceJSStrictEqual(Node* node, bool invert);
+  Reduction ReduceJSEqual(Node* node);
+  Reduction ReduceJSStrictEqual(Node* node);
   Reduction ReduceJSToBoolean(Node* node);
   Reduction ReduceJSToInteger(Node* node);
   Reduction ReduceJSToLength(Node* node);
@@ -70,9 +60,12 @@ class V8_EXPORT_PRIVATE JSTypedLowering final
   Reduction ReduceJSToString(Node* node);
   Reduction ReduceJSToObject(Node* node);
   Reduction ReduceJSConvertReceiver(Node* node);
-  Reduction ReduceJSCallConstruct(Node* node);
-  Reduction ReduceJSCallFunction(Node* node);
+  Reduction ReduceJSConstructForwardVarargs(Node* node);
+  Reduction ReduceJSConstruct(Node* node);
+  Reduction ReduceJSCallForwardVarargs(Node* node);
+  Reduction ReduceJSCall(Node* node);
   Reduction ReduceJSForInNext(Node* node);
+  Reduction ReduceJSForInPrepare(Node* node);
   Reduction ReduceJSLoadMessage(Node* node);
   Reduction ReduceJSStoreMessage(Node* node);
   Reduction ReduceJSGeneratorStore(Node* node);
@@ -83,6 +76,16 @@ class V8_EXPORT_PRIVATE JSTypedLowering final
   Reduction ReduceInt32Binop(Node* node);
   Reduction ReduceUI32Shift(Node* node, Signedness signedness);
   Reduction ReduceCreateConsString(Node* node);
+  Reduction ReduceSpeculativeNumberAdd(Node* node);
+  Reduction ReduceSpeculativeNumberMultiply(Node* node);
+  Reduction ReduceSpeculativeNumberBinop(Node* node);
+  Reduction ReduceSpeculativeNumberComparison(Node* node);
+
+  // Helper for ReduceJSLoadModule and ReduceJSStoreModule.
+  Node* BuildGetModuleCell(Node* node);
+
+  // Helpers for ReduceJSCreateConsString and ReduceJSStringConcat.
+  Node* BuildGetStringLength(Node* value, Node** effect, Node* control);
 
   Factory* factory() const;
   Graph* graph() const;
@@ -91,17 +94,12 @@ class V8_EXPORT_PRIVATE JSTypedLowering final
   JSOperatorBuilder* javascript() const;
   CommonOperatorBuilder* common() const;
   SimplifiedOperatorBuilder* simplified() const;
-  CompilationDependencies* dependencies() const;
-  Flags flags() const { return flags_; }
 
-  CompilationDependencies* dependencies_;
-  Flags flags_;
   JSGraph* jsgraph_;
-  Type* shifted_int32_ranges_[4];
+  Type* empty_string_type_;
+  Type* pointer_comparable_type_;
   TypeCache const& type_cache_;
 };
-
-DEFINE_OPERATORS_FOR_FLAGS(JSTypedLowering::Flags)
 
 }  // namespace compiler
 }  // namespace internal

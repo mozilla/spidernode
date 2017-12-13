@@ -6,8 +6,10 @@
 
 #include "src/regexp/ia32/regexp-macro-assembler-ia32.h"
 
+#include "src/assembler-inl.h"
 #include "src/log.h"
 #include "src/macro-assembler.h"
+#include "src/objects-inl.h"
 #include "src/regexp/regexp-macro-assembler.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/unicode.h"
@@ -69,9 +71,10 @@ namespace internal {
  *              Address start,
  *              Address end,
  *              int* capture_output_array,
- *              bool at_start,
+ *              int num_capture_registers,
  *              byte* stack_area_base,
- *              bool direct_call)
+ *              bool direct_call = false,
+ *              Isolate* isolate);
  */
 
 #define __ ACCESS_MASM(masm_)
@@ -122,8 +125,8 @@ void RegExpMacroAssemblerIA32::AdvanceCurrentPosition(int by) {
 
 
 void RegExpMacroAssemblerIA32::AdvanceRegister(int reg, int by) {
-  DCHECK(reg >= 0);
-  DCHECK(reg < num_registers_);
+  DCHECK_LE(0, reg);
+  DCHECK_GT(num_registers_, reg);
   if (by != 0) {
     __ add(register_location(reg), Immediate(by));
   }
@@ -298,11 +301,11 @@ void RegExpMacroAssemblerIA32::CheckNotBackReferenceIgnoreCase(
 //   Isolate* isolate or 0 if unicode flag.
 
     // Set isolate.
-#ifdef V8_I18N_SUPPORT
+#ifdef V8_INTL_SUPPORT
     if (unicode) {
       __ mov(Operand(esp, 3 * kPointerSize), Immediate(0));
     } else  // NOLINT
-#endif      // V8_I18N_SUPPORT
+#endif      // V8_INTL_SUPPORT
     {
       __ mov(Operand(esp, 3 * kPointerSize),
              Immediate(ExternalReference::isolate_address(isolate())));
@@ -468,7 +471,7 @@ void RegExpMacroAssemblerIA32::CheckNotCharacterAfterMinusAnd(
     uc16 minus,
     uc16 mask,
     Label* on_not_equal) {
-  DCHECK(minus < String::kMaxUtf16CodeUnit);
+  DCHECK_GT(String::kMaxUtf16CodeUnit, minus);
   __ lea(eax, Operand(current_character(), -minus));
   if (c == 0) {
     __ test(eax, Immediate(mask));
@@ -931,11 +934,9 @@ Handle<HeapObject> RegExpMacroAssemblerIA32::GetCode(Handle<String> source) {
   }
 
   CodeDesc code_desc;
-  masm_->GetCode(&code_desc);
-  Handle<Code> code =
-      isolate()->factory()->NewCode(code_desc,
-                                    Code::ComputeFlags(Code::REGEXP),
-                                    masm_->CodeObject());
+  masm_->GetCode(masm_->isolate(), &code_desc);
+  Handle<Code> code = isolate()->factory()->NewCode(code_desc, Code::REGEXP,
+                                                    masm_->CodeObject());
   PROFILE(masm_->isolate(),
           RegExpCodeCreateEvent(AbstractCode::cast(*code), *source));
   return Handle<HeapObject>::cast(code);
@@ -1189,7 +1190,7 @@ void RegExpMacroAssemblerIA32::SafeCallTarget(Label* name) {
 
 
 void RegExpMacroAssemblerIA32::Push(Register source) {
-  DCHECK(!source.is(backtrack_stackpointer()));
+  DCHECK(source != backtrack_stackpointer());
   // Notice: This updates flags, unlike normal Push.
   __ sub(backtrack_stackpointer(), Immediate(kPointerSize));
   __ mov(Operand(backtrack_stackpointer(), 0), source);
@@ -1204,7 +1205,7 @@ void RegExpMacroAssemblerIA32::Push(Immediate value) {
 
 
 void RegExpMacroAssemblerIA32::Pop(Register target) {
-  DCHECK(!target.is(backtrack_stackpointer()));
+  DCHECK(target != backtrack_stackpointer());
   __ mov(target, Operand(backtrack_stackpointer(), 0));
   // Notice: This updates flags, unlike normal Pop.
   __ add(backtrack_stackpointer(), Immediate(kPointerSize));
@@ -1246,7 +1247,7 @@ void RegExpMacroAssemblerIA32::LoadCurrentCharacterUnchecked(int cp_offset,
     } else if (characters == 2) {
       __ movzx_w(current_character(), Operand(esi, edi, times_1, cp_offset));
     } else {
-      DCHECK(characters == 1);
+      DCHECK_EQ(1, characters);
       __ movzx_b(current_character(), Operand(esi, edi, times_1, cp_offset));
     }
   } else {
@@ -1255,7 +1256,7 @@ void RegExpMacroAssemblerIA32::LoadCurrentCharacterUnchecked(int cp_offset,
       __ mov(current_character(),
              Operand(esi, edi, times_1, cp_offset * sizeof(uc16)));
     } else {
-      DCHECK(characters == 1);
+      DCHECK_EQ(1, characters);
       __ movzx_w(current_character(),
                  Operand(esi, edi, times_1, cp_offset * sizeof(uc16)));
     }

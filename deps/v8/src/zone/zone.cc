@@ -49,7 +49,8 @@ Zone::Zone(AccountingAllocator* allocator, const char* name)
       limit_(0),
       allocator_(allocator),
       segment_head_(nullptr),
-      name_(name) {
+      name_(name),
+      sealed_(false) {
   allocator_->ZoneCreation(this);
 }
 
@@ -62,6 +63,8 @@ Zone::~Zone() {
 }
 
 void* Zone::New(size_t size) {
+  CHECK(!sealed_);
+
   // Round up the requested size to fit the alignment.
   size = RoundUp(size, kAlignmentInBytes);
 
@@ -111,9 +114,9 @@ void Zone::DeleteAll() {
 // of the segment chain. Returns the new segment.
 Segment* Zone::NewSegment(size_t requested_size) {
   Segment* result = allocator_->GetSegment(requested_size);
-  DCHECK_GE(result->size(), requested_size);
-  segment_bytes_allocated_ += result->size();
   if (result != nullptr) {
+    DCHECK_GE(result->size(), requested_size);
+    segment_bytes_allocated_ += result->size();
     result->set_zone(this);
     result->set_next(segment_head_);
     segment_head_ = result;
@@ -168,7 +171,7 @@ Address Zone::NewExpand(size_t size) {
   Address result = RoundUp(segment->start(), kAlignmentInBytes);
   position_ = result + size;
   // Check for address overflow.
-  // (Should not happen since the segment is guaranteed to accomodate
+  // (Should not happen since the segment is guaranteed to accommodate
   // size bytes + header and alignment padding)
   DCHECK(reinterpret_cast<uintptr_t>(position_) >=
          reinterpret_cast<uintptr_t>(result));

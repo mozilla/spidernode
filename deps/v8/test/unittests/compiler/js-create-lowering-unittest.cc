@@ -40,8 +40,7 @@ class JSCreateLoweringTest : public TypedGraphTest {
                     &machine);
     // TODO(titzer): mock the GraphReducer here for better unit testing.
     GraphReducer graph_reducer(zone(), graph());
-    JSCreateLowering reducer(&graph_reducer, &deps_, &jsgraph,
-                             MaybeHandle<LiteralsArray>(), native_context(),
+    JSCreateLowering reducer(&graph_reducer, &deps_, &jsgraph, native_context(),
                              zone());
     return reducer.Reduce(node);
   }
@@ -53,7 +52,7 @@ class JSCreateLoweringTest : public TypedGraphTest {
         common()->FrameState(
             BailoutId::None(), OutputFrameStateCombine::Ignore(),
             common()->CreateFrameStateFunctionInfo(
-                FrameStateType::kJavaScriptFunction, 1, 0, shared)),
+                FrameStateType::kInterpretedFunction, 1, 0, shared)),
         state_values, state_values, state_values, NumberConstant(0),
         UndefinedConstant(), outer_frame_state);
   }
@@ -65,19 +64,24 @@ class JSCreateLoweringTest : public TypedGraphTest {
   CompilationDependencies deps_;
 };
 
+// -----------------------------------------------------------------------------
+// JSCreate
+
 TEST_F(JSCreateLoweringTest, JSCreate) {
   Handle<JSFunction> function = isolate()->object_function();
   Node* const target = Parameter(Type::HeapConstant(function, graph()->zone()));
   Node* const context = Parameter(Type::Any());
   Node* const effect = graph()->start();
-  Reduction r = Reduce(graph()->NewNode(javascript()->Create(), target, target,
-                                        context, EmptyFrameState(), effect));
+  Node* const control = graph()->start();
+  Reduction r =
+      Reduce(graph()->NewNode(javascript()->Create(), target, target, context,
+                              EmptyFrameState(), effect, control));
   ASSERT_TRUE(r.Changed());
   EXPECT_THAT(
       r.replacement(),
       IsFinishRegion(
           IsAllocate(IsNumberConstant(function->initial_map()->instance_size()),
-                     IsBeginRegion(effect), _),
+                     IsBeginRegion(effect), control),
           _));
 }
 
@@ -88,7 +92,7 @@ TEST_F(JSCreateLoweringTest, JSCreateArgumentsInlinedMapped) {
   Node* const closure = Parameter(Type::Any());
   Node* const context = UndefinedConstant();
   Node* const effect = graph()->start();
-  Handle<SharedFunctionInfo> shared(isolate()->object_function()->shared());
+  Handle<SharedFunctionInfo> shared(isolate()->script_function()->shared());
   Node* const frame_state_outer = FrameState(shared, graph()->start());
   Node* const frame_state_inner = FrameState(shared, frame_state_outer);
   Reduction r = Reduce(graph()->NewNode(
@@ -106,7 +110,7 @@ TEST_F(JSCreateLoweringTest, JSCreateArgumentsInlinedUnmapped) {
   Node* const closure = Parameter(Type::Any());
   Node* const context = UndefinedConstant();
   Node* const effect = graph()->start();
-  Handle<SharedFunctionInfo> shared(isolate()->object_function()->shared());
+  Handle<SharedFunctionInfo> shared(isolate()->script_function()->shared());
   Node* const frame_state_outer = FrameState(shared, graph()->start());
   Node* const frame_state_inner = FrameState(shared, frame_state_outer);
   Reduction r = Reduce(graph()->NewNode(
@@ -124,7 +128,7 @@ TEST_F(JSCreateLoweringTest, JSCreateArgumentsInlinedRestArray) {
   Node* const closure = Parameter(Type::Any());
   Node* const context = UndefinedConstant();
   Node* const effect = graph()->start();
-  Handle<SharedFunctionInfo> shared(isolate()->object_function()->shared());
+  Handle<SharedFunctionInfo> shared(isolate()->script_function()->shared());
   Node* const frame_state_outer = FrameState(shared, graph()->start());
   Node* const frame_state_inner = FrameState(shared, frame_state_outer);
   Reduction r = Reduce(graph()->NewNode(
@@ -134,36 +138,6 @@ TEST_F(JSCreateLoweringTest, JSCreateArgumentsInlinedRestArray) {
   EXPECT_THAT(
       r.replacement(),
       IsFinishRegion(IsAllocate(IsNumberConstant(JSArray::kSize), _, _), _));
-}
-
-// -----------------------------------------------------------------------------
-// JSCreateClosure
-
-TEST_F(JSCreateLoweringTest, JSCreateClosureViaInlinedAllocation) {
-  if (!FLAG_turbo_lower_create_closure) return;
-  Node* const context = UndefinedConstant();
-  Node* const effect = graph()->start();
-  Node* const control = graph()->start();
-  Handle<SharedFunctionInfo> shared(isolate()->number_function()->shared());
-
-  // Create a mock feedback vector. It just has to be an array with an array
-  // in slot 0.
-  Handle<FixedArray> array = isolate()->factory()->NewFixedArray(
-      FeedbackVector::kReservedIndexCount + 1);
-  array->set_map_no_write_barrier(isolate()->heap()->feedback_vector_map());
-  Handle<FeedbackVector> vector = Handle<FeedbackVector>::cast(array);
-  FeedbackVectorSlot slot(0);
-  vector->Set(slot, *vector);
-  VectorSlotPair pair(vector, slot);
-
-  Reduction r = Reduce(
-      graph()->NewNode(javascript()->CreateClosure(shared, pair, NOT_TENURED),
-                       context, effect, control));
-  ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(r.replacement(),
-              IsFinishRegion(IsAllocate(IsNumberConstant(JSFunction::kSize),
-                                        IsBeginRegion(_), control),
-                             _));
 }
 
 // -----------------------------------------------------------------------------

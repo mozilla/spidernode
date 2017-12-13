@@ -34,8 +34,7 @@ class JSBuiltinReducerTest : public TypedGraphTest {
     // TODO(titzer): mock the GraphReducer here for better unit testing.
     GraphReducer graph_reducer(zone(), graph());
 
-    JSBuiltinReducer reducer(&graph_reducer, &jsgraph,
-                             JSBuiltinReducer::kNoFlags, nullptr,
+    JSBuiltinReducer reducer(&graph_reducer, &jsgraph, nullptr,
                              native_context());
     return reducer.Reduce(node);
   }
@@ -123,9 +122,9 @@ TEST_F(JSBuiltinReducerTest, GlobalIsFiniteWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -142,9 +141,9 @@ TEST_F(JSBuiltinReducerTest, GlobalIsFiniteWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -167,9 +166,9 @@ TEST_F(JSBuiltinReducerTest, GlobalIsNaNWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -185,9 +184,9 @@ TEST_F(JSBuiltinReducerTest, GlobalIsNaNWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -208,9 +207,9 @@ TEST_F(JSBuiltinReducerTest, MathAbsWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -226,9 +225,9 @@ TEST_F(JSBuiltinReducerTest, MathAbsWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -247,9 +246,9 @@ TEST_F(JSBuiltinReducerTest, MathAcosWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -265,9 +264,9 @@ TEST_F(JSBuiltinReducerTest, MathAcosWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -286,9 +285,9 @@ TEST_F(JSBuiltinReducerTest, MathAcoshWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -304,9 +303,9 @@ TEST_F(JSBuiltinReducerTest, MathAcoshWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -325,9 +324,9 @@ TEST_F(JSBuiltinReducerTest, MathAsinWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -343,9 +342,9 @@ TEST_F(JSBuiltinReducerTest, MathAsinWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -364,9 +363,9 @@ TEST_F(JSBuiltinReducerTest, MathAsinhWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -382,9 +381,9 @@ TEST_F(JSBuiltinReducerTest, MathAsinhWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -403,9 +402,9 @@ TEST_F(JSBuiltinReducerTest, MathAtanWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -421,9 +420,9 @@ TEST_F(JSBuiltinReducerTest, MathAtanWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -442,9 +441,9 @@ TEST_F(JSBuiltinReducerTest, MathAtanhWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -460,9 +459,9 @@ TEST_F(JSBuiltinReducerTest, MathAtanhWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -483,9 +482,9 @@ TEST_F(JSBuiltinReducerTest, MathAtan2WithNumber) {
     Node* p0 = Parameter(t0, 0);
     TRACED_FOREACH(Type*, t1, kNumberTypes) {
       Node* p1 = Parameter(t1, 0);
-      Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                    UndefinedConstant(), p0, p1, context,
-                                    frame_state, effect, control);
+      Node* call =
+          graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(),
+                           p0, p1, context, frame_state, effect, control);
       Reduction r = Reduce(call);
 
       ASSERT_TRUE(r.Changed());
@@ -503,9 +502,9 @@ TEST_F(JSBuiltinReducerTest, MathAtan2WithPlainPrimitive) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
   Node* p1 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -525,9 +524,9 @@ TEST_F(JSBuiltinReducerTest, MathCeilWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -543,9 +542,9 @@ TEST_F(JSBuiltinReducerTest, MathCeilWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -563,9 +562,9 @@ TEST_F(JSBuiltinReducerTest, MathClz32WithUnsigned32) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::Unsigned32(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -580,9 +579,9 @@ TEST_F(JSBuiltinReducerTest, MathClz32WithNumber) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::Number(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -597,9 +596,9 @@ TEST_F(JSBuiltinReducerTest, MathClz32WithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -619,9 +618,9 @@ TEST_F(JSBuiltinReducerTest, MathCosWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -637,9 +636,9 @@ TEST_F(JSBuiltinReducerTest, MathCosWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -658,9 +657,9 @@ TEST_F(JSBuiltinReducerTest, MathCoshWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -676,9 +675,9 @@ TEST_F(JSBuiltinReducerTest, MathCoshWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -697,9 +696,9 @@ TEST_F(JSBuiltinReducerTest, MathExpWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -715,9 +714,9 @@ TEST_F(JSBuiltinReducerTest, MathExpWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -736,9 +735,9 @@ TEST_F(JSBuiltinReducerTest, MathFloorWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -754,9 +753,9 @@ TEST_F(JSBuiltinReducerTest, MathFloorWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -775,9 +774,9 @@ TEST_F(JSBuiltinReducerTest, MathFroundWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -793,9 +792,9 @@ TEST_F(JSBuiltinReducerTest, MathFroundWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -814,9 +813,9 @@ TEST_F(JSBuiltinReducerTest, MathImulWithUnsigned32) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::Unsigned32(), 0);
   Node* p1 = Parameter(Type::Unsigned32(), 1);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -832,9 +831,9 @@ TEST_F(JSBuiltinReducerTest, MathImulWithNumber) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::Number(), 0);
   Node* p1 = Parameter(Type::Number(), 1);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -851,9 +850,9 @@ TEST_F(JSBuiltinReducerTest, MathImulWithPlainPrimitive) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
   Node* p1 = Parameter(Type::PlainPrimitive(), 1);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -874,9 +873,9 @@ TEST_F(JSBuiltinReducerTest, MathLogWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -892,9 +891,9 @@ TEST_F(JSBuiltinReducerTest, MathLogWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -913,9 +912,9 @@ TEST_F(JSBuiltinReducerTest, MathLog1pWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -931,9 +930,9 @@ TEST_F(JSBuiltinReducerTest, MathLog1pWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -950,9 +949,9 @@ TEST_F(JSBuiltinReducerTest, MathMaxWithNoArguments) {
   Node* control = graph()->start();
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
-  Node* call = graph()->NewNode(javascript()->CallFunction(2), function,
-                                UndefinedConstant(), context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(2), function, UndefinedConstant(),
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -968,9 +967,9 @@ TEST_F(JSBuiltinReducerTest, MathMaxWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -987,9 +986,9 @@ TEST_F(JSBuiltinReducerTest, MathMaxWithPlainPrimitive) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
   Node* p1 = Parameter(Type::PlainPrimitive(), 1);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1007,9 +1006,9 @@ TEST_F(JSBuiltinReducerTest, MathMinWithNoArguments) {
   Node* control = graph()->start();
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
-  Node* call = graph()->NewNode(javascript()->CallFunction(2), function,
-                                UndefinedConstant(), context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(2), function, UndefinedConstant(),
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1025,9 +1024,9 @@ TEST_F(JSBuiltinReducerTest, MathMinWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1044,9 +1043,9 @@ TEST_F(JSBuiltinReducerTest, MathMinWithPlainPrimitive) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
   Node* p1 = Parameter(Type::PlainPrimitive(), 1);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1066,9 +1065,9 @@ TEST_F(JSBuiltinReducerTest, MathRoundWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1084,9 +1083,9 @@ TEST_F(JSBuiltinReducerTest, MathRoundWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1107,9 +1106,9 @@ TEST_F(JSBuiltinReducerTest, MathPowWithNumber) {
     Node* p0 = Parameter(t0, 0);
     TRACED_FOREACH(Type*, t1, kNumberTypes) {
       Node* p1 = Parameter(t1, 0);
-      Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                    UndefinedConstant(), p0, p1, context,
-                                    frame_state, effect, control);
+      Node* call =
+          graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(),
+                           p0, p1, context, frame_state, effect, control);
       Reduction r = Reduce(call);
 
       ASSERT_TRUE(r.Changed());
@@ -1127,9 +1126,9 @@ TEST_F(JSBuiltinReducerTest, MathPowWithPlainPrimitive) {
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
   Node* p1 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                UndefinedConstant(), p0, p1, context,
-                                frame_state, effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(), p0,
+                       p1, context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1149,9 +1148,9 @@ TEST_F(JSBuiltinReducerTest, MathSignWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1167,9 +1166,9 @@ TEST_F(JSBuiltinReducerTest, MathSignWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1188,9 +1187,9 @@ TEST_F(JSBuiltinReducerTest, MathSinWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1206,9 +1205,9 @@ TEST_F(JSBuiltinReducerTest, MathSinWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1227,9 +1226,9 @@ TEST_F(JSBuiltinReducerTest, MathSinhWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1245,9 +1244,9 @@ TEST_F(JSBuiltinReducerTest, MathSinhWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1266,9 +1265,9 @@ TEST_F(JSBuiltinReducerTest, MathSqrtWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1284,9 +1283,9 @@ TEST_F(JSBuiltinReducerTest, MathSqrtWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1305,9 +1304,9 @@ TEST_F(JSBuiltinReducerTest, MathTanWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1323,9 +1322,9 @@ TEST_F(JSBuiltinReducerTest, MathTanWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1344,9 +1343,9 @@ TEST_F(JSBuiltinReducerTest, MathTanhWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1362,9 +1361,9 @@ TEST_F(JSBuiltinReducerTest, MathTanhWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1383,9 +1382,9 @@ TEST_F(JSBuiltinReducerTest, MathTruncWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1401,9 +1400,9 @@ TEST_F(JSBuiltinReducerTest, MathTruncWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());
@@ -1422,9 +1421,9 @@ TEST_F(JSBuiltinReducerTest, NumberIsFiniteWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1445,9 +1444,9 @@ TEST_F(JSBuiltinReducerTest, NumberIsIntegerWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1469,13 +1468,13 @@ TEST_F(JSBuiltinReducerTest, NumberIsNaNWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(), IsBooleanNot(IsNumberEqual(p0, p0)));
+    EXPECT_THAT(r.replacement(), IsObjectIsNaN(p0));
   }
 }
 
@@ -1491,9 +1490,9 @@ TEST_F(JSBuiltinReducerTest, NumberIsSafeIntegerWithIntegral32) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kIntegral32Types) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1513,9 +1512,9 @@ TEST_F(JSBuiltinReducerTest, NumberParseIntWithIntegral32) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kIntegral32Types) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1533,9 +1532,9 @@ TEST_F(JSBuiltinReducerTest, NumberParseIntWithIntegral32AndUndefined) {
   TRACED_FOREACH(Type*, t0, kIntegral32Types) {
     Node* p0 = Parameter(t0, 0);
     Node* p1 = Parameter(Type::Undefined(), 1);
-    Node* call = graph()->NewNode(javascript()->CallFunction(4), function,
-                                  UndefinedConstant(), p0, p1, context,
-                                  frame_state, effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(4), function, UndefinedConstant(),
+                         p0, p1, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1555,9 +1554,9 @@ TEST_F(JSBuiltinReducerTest, StringFromCharCodeWithNumber) {
   Node* frame_state = graph()->start();
   TRACED_FOREACH(Type*, t0, kNumberTypes) {
     Node* p0 = Parameter(t0, 0);
-    Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                  UndefinedConstant(), p0, context, frame_state,
-                                  effect, control);
+    Node* call =
+        graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(),
+                         p0, context, frame_state, effect, control);
     Reduction r = Reduce(call);
 
     ASSERT_TRUE(r.Changed());
@@ -1573,9 +1572,9 @@ TEST_F(JSBuiltinReducerTest, StringFromCharCodeWithPlainPrimitive) {
   Node* context = UndefinedConstant();
   Node* frame_state = graph()->start();
   Node* p0 = Parameter(Type::PlainPrimitive(), 0);
-  Node* call = graph()->NewNode(javascript()->CallFunction(3), function,
-                                UndefinedConstant(), p0, context, frame_state,
-                                effect, control);
+  Node* call =
+      graph()->NewNode(javascript()->Call(3), function, UndefinedConstant(), p0,
+                       context, frame_state, effect, control);
   Reduction r = Reduce(call);
 
   ASSERT_TRUE(r.Changed());

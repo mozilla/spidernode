@@ -7,29 +7,12 @@
 #if V8_TARGET_ARCH_IA32
 
 #include "src/codegen.h"
+#include "src/factory-inl.h"
 #include "src/heap/heap.h"
 #include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
-
-
-// -------------------------------------------------------------------------
-// Platform-specific RuntimeCallHelper functions.
-
-void StubRuntimeCallHelper::BeforeCall(MacroAssembler* masm) const {
-  masm->EnterFrame(StackFrame::INTERNAL);
-  DCHECK(!masm->has_frame());
-  masm->set_has_frame(true);
-}
-
-
-void StubRuntimeCallHelper::AfterCall(MacroAssembler* masm) const {
-  masm->LeaveFrame(StackFrame::INTERNAL);
-  DCHECK(masm->has_frame());
-  masm->set_has_frame(false);
-}
-
 
 #define __ masm.
 
@@ -55,8 +38,8 @@ UnaryMathFunctionWithIsolate CreateSqrtFunction(Isolate* isolate) {
   }
 
   CodeDesc desc;
-  masm.GetCode(&desc);
-  DCHECK(!RelocInfo::RequiresRelocation(desc));
+  masm.GetCode(isolate, &desc);
+  DCHECK(!RelocInfo::RequiresRelocation(isolate, desc));
 
   Assembler::FlushICache(isolate, buffer, actual_size);
   base::OS::ProtectCode(buffer, actual_size);
@@ -468,8 +451,8 @@ MemMoveFunction CreateMemMoveFunction(Isolate* isolate) {
   MemMoveEmitPopAndReturn(&masm);
 
   CodeDesc desc;
-  masm.GetCode(&desc);
-  DCHECK(!RelocInfo::RequiresRelocation(desc));
+  masm.GetCode(isolate, &desc);
+  DCHECK(!RelocInfo::RequiresRelocation(isolate, desc));
   Assembler::FlushICache(isolate, buffer, actual_size);
   base::OS::ProtectCode(buffer, actual_size);
   // TODO(jkummerow): It would be nice to register this code creation event
@@ -491,6 +474,9 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
                                        Register index,
                                        Register result,
                                        Label* call_runtime) {
+  Label indirect_string_loaded;
+  __ bind(&indirect_string_loaded);
+
   // Fetch the instance type of the receiver into result register.
   __ mov(result, FieldOperand(string, HeapObject::kMapOffset));
   __ movzx_b(result, FieldOperand(result, Map::kInstanceTypeOffset));
@@ -501,17 +487,24 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
   __ j(zero, &check_sequential, Label::kNear);
 
   // Dispatch on the indirect string shape: slice or cons.
-  Label cons_string;
-  __ test(result, Immediate(kSlicedNotConsMask));
-  __ j(zero, &cons_string, Label::kNear);
+  Label cons_string, thin_string;
+  __ and_(result, Immediate(kStringRepresentationMask));
+  __ cmp(result, Immediate(kConsStringTag));
+  __ j(equal, &cons_string, Label::kNear);
+  __ cmp(result, Immediate(kThinStringTag));
+  __ j(equal, &thin_string, Label::kNear);
 
   // Handle slices.
-  Label indirect_string_loaded;
   __ mov(result, FieldOperand(string, SlicedString::kOffsetOffset));
   __ SmiUntag(result);
   __ add(index, result);
   __ mov(string, FieldOperand(string, SlicedString::kParentOffset));
-  __ jmp(&indirect_string_loaded, Label::kNear);
+  __ jmp(&indirect_string_loaded);
+
+  // Handle thin strings.
+  __ bind(&thin_string);
+  __ mov(string, FieldOperand(string, ThinString::kActualOffset));
+  __ jmp(&indirect_string_loaded);
 
   // Handle cons strings.
   // Check whether the right hand side is the empty string (i.e. if
@@ -523,10 +516,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
          Immediate(factory->empty_string()));
   __ j(not_equal, call_runtime);
   __ mov(string, FieldOperand(string, ConsString::kFirstOffset));
-
-  __ bind(&indirect_string_loaded);
-  __ mov(result, FieldOperand(string, HeapObject::kMapOffset));
-  __ movzx_b(result, FieldOperand(result, Map::kInstanceTypeOffset));
+  __ jmp(&indirect_string_loaded);
 
   // Distinguish sequential and external strings. Only these two string
   // representations can reach here (slices and flat cons strings have been
@@ -589,56 +579,6 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm,
 }
 
 #undef __
-
-
-CodeAgingHelper::CodeAgingHelper(Isolate* isolate) {
-  USE(isolate);
-  DCHECK(young_sequence_.length() == kNoCodeAgeSequenceLength);
-  CodePatcher patcher(isolate, young_sequence_.start(),
-                      young_sequence_.length());
-  patcher.masm()->push(ebp);
-  patcher.masm()->mov(ebp, esp);
-  patcher.masm()->push(esi);
-  patcher.masm()->push(edi);
-}
-
-
-#ifdef DEBUG
-bool CodeAgingHelper::IsOld(byte* candidate) const {
-  return *candidate == kCallOpcode;
-}
-#endif
-
-
-bool Code::IsYoungSequence(Isolate* isolate, byte* sequence) {
-  bool result = isolate->code_aging_helper()->IsYoung(sequence);
-  DCHECK(result || isolate->code_aging_helper()->IsOld(sequence));
-  return result;
-}
-
-Code::Age Code::GetCodeAge(Isolate* isolate, byte* sequence) {
-  if (IsYoungSequence(isolate, sequence)) return kNoAgeCodeAge;
-
-  sequence++;  // Skip the kCallOpcode byte
-  Address target_address = sequence + *reinterpret_cast<int*>(sequence) +
-                           Assembler::kCallTargetAddressOffset;
-  Code* stub = GetCodeFromTargetAddress(target_address);
-  return GetAgeOfCodeAgeStub(stub);
-}
-
-void Code::PatchPlatformCodeAge(Isolate* isolate, byte* sequence,
-                                Code::Age age) {
-  uint32_t young_length = isolate->code_aging_helper()->young_sequence_length();
-  if (age == kNoAgeCodeAge) {
-    isolate->code_aging_helper()->CopyYoungSequenceTo(sequence);
-    Assembler::FlushICache(isolate, sequence, young_length);
-  } else {
-    Code* stub = GetCodeAgeStub(isolate, age);
-    CodePatcher patcher(isolate, sequence, young_length);
-    patcher.masm()->call(stub->instruction_start(), RelocInfo::NONE32);
-  }
-}
-
 
 }  // namespace internal
 }  // namespace v8

@@ -264,6 +264,12 @@ void* RegExpUnparser::VisitCapture(RegExpCapture* that, void* data) {
   return NULL;
 }
 
+void* RegExpUnparser::VisitGroup(RegExpGroup* that, void* data) {
+  os_ << "(?: ";
+  that->body()->Accept(this, data);
+  os_ << ")";
+  return NULL;
+}
 
 void* RegExpUnparser::VisitLookaround(RegExpLookaround* that, void* data) {
   os_ << "(";
@@ -297,7 +303,7 @@ std::ostream& RegExpTree::Print(std::ostream& os, Zone* zone) {  // NOLINT
 
 RegExpDisjunction::RegExpDisjunction(ZoneList<RegExpTree*>* alternatives)
     : alternatives_(alternatives) {
-  DCHECK(alternatives->length() > 1);
+  DCHECK_LT(1, alternatives->length());
   RegExpTree* first_alternative = alternatives->at(0);
   min_match_ = first_alternative->min_match();
   max_match_ = first_alternative->max_match();
@@ -320,7 +326,7 @@ static int IncreaseBy(int previous, int increase) {
 
 RegExpAlternative::RegExpAlternative(ZoneList<RegExpTree*>* nodes)
     : nodes_(nodes) {
-  DCHECK(nodes->length() > 1);
+  DCHECK_LT(1, nodes->length());
   min_match_ = 0;
   max_match_ = 0;
   for (int i = 0; i < nodes->length(); i++) {

@@ -52,7 +52,7 @@ class V8_EXPORT_PRIVATE Node final {
   const Operator* op() const { return op_; }
 
   IrOpcode::Value opcode() const {
-    DCHECK(op_->opcode() <= IrOpcode::kLast);
+    DCHECK_GE(IrOpcode::kLast, op_->opcode());
     return static_cast<IrOpcode::Value>(op_->opcode());
   }
 
@@ -63,7 +63,7 @@ class V8_EXPORT_PRIVATE Node final {
                                : inputs_.outline_->count_;
   }
 
-#if DEBUG
+#ifdef DEBUG
   void Verify();
 #define BOUNDS_CHECK(index)                                                  \
   do {                                                                       \
@@ -158,6 +158,10 @@ class V8_EXPORT_PRIVATE Node final {
 
   // Returns true if {owner1} and {owner2} are the only users of {this} node.
   bool OwnedBy(Node const* owner1, Node const* owner2) const;
+
+  // Returns true if addressing related operands (such as load, store, lea)
+  // are the only users of {this} node.
+  bool OwnedByAddressingOperand() const;
   void Print() const;
 
  private:
@@ -589,7 +593,14 @@ class Node::Uses::const_iterator final {
   typedef Node** pointer;
   typedef Node*& reference;
 
-  const_iterator(const const_iterator& other) : current_(other.current_) {}
+  const_iterator(const const_iterator& other)
+      : current_(other.current_)
+#ifdef DEBUG
+        ,
+        next_(other.next_)
+#endif
+  {
+  }
 
   Node* operator*() const { return current_->from(); }
   bool operator==(const const_iterator& other) const {
@@ -600,7 +611,13 @@ class Node::Uses::const_iterator final {
   }
   const_iterator& operator++() {
     DCHECK_NOT_NULL(current_);
+    // Checking no use gets mutated while iterating through them, a potential
+    // very tricky cause of bug.
     current_ = current_->next;
+#ifdef DEBUG
+    DCHECK_EQ(current_, next_);
+    next_ = current_ ? current_->next : nullptr;
+#endif
     return *this;
   }
   const_iterator operator++(int);
@@ -609,9 +626,19 @@ class Node::Uses::const_iterator final {
   friend class Node::Uses;
 
   const_iterator() : current_(nullptr) {}
-  explicit const_iterator(Node* node) : current_(node->first_use_) {}
+  explicit const_iterator(Node* node)
+      : current_(node->first_use_)
+#ifdef DEBUG
+        ,
+        next_(current_ ? current_->next : nullptr)
+#endif
+  {
+  }
 
   Node::Use* current_;
+#ifdef DEBUG
+  Node::Use* next_;
+#endif
 };
 
 

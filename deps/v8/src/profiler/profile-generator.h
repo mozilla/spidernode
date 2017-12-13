@@ -6,6 +6,8 @@
 #define V8_PROFILER_PROFILE_GENERATOR_H_
 
 #include <map>
+#include <vector>
+
 #include "src/allocation.h"
 #include "src/base/hashmap.h"
 #include "src/log.h"
@@ -182,7 +184,7 @@ class ProfileNode {
 
   CodeEntry* entry() const { return entry_; }
   unsigned self_ticks() const { return self_ticks_; }
-  const List<ProfileNode*>* children() const { return &children_list_; }
+  const std::vector<ProfileNode*>* children() const { return &children_list_; }
   unsigned id() const { return id_; }
   unsigned function_id() const;
   ProfileNode* parent() const { return parent_; }
@@ -212,7 +214,7 @@ class ProfileNode {
   unsigned self_ticks_;
   // Mapping from CodeEntry* to ProfileNode*
   base::CustomMatcherHashMap children_;
-  List<ProfileNode*> children_list_;
+  std::vector<ProfileNode*> children_list_;
   ProfileNode* parent_;
   unsigned id_;
   base::CustomMatcherHashMap line_ticks_;
@@ -278,7 +280,7 @@ class CpuProfile {
   const char* title() const { return title_; }
   const ProfileTree* top_down() const { return &top_down_; }
 
-  int samples_count() const { return samples_.length(); }
+  int samples_count() const { return static_cast<int>(samples_.size()); }
   ProfileNode* sample(int index) const { return samples_.at(index); }
   base::TimeTicks sample_timestamp(int index) const {
     return timestamps_.at(index);
@@ -299,11 +301,11 @@ class CpuProfile {
   bool record_samples_;
   base::TimeTicks start_time_;
   base::TimeTicks end_time_;
-  List<ProfileNode*> samples_;
-  List<base::TimeTicks> timestamps_;
+  std::vector<ProfileNode*> samples_;
+  std::vector<base::TimeTicks> timestamps_;
   ProfileTree top_down_;
   CpuProfiler* const profiler_;
-  int streaming_next_sample_;
+  size_t streaming_next_sample_;
 
   DISALLOW_COPY_AND_ASSIGN(CpuProfile);
 };
@@ -340,7 +342,7 @@ class CpuProfilesCollection {
   void set_cpu_profiler(CpuProfiler* profiler) { profiler_ = profiler; }
   bool StartProfiling(const char* title, bool record_samples);
   CpuProfile* StopProfiling(const char* title);
-  List<CpuProfile*>* profiles() { return &finished_profiles_; }
+  std::vector<CpuProfile*>* profiles() { return &finished_profiles_; }
   const char* GetName(Name* name) { return resource_names_.GetName(name); }
   bool IsLastProfile(const char* title);
   void RemoveProfile(CpuProfile* profile);
@@ -355,11 +357,11 @@ class CpuProfilesCollection {
 
  private:
   StringsStorage resource_names_;
-  List<CpuProfile*> finished_profiles_;
+  std::vector<CpuProfile*> finished_profiles_;
   CpuProfiler* profiler_;
 
   // Accessed by VM thread and profile generator thread.
-  List<CpuProfile*> current_profiles_;
+  std::vector<CpuProfile*> current_profiles_;
   base::Semaphore current_profiles_semaphore_;
 
   DISALLOW_COPY_AND_ASSIGN(CpuProfilesCollection);
@@ -368,7 +370,7 @@ class CpuProfilesCollection {
 
 class ProfileGenerator {
  public:
-  ProfileGenerator(Isolate* isolate, CpuProfilesCollection* profiles);
+  explicit ProfileGenerator(CpuProfilesCollection* profiles);
 
   void RecordTickSample(const TickSample& sample);
 
@@ -378,7 +380,6 @@ class ProfileGenerator {
   CodeEntry* FindEntry(void* address);
   CodeEntry* EntryForVMState(StateTag tag);
 
-  Isolate* isolate_;
   CpuProfilesCollection* profiles_;
   CodeMap code_map_;
 

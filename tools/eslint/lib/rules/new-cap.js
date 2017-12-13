@@ -178,11 +178,12 @@ module.exports = {
 
                 // char has no uppercase variant, so it's non-alphabetic
                 return "non-alpha";
-            } else if (firstChar === firstCharLower) {
-                return "lower";
-            } else {
-                return "upper";
             }
+            if (firstChar === firstCharLower) {
+                return "lower";
+            }
+            return "upper";
+
         }
 
         /**

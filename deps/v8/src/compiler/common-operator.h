@@ -12,6 +12,7 @@
 #include "src/globals.h"
 #include "src/machine-type.h"
 #include "src/zone/zone-containers.h"
+#include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
@@ -37,7 +38,6 @@ inline BranchHint NegateBranchHint(BranchHint hint) {
       return BranchHint::kTrue;
   }
   UNREACHABLE();
-  return hint;
 }
 
 inline size_t hash_value(BranchHint hint) { return static_cast<size_t>(hint); }
@@ -46,18 +46,8 @@ V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, BranchHint);
 
 V8_EXPORT_PRIVATE BranchHint BranchHintOf(const Operator* const);
 
-// Deoptimize reason for Deoptimize, DeoptimizeIf and DeoptimizeUnless.
-DeoptimizeReason DeoptimizeReasonOf(Operator const* const);
-
 // Helper function for return nodes, because returns have a hidden value input.
 int ValueInputCountOfReturn(Operator const* const op);
-
-// Deoptimize bailout kind.
-enum class DeoptimizeKind : uint8_t { kEager, kSoft };
-
-size_t hash_value(DeoptimizeKind kind);
-
-std::ostream& operator<<(std::ostream&, DeoptimizeKind);
 
 // Parameters for the {Deoptimize} operator.
 class DeoptimizeParameters final {
@@ -133,6 +123,27 @@ std::ostream& operator<<(std::ostream&, ParameterInfo const&);
 
 V8_EXPORT_PRIVATE int ParameterIndexOf(const Operator* const);
 const ParameterInfo& ParameterInfoOf(const Operator* const);
+
+struct ObjectStateInfo final : std::pair<uint32_t, int> {
+  ObjectStateInfo(uint32_t object_id, int size)
+      : std::pair<uint32_t, int>(object_id, size) {}
+  uint32_t object_id() const { return first; }
+  int size() const { return second; }
+};
+std::ostream& operator<<(std::ostream&, ObjectStateInfo const&);
+size_t hash_value(ObjectStateInfo const& p);
+
+struct TypedObjectStateInfo final
+    : std::pair<uint32_t, const ZoneVector<MachineType>*> {
+  TypedObjectStateInfo(uint32_t object_id,
+                       const ZoneVector<MachineType>* machine_types)
+      : std::pair<uint32_t, const ZoneVector<MachineType>*>(object_id,
+                                                            machine_types) {}
+  uint32_t object_id() const { return first; }
+  const ZoneVector<MachineType>* machine_types() const { return second; }
+};
+std::ostream& operator<<(std::ostream&, TypedObjectStateInfo const&);
+size_t hash_value(TypedObjectStateInfo const& p);
 
 class RelocatablePtrConstantInfo final {
  public:
@@ -293,19 +304,41 @@ RegionObservability RegionObservabilityOf(Operator const*) WARN_UNUSED_RESULT;
 std::ostream& operator<<(std::ostream& os,
                          const ZoneVector<MachineType>* types);
 
+ZoneHandleSet<Map> MapGuardMapsOf(Operator const*) WARN_UNUSED_RESULT;
+
 Type* TypeGuardTypeOf(Operator const*) WARN_UNUSED_RESULT;
 
 int OsrValueIndexOf(Operator const*);
-
-enum class OsrGuardType { kUninitialized, kSignedSmall, kAny };
-size_t hash_value(OsrGuardType type);
-std::ostream& operator<<(std::ostream&, OsrGuardType);
-OsrGuardType OsrGuardTypeOf(Operator const*);
 
 SparseInputMask SparseInputMaskOf(Operator const*);
 
 ZoneVector<MachineType> const* MachineTypesOf(Operator const*)
     WARN_UNUSED_RESULT;
+
+// The ArgumentsElementsState and ArgumentsLengthState can describe the layout
+// for backing stores of arguments objects of various types:
+//
+//                        +------------------------------------+
+//  - kUnmappedArguments: | arg0, ... argK-1, argK, ... argN-1 |  {length:N}
+//                        +------------------------------------+
+//                        +------------------------------------+
+//  - kMappedArguments:   | hole, ...   hole, argK, ... argN-1 |  {length:N}
+//                        +------------------------------------+
+//                                          +------------------+
+//  - kRestParameter:                       | argK, ... argN-1 |  {length:N-K}
+//                                          +------------------+
+//
+// Here {K} represents the number for formal parameters of the active function,
+// whereas {N} represents the actual number of arguments passed at runtime.
+// Note that {N < K} can happen and causes {K} to be capped accordingly.
+//
+// Also note that it is possible for an arguments object of {kMappedArguments}
+// type to carry a backing store of {kUnappedArguments} type when {K == 0}.
+typedef CreateArgumentsType ArgumentsStateType;
+
+ArgumentsStateType ArgumentsStateTypeOf(Operator const*) WARN_UNUSED_RESULT;
+
+uint32_t ObjectIdOf(Operator const*);
 
 // Interface for building common operators that can be used at any level of IR,
 // including JavaScript, mid-level, and low-level.
@@ -326,8 +359,9 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* IfDefault();
   const Operator* Throw();
   const Operator* Deoptimize(DeoptimizeKind kind, DeoptimizeReason reason);
-  const Operator* DeoptimizeIf(DeoptimizeReason reason);
-  const Operator* DeoptimizeUnless(DeoptimizeReason reason);
+  const Operator* DeoptimizeIf(DeoptimizeKind kind, DeoptimizeReason reason);
+  const Operator* DeoptimizeUnless(DeoptimizeKind kind,
+                                   DeoptimizeReason reason);
   const Operator* TrapIf(int32_t trap_id);
   const Operator* TrapUnless(int32_t trap_id);
   const Operator* Return(int value_input_count = 1);
@@ -341,7 +375,6 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* OsrNormalEntry();
   const Operator* OsrLoopEntry();
   const Operator* OsrValue(int index);
-  const Operator* OsrGuard(OsrGuardType type);
 
   const Operator* Int32Constant(int32_t);
   const Operator* Int64Constant(int64_t);
@@ -351,6 +384,7 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* NumberConstant(volatile double);
   const Operator* PointerConstant(intptr_t);
   const Operator* HeapConstant(const Handle<HeapObject>&);
+  const Operator* ObjectId(uint32_t);
 
   const Operator* RelocatableInt32Constant(int32_t value,
                                            RelocInfo::Mode rmode);
@@ -371,26 +405,26 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* StateValues(int arguments, SparseInputMask bitmask);
   const Operator* TypedStateValues(const ZoneVector<MachineType>* types,
                                    SparseInputMask bitmask);
-  const Operator* ObjectState(int pointer_slots);
-  const Operator* TypedObjectState(const ZoneVector<MachineType>* types);
+  const Operator* ArgumentsElementsState(ArgumentsStateType type);
+  const Operator* ArgumentsLengthState(ArgumentsStateType type);
+  const Operator* ObjectState(uint32_t object_id, int pointer_slots);
+  const Operator* TypedObjectState(uint32_t object_id,
+                                   const ZoneVector<MachineType>* types);
   const Operator* FrameState(BailoutId bailout_id,
                              OutputFrameStateCombine state_combine,
                              const FrameStateFunctionInfo* function_info);
   const Operator* Call(const CallDescriptor* descriptor);
+  const Operator* CallWithCallerSavedRegisters(
+      const CallDescriptor* descriptor);
   const Operator* TailCall(const CallDescriptor* descriptor);
   const Operator* Projection(size_t index);
   const Operator* Retain();
+  const Operator* MapGuard(ZoneHandleSet<Map> maps);
   const Operator* TypeGuard(Type* type);
 
   // Constructs a new merge or phi operator with the same opcode as {op}, but
   // with {size} inputs.
   const Operator* ResizeMergeOrPhi(const Operator* op, int size);
-
-  // Simd Operators
-  const Operator* Int32x4ExtractLane(int32_t);
-  const Operator* Int32x4ReplaceLane(int32_t);
-  const Operator* Float32x4ExtractLane(int32_t);
-  const Operator* Float32x4ReplaceLane(int32_t);
 
   // Constructs function info for frame state construction.
   const FrameStateFunctionInfo* CreateFrameStateFunctionInfo(

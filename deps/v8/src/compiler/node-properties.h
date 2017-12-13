@@ -8,6 +8,7 @@
 #include "src/compiler/node.h"
 #include "src/compiler/types.h"
 #include "src/globals.h"
+#include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
@@ -74,8 +75,13 @@ class V8_EXPORT_PRIVATE NodeProperties final {
   }
 
   // Determines whether exceptions thrown by the given node are handled locally
-  // within the graph (i.e. an IfException projection is present).
-  static bool IsExceptionalCall(Node* node);
+  // within the graph (i.e. an IfException projection is present). Optionally
+  // the present IfException projection is returned via {out_exception}.
+  static bool IsExceptionalCall(Node* node, Node** out_exception = nullptr);
+
+  // Returns the node producing the successful control output of {node}. This is
+  // the IfSuccess projection of {node} if present and {node} itself otherwise.
+  static Node* FindSuccessfulControlProjection(Node* node);
 
   // ---------------------------------------------------------------------------
   // Miscellaneous mutators.
@@ -123,14 +129,34 @@ class V8_EXPORT_PRIVATE NodeProperties final {
   //  - Switch: [ IfValue, ..., IfDefault ]
   static void CollectControlProjections(Node* node, Node** proj, size_t count);
 
+  // Checks if two nodes are the same, looking past {CheckHeapObject}.
+  static bool IsSame(Node* a, Node* b);
+
+  // Check if two nodes have equal operators and reference-equal inputs. Used
+  // for value numbering/hash-consing.
+  static bool Equals(Node* a, Node* b);
+  // A corresponding hash function.
+  static size_t HashCode(Node* node);
+
+  // Walks up the {effect} chain to find a witness that provides map
+  // information about the {receiver}. Can look through potentially
+  // side effecting nodes.
+  enum InferReceiverMapsResult {
+    kNoReceiverMaps,         // No receiver maps inferred.
+    kReliableReceiverMaps,   // Receiver maps can be trusted.
+    kUnreliableReceiverMaps  // Receiver maps might have changed (side-effect),
+                             // but instance type is reliable.
+  };
+  static InferReceiverMapsResult InferReceiverMaps(
+      Node* receiver, Node* effect, ZoneHandleSet<Map>* maps_return);
+
+  // Walks up the {effect} chain to check that there's no observable side-effect
+  // between the {effect} and it's {dominator}. Aborts the walk if there's join
+  // in the effect chain.
+  static bool NoObservableSideEffectBetween(Node* effect, Node* dominator);
+
   // ---------------------------------------------------------------------------
   // Context.
-
-  // Try to retrieve the specialization context from the given {node},
-  // optionally utilizing the knowledge about the (outermost) function
-  // {context}.
-  static MaybeHandle<Context> GetSpecializationContext(
-      Node* node, MaybeHandle<Context> context = MaybeHandle<Context>());
 
   // Walk up the context chain from the given {node} until we reduce the {depth}
   // to 0 or hit a node that does not extend the context chain ({depth} will be

@@ -52,20 +52,7 @@ RUNTIME_FUNCTION(Runtime_StringParseInt) {
     return isolate->heap()->nan_value();
   }
 
-  double result;
-  {
-    DisallowHeapAllocation no_gc;
-    String::FlatContent flat = subject->GetFlatContent();
-
-    if (flat.IsOneByte()) {
-      result = StringToInt(isolate->unicode_cache(), flat.ToOneByteVector(),
-                           radix32);
-    } else {
-      result =
-          StringToInt(isolate->unicode_cache(), flat.ToUC16Vector(), radix32);
-    }
-  }
-
+  double result = StringToInt(isolate, subject, radix32);
   return *isolate->factory()->NewNumber(result);
 }
 
@@ -210,13 +197,6 @@ RUNTIME_FUNCTION(Runtime_IsSmi) {
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_CHECKED(Object, obj, 0);
   return isolate->heap()->ToBoolean(obj->IsSmi());
-}
-
-
-RUNTIME_FUNCTION(Runtime_GetRootNaN) {
-  SealHandleScope shs(isolate);
-  DCHECK_EQ(0, args.length());
-  return isolate->heap()->nan_value();
 }
 
 

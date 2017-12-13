@@ -20,19 +20,15 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "tls_wrap.h"
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
+#include "async_wrap-inl.h"
 #include "node_buffer.h"  // Buffer
 #include "node_crypto.h"  // SecureContext
 #include "node_crypto_bio.h"  // NodeBIO
-#include "node_crypto_clienthello.h"  // ClientHelloParser
+// ClientHelloParser
 #include "node_crypto_clienthello-inl.h"
 #include "node_counters.h"
 #include "node_internals.h"
-#include "stream_base.h"
 #include "stream_base-inl.h"
-#include "util.h"
-#include "util-inl.h"
 
 namespace node {
 
@@ -44,6 +40,7 @@ using v8::Exception;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
+using v8::Integer;
 using v8::Local;
 using v8::Object;
 using v8::String;
@@ -68,7 +65,6 @@ TLSWrap::TLSWrap(Environment* env,
       started_(false),
       established_(false),
       shutdown_(false),
-      error_(nullptr),
       cycle_depth_(0),
       eof_(false) {
   node::Wrap(object(), this);
@@ -106,7 +102,18 @@ TLSWrap::~TLSWrap() {
   sni_context_.Reset();
 #endif  // SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
 
-  ClearError();
+  // See test/parallel/test-tls-transport-destroy-after-own-gc.js:
+  // If this TLSWrap is garbage collected, we cannot allow callbacks to be
+  // called on this stream.
+
+  if (stream_ == nullptr)
+    return;
+  stream_->set_destruct_cb({ nullptr, nullptr });
+  stream_->set_after_write_cb({ nullptr, nullptr });
+  stream_->set_alloc_cb({ nullptr, nullptr });
+  stream_->set_read_cb({ nullptr, nullptr });
+  stream_->set_destruct_cb({ nullptr, nullptr });
+  stream_->Unconsume();
 }
 
 
@@ -138,10 +145,10 @@ void TLSWrap::NewSessionDoneCb() {
 
 void TLSWrap::InitSSL() {
   // Initialize SSL
-  enc_in_ = NodeBIO::New();
-  enc_out_ = NodeBIO::New();
-  NodeBIO::FromBIO(enc_in_)->AssignEnvironment(env());
-  NodeBIO::FromBIO(enc_out_)->AssignEnvironment(env());
+  enc_in_ = crypto::NodeBIO::New();
+  enc_out_ = crypto::NodeBIO::New();
+  crypto::NodeBIO::FromBIO(enc_in_)->AssignEnvironment(env());
+  crypto::NodeBIO::FromBIO(enc_out_)->AssignEnvironment(env());
 
   SSL_set_bio(ssl_, enc_in_, enc_out_);
 
@@ -170,7 +177,7 @@ void TLSWrap::InitSSL() {
     SSL_set_accept_state(ssl_);
   } else if (is_client()) {
     // Enough space for server response (hello, cert)
-    NodeBIO::FromBIO(enc_in_)->set_initial(kInitialClientBufferLength);
+    crypto::NodeBIO::FromBIO(enc_in_)->set_initial(kInitialClientBufferLength);
     SSL_set_connect_state(ssl_);
   } else {
     // Unexpected
@@ -178,7 +185,7 @@ void TLSWrap::InitSSL() {
   }
 
   // Initialize ring for queud clear data
-  clear_in_ = new NodeBIO();
+  clear_in_ = new crypto::NodeBIO();
   clear_in_->AssignEnvironment(env());
 }
 
@@ -188,7 +195,7 @@ void TLSWrap::Wrap(const FunctionCallbackInfo<Value>& args) {
 
   if (args.Length() < 1 || !args[0]->IsObject()) {
     return env->ThrowTypeError(
-        "First argument should be a StreamWrap instance");
+        "First argument should be a LibuvStreamWrap instance");
   }
   if (args.Length() < 2 || !args[1]->IsObject()) {
     return env->ThrowTypeError(
@@ -302,6 +309,7 @@ void TLSWrap::EncOut() {
 
   // No data to write
   if (BIO_pending(enc_out_) == 0) {
+    UpdateWriteQueueSize();
     if (clear_in_->Length() == 0)
       InvokeQueued(0);
     return;
@@ -310,7 +318,9 @@ void TLSWrap::EncOut() {
   char* data[kSimultaneousBufferCount];
   size_t size[arraysize(data)];
   size_t count = arraysize(data);
-  write_size_ = NodeBIO::FromBIO(enc_out_)->PeekMultiple(data, size, &count);
+  write_size_ = crypto::NodeBIO::FromBIO(enc_out_)->PeekMultiple(data,
+                                                                 size,
+                                                                 &count);
   CHECK(write_size_ != 0 && count != 0);
 
   Local<Object> req_wrap_obj =
@@ -318,8 +328,7 @@ void TLSWrap::EncOut() {
           ->NewInstance(env()->context()).ToLocalChecked();
   WriteWrap* write_req = WriteWrap::New(env(),
                                         req_wrap_obj,
-                                        this,
-                                        EncOutCb);
+                                        stream_);
 
   uv_buf_t buf[arraysize(data)];
   for (size_t i = 0; i < count; i++)
@@ -336,38 +345,35 @@ void TLSWrap::EncOut() {
 }
 
 
-void TLSWrap::EncOutCb(WriteWrap* req_wrap, int status) {
-  TLSWrap* wrap = req_wrap->wrap()->Cast<TLSWrap>();
-  req_wrap->Dispose();
-
+void TLSWrap::EncOutAfterWrite(WriteWrap* req_wrap, int status) {
   // We should not be getting here after `DestroySSL`, because all queued writes
   // must be invoked with UV_ECANCELED
-  CHECK_NE(wrap->ssl_, nullptr);
+  CHECK_NE(ssl_, nullptr);
 
   // Handle error
   if (status) {
     // Ignore errors after shutdown
-    if (wrap->shutdown_)
+    if (shutdown_)
       return;
 
     // Notify about error
-    wrap->InvokeQueued(status);
+    InvokeQueued(status);
     return;
   }
 
   // Commit
-  NodeBIO::FromBIO(wrap->enc_out_)->Read(nullptr, wrap->write_size_);
+  crypto::NodeBIO::FromBIO(enc_out_)->Read(nullptr, write_size_);
 
   // Ensure that the progress will be made and `InvokeQueued` will be called.
-  wrap->ClearIn();
+  ClearIn();
 
   // Try writing more data
-  wrap->write_size_ = 0;
-  wrap->EncOut();
+  write_size_ = 0;
+  EncOut();
 }
 
 
-Local<Value> TLSWrap::GetSSLError(int status, int* err, const char** msg) {
+Local<Value> TLSWrap::GetSSLError(int status, int* err, std::string* msg) {
   EscapableHandleScope scope(env()->isolate());
 
   // ssl_ is already destroyed in reading EOF by close notify alert.
@@ -398,13 +404,9 @@ Local<Value> TLSWrap::GetSSLError(int status, int* err, const char** msg) {
             OneByteString(env()->isolate(), mem->data, mem->length);
         Local<Value> exception = Exception::Error(message);
 
-        if (msg != nullptr) {
-          CHECK_EQ(*msg, nullptr);
-          char* const buf = new char[mem->length + 1];
-          memcpy(buf, mem->data, mem->length);
-          buf[mem->length] = '\0';
-          *msg = buf;
-        }
+        if (msg != nullptr)
+          msg->assign(mem->data, mem->data + mem->length);
+
         BIO_free_all(bio);
 
         return scope.Escape(exception);
@@ -516,21 +518,15 @@ bool TLSWrap::ClearIn() {
 
   // Error or partial write
   int err;
-  const char* error_str = nullptr;
+  std::string error_str;
   Local<Value> arg = GetSSLError(written, &err, &error_str);
   if (!arg.IsEmpty()) {
     MakePending();
-    InvokeQueued(UV_EPROTO, error_str);
-    delete[] error_str;
+    InvokeQueued(UV_EPROTO, error_str.c_str());
     clear_in_->Reset();
   }
 
   return false;
-}
-
-
-void* TLSWrap::Cast() {
-  return reinterpret_cast<void*>(this);
 }
 
 
@@ -559,24 +555,39 @@ bool TLSWrap::IsClosing() {
 }
 
 
+uint32_t TLSWrap::UpdateWriteQueueSize(uint32_t write_queue_size) {
+  HandleScope scope(env()->isolate());
+  if (write_queue_size == 0)
+    write_queue_size = BIO_pending(enc_out_);
+  object()->Set(env()->context(),
+                env()->write_queue_size_string(),
+                Integer::NewFromUnsigned(env()->isolate(),
+                                         write_queue_size)).FromJust();
+  return write_queue_size;
+}
+
+
 int TLSWrap::ReadStart() {
-  return stream_->ReadStart();
+  if (stream_ != nullptr)
+    return stream_->ReadStart();
+  return 0;
 }
 
 
 int TLSWrap::ReadStop() {
-  return stream_->ReadStop();
+  if (stream_ != nullptr)
+    return stream_->ReadStop();
+  return 0;
 }
 
 
 const char* TLSWrap::Error() const {
-  return error_;
+  return error_.empty() ? nullptr : error_.c_str();
 }
 
 
 void TLSWrap::ClearError() {
-  delete[] error_;
-  error_ = nullptr;
+  error_.clear();
 }
 
 
@@ -600,8 +611,12 @@ int TLSWrap::DoWrite(WriteWrap* w,
     ClearOut();
     // However, if there is any data that should be written to the socket,
     // the callback should not be invoked immediately
-    if (BIO_pending(enc_out_) == 0)
+    if (BIO_pending(enc_out_) == 0) {
+      // net.js expects writeQueueSize to be > 0 if the write isn't
+      // immediately flushed
+      UpdateWriteQueueSize(1);
       return stream_->DoWrite(w, bufs, count, send_handle);
+    }
   }
 
   // Queue callback to execute it on next tick
@@ -624,11 +639,7 @@ int TLSWrap::DoWrite(WriteWrap* w,
 
   if (ssl_ == nullptr) {
     ClearError();
-
-    static char msg[] = "Write after DestroySSL";
-    char* tmp = new char[sizeof(msg)];
-    memcpy(tmp, msg, sizeof(msg));
-    error_ = tmp;
+    error_ = "Write after DestroySSL";
     return UV_EPROTO;
   }
 
@@ -655,13 +666,15 @@ int TLSWrap::DoWrite(WriteWrap* w,
 
   // Try writing data immediately
   EncOut();
+  UpdateWriteQueueSize();
 
   return 0;
 }
 
 
-void TLSWrap::OnAfterWriteImpl(WriteWrap* w, void* ctx) {
-  // Intentionally empty
+void TLSWrap::OnAfterWriteImpl(WriteWrap* w, int status, void* ctx) {
+  TLSWrap* wrap = static_cast<TLSWrap*>(ctx);
+  wrap->EncOutAfterWrite(w, status);
 }
 
 
@@ -674,7 +687,7 @@ void TLSWrap::OnAllocImpl(size_t suggested_size, uv_buf_t* buf, void* ctx) {
   }
 
   size_t size = 0;
-  buf->base = NodeBIO::FromBIO(wrap->enc_in_)->PeekWritable(&size);
+  buf->base = crypto::NodeBIO::FromBIO(wrap->enc_in_)->PeekWritable(&size);
   buf->len = size;
 }
 
@@ -737,7 +750,7 @@ void TLSWrap::DoRead(ssize_t nread,
   }
 
   // Commit read data
-  NodeBIO* enc_in = NodeBIO::FromBIO(enc_in_);
+  crypto::NodeBIO* enc_in = crypto::NodeBIO::FromBIO(enc_in_);
   enc_in->Commit(nread);
 
   // Parse ClientHello first
@@ -808,7 +821,7 @@ void TLSWrap::EnableSessionCallbacks(
         "EnableSessionCallbacks after destroySSL");
   }
   wrap->enable_session_callbacks();
-  NodeBIO::FromBIO(wrap->enc_in_)->set_initial(kMaxHelloLength);
+  crypto::NodeBIO::FromBIO(wrap->enc_in_)->set_initial(kMaxHelloLength);
   wrap->hello_parser_.Start(SSLWrap<TLSWrap>::OnClientHello,
                             OnClientHelloParseEnd,
                             wrap);
@@ -925,6 +938,15 @@ int TLSWrap::SelectSNIContextCallback(SSL* s, int* ad, void* arg) {
 #endif  // SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
 
 
+void TLSWrap::UpdateWriteQueueSize(const FunctionCallbackInfo<Value>& args) {
+  TLSWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
+
+  uint32_t write_queue_size = wrap->UpdateWriteQueueSize();
+  args.GetReturnValue().Set(write_queue_size);
+}
+
+
 void TLSWrap::Initialize(Local<Object> target,
                          Local<Value> unused,
                          Local<Context> context) {
@@ -933,18 +955,25 @@ void TLSWrap::Initialize(Local<Object> target,
   env->SetMethod(target, "wrap", TLSWrap::Wrap);
 
   auto constructor = [](const FunctionCallbackInfo<Value>& args) {
+    CHECK(args.IsConstructCall());
     args.This()->SetAlignedPointerInInternalField(0, nullptr);
   };
+
+  Local<String> tlsWrapString =
+      FIXED_ONE_BYTE_STRING(env->isolate(), "TLSWrap");
+
   auto t = env->NewFunctionTemplate(constructor);
   t->InstanceTemplate()->SetInternalFieldCount(1);
-  t->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "TLSWrap"));
+  t->SetClassName(tlsWrapString);
 
+  AsyncWrap::AddWrapMethods(env, t, AsyncWrap::kFlagHasReset);
   env->SetProtoMethod(t, "receive", Receive);
   env->SetProtoMethod(t, "start", Start);
   env->SetProtoMethod(t, "setVerifyMode", SetVerifyMode);
   env->SetProtoMethod(t, "enableSessionCallbacks", EnableSessionCallbacks);
   env->SetProtoMethod(t, "destroySSL", DestroySSL);
   env->SetProtoMethod(t, "enableCertCb", EnableCertCb);
+  env->SetProtoMethod(t, "updateWriteQueueSize", UpdateWriteQueueSize);
 
   StreamBase::AddMethods<TLSWrap>(env, t, StreamBase::kFlagHasWritev);
   SSLWrap<TLSWrap>::AddMethods(env, t);
@@ -954,13 +983,11 @@ void TLSWrap::Initialize(Local<Object> target,
   env->SetProtoMethod(t, "setServername", SetServername);
 #endif  // SSL_CRT_SET_TLSEXT_SERVERNAME_CB
 
-  env->set_tls_wrap_constructor_template(t);
   env->set_tls_wrap_constructor_function(t->GetFunction());
 
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "TLSWrap"),
-              t->GetFunction());
+  target->Set(tlsWrapString, t->GetFunction());
 }
 
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(tls_wrap, node::TLSWrap::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(tls_wrap, node::TLSWrap::Initialize)

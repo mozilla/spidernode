@@ -1,5 +1,7 @@
 # Events
 
+<!--introduced_in=v0.10.0-->
+
 > Stability: 2 - Stable
 
 <!--type=module-->
@@ -75,7 +77,7 @@ myEmitter.emit('event', 'a', 'b');
 
 ## Asynchronous vs. Synchronous
 
-The `EventListener` calls all listeners synchronously in the order in which
+The `EventEmitter` calls all listeners synchronously in the order in which
 they were registered. This is important to ensure the proper sequencing of
 events and to avoid race conditions or logic errors. When appropriate,
 listener functions can switch to an asynchronous mode of operation using
@@ -140,20 +142,8 @@ myEmitter.emit('error', new Error('whoops!'));
 // Throws and crashes Node.js
 ```
 
-To guard against crashing the Node.js process, a listener can be registered
-on the [`process` object's `uncaughtException` event][] or the [`domain`][] module
-can be used. (_Note, however, that the `domain` module has been deprecated_)
-
-```js
-const myEmitter = new MyEmitter();
-
-process.on('uncaughtException', (err) => {
-  console.error('whoops! there was an error');
-});
-
-myEmitter.emit('error', new Error('whoops!'));
-// Prints: whoops! there was an error
-```
+To guard against crashing the Node.js process the [`domain`][] module can be
+used. (Note, however, that the `domain` module has been deprecated.)
 
 As a best practice, listeners should always be added for the `'error'` events.
 
@@ -266,7 +256,7 @@ property can be used. If this value is not a positive number, a `TypeError`
 will be thrown.
 
 Take caution when setting the `EventEmitter.defaultMaxListeners` because the
-change effects *all* `EventEmitter` instances, including those created before
+change affects *all* `EventEmitter` instances, including those created before
 the change is made. However, calling [`emitter.setMaxListeners(n)`][] still has
 precedence over `EventEmitter.defaultMaxListeners`.
 
@@ -419,7 +409,7 @@ added: v0.3.0
 * `eventName` {any} The name of the event.
 * `listener` {Function} The callback function
 
-Adds a **one time** `listener` function for the event named `eventName`. The
+Adds a **one-time** `listener` function for the event named `eventName`. The
 next time `eventName` is triggered, this listener is removed and then invoked.
 
 ```js
@@ -474,7 +464,7 @@ added: v6.0.0
 * `eventName` {any} The name of the event.
 * `listener` {Function} The callback function
 
-Adds a **one time** `listener` function for the event named `eventName` to the
+Adds a **one-time** `listener` function for the event named `eventName` to the
 *beginning* of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
 
@@ -584,13 +574,12 @@ to indicate an unlimited number of listeners.
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-[`net.Server`]: net.html#net_class_net_server
-[`fs.ReadStream`]: fs.html#fs_class_fs_readstream
-[`emitter.setMaxListeners(n)`]: #events_emitter_setmaxlisteners_n
+[`--trace-warnings`]: cli.html#cli_trace_warnings
 [`EventEmitter.defaultMaxListeners`]: #events_eventemitter_defaultmaxlisteners
-[`emitter.listenerCount()`]: #events_emitter_listenercount_eventname
 [`domain`]: domain.html
-[`process` object's `uncaughtException` event]: process.html#process_event_uncaughtexception
+[`emitter.listenerCount()`]: #events_emitter_listenercount_eventname
+[`emitter.setMaxListeners(n)`]: #events_emitter_setmaxlisteners_n
+[`fs.ReadStream`]: fs.html#fs_class_fs_readstream
+[`net.Server`]: net.html#net_class_net_server
 [`process.on('warning')`]: process.html#process_event_warning
 [stream]: stream.html
-[`--trace-warnings`]: cli.html#cli_trace_warnings

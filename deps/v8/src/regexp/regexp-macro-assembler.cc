@@ -8,10 +8,11 @@
 #include "src/isolate-inl.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/simulator.h"
+#include "src/unicode-inl.h"
 
-#ifdef V8_I18N_SUPPORT
+#ifdef V8_INTL_SUPPORT
 #include "unicode/uchar.h"
-#endif  // V8_I18N_SUPPORT
+#endif  // V8_INTL_SUPPORT
 
 namespace v8 {
 namespace internal {
@@ -36,12 +37,12 @@ int RegExpMacroAssembler::CaseInsensitiveCompareUC16(Address byte_offset1,
   // This function is not allowed to cause a garbage collection.
   // A GC might move the calling generated code and invalidate the
   // return address on the stack.
-  DCHECK(byte_length % 2 == 0);
+  DCHECK_EQ(0, byte_length % 2);
   uc16* substring1 = reinterpret_cast<uc16*>(byte_offset1);
   uc16* substring2 = reinterpret_cast<uc16*>(byte_offset2);
   size_t length = byte_length >> 1;
 
-#ifdef V8_I18N_SUPPORT
+#ifdef V8_INTL_SUPPORT
   if (isolate == nullptr) {
     for (size_t i = 0; i < length; i++) {
       uc32 c1 = substring1[i];
@@ -67,7 +68,7 @@ int RegExpMacroAssembler::CaseInsensitiveCompareUC16(Address byte_offset1,
     }
     return 1;
   }
-#endif  // V8_I18N_SUPPORT
+#endif  // V8_INTL_SUPPORT
   DCHECK_NOT_NULL(isolate);
   for (size_t i = 0; i < length; i++) {
     unibrow::uchar c1 = substring1[i];
@@ -134,8 +135,11 @@ const byte* NativeRegExpMacroAssembler::StringCharacterPosition(
     start_index += SlicedString::cast(subject)->offset();
     subject = SlicedString::cast(subject)->parent();
   }
-  DCHECK(start_index >= 0);
-  DCHECK(start_index <= subject->length());
+  if (subject->IsThinString()) {
+    subject = ThinString::cast(subject)->actual();
+  }
+  DCHECK_LE(0, start_index);
+  DCHECK_LE(start_index, subject->length());
   if (subject->IsSeqOneByteString()) {
     return reinterpret_cast<const byte*>(
         SeqOneByteString::cast(subject)->GetChars() + start_index);
@@ -146,6 +150,7 @@ const byte* NativeRegExpMacroAssembler::StringCharacterPosition(
     return reinterpret_cast<const byte*>(
         ExternalOneByteString::cast(subject)->GetChars() + start_index);
   } else {
+    DCHECK(subject->IsExternalTwoByteString());
     return reinterpret_cast<const byte*>(
         ExternalTwoByteString::cast(subject)->GetChars() + start_index);
   }
@@ -166,15 +171,18 @@ int NativeRegExpMacroAssembler::CheckStackGuardState(
   bool is_one_byte = subject_handle->IsOneByteRepresentationUnderneath();
 
   StackLimitCheck check(isolate);
-  if (check.JsHasOverflowed()) {
+  bool js_has_overflowed = check.JsHasOverflowed();
+
+  if (is_direct_call) {
+    // Direct calls from JavaScript can be interrupted in two ways:
+    // 1. A real stack overflow, in which case we let the caller throw the
+    //    exception.
+    // 2. The stack guard was used to interrupt execution for another purpose,
+    //    forcing the call through the runtime system.
+    return_value = js_has_overflowed ? EXCEPTION : RETRY;
+  } else if (js_has_overflowed) {
     isolate->StackOverflow();
     return_value = EXCEPTION;
-  } else if (is_direct_call) {
-    // If not real stack overflow the stack guard was used to interrupt
-    // execution for another purpose.  If this is a direct call from JavaScript
-    // retry the RegExp forcing the call through the runtime system.
-    // Currently the direct call cannot handle a GC.
-    return_value = RETRY;
   } else {
     Object* result = isolate->stack_guard()->HandleInterrupts();
     if (result->IsException(isolate)) return_value = EXCEPTION;
@@ -216,8 +224,8 @@ NativeRegExpMacroAssembler::Result NativeRegExpMacroAssembler::Match(
     Isolate* isolate) {
 
   DCHECK(subject->IsFlat());
-  DCHECK(previous_index >= 0);
-  DCHECK(previous_index <= subject->length());
+  DCHECK_LE(0, previous_index);
+  DCHECK_LE(previous_index, subject->length());
 
   // No allocations before calling the regexp, but we can't use
   // DisallowHeapAllocation, since regexps might be preempted, and another
@@ -238,6 +246,9 @@ NativeRegExpMacroAssembler::Result NativeRegExpMacroAssembler::Match(
     SlicedString* slice = SlicedString::cast(subject_ptr);
     subject_ptr = slice->parent();
     slice_offset = slice->offset();
+  }
+  if (StringShape(subject_ptr).IsThin()) {
+    subject_ptr = ThinString::cast(subject_ptr)->actual();
   }
   // Ensure that an underlying string has the same representation.
   bool is_one_byte = subject_ptr->IsOneByteRepresentation();

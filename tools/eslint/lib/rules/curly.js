@@ -9,7 +9,6 @@
 //------------------------------------------------------------------------------
 
 const astUtils = require("../ast-utils");
-const esUtils = require("esutils");
 
 //------------------------------------------------------------------------------
 // Rule Definition
@@ -76,7 +75,7 @@ module.exports = {
         function isCollapsedOneLiner(node) {
             const before = sourceCode.getTokenBefore(node);
             const last = sourceCode.getLastToken(node);
-            const lastExcludingSemicolon = last.type === "Punctuator" && last.value === ";" ? sourceCode.getTokenBefore(last) : last;
+            const lastExcludingSemicolon = astUtils.isSemicolonToken(last) ? sourceCode.getTokenBefore(last) : last;
 
             return before.loc.start.line === lastExcludingSemicolon.loc.end.line;
         }
@@ -95,18 +94,22 @@ module.exports = {
         }
 
         /**
+         * Checks if the given token is an `else` token or not.
+         *
+         * @param {Token} token - The token to check.
+         * @returns {boolean} `true` if the token is an `else` token.
+         */
+        function isElseKeywordToken(token) {
+            return token.value === "else" && token.type === "Keyword";
+        }
+
+        /**
          * Gets the `else` keyword token of a given `IfStatement` node.
          * @param {ASTNode} node - A `IfStatement` node to get.
          * @returns {Token} The `else` keyword token.
          */
         function getElseKeyword(node) {
-            let token = sourceCode.getTokenAfter(node.consequent);
-
-            while (token.type !== "Keyword" || token.value !== "else") {
-                token = sourceCode.getTokenAfter(token);
-            }
-
-            return token;
+            return node.alternate && sourceCode.getFirstTokenBetween(node.consequent, node.alternate, isElseKeywordToken);
         }
 
         /**
@@ -161,16 +164,16 @@ module.exports = {
         }
 
         /**
-        * Determines if a semicolon needs to be inserted after removing a set of curly brackets, in order to avoid a SyntaxError.
-        * @param {Token} closingBracket The } token
-        * @returns {boolean} `true` if a semicolon needs to be inserted after the last statement in the block.
-        */
+         * Determines if a semicolon needs to be inserted after removing a set of curly brackets, in order to avoid a SyntaxError.
+         * @param {Token} closingBracket The } token
+         * @returns {boolean} `true` if a semicolon needs to be inserted after the last statement in the block.
+         */
         function needsSemicolon(closingBracket) {
             const tokenBefore = sourceCode.getTokenBefore(closingBracket);
             const tokenAfter = sourceCode.getTokenAfter(closingBracket);
             const lastBlockNode = sourceCode.getNodeByRangeIndex(tokenBefore.range[0]);
 
-            if (tokenBefore.value === ";") {
+            if (astUtils.isSemicolonToken(tokenBefore)) {
 
                 // If the last statement already has a semicolon, don't add another one.
                 return false;
@@ -184,9 +187,11 @@ module.exports = {
 
             if (lastBlockNode.type === "BlockStatement" && lastBlockNode.parent.type !== "FunctionExpression" && lastBlockNode.parent.type !== "ArrowFunctionExpression") {
 
-                // If the last node surrounded by curly brackets is a BlockStatement (other than a FunctionExpression or an ArrowFunctionExpression),
-                // don't insert a semicolon. Otherwise, the semicolon would be parsed as a separate statement, which would cause
-                // a SyntaxError if it was followed by `else`.
+                /*
+                 * If the last node surrounded by curly brackets is a BlockStatement (other than a FunctionExpression or an ArrowFunctionExpression),
+                 * don't insert a semicolon. Otherwise, the semicolon would be parsed as a separate statement, which would cause
+                 * a SyntaxError if it was followed by `else`.
+                 */
                 return false;
             }
 
@@ -232,11 +237,13 @@ module.exports = {
                 },
                 fix(fixer) {
 
-                    // `do while` expressions sometimes need a space to be inserted after `do`.
-                    // e.g. `do{foo()} while (bar)` should be corrected to `do foo() while (bar)`
+                    /*
+                     * `do while` expressions sometimes need a space to be inserted after `do`.
+                     * e.g. `do{foo()} while (bar)` should be corrected to `do foo() while (bar)`
+                     */
                     const needsPrecedingSpace = node.type === "DoWhileStatement" &&
-                        sourceCode.getTokenBefore(bodyNode).end === bodyNode.start &&
-                        esUtils.code.isIdentifierPartES6(sourceCode.getText(bodyNode).charCodeAt(1));
+                        sourceCode.getTokenBefore(bodyNode).range[1] === bodyNode.range[0] &&
+                        !astUtils.canTokensBeAdjacent("do", sourceCode.getFirstToken(bodyNode, { skip: 1 }));
 
                     const openingBracket = sourceCode.getFirstToken(bodyNode);
                     const closingBracket = sourceCode.getLastToken(bodyNode);
@@ -290,7 +297,7 @@ module.exports = {
                 }
             } else if (multiOrNest) {
                 if (hasBlock && body.body.length === 1 && isOneLiner(body.body[0])) {
-                    const leadingComments = sourceCode.getComments(body.body[0]).leading;
+                    const leadingComments = sourceCode.getCommentsBefore(body.body[0]);
 
                     expected = leadingComments.length > 0;
                 } else if (!isOneLiner(body)) {

@@ -1,0 +1,79 @@
+{
+  "_from": "github:watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+  "_id": "remark-preset-lint-node@1.0.2",
+  "_inBundle": false,
+  "_integrity": "sha1-UxsozHvbtJwHgKk6AYCqVPvpz8w=",
+  "_location": "/remark-preset-lint-node",
+  "_phantomChildren": {},
+  "_requested": {
+    "type": "git",
+    "raw": "watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+    "rawSpec": "watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+    "saveSpec": "github:watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+    "fetchSpec": null,
+    "gitCommittish": "859eab541e0f63839b33196f26e2bed4dfe2b194"
+  },
+  "_requiredBy": [
+    "#USER",
+    "/"
+  ],
+  "_resolved": "github:watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+  "_spec": "watilde/remark-preset-lint-node#859eab541e0f63839b33196f26e2bed4dfe2b194",
+  "_where": "/Users/trott/io.js/tools",
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/watilde/remark-preset-lint-node/issues"
+  },
+  "bundleDependencies": false,
+  "dependencies": {
+    "remark-lint": "^6.0.0",
+    "remark-lint-blockquote-indentation": "^1.0.0",
+    "remark-lint-checkbox-character-style": "^1.0.0",
+    "remark-lint-checkbox-content-indent": "^1.0.0",
+    "remark-lint-code-block-style": "^1.0.0",
+    "remark-lint-definition-spacing": "^1.0.0",
+    "remark-lint-fenced-code-flag": "^1.0.0",
+    "remark-lint-fenced-code-marker": "^1.0.0",
+    "remark-lint-file-extension": "^1.0.0",
+    "remark-lint-final-definition": "^1.0.0",
+    "remark-lint-final-newline": "^1.0.0",
+    "remark-lint-first-heading-level": "^1.0.0",
+    "remark-lint-hard-break-spaces": "^1.0.1",
+    "remark-lint-heading-style": "^1.0.0",
+    "remark-lint-no-auto-link-without-protocol": "^1.0.0",
+    "remark-lint-no-blockquote-without-caret": "^1.0.0",
+    "remark-lint-no-duplicate-definitions": "^1.0.0",
+    "remark-lint-no-file-name-articles": "^1.0.0",
+    "remark-lint-no-file-name-consecutive-dashes": "^1.0.0",
+    "remark-lint-no-file-name-outer-dashes": "^1.0.0",
+    "remark-lint-no-heading-content-indent": "^1.0.0",
+    "remark-lint-no-heading-indent": "^1.0.0",
+    "remark-lint-no-inline-padding": "^1.0.0",
+    "remark-lint-no-multiple-toplevel-headings": "^1.0.0",
+    "remark-lint-no-shell-dollars": "^1.0.0",
+    "remark-lint-no-shortcut-reference-image": "^1.0.0",
+    "remark-lint-no-table-indentation": "^1.0.0",
+    "remark-lint-no-tabs": "^1.0.0",
+    "remark-lint-no-unused-definitions": "^1.0.0",
+    "remark-lint-prohibited-strings": "^1.0.0",
+    "remark-lint-rule-style": "^1.0.0",
+    "remark-lint-strong-marker": "^1.0.0",
+    "remark-lint-table-cell-padding": "^1.0.0",
+    "remark-lint-table-pipes": "^1.0.0"
+  },
+  "deprecated": false,
+  "description": "remark preset to configure remark-lint with settings for nodejs/node",
+  "homepage": "https://github.com/watilde/remark-preset-lint-node#readme",
+  "keywords": [],
+  "license": "MIT",
+  "main": "index.js",
+  "name": "remark-preset-lint-node",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/watilde/remark-preset-lint-node.git"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "version": "1.0.2"
+}

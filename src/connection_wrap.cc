@@ -2,11 +2,9 @@
 
 #include "connect_wrap.h"
 #include "env-inl.h"
-#include "env.h"
 #include "pipe_wrap.h"
 #include "stream_wrap.h"
 #include "tcp_wrap.h"
-#include "util.h"
 #include "util-inl.h"
 
 namespace node {
@@ -23,13 +21,11 @@ using v8::Value;
 template <typename WrapType, typename UVType>
 ConnectionWrap<WrapType, UVType>::ConnectionWrap(Environment* env,
                                                  Local<Object> object,
-                                                 ProviderType provider,
-                                                 AsyncWrap* parent)
-    : StreamWrap(env,
-                 object,
-                 reinterpret_cast<uv_stream_t*>(&handle_),
-                 provider,
-                 parent) {}
+                                                 ProviderType provider)
+    : LibuvStreamWrap(env,
+                      object,
+                      reinterpret_cast<uv_stream_t*>(&handle_),
+                      provider) {}
 
 
 template <typename WrapType, typename UVType>
@@ -53,8 +49,11 @@ void ConnectionWrap<WrapType, UVType>::OnConnection(uv_stream_t* handle,
   };
 
   if (status == 0) {
+    env->set_init_trigger_async_id(wrap_data->get_async_id());
     // Instantiate the client javascript object and handle.
-    Local<Object> client_obj = WrapType::Instantiate(env, wrap_data);
+    Local<Object> client_obj = WrapType::Instantiate(env,
+                                                     wrap_data,
+                                                     WrapType::SOCKET);
 
     // Unwrap the client javascript object.
     WrapType* wrap;
@@ -115,14 +114,12 @@ void ConnectionWrap<WrapType, UVType>::AfterConnect(uv_connect_t* req,
 template ConnectionWrap<PipeWrap, uv_pipe_t>::ConnectionWrap(
     Environment* env,
     Local<Object> object,
-    ProviderType provider,
-    AsyncWrap* parent);
+    ProviderType provider);
 
 template ConnectionWrap<TCPWrap, uv_tcp_t>::ConnectionWrap(
     Environment* env,
     Local<Object> object,
-    ProviderType provider,
-    AsyncWrap* parent);
+    ProviderType provider);
 
 template void ConnectionWrap<PipeWrap, uv_pipe_t>::OnConnection(
     uv_stream_t* handle, int status);

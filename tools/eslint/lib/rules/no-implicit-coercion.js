@@ -189,27 +189,38 @@ module.exports = {
         const sourceCode = context.getSourceCode();
 
         /**
-        * Reports an error and autofixes the node
-        * @param {ASTNode} node - An ast node to report the error on.
-        * @param {string} recommendation - The recommended code for the issue
-        * @param {bool} shouldFix - Whether this report should fix the node
-        * @returns {void}
-        */
+         * Reports an error and autofixes the node
+         * @param {ASTNode} node - An ast node to report the error on.
+         * @param {string} recommendation - The recommended code for the issue
+         * @param {bool} shouldFix - Whether this report should fix the node
+         * @returns {void}
+         */
         function report(node, recommendation, shouldFix) {
             shouldFix = typeof shouldFix === "undefined" ? true : shouldFix;
-            const reportObj = {
+
+            context.report({
                 node,
                 message: "use `{{recommendation}}` instead.",
                 data: {
                     recommendation
+                },
+                fix(fixer) {
+                    if (!shouldFix) {
+                        return null;
+                    }
+
+                    const tokenBefore = sourceCode.getTokenBefore(node);
+
+                    if (
+                        tokenBefore &&
+                        tokenBefore.range[1] === node.range[0] &&
+                        !astUtils.canTokensBeAdjacent(tokenBefore, recommendation)
+                    ) {
+                        return fixer.replaceText(node, ` ${recommendation}`);
+                    }
+                    return fixer.replaceText(node, recommendation);
                 }
-            };
-
-            if (shouldFix) {
-                reportObj.fix = fixer => fixer.replaceText(node, recommendation);
-            }
-
-            context.report(reportObj);
+            });
         }
 
         return {

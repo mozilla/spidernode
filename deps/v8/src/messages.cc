@@ -10,8 +10,8 @@
 #include "src/execution.h"
 #include "src/isolate-inl.h"
 #include "src/keys.h"
+#include "src/objects/frame-array-inl.h"
 #include "src/string-builder.h"
-#include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-objects.h"
 
 namespace v8 {
@@ -50,7 +50,7 @@ void MessageHandler::DefaultMessageReport(Isolate* isolate,
 Handle<JSMessageObject> MessageHandler::MakeMessageObject(
     Isolate* isolate, MessageTemplate::Template message,
     const MessageLocation* location, Handle<Object> argument,
-    Handle<JSArray> stack_frames) {
+    Handle<FixedArray> stack_frames) {
   Factory* factory = isolate->factory();
 
   int start = -1;
@@ -113,6 +113,9 @@ void MessageHandler::ReportMessage(Isolate* isolate, const MessageLocation* loc,
       }
 
       if (!maybe_stringified.ToHandle(&stringified)) {
+        DCHECK(isolate->has_pending_exception());
+        isolate->clear_pending_exception();
+        isolate->set_external_caught_exception(false);
         stringified =
             isolate->factory()->NewStringFromAsciiChecked("exception");
       }
@@ -147,7 +150,7 @@ void MessageHandler::ReportMessageNoExceptions(
       FixedArray* listener = FixedArray::cast(global_listeners->get(i));
       Foreign* callback_obj = Foreign::cast(listener->get(0));
       int32_t message_levels =
-          static_cast<int32_t>(Smi::cast(listener->get(2))->value());
+          static_cast<int32_t>(Smi::ToInt(listener->get(2)));
       if (!(message_levels & error_level)) {
         continue;
       }
@@ -301,7 +304,7 @@ void JSStackFrame::FromFrameArray(Isolate* isolate, Handle<FrameArray> array,
   offset_ = array->Offset(frame_ix)->value();
 
   const int flags = array->Flags(frame_ix)->value();
-  force_constructor_ = (flags & FrameArray::kForceConstructor) != 0;
+  is_constructor_ = (flags & FrameArray::kIsConstructor) != 0;
   is_strict_ = (flags & FrameArray::kIsStrict) != 0;
 }
 
@@ -315,7 +318,7 @@ JSStackFrame::JSStackFrame(Isolate* isolate, Handle<Object> receiver,
       function_(function),
       code_(code),
       offset_(offset),
-      force_constructor_(false),
+      is_constructor_(false),
       is_strict_(false) {}
 
 Handle<Object> JSStackFrame::GetFunction() const {
@@ -340,11 +343,11 @@ Handle<Object> JSStackFrame::GetFunctionName() {
 
 namespace {
 
-bool CheckMethodName(Isolate* isolate, Handle<JSObject> obj, Handle<Name> name,
-                     Handle<JSFunction> fun,
+bool CheckMethodName(Isolate* isolate, Handle<JSReceiver> receiver,
+                     Handle<Name> name, Handle<JSFunction> fun,
                      LookupIterator::Configuration config) {
   LookupIterator iter =
-      LookupIterator::PropertyOrElement(isolate, obj, name, config);
+      LookupIterator::PropertyOrElement(isolate, receiver, name, config);
   if (iter.state() == LookupIterator::DATA) {
     return iter.GetDataValue().is_identical_to(fun);
   } else if (iter.state() == LookupIterator::ACCESSOR) {
@@ -375,32 +378,30 @@ Handle<Object> JSStackFrame::GetMethodName() {
     return isolate_->factory()->null_value();
   }
 
-  Handle<JSReceiver> receiver =
-      Object::ToObject(isolate_, receiver_).ToHandleChecked();
-  if (!receiver->IsJSObject()) {
+  Handle<JSReceiver> receiver;
+  if (!Object::ToObject(isolate_, receiver_).ToHandle(&receiver)) {
+    DCHECK(isolate_->has_pending_exception());
+    isolate_->clear_pending_exception();
+    isolate_->set_external_caught_exception(false);
     return isolate_->factory()->null_value();
   }
 
-  Handle<JSObject> obj = Handle<JSObject>::cast(receiver);
-  Handle<Object> function_name(function_->shared()->name(), isolate_);
-  if (function_name->IsString()) {
-    Handle<String> name = Handle<String>::cast(function_name);
-    // ES2015 gives getters and setters name prefixes which must
-    // be stripped to find the property name.
-    if (name->IsUtf8EqualTo(CStrVector("get "), true) ||
-        name->IsUtf8EqualTo(CStrVector("set "), true)) {
-      name = isolate_->factory()->NewProperSubString(name, 4, name->length());
-    }
-    if (CheckMethodName(isolate_, obj, name, function_,
-                        LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR)) {
-      return name;
-    }
+  Handle<String> name(function_->shared()->name(), isolate_);
+  // ES2015 gives getters and setters name prefixes which must
+  // be stripped to find the property name.
+  if (name->IsUtf8EqualTo(CStrVector("get "), true) ||
+      name->IsUtf8EqualTo(CStrVector("set "), true)) {
+    name = isolate_->factory()->NewProperSubString(name, 4, name->length());
+  }
+  if (CheckMethodName(isolate_, receiver, name, function_,
+                      LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR)) {
+    return name;
   }
 
   HandleScope outer_scope(isolate_);
   Handle<Object> result;
-  for (PrototypeIterator iter(isolate_, obj, kStartAtReceiver); !iter.IsAtEnd();
-       iter.Advance()) {
+  for (PrototypeIterator iter(isolate_, receiver, kStartAtReceiver);
+       !iter.IsAtEnd(); iter.Advance()) {
     Handle<Object> current = PrototypeIterator::GetCurrent(iter);
     if (!current->IsJSObject()) break;
     Handle<JSObject> current_obj = Handle<JSObject>::cast(current);
@@ -428,14 +429,21 @@ Handle<Object> JSStackFrame::GetTypeName() {
   // TODO(jgruber): Check for strict/constructor here as in
   // CallSitePrototypeGetThis.
 
-  if (receiver_->IsNullOrUndefined(isolate_))
+  if (receiver_->IsNullOrUndefined(isolate_)) {
     return isolate_->factory()->null_value();
+  } else if (receiver_->IsJSProxy()) {
+    return isolate_->factory()->Proxy_string();
+  }
 
-  if (receiver_->IsJSProxy()) return isolate_->factory()->Proxy_string();
+  Handle<JSReceiver> receiver;
+  if (!Object::ToObject(isolate_, receiver_).ToHandle(&receiver)) {
+    DCHECK(isolate_->has_pending_exception());
+    isolate_->clear_pending_exception();
+    isolate_->set_external_caught_exception(false);
+    return isolate_->factory()->null_value();
+  }
 
-  Handle<JSReceiver> receiver_object =
-      Object::ToObject(isolate_, receiver_).ToHandleChecked();
-  return JSReceiver::GetConstructorName(receiver_object);
+  return JSReceiver::GetConstructorName(receiver);
 }
 
 int JSStackFrame::GetLineNumber() {
@@ -458,15 +466,6 @@ bool JSStackFrame::IsNative() {
 
 bool JSStackFrame::IsToplevel() {
   return receiver_->IsJSGlobalProxy() || receiver_->IsNullOrUndefined(isolate_);
-}
-
-bool JSStackFrame::IsConstructor() {
-  if (force_constructor_) return true;
-  if (!receiver_->IsJSObject()) return false;
-  Handle<Object> constructor =
-      JSReceiver::GetDataProperty(Handle<JSObject>::cast(receiver_),
-                                  isolate_->factory()->constructor_string());
-  return constructor.is_identical_to(function_);
 }
 
 namespace {
@@ -581,8 +580,10 @@ void AppendMethodCall(Isolate* isolate, JSStackFrame* call_site,
       }
     }
   } else {
-    builder->AppendString(Handle<String>::cast(type_name));
-    builder->AppendCharacter('.');
+    if (IsNonEmptyString(type_name)) {
+      builder->AppendString(Handle<String>::cast(type_name));
+      builder->AppendCharacter('.');
+    }
     if (IsNonEmptyString(method_name)) {
       builder->AppendString(Handle<String>::cast(method_name));
     } else {
@@ -639,25 +640,32 @@ WasmStackFrame::WasmStackFrame() {}
 
 void WasmStackFrame::FromFrameArray(Isolate* isolate, Handle<FrameArray> array,
                                     int frame_ix) {
-  // This function is called for both wasm and asm.js->wasm frames.
-  DCHECK(array->IsWasmFrame(frame_ix) || array->IsAsmJsWasmFrame(frame_ix));
+  // This function is called for compiled and interpreted wasm frames, and for
+  // asm.js->wasm frames.
+  DCHECK(array->IsWasmFrame(frame_ix) ||
+         array->IsWasmInterpretedFrame(frame_ix) ||
+         array->IsAsmJsWasmFrame(frame_ix));
   isolate_ = isolate;
   wasm_instance_ = handle(array->WasmInstance(frame_ix), isolate);
   wasm_func_index_ = array->WasmFunctionIndex(frame_ix)->value();
-  code_ = handle(array->Code(frame_ix), isolate);
+  if (array->IsWasmInterpretedFrame(frame_ix)) {
+    code_ = Handle<AbstractCode>::null();
+  } else {
+    code_ = handle(array->Code(frame_ix), isolate);
+  }
   offset_ = array->Offset(frame_ix)->value();
 }
 
+Handle<Object> WasmStackFrame::GetReceiver() const { return wasm_instance_; }
+
 Handle<Object> WasmStackFrame::GetFunction() const {
-  Handle<Object> obj(Smi::FromInt(wasm_func_index_), isolate_);
-  return obj;
+  return handle(Smi::FromInt(wasm_func_index_), isolate_);
 }
 
 Handle<Object> WasmStackFrame::GetFunctionName() {
   Handle<Object> name;
-  Handle<WasmCompiledModule> compiled_module(
-      Handle<WasmInstanceObject>::cast(wasm_instance_)->compiled_module(),
-      isolate_);
+  Handle<WasmCompiledModule> compiled_module(wasm_instance_->compiled_module(),
+                                             isolate_);
   if (!WasmCompiledModule::GetFunctionNameOrNull(isolate_, compiled_module,
                                                  wasm_func_index_)
            .ToHandle(&name)) {
@@ -669,29 +677,42 @@ Handle<Object> WasmStackFrame::GetFunctionName() {
 MaybeHandle<String> WasmStackFrame::ToString() {
   IncrementalStringBuilder builder(isolate_);
 
-  Handle<Object> name = GetFunctionName();
-  if (name->IsNull(isolate_)) {
-    builder.AppendCString("<WASM UNNAMED>");
-  } else {
-    DCHECK(name->IsString());
-    builder.AppendString(Handle<String>::cast(name));
+  Handle<WasmCompiledModule> compiled_module(wasm_instance_->compiled_module(),
+                                             isolate_);
+  MaybeHandle<String> module_name =
+      WasmCompiledModule::GetModuleNameOrNull(isolate_, compiled_module);
+  MaybeHandle<String> function_name = WasmCompiledModule::GetFunctionNameOrNull(
+      isolate_, compiled_module, wasm_func_index_);
+  bool has_name = !module_name.is_null() || !function_name.is_null();
+  if (has_name) {
+    if (module_name.is_null()) {
+      builder.AppendString(function_name.ToHandleChecked());
+    } else {
+      builder.AppendString(module_name.ToHandleChecked());
+      if (!function_name.is_null()) {
+        builder.AppendCString(".");
+        builder.AppendString(function_name.ToHandleChecked());
+      }
+    }
+    builder.AppendCString(" (");
   }
 
-  builder.AppendCString(" (<WASM>[");
+  builder.AppendCString("wasm-function[");
 
-  Handle<Smi> ix(Smi::FromInt(wasm_func_index_), isolate_);
-  builder.AppendString(isolate_->factory()->NumberToString(ix));
+  char buffer[16];
+  SNPrintF(ArrayVector(buffer), "%u]", wasm_func_index_);
+  builder.AppendCString(buffer);
 
-  builder.AppendCString("]+");
+  SNPrintF(ArrayVector(buffer), ":%d", GetPosition());
+  builder.AppendCString(buffer);
 
-  Handle<Object> pos(Smi::FromInt(GetPosition()), isolate_);
-  builder.AppendString(isolate_->factory()->NumberToString(pos));
-  builder.AppendCString(")");
+  if (has_name) builder.AppendCString(")");
 
   return builder.Finish();
 }
 
 int WasmStackFrame::GetPosition() const {
+  if (IsInterpreted()) return offset_;
   // TODO(wasm): Clean this up (bug 5007).
   return (offset_ < 0) ? (-1 - offset_) : code_->SourcePosition(offset_);
 }
@@ -703,9 +724,7 @@ Handle<Object> WasmStackFrame::Null() const {
 bool WasmStackFrame::HasScript() const { return true; }
 
 Handle<Script> WasmStackFrame::GetScript() const {
-  return handle(
-      WasmInstanceObject::cast(*wasm_instance_)->compiled_module()->script(),
-      isolate_);
+  return handle(wasm_instance_->compiled_module()->script(), isolate_);
 }
 
 AsmJsWasmStackFrame::AsmJsWasmStackFrame() {}
@@ -729,15 +748,13 @@ Handle<Object> AsmJsWasmStackFrame::GetFunction() const {
 }
 
 Handle<Object> AsmJsWasmStackFrame::GetFileName() {
-  Handle<Script> script =
-      wasm::GetScript(Handle<JSObject>::cast(wasm_instance_));
-  DCHECK_EQ(Script::TYPE_NORMAL, script->type());
+  Handle<Script> script(wasm_instance_->compiled_module()->script(), isolate_);
+  DCHECK(script->IsUserJavaScript());
   return handle(script->name(), isolate_);
 }
 
 Handle<Object> AsmJsWasmStackFrame::GetScriptNameOrSourceUrl() {
-  Handle<Script> script =
-      wasm::GetScript(Handle<JSObject>::cast(wasm_instance_));
+  Handle<Script> script(wasm_instance_->compiled_module()->script(), isolate_);
   DCHECK_EQ(Script::TYPE_NORMAL, script->type());
   return ScriptNameOrSourceUrl(script, isolate_);
 }
@@ -745,27 +762,25 @@ Handle<Object> AsmJsWasmStackFrame::GetScriptNameOrSourceUrl() {
 int AsmJsWasmStackFrame::GetPosition() const {
   DCHECK_LE(0, offset_);
   int byte_offset = code_->SourcePosition(offset_);
-  Handle<WasmCompiledModule> compiled_module(
-      WasmInstanceObject::cast(*wasm_instance_)->compiled_module(), isolate_);
+  Handle<WasmCompiledModule> compiled_module(wasm_instance_->compiled_module(),
+                                             isolate_);
   DCHECK_LE(0, byte_offset);
-  return WasmCompiledModule::GetAsmJsSourcePosition(
+  return WasmCompiledModule::GetSourcePosition(
       compiled_module, wasm_func_index_, static_cast<uint32_t>(byte_offset),
       is_at_number_conversion_);
 }
 
 int AsmJsWasmStackFrame::GetLineNumber() {
   DCHECK_LE(0, GetPosition());
-  Handle<Script> script =
-      wasm::GetScript(Handle<JSObject>::cast(wasm_instance_));
-  DCHECK_EQ(Script::TYPE_NORMAL, script->type());
+  Handle<Script> script(wasm_instance_->compiled_module()->script(), isolate_);
+  DCHECK(script->IsUserJavaScript());
   return Script::GetLineNumber(script, GetPosition()) + 1;
 }
 
 int AsmJsWasmStackFrame::GetColumnNumber() {
   DCHECK_LE(0, GetPosition());
-  Handle<Script> script =
-      wasm::GetScript(Handle<JSObject>::cast(wasm_instance_));
-  DCHECK_EQ(Script::TYPE_NORMAL, script->type());
+  Handle<Script> script(wasm_instance_->compiled_module()->script(), isolate_);
+  DCHECK(script->IsUserJavaScript());
   return Script::GetColumnNumber(script, GetPosition()) + 1;
 }
 
@@ -802,13 +817,17 @@ void FrameArrayIterator::Next() { next_frame_ix_++; }
 StackFrameBase* FrameArrayIterator::Frame() {
   DCHECK(HasNext());
   const int flags = array_->Flags(next_frame_ix_)->value();
-  switch (flags & (FrameArray::kIsWasmFrame | FrameArray::kIsAsmJsWasmFrame)) {
+  int flag_mask = FrameArray::kIsWasmFrame |
+                  FrameArray::kIsWasmInterpretedFrame |
+                  FrameArray::kIsAsmJsWasmFrame;
+  switch (flags & flag_mask) {
     case 0:
       // JavaScript Frame.
       js_frame_.FromFrameArray(isolate_, array_, next_frame_ix_);
       return &js_frame_;
     case FrameArray::kIsWasmFrame:
-      // Wasm Frame;
+    case FrameArray::kIsWasmInterpretedFrame:
+      // Wasm Frame:
       wasm_frame_.FromFrameArray(isolate_, array_, next_frame_ix_);
       return &wasm_frame_;
     case FrameArray::kIsAsmJsWasmFrame:
@@ -817,7 +836,6 @@ StackFrameBase* FrameArrayIterator::Frame() {
       return &asm_wasm_frame_;
     default:
       UNREACHABLE();
-      return nullptr;
   }
 }
 
@@ -876,13 +894,14 @@ MaybeHandle<Object> AppendErrorString(Isolate* isolate, Handle<Object> error,
     Handle<Object> pending_exception =
         handle(isolate->pending_exception(), isolate);
     isolate->clear_pending_exception();
+    isolate->set_external_caught_exception(false);
 
     err_str = ErrorUtils::ToString(isolate, pending_exception);
     if (err_str.is_null()) {
       // Formatting the thrown exception threw again, give up.
       DCHECK(isolate->has_pending_exception());
       isolate->clear_pending_exception();
-
+      isolate->set_external_caught_exception(false);
       builder->AppendCString("<error>");
     } else {
       // Formatted thrown exception successfully, append it.
@@ -977,6 +996,7 @@ MaybeHandle<Object> ErrorUtils::FormatStackTrace(Isolate* isolate,
       Handle<Object> pending_exception =
           handle(isolate->pending_exception(), isolate);
       isolate->clear_pending_exception();
+      isolate->set_external_caught_exception(false);
 
       maybe_frame_string = ErrorUtils::ToString(isolate, pending_exception);
       if (maybe_frame_string.is_null()) {
@@ -1007,6 +1027,8 @@ Handle<String> MessageTemplate::FormatMessage(Isolate* isolate,
       template_index, result_string, factory->empty_string(),
       factory->empty_string());
   if (!maybe_result_string.ToHandle(&result_string)) {
+    DCHECK(isolate->has_pending_exception());
+    isolate->clear_pending_exception();
     return factory->InternalizeOneByteString(STATIC_CHAR_VECTOR("<error>"));
   }
   // A string that has been obtained from JS code in this way is
@@ -1206,6 +1228,7 @@ Handle<String> FormatMessage(Isolate* isolate, int template_index,
            .ToHandle(&msg)) {
     DCHECK(isolate->has_pending_exception());
     isolate->clear_pending_exception();
+    isolate->set_external_caught_exception(false);
     return isolate->factory()->NewStringFromAsciiChecked("<error>");
   }
 

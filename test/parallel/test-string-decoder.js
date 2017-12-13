@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 const inspect = require('util').inspect;
 const StringDecoder = require('string_decoder').StringDecoder;
@@ -69,7 +69,11 @@ test('utf-8', Buffer.from('E2B8CCB8', 'hex'), '\ufffd\u0338');
 test('utf-8', Buffer.from('E2FBCC01', 'hex'), '\ufffd\ufffd\ufffd\u0001');
 test('utf-8', Buffer.from('CCB8CDB9', 'hex'), '\u0338\u0379');
 // CESU-8 of U+1D40D
-test('utf-8', Buffer.from('EDA0B5EDB08D', 'hex'), '\ufffd\ufffd');
+
+// V8 has changed their invalid UTF-8 handling, see
+// https://chromium-review.googlesource.com/c/v8/v8/+/671020 for more info.
+test('utf-8', Buffer.from('EDA0B5EDB08D', 'hex'),
+     '\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd');
 
 // UCS-2
 test('ucs2', Buffer.from('ababc', 'ucs2'), 'ababc');
@@ -124,13 +128,23 @@ assert.strictEqual(decoder.write(Buffer.from('3DD8', 'hex')), '');
 assert.strictEqual(decoder.write(Buffer.from('4D', 'hex')), '');
 assert.strictEqual(decoder.end(), '\ud83d');
 
-assert.throws(() => {
-  new StringDecoder(1);
-}, /^Error: Unknown encoding: 1$/);
+common.expectsError(
+  () => new StringDecoder(1),
+  {
+    code: 'ERR_UNKNOWN_ENCODING',
+    type: TypeError,
+    message: 'Unknown encoding: 1'
+  }
+);
 
-assert.throws(() => {
-  new StringDecoder('test');
-}, /^Error: Unknown encoding: test$/);
+common.expectsError(
+  () => new StringDecoder('test'),
+  {
+    code: 'ERR_UNKNOWN_ENCODING',
+    type: TypeError,
+    message: 'Unknown encoding: test'
+  }
+);
 
 // test verifies that StringDecoder will correctly decode the given input
 // buffer with the given encoding to the expected output. It will attempt all
@@ -144,6 +158,7 @@ function test(encoding, input, expected, singleSequence) {
   } else {
     sequences = [singleSequence];
   }
+  const hexNumberRE = /.{2}/g;
   sequences.forEach((sequence) => {
     const decoder = new StringDecoder(encoding);
     let output = '';
@@ -153,11 +168,11 @@ function test(encoding, input, expected, singleSequence) {
     output += decoder.end();
     if (output !== expected) {
       const message =
-        'Expected "' + unicodeEscape(expected) + '", ' +
-        'but got "' + unicodeEscape(output) + '"\n' +
-        'input: ' + input.toString('hex').match(/.{2}/g) + '\n' +
-        'Write sequence: ' + JSON.stringify(sequence) + '\n' +
-        'Full Decoder State: ' + inspect(decoder);
+        `Expected "${unicodeEscape(expected)}", ` +
+        `but got "${unicodeEscape(output)}"\n` +
+        `input: ${input.toString('hex').match(hexNumberRE)}\n` +
+        `Write sequence: ${JSON.stringify(sequence)}\n` +
+        `Full Decoder State: ${inspect(decoder)}`;
       assert.fail(output, expected, message);
     }
   });
@@ -167,7 +182,7 @@ function test(encoding, input, expected, singleSequence) {
 function unicodeEscape(str) {
   let r = '';
   for (let i = 0; i < str.length; i++) {
-    r += '\\u' + str.charCodeAt(i).toString(16);
+    r += `\\u${str.charCodeAt(i).toString(16)}`;
   }
   return r;
 }

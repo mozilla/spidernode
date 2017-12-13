@@ -1,14 +1,15 @@
 'use strict';
 
 const common = require('../common');
+if (!common.isWindows)
+  common.skip('Test for Windows only');
+
+const fixtures = require('../common/fixtures');
+
 const assert = require('assert');
 const fs = require('fs');
 const spawnSync = require('child_process').spawnSync;
 
-if (!common.isWindows) {
-  common.skip('Test for Windows only');
-  return;
-}
 let result;
 
 // create a subst drive
@@ -17,14 +18,12 @@ let drive;
 let i;
 for (i = 0; i < driveLetters.length; ++i) {
   drive = `${driveLetters[i]}:`;
-  result = spawnSync('subst', [drive, common.fixturesDir]);
+  result = spawnSync('subst', [drive, fixtures.fixturesDir]);
   if (result.status === 0)
     break;
 }
-if (i === driveLetters.length) {
+if (i === driveLetters.length)
   common.skip('Cannot create subst drive');
-  return;
-}
 
 // schedule cleanup (and check if all callbacks where called)
 process.on('exit', function() {

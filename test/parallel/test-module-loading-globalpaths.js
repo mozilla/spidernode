@@ -1,5 +1,6 @@
 'use strict';
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
@@ -33,8 +34,7 @@ if (process.argv[2] === 'child') {
     assert.strictEqual(child.trim(), expectedString);
   };
 
-  const testFixturesDir = path.join(common.fixturesDir,
-                                    path.basename(__filename, '.js'));
+  const testFixturesDir = fixtures.path(path.basename(__filename, '.js'));
 
   const env = Object.assign({}, process.env);
   // Turn on module debug to aid diagnosing failures.
@@ -47,11 +47,11 @@ if (process.argv[2] === 'child') {
   fs.mkdirSync(noPkgHomeDir);
   env['HOME'] = env['USERPROFILE'] = noPkgHomeDir;
   assert.throws(
-      () => {
-        child_process.execFileSync(testExecPath, [ __filename, 'child' ],
-                                   { encoding: 'utf8', env: env });
-      },
-      new RegExp('Cannot find module \'' + pkgName + '\''));
+    () => {
+      child_process.execFileSync(testExecPath, [ __filename, 'child' ],
+                                 { encoding: 'utf8', env: env });
+    },
+    new RegExp(`Cannot find module '${pkgName}'`));
 
   // Test module in $HOME/.node_modules.
   const modHomeDir = path.join(testFixturesDir, 'home-pkg-in-node_modules');
@@ -75,8 +75,8 @@ if (process.argv[2] === 'child') {
   fs.mkdirSync(prefixLibPath);
   const prefixLibNodePath = path.join(prefixLibPath, 'node');
   fs.mkdirSync(prefixLibNodePath);
-  const pkgPath = path.join(prefixLibNodePath, pkgName + '.js');
-  fs.writeFileSync(pkgPath, 'exports.string = \'' + expectedString + '\';');
+  const pkgPath = path.join(prefixLibNodePath, `${pkgName}.js`);
+  fs.writeFileSync(pkgPath, `exports.string = '${expectedString}';`);
 
   env['HOME'] = env['USERPROFILE'] = noPkgHomeDir;
   runTest(expectedString, env);

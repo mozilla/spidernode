@@ -21,6 +21,11 @@
 
 'use strict';
 require('../common');
+
+// This test checks that arguments provided to cluster.fork() will create
+// new environment variables and override existing environment variables
+// in the created worker process.
+
 const assert = require('assert');
 const cluster = require('cluster');
 
@@ -57,8 +62,9 @@ if (cluster.isWorker) {
 
   process.once('exit', function() {
     assert.ok(checks.using, 'The worker did not receive the correct env.');
-    assert.ok(checks.overwrite, 'The custom environment did not overwrite ' +
-              'the existing environment.');
+    assert.ok(
+      checks.overwrite,
+      'The custom environment did not overwrite the existing environment.');
   });
 
 }

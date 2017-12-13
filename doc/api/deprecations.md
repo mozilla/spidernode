@@ -1,5 +1,7 @@
 # Deprecated APIs
 
+<!--introduced_in=v7.7.0-->
+
 Node.js may deprecate APIs when either: (a) use of the API is considered to be
 unsafe, (b) an improved alternative API has been made available, or (c)
 breaking changes to the API are expected in a future major release.
@@ -95,12 +97,16 @@ methods, the `options.customFds` option is deprecated. The `options.stdio`
 option should be used instead.
 
 <a id="DEP0007"></a>
-### DEP0007: cluster worker.suicide
+### DEP0007: Replace cluster worker.suicide with worker.exitedAfterDisconnect
 
-Type: Runtime
+Type: End-of-Life
 
-Within the `cluster` module, the [`worker.suicide`][] property has been
-deprecated. Please use [`worker.exitedAfterDisconnect`][] instead.
+In an earlier version of the Node.js `cluster`, a boolean property with the name
+`suicide` was added to the `Worker` object. The intent of this property was to
+provide an indication of how and why the `Worker` instance exited. In Node.js
+6.0.0, the old property was deprecated and replaced with a new
+[`worker.exitedAfterDisconnect`][] property. The old property name did not
+precisely describe the actual semantics and was unnecessarily emotion-laden.
 
 <a id="DEP0008"></a>
 ### DEP0008: require('constants')
@@ -118,7 +124,7 @@ to the `constants` property exposed by the relevant module. For instance,
 Type: End-of-life
 
 Use of the [`crypto.pbkdf2()`][] API without specifying a digest was deprecated
-in Node.js 6.0 because the method defaulted to using the non-recommendend
+in Node.js 6.0 because the method defaulted to using the non-recommended
 `'SHA1'` digest. Previously, a deprecation warning was printed. Starting in
 Node.js 8.0.0, calling `crypto.pbkdf2()` or `crypto.pbkdf2Sync()` with an
 undefined `digest` will throw a `TypeError`.
@@ -142,13 +148,13 @@ instead.
 <a id="DEP0012"></a>
 ### DEP0012: Domain.dispose
 
-Type: Runtime
+Type: End-of-Life
 
-[`Domain.dispose()`][] is deprecated. Recover from failed I/O actions
+`Domain.dispose()` is removed. Recover from failed I/O actions
 explicitly via error event handlers set on the domain instead.
 
 <a id="DEP0013"></a>
-### DEP0013: fs async function without callback
+### DEP0013: fs asynchronous function without callback
 
 Type: Runtime
 
@@ -181,9 +187,10 @@ and should no longer be used.
 <a id="DEP0017"></a>
 ### DEP0017: Intl.v8BreakIterator
 
-Type: Runtime
+Type: End-of-Life
 
-The `Intl.v8BreakIterator` is deprecated and will be removed or replaced soon.
+`Intl.v8BreakIterator` was a non-standard extension and has been removed.
+See [`Intl.Segmenter`](https://github.com/tc39/proposal-intl-segmenter).
 
 <a id="DEP0018"></a>
 ### DEP0018: Unhandled promise rejections
@@ -237,7 +244,7 @@ The `os.getNetworkInterfaces()` method is deprecated. Please use the
 <a id="DEP0024"></a>
 ### DEP0024: REPLServer.prototype.convertToContext()
 
-Type: Runtime
+Type: End-of-Life
 
 The `REPLServer.prototype.convertToContext()` API is deprecated and should
 not be used.
@@ -531,8 +538,8 @@ Type: Documentation-only
 The `http` module `ServerResponse.prototype.writeHeader()` API has been
 deprecated. Please use `ServerResponse.prototype.writeHead()` instead.
 
-*Note*: The `ServerResponse.prototype.writeHeader()` method was never documented
-as an officially supported API.
+*Note*: The `ServerResponse.prototype.writeHeader()` method was never
+documented as an officially supported API.
 
 <a id="DEP0064"></a>
 ### DEP0064: tls.createSecurePair()
@@ -568,8 +575,8 @@ properties have been deprecated. Please instead use one of the public methods
 `outgoingMessage.removeHeader()`, `outgoingMessage.setHeader()`) for working
 with outgoing headers.
 
-*Note*: `outgoingMessage._headers` and `outgoingMessage._headerNames` were never
-documented as officially supported properties.
+*Note*: `outgoingMessage._headers` and `outgoingMessage._headerNames` were
+never documented as officially supported properties.
 
 <a id="DEP0067"></a>
 ### DEP0067: OutgoingMessage.prototype.\_renderHeaders
@@ -582,14 +589,232 @@ deprecated.
 *Note*: `OutgoingMessage.prototype._renderHeaders` was never documented as
 an officially supported API.
 
-[alloc]: buffer.html#buffer_class_method_buffer_alloc_size_fill_encoding
-[alloc_unsafe_size]: buffer.html#buffer_class_method_buffer_allocunsafe_size
+<a id="DEP0068"></a>
+### DEP0068: node debug
+
+Type: Runtime
+
+`node debug` corresponds to the legacy CLI debugger which has been replaced with
+a V8-inspector based CLI debugger available through `node inspect`.
+
+<a id="DEP0069"></a>
+### DEP0069: vm.runInDebugContext(string)
+
+Type: End-of-Life
+
+DebugContext has been removed in V8 and is not available in Node 10+.
+
+*Note*: DebugContext was an experimental API.
+
+<a id="DEP0070"></a>
+### DEP0070: async_hooks.currentId()
+
+Type: End-of-Life
+
+`async_hooks.currentId()` was renamed to `async_hooks.executionAsyncId()` for
+clarity.
+
+*Note*: change was made while `async_hooks` was an experimental API.
+
+<a id="DEP0071"></a>
+### DEP0071: async_hooks.triggerId()
+
+Type: End-of-Life
+
+`async_hooks.triggerId()` was renamed to `async_hooks.triggerAsyncId()` for
+clarity.
+
+*Note*: change was made while `async_hooks` was an experimental API.
+
+<a id="DEP0072"></a>
+### DEP0072: async_hooks.AsyncResource.triggerId()
+
+Type: End-of-Life
+
+`async_hooks.AsyncResource.triggerId()` was renamed to
+`async_hooks.AsyncResource.triggerAsyncId()` for clarity.
+
+*Note*: change was made while `async_hooks` was an experimental API.
+
+<a id="DEP0073"></a>
+### DEP0073: Several internal properties of net.Server
+
+Type: End-of-Life
+
+Accessing several internal, undocumented properties of `net.Server` instances
+with inappropriate names has been deprecated.
+
+*Note*: As the original API was undocumented and not generally useful for
+non-internal code, no replacement API is provided.
+
+<a id="DEP0074"></a>
+### DEP0074: REPLServer.bufferedCommand
+
+Type: Runtime
+
+The `REPLServer.bufferedCommand` property was deprecated in favor of
+[`REPLServer.clearBufferedCommand()`][].
+
+<a id="DEP0075"></a>
+### DEP0075: REPLServer.parseREPLKeyword()
+
+Type: Runtime
+
+`REPLServer.parseREPLKeyword()` was removed from userland visibility.
+
+<a id="DEP0076"></a>
+### DEP0076: tls.parseCertString()
+
+Type: Runtime
+
+`tls.parseCertString()` is a trivial parsing helper that was made public by
+mistake. This function can usually be replaced with:
+
+```js
+const querystring = require('querystring');
+querystring.parse(str, '\n', '=');
+```
+
+*Note*: This function is not completely equivalent to `querystring.parse()`. One
+difference is that `querystring.parse()` does url decoding:
+
+```sh
+> querystring.parse('%E5%A5%BD=1', '\n', '=');
+{ '好': '1' }
+> tls.parseCertString('%E5%A5%BD=1');
+{ '%E5%A5%BD': '1' }
+```
+
+<a id="DEP0077"></a>
+### DEP0077: Module.\_debug()
+
+Type: Runtime
+
+`Module._debug()` has been deprecated.
+
+*Note*: `Module._debug()` was never documented as an officially supported API.
+
+<a id="DEP0078"></a>
+### DEP0078: REPLServer.turnOffEditorMode()
+
+Type: Runtime
+
+`REPLServer.turnOffEditorMode()` was removed from userland visibility.
+
+<a id="DEP0079"></a>
+### DEP0079: Custom inspection function on Objects via .inspect()
+
+Type: Runtime
+
+Using a property named `inspect` on an object to specify a custom inspection
+function for [`util.inspect()`][] is deprecated. Use [`util.inspect.custom`][]
+instead. For backwards compatibility with Node.js prior to version 6.4.0, both
+may be specified.
+
+<a id="DEP0080"></a>
+### DEP0080: path.\_makeLong()
+
+Type: Documentation-only
+
+The internal `path._makeLong()` was not intended for public use. However,
+userland modules have found it useful. The internal API has been deprecated
+and replaced with an identical, public `path.toNamespacedPath()` method.
+
+<a id="DEP0081"></a>
+### DEP0081: fs.truncate() using a file descriptor
+
+Type: Runtime
+
+`fs.truncate()` `fs.truncateSync()` usage with a file descriptor has been
+deprecated. Please use `fs.ftruncate()` or `fs.ftruncateSync()` to work with
+file descriptors.
+
+<a id="DEP0082"></a>
+### DEP0082: REPLServer.prototype.memory()
+
+Type: Runtime
+
+`REPLServer.prototype.memory()` is a function only necessary for the
+internal mechanics of the `REPLServer` itself, and is therefore not
+necessary in user space.
+
+<a id="DEP0083"></a>
+### DEP0083: Disabling ECDH by setting ecdhCurve to false
+
+Type: Runtime
+
+The `ecdhCurve` option to `tls.createSecureContext()` and `tls.TLSSocket` could
+be set to `false` to disable ECDH entirely on the server only. This mode is
+deprecated in preparation for migrating to OpenSSL 1.1.0 and consistency with
+the client. Use the `ciphers` parameter instead.
+
+<a id="DEP0084"></a>
+### DEP0084: requiring bundled internal dependencies
+
+Type: Runtime
+
+Since Node.js versions 4.4.0 and 5.2.0, several modules only intended for
+internal usage are mistakenly exposed to user code through `require()`. These
+modules are:
+
+- `v8/tools/codemap`
+- `v8/tools/consarray`
+- `v8/tools/csvparser`
+- `v8/tools/logreader`
+- `v8/tools/profile_view`
+- `v8/tools/profile`
+- `v8/tools/SourceMap`
+- `v8/tools/splaytree`
+- `v8/tools/tickprocessor-driver`
+- `v8/tools/tickprocessor`
+- `node-inspect/lib/_inspect` (from 7.6.0)
+- `node-inspect/lib/internal/inspect_client` (from 7.6.0)
+- `node-inspect/lib/internal/inspect_repl` (from 7.6.0)
+
+The `v8/*` modules do not have any exports, and if not imported in a specific
+order would in fact throw errors. As such there are virtually no legitimate use
+cases for importing them through `require()`.
+
+On the other hand, `node-inspect` may be installed locally through a package
+manager, as it is published on the npm registry under the same name. No source
+code modification is necessary if that is done.
+
+<a id="DEP0085"></a>
+### DEP0085: AsyncHooks Sensitive API
+
+Type: End-of-Life
+
+The AsyncHooks Sensitive API was never documented and had various of minor
+issues, see https://github.com/nodejs/node/issues/15572. Use the `AsyncResource`
+API instead.
+
+
+<a id="DEP0086"></a>
+### DEP0086: Remove runInAsyncIdScope
+
+Type: End-of-Life
+
+`runInAsyncIdScope` doesn't emit the `before` or `after` event and can thus
+cause a lot of issues. See https://github.com/nodejs/node/issues/14328 for more
+details.
+
+<a id="DEP0089"></a>
+### DEP0089: require('assert')
+
+Type: Documentation-only
+
+Importing assert directly is not recommended as the exposed functions will use
+loose equality checks. Use `require('assert').strict` instead. The API is the
+same as the legacy assert but it will always use strict equality checks.
+
 [`Buffer.allocUnsafeSlow(size)`]: buffer.html#buffer_class_method_buffer_allocunsafeslow_size
-[`Buffer.isBuffer()`]: buffer.html#buffer_class_method_buffer_isbuffer_obj
 [`Buffer.from(array)`]: buffer.html#buffer_class_method_buffer_from_array
-[from_arraybuffer]: buffer.html#buffer_class_method_buffer_from_arraybuffer_byteoffset_length
 [`Buffer.from(buffer)`]: buffer.html#buffer_class_method_buffer_from_buffer
-[from_string_encoding]: buffer.html#buffer_class_method_buffer_from_string_encoding
+[`Buffer.isBuffer()`]: buffer.html#buffer_class_method_buffer_isbuffer_obj
+[`EventEmitter.listenerCount(emitter, eventName)`]: events.html#events_eventemitter_listenercount_emitter_eventname
+[`Server.connections`]: net.html#net_server_connections
+[`Server.getConnections()`]: net.html#net_server_getconnections_callback
+[`Server.listen({fd: <number>})`]: net.html#net_server_listen_handle_backlog_callback
 [`SlowBuffer`]: buffer.html#buffer_class_slowbuffer
 [`child_process`]: child_process.html
 [`console.error()`]: console.html#console_console_error_data_args
@@ -597,36 +822,31 @@ an officially supported API.
 [`crypto.createCredentials()`]: crypto.html#crypto_crypto_createcredentials_details
 [`crypto.pbkdf2()`]: crypto.html#crypto_crypto_pbkdf2_password_salt_iterations_keylen_digest_callback
 [`domain`]: domain.html
-[`Domain.dispose()`]: domain.html#domain_domain_dispose
-[`ecdh.setPublicKey()`]: crypto.html#crypto_ecdh_setpublickey_public_key_encoding
+[`ecdh.setPublicKey()`]: crypto.html#crypto_ecdh_setpublickey_publickey_encoding
 [`emitter.listenerCount(eventName)`]: events.html#events_emitter_listenercount_eventname
-[`EventEmitter.listenerCount(emitter, eventName)`]: events.html#events_eventemitter_listenercount_emitter_eventname
-[`fs.exists(path, callback)`]: fs.html#fs_fs_exists_path_callback
-[`fs.stat()`]: fs.html#fs_fs_stat_path_callback
 [`fs.access()`]: fs.html#fs_fs_access_path_mode_callback
+[`fs.exists(path, callback)`]: fs.html#fs_fs_exists_path_callback
 [`fs.lchmod(path, mode, callback)`]: fs.html#fs_fs_lchmod_path_mode_callback
 [`fs.lchmodSync(path, mode)`]: fs.html#fs_fs_lchmodsync_path_mode
 [`fs.lchown(path, uid, gid, callback)`]: fs.html#fs_fs_lchown_path_uid_gid_callback
 [`fs.lchownSync(path, uid, gid)`]: fs.html#fs_fs_lchownsync_path_uid_gid
 [`fs.read()`]: fs.html#fs_fs_read_fd_buffer_offset_length_position_callback
 [`fs.readSync()`]: fs.html#fs_fs_readsync_fd_buffer_offset_length_position
-[`Server.connections`]: net.html#net_server_connections
-[`Server.getConnections()`]: net.html#net_server_getconnections_callback
-[`Server.listen({fd: <number>})`]: net.html#net_server_listen_handle_backlog_callback
+[`fs.stat()`]: fs.html#fs_fs_stat_path_callback
 [`os.networkInterfaces`]: os.html#os_os_networkinterfaces
 [`os.tmpdir()`]: os.html#os_os_tmpdir
 [`punycode`]: punycode.html
-[`require.extensions`]: globals.html#globals_require_extensions
-[`tls.TLSSocket`]: tls.html#tls_class_tls_tlssocket
+[`require.extensions`]: modules.html#modules_require_extensions
 [`tls.CryptoStream`]: tls.html#tls_class_cryptostream
-[`tls.SecurePair`]: tls.html#tls_class_securepair
 [`tls.SecureContext`]: tls.html#tls_tls_createsecurecontext_options
+[`tls.SecurePair`]: tls.html#tls_class_securepair
+[`tls.TLSSocket`]: tls.html#tls_class_tls_tlssocket
 [`tls.createSecureContext()`]: tls.html#tls_tls_createsecurecontext_options
-[`util`]: util.html
+[`util._extend()`]: util.html#util_util_extend_target_source
 [`util.debug()`]: util.html#util_util_debug_string
 [`util.error()`]: util.html#util_util_error_strings
-[`util.puts()`]: util.html#util_util_puts_strings
-[`util.print()`]: util.html#util_util_print_strings
+[`util.inspect()`]: util.html#util_util_inspect_object_options
+[`util.inspect.custom`]: util.html#util_util_inspect_custom
 [`util.isArray()`]: util.html#util_util_isarray_object
 [`util.isBoolean()`]: util.html#util_util_isboolean_object
 [`util.isBuffer()`]: util.html#util_util_isbuffer_object
@@ -643,6 +863,12 @@ an officially supported API.
 [`util.isSymbol()`]: util.html#util_util_issymbol_object
 [`util.isUndefined()`]: util.html#util_util_isundefined_object
 [`util.log()`]: util.html#util_util_log_string
-[`util._extend()`]: util.html#util_util_extend_target_source
-[`worker.suicide`]: cluster.html#cluster_worker_suicide
+[`util.print()`]: util.html#util_util_print_strings
+[`util.puts()`]: util.html#util_util_puts_strings
+[`util`]: util.html
 [`worker.exitedAfterDisconnect`]: cluster.html#cluster_worker_exitedafterdisconnect
+[alloc]: buffer.html#buffer_class_method_buffer_alloc_size_fill_encoding
+[alloc_unsafe_size]: buffer.html#buffer_class_method_buffer_allocunsafe_size
+[from_arraybuffer]: buffer.html#buffer_class_method_buffer_from_arraybuffer_byteoffset_length
+[from_string_encoding]: buffer.html#buffer_class_method_buffer_from_string_encoding
+[`REPLServer.clearBufferedCommand()`]: repl.html#repl_replserver_clearbufferedcommand

@@ -32,6 +32,7 @@
 #include "include/v8.h"
 #include "src/v8.h"
 
+#include "src/api.h"
 #include "src/ast/ast.h"
 #include "src/char-predicates-inl.h"
 #include "src/objects-inl.h"
@@ -42,6 +43,8 @@
 #include "src/regexp/regexp-parser.h"
 #include "src/splay-tree-inl.h"
 #include "src/string-stream.h"
+#include "src/unicode-inl.h"
+
 #ifdef V8_INTERPRETED_REGEXP
 #include "src/regexp/interpreter-irregexp.h"
 #else  // V8_INTERPRETED_REGEXP
@@ -86,16 +89,12 @@
 #include "src/ia32/macro-assembler-ia32.h"
 #include "src/regexp/ia32/regexp-macro-assembler-ia32.h"
 #endif
-#if V8_TARGET_ARCH_X87
-#include "src/regexp/x87/regexp-macro-assembler-x87.h"
-#include "src/x87/assembler-x87.h"
-#include "src/x87/macro-assembler-x87.h"
-#endif
 #endif  // V8_INTERPRETED_REGEXP
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
-
+namespace v8 {
+namespace internal {
+namespace test_regexp {
 
 static bool CheckParse(const char* input) {
   v8::HandleScope scope(CcTest::isolate());
@@ -199,8 +198,8 @@ void TestRegExpParser(bool lookbehind) {
   CheckParseEq("xyz{1,}?", "(: 'xy' (# 1 - n 'z'))");
   CheckParseEq("a\\fb\\nc\\rd\\te\\vf", "'a\\x0cb\\x0ac\\x0dd\\x09e\\x0bf'");
   CheckParseEq("a\\nb\\bc", "(: 'a\\x0ab' @b 'c')");
-  CheckParseEq("(?:foo)", "'foo'");
-  CheckParseEq("(?: foo )", "' foo '");
+  CheckParseEq("(?:foo)", "(?: 'foo')");
+  CheckParseEq("(?: foo )", "(?: ' foo ')");
   CheckParseEq("(foo|bar|baz)", "(^ (| 'foo' 'bar' 'baz'))");
   CheckParseEq("foo|(bar|baz)|quux", "(| 'foo' (^ (| 'bar' 'baz')) 'quux')");
   CheckParseEq("foo(?=bar)baz", "(: 'foo' (-> + 'bar') 'baz')");
@@ -227,8 +226,8 @@ void TestRegExpParser(bool lookbehind) {
   CheckParseEq("[\\d]", "[0-9]");
   CheckParseEq("[x\\dz]", "[x 0-9 z]");
   CheckParseEq("[\\d-z]", "[0-9 - z]");
-  CheckParseEq("[\\d-\\d]", "[0-9 - 0-9]");
-  CheckParseEq("[z-\\d]", "[z - 0-9]");
+  CheckParseEq("[\\d-\\d]", "[0-9 0-9 -]");
+  CheckParseEq("[z-\\d]", "[0-9 z -]");
   // Control character outside character class.
   CheckParseEq("\\cj\\cJ\\ci\\cI\\ck\\cK", "'\\x0a\\x0a\\x09\\x09\\x0b\\x0b'");
   CheckParseEq("\\c!", "'\\c!'");
@@ -294,7 +293,7 @@ void TestRegExpParser(bool lookbehind) {
   CheckParseEq("(?!\\1(a\\1)\\1)\\1",
                "(: (-> - (: (<- 1) (^ 'a') (<- 1))) (<- 1))");
   CheckParseEq("\\1\\2(a(?:\\1(b\\1\\2))\\2)\\1",
-               "(: (<- 1) (<- 2) (^ (: 'a' (^ 'b') (<- 2))) (<- 1))");
+               "(: (<- 1) (<- 2) (^ (: 'a' (?: (^ 'b')) (<- 2))) (<- 1))");
   if (lookbehind) {
     CheckParseEq("\\1\\2(a(?<=\\1(b\\1\\2))\\2)\\1",
                  "(: (<- 1) (<- 2) (^ (: 'a' (<- + (^ 'b')) (<- 2))) (<- 1))");
@@ -314,6 +313,9 @@ void TestRegExpParser(bool lookbehind) {
   CheckParseEq("\\u0034", "'\x34'");
   CheckParseEq("\\u003z", "'u003z'");
   CheckParseEq("foo[z]*", "(: 'foo' (# 0 - g [z]))");
+  CheckParseEq("^^^$$$\\b\\b\\b\\b", "(: @^i @$i @b)");
+  CheckParseEq("\\b\\b\\b\\b\\B\\B\\B\\B\\b\\b\\b\\b", "(: @b @B @b)");
+  CheckParseEq("\\b\\B\\b", "(: @b @B @b)");
 
   // Unicode regexps
   CheckParseEq("\\u{12345}", "'\\ud808\\udf45'", true);
@@ -1593,6 +1595,7 @@ TEST(LatinCanonicalize) {
   }
   for (uc32 c = 128; c < (1 << 21); c++)
     CHECK_GE(canonicalize(c), 128);
+#ifndef V8_INTL_SUPPORT
   unibrow::Mapping<unibrow::ToUppercase> to_upper;
   // Canonicalization is only defined for the Basic Multilingual Plane.
   for (uc32 c = 0; c < (1 << 16); c++) {
@@ -1607,6 +1610,7 @@ TEST(LatinCanonicalize) {
       u = c;
     CHECK_EQ(u, canonicalize(c));
   }
+#endif
 }
 
 
@@ -2032,3 +2036,7 @@ TEST(UncachedExternalString) {
   CompileRun("var re = /y(.)/; re.test('ab');");
   ExpectString("external.substring(1).match(re)[1]", "z");
 }
+
+}  // namespace test_regexp
+}  // namespace internal
+}  // namespace v8

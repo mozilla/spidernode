@@ -15,7 +15,7 @@
 namespace v8 {
 namespace internal {
 
-enum class MachineRepresentation : uint8_t {
+enum class MachineRepresentation {
   kNone,
   kBit,
   kWord8,
@@ -33,13 +33,15 @@ enum class MachineRepresentation : uint8_t {
   kLastRepresentation = kSimd128
 };
 
+bool IsSubtype(MachineRepresentation rep1, MachineRepresentation rep2);
+
 static_assert(static_cast<int>(MachineRepresentation::kLastRepresentation) <
                   kIntSize * kBitsPerByte,
               "Bit masks of MachineRepresentation should fit in an int");
 
 const char* MachineReprToString(MachineRepresentation);
 
-enum class MachineSemantic : uint8_t {
+enum class MachineSemantic {
   kNone,
   kBool,
   kInt32,
@@ -49,6 +51,8 @@ enum class MachineSemantic : uint8_t {
   kNumber,
   kAny
 };
+
+V8_EXPORT_PRIVATE inline int ElementSizeLog2Of(MachineRepresentation rep);
 
 class MachineType {
  public:
@@ -209,8 +213,11 @@ class MachineType {
         return MachineType::TaggedPointer();
       default:
         UNREACHABLE();
-        return MachineType::None();
     }
+  }
+
+  bool LessThanOrEqualPointerSize() {
+    return ElementSizeLog2Of(this->representation()) <= kPointerSizeLog2;
   }
 
  private:
@@ -274,7 +281,6 @@ V8_EXPORT_PRIVATE inline int ElementSizeLog2Of(MachineRepresentation rep) {
       break;
   }
   UNREACHABLE();
-  return -1;
 }
 
 typedef Signature<MachineType> MachineSignature;

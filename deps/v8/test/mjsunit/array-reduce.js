@@ -408,6 +408,12 @@ testReduce("reduceRight", "ArrayWithNonElementPropertiesReduceRight", 6,
             [5, 1, 0, arrayPlus, 6],
            ], arrayPlus, sum, 0);
 
+// Test passing undefined as initial value (to test missing parameter
+// detection).
+[1].reduce((a, b) => { assertEquals(a, undefined); assertEquals(b, 1) },
+           undefined);
+[1, 2].reduce((a, b) => { assertEquals(a, 1); assertEquals(b, 2); });
+[1].reduce((a, b) => { assertTrue(false); });
 
 // Test error conditions:
 
@@ -531,3 +537,23 @@ var arr = [];
 Object.defineProperty(arr, "0", { get: function() { delete this[0] },
   configurable: true});
 assertEquals(undefined, arr.reduceRight(function(val) { return val }));
+
+
+(function ReduceRightMaxIndex() {
+  const kMaxIndex = 0xffffffff-1;
+  let array = [];
+  array[kMaxIndex-2] = 'value-2';
+  array[kMaxIndex-1] = 'value-1';
+  // Use the maximum array index possible.
+  array[kMaxIndex] = 'value';
+  // Add the next index which is a normal property and thus will not show up.
+  array[kMaxIndex+1] = 'normal property';
+  assertThrowsEquals( () => {
+      array.reduceRight((sum, value) => {
+        assertEquals('initial', sum);
+        assertEquals('value', value);
+        // Throw at this point as we would very slowly loop down from kMaxIndex.
+        throw 'do not continue';
+      }, 'initial')
+  }, 'do not continue');
+})();

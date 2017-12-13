@@ -115,9 +115,10 @@ class MessageTestConfiguration(test.TestConfiguration):
 
   def Ls(self, path):
     if isdir(path):
-        return [f[:-3] for f in os.listdir(path) if f.endswith('.js')]
+      return [f for f in os.listdir(path)
+              if f.endswith('.js') or f.endswith('.mjs')]
     else:
-        return []
+      return []
 
   def ListTests(self, current_path, path, arch, mode):
     all_tests = [current_path + [t] for t in self.Ls(self.root)]

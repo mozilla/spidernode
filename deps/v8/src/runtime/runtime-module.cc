@@ -5,9 +5,31 @@
 #include "src/runtime/runtime-utils.h"
 
 #include "src/arguments.h"
+#include "src/counters.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
+
+RUNTIME_FUNCTION(Runtime_DynamicImportCall) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, specifier, 1);
+
+  Handle<Script> script(Script::cast(function->shared()->script()));
+
+  while (script->eval_from_shared()->IsSharedFunctionInfo()) {
+    script = handle(
+        Script::cast(
+            SharedFunctionInfo::cast(script->eval_from_shared())->script()),
+        isolate);
+  }
+
+  RETURN_RESULT_OR_FAILURE(
+      isolate,
+      isolate->RunHostImportModuleDynamicallyCallback(script, specifier));
+}
 
 RUNTIME_FUNCTION(Runtime_GetModuleNamespace) {
   HandleScope scope(isolate);

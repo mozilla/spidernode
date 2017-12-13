@@ -8,35 +8,25 @@
 #include <vector>
 
 #include "src/base/macros.h"
-#include "src/inspector/java-script-call-frame.h"
+#include "src/debug/debug-interface.h"
+#include "src/debug/interface-types.h"
 #include "src/inspector/protocol/Debugger.h"
 #include "src/inspector/protocol/Forward.h"
 
 namespace v8_inspector {
 
 struct ScriptBreakpoint;
-class JavaScriptCallFrame;
-class PromiseTracker;
 class V8Debugger;
 class V8DebuggerScript;
 class V8InspectorImpl;
 class V8InspectorSessionImpl;
 class V8Regex;
-class V8StackTraceImpl;
 
 using protocol::Maybe;
 using protocol::Response;
 
 class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
  public:
-  enum SkipPauseRequest {
-    RequestNoSkip,
-    RequestContinue,
-    RequestStepInto,
-    RequestStepOut,
-    RequestStepFrame
-  };
-
   enum BreakpointSource {
     UserBreakpointSource,
     DebugCommandBreakpointSource,
@@ -55,8 +45,9 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   Response setSkipAllPauses(bool skip) override;
   Response setBreakpointByUrl(
       int lineNumber, Maybe<String16> optionalURL,
-      Maybe<String16> optionalURLRegex, Maybe<int> optionalColumnNumber,
-      Maybe<String16> optionalCondition, String16*,
+      Maybe<String16> optionalURLRegex, Maybe<String16> optionalScriptHash,
+      Maybe<int> optionalColumnNumber, Maybe<String16> optionalCondition,
+      String16*,
       std::unique_ptr<protocol::Array<protocol::Debugger::Location>>* locations)
       override;
   Response setBreakpoint(
@@ -64,8 +55,8 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
       Maybe<String16> optionalCondition, String16*,
       std::unique_ptr<protocol::Debugger::Location>* actualLocation) override;
   Response removeBreakpoint(const String16& breakpointId) override;
-  Response continueToLocation(
-      std::unique_ptr<protocol::Debugger::Location>) override;
+  Response continueToLocation(std::unique_ptr<protocol::Debugger::Location>,
+                              Maybe<String16> targetCallFrames) override;
   Response searchInContent(
       const String16& scriptId, const String16& query,
       Maybe<bool> optionalCaseSensitive, Maybe<bool> optionalIsRegex,
@@ -73,9 +64,9 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
       override;
   Response getPossibleBreakpoints(
       std::unique_ptr<protocol::Debugger::Location> start,
-      Maybe<protocol::Debugger::Location> end,
-      std::unique_ptr<protocol::Array<protocol::Debugger::Location>>* locations)
-      override;
+      Maybe<protocol::Debugger::Location> end, Maybe<bool> restrictToFunction,
+      std::unique_ptr<protocol::Array<protocol::Debugger::BreakLocation>>*
+          locations) override;
   Response setScriptSource(
       const String16& inScriptId, const String16& inScriptSource,
       Maybe<bool> dryRun,
@@ -95,12 +86,14 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   Response stepOver() override;
   Response stepInto() override;
   Response stepOut() override;
+  void scheduleStepIntoAsync(
+      std::unique_ptr<ScheduleStepIntoAsyncCallback> callback) override;
   Response setPauseOnExceptions(const String16& pauseState) override;
   Response evaluateOnCallFrame(
       const String16& callFrameId, const String16& expression,
       Maybe<String16> objectGroup, Maybe<bool> includeCommandLineAPI,
       Maybe<bool> silent, Maybe<bool> returnByValue,
-      Maybe<bool> generatePreview,
+      Maybe<bool> generatePreview, Maybe<bool> throwOnSideEffect,
       std::unique_ptr<protocol::Runtime::RemoteObject>* result,
       Maybe<protocol::Runtime::ExceptionDetails>*) override;
   Response setVariableValue(
@@ -115,7 +108,7 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
       std::unique_ptr<protocol::Array<protocol::Debugger::ScriptPosition>>
           positions) override;
 
-  bool enabled();
+  bool enabled() const { return m_enabled; }
 
   void setBreakpointAt(const String16& scriptId, int lineNumber,
                        int columnNumber, BreakpointSource,
@@ -128,62 +121,54 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   void cancelPauseOnNextStatement();
   void breakProgram(const String16& breakReason,
                     std::unique_ptr<protocol::DictionaryValue> data);
-  void breakProgramOnException(const String16& breakReason,
-                               std::unique_ptr<protocol::DictionaryValue> data);
 
   void reset();
 
   // Interface for V8InspectorImpl
-  SkipPauseRequest didPause(v8::Local<v8::Context>,
-                            v8::Local<v8::Value> exception,
-                            const std::vector<String16>& hitBreakpoints,
-                            bool isPromiseRejection, bool isUncaught);
+  void didPause(int contextId, v8::Local<v8::Value> exception,
+                const std::vector<v8::debug::BreakpointId>& hitBreakpoints,
+                bool isPromiseRejection, bool isUncaught, bool isOOMBreak,
+                bool isAssert);
   void didContinue();
   void didParseSource(std::unique_ptr<V8DebuggerScript>, bool success);
-  void willExecuteScript(int scriptId);
-  void didExecuteScript();
+
+  bool isFunctionBlackboxed(const String16& scriptId,
+                            const v8::debug::Location& start,
+                            const v8::debug::Location& end);
+
+  bool acceptsPause(bool isOOMBreak) const;
 
   v8::Isolate* isolate() { return m_isolate; }
 
  private:
   void enableImpl();
 
-  SkipPauseRequest shouldSkipExceptionPause(JavaScriptCallFrame* topCallFrame);
-  SkipPauseRequest shouldSkipStepPause(JavaScriptCallFrame* topCallFrame);
-
-  void schedulePauseOnNextStatementIfSteppingInto();
-
   Response currentCallFrames(
       std::unique_ptr<protocol::Array<protocol::Debugger::CallFrame>>*);
   std::unique_ptr<protocol::Runtime::StackTrace> currentAsyncStackTrace();
 
-  void changeJavaScriptRecursionLevel(int step);
-
   void setPauseOnExceptionsImpl(int);
 
-  std::unique_ptr<protocol::Debugger::Location> resolveBreakpoint(
-      const String16& breakpointId, const ScriptBreakpoint&, BreakpointSource);
+  std::unique_ptr<protocol::Debugger::Location> setBreakpointImpl(
+      const String16& breakpointId, const String16& scriptId,
+      const String16& condition, int lineNumber, int columnNumber);
   void removeBreakpointImpl(const String16& breakpointId);
   void clearBreakDetails();
-
-  bool isCurrentCallStackEmptyOrBlackboxed();
-  bool isTopPausedCallFrameBlackboxed();
-  bool isCallFrameWithUnknownScriptOrBlackboxed(JavaScriptCallFrame*);
 
   void internalSetAsyncCallStackDepth(int);
   void increaseCachedSkipStackGeneration();
 
   Response setBlackboxPattern(const String16& pattern);
+  void resetBlackboxedStateCache();
+
+  bool isPaused() const;
 
   using ScriptsMap =
       protocol::HashMap<String16, std::unique_ptr<V8DebuggerScript>>;
   using BreakpointIdToDebuggerBreakpointIdsMap =
-      protocol::HashMap<String16, std::vector<String16>>;
-  using DebugServerBreakpointToBreakpointIdAndSourceMap =
-      protocol::HashMap<String16, std::pair<String16, BreakpointSource>>;
-  using MuteBreakpoins = protocol::HashMap<String16, std::pair<String16, int>>;
-
-  enum DebuggerStep { NoStep = 0, StepInto, StepOver, StepOut };
+      protocol::HashMap<String16, std::vector<v8::debug::BreakpointId>>;
+  using DebuggerBreakpointIdToBreakpointIdMap =
+      protocol::HashMap<v8::debug::BreakpointId, String16>;
 
   V8InspectorImpl* m_inspector;
   V8Debugger* m_debugger;
@@ -192,24 +177,21 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   protocol::DictionaryValue* m_state;
   protocol::Debugger::Frontend m_frontend;
   v8::Isolate* m_isolate;
-  v8::Global<v8::Context> m_pausedContext;
-  JavaScriptCallFrames m_pausedCallFrames;
   ScriptsMap m_scripts;
   BreakpointIdToDebuggerBreakpointIdsMap m_breakpointIdToDebuggerBreakpointIds;
-  DebugServerBreakpointToBreakpointIdAndSourceMap m_serverBreakpoints;
-  String16 m_continueToLocationBreakpointId;
-  String16 m_breakReason;
-  std::unique_ptr<protocol::DictionaryValue> m_breakAuxData;
-  DebuggerStep m_scheduledDebuggerStep;
-  bool m_skipNextDebuggerStepOut;
-  bool m_javaScriptPauseScheduled;
-  bool m_steppingFromFramework;
-  bool m_pausingOnNativeEvent;
+  DebuggerBreakpointIdToBreakpointIdMap m_debuggerBreakpointIdToBreakpointId;
 
-  int m_skippedStepFrameCount;
-  int m_recursionLevelForStepOut;
-  int m_recursionLevelForStepFrame;
-  bool m_skipAllPauses;
+  using BreakReason =
+      std::pair<String16, std::unique_ptr<protocol::DictionaryValue>>;
+  std::vector<BreakReason> m_breakReason;
+
+  void pushBreakDetails(
+      const String16& breakReason,
+      std::unique_ptr<protocol::DictionaryValue> breakAuxData);
+  void popBreakDetails();
+
+  bool m_skipAllPauses = false;
+  bool m_breakpointsActive = false;
 
   std::unique_ptr<V8Regex> m_blackboxPattern;
   protocol::HashMap<String16, std::vector<std::pair<int, int>>>
@@ -217,6 +199,8 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
 
   DISALLOW_COPY_AND_ASSIGN(V8DebuggerAgentImpl);
 };
+
+String16 scopeType(v8::debug::ScopeIterator::ScopeType type);
 
 }  // namespace v8_inspector
 

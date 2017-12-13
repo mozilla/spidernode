@@ -6,12 +6,12 @@
 #include "stream_base.h"
 
 #include "node.h"
-#include "env.h"
 #include "env-inl.h"
 #include "v8.h"
 
 namespace node {
 
+using v8::AccessorSignature;
 using v8::External;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -23,6 +23,8 @@ using v8::PropertyCallbackInfo;
 using v8::String;
 using v8::Value;
 
+using AsyncHooks = Environment::AsyncHooks;
+
 template <class Base>
 void StreamBase::AddMethods(Environment* env,
                             Local<FunctionTemplate> t,
@@ -30,27 +32,33 @@ void StreamBase::AddMethods(Environment* env,
   HandleScope scope(env->isolate());
 
   enum PropertyAttribute attributes =
-      static_cast<PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
-  t->InstanceTemplate()->SetAccessor(env->fd_string(),
-                                     GetFD<Base>,
-                                     nullptr,
-                                     env->as_external(),
-                                     v8::DEFAULT,
-                                     attributes);
+      static_cast<PropertyAttribute>(
+          v8::ReadOnly | v8::DontDelete | v8::DontEnum);
+  Local<AccessorSignature> signature =
+      AccessorSignature::New(env->isolate(), t);
+  t->PrototypeTemplate()->SetAccessor(env->fd_string(),
+                                      GetFD<Base>,
+                                      nullptr,
+                                      env->as_external(),
+                                      v8::DEFAULT,
+                                      attributes,
+                                      signature);
 
-  t->InstanceTemplate()->SetAccessor(env->external_stream_string(),
-                                     GetExternal<Base>,
-                                     nullptr,
-                                     env->as_external(),
-                                     v8::DEFAULT,
-                                     attributes);
+  t->PrototypeTemplate()->SetAccessor(env->external_stream_string(),
+                                      GetExternal<Base>,
+                                      nullptr,
+                                      env->as_external(),
+                                      v8::DEFAULT,
+                                      attributes,
+                                      signature);
 
-  t->InstanceTemplate()->SetAccessor(env->bytes_read_string(),
-                                     GetBytesRead<Base>,
-                                     nullptr,
-                                     env->as_external(),
-                                     v8::DEFAULT,
-                                     attributes);
+  t->PrototypeTemplate()->SetAccessor(env->bytes_read_string(),
+                                      GetBytesRead<Base>,
+                                      nullptr,
+                                      env->as_external(),
+                                      v8::DEFAULT,
+                                      attributes,
+                                      signature);
 
   env->SetProtoMethod(t, "readStart", JSMethod<Base, &StreamBase::ReadStart>);
   env->SetProtoMethod(t, "readStop", JSMethod<Base, &StreamBase::ReadStop>);
@@ -79,11 +87,10 @@ void StreamBase::AddMethods(Environment* env,
 template <class Base>
 void StreamBase::GetFD(Local<String> key,
                        const PropertyCallbackInfo<Value>& args) {
-  Base* handle = Unwrap<Base>(args.Holder());
-
   // Mimic implementation of StreamBase::GetFD() and UDPWrap::GetFD().
+  Base* handle;
   ASSIGN_OR_RETURN_UNWRAP(&handle,
-                          args.Holder(),
+                          args.This(),
                           args.GetReturnValue().Set(UV_EINVAL));
 
   StreamBase* wrap = static_cast<StreamBase*>(handle);
@@ -97,11 +104,10 @@ void StreamBase::GetFD(Local<String> key,
 template <class Base>
 void StreamBase::GetBytesRead(Local<String> key,
                               const PropertyCallbackInfo<Value>& args) {
-  Base* handle = Unwrap<Base>(args.Holder());
-
   // The handle instance hasn't been set. So no bytes could have been read.
+  Base* handle;
   ASSIGN_OR_RETURN_UNWRAP(&handle,
-                          args.Holder(),
+                          args.This(),
                           args.GetReturnValue().Set(0));
 
   StreamBase* wrap = static_cast<StreamBase*>(handle);
@@ -113,9 +119,8 @@ void StreamBase::GetBytesRead(Local<String> key,
 template <class Base>
 void StreamBase::GetExternal(Local<String> key,
                              const PropertyCallbackInfo<Value>& args) {
-  Base* handle = Unwrap<Base>(args.Holder());
-
-  ASSIGN_OR_RETURN_UNWRAP(&handle, args.Holder());
+  Base* handle;
+  ASSIGN_OR_RETURN_UNWRAP(&handle, args.This());
 
   StreamBase* wrap = static_cast<StreamBase*>(handle);
   Local<External> ext = External::New(args.GetIsolate(), wrap);
@@ -126,27 +131,31 @@ void StreamBase::GetExternal(Local<String> key,
 template <class Base,
           int (StreamBase::*Method)(const FunctionCallbackInfo<Value>& args)>
 void StreamBase::JSMethod(const FunctionCallbackInfo<Value>& args) {
-  Base* handle = Unwrap<Base>(args.Holder());
-
+  Base* handle;
   ASSIGN_OR_RETURN_UNWRAP(&handle, args.Holder());
 
   StreamBase* wrap = static_cast<StreamBase*>(handle);
   if (!wrap->IsAlive())
     return args.GetReturnValue().Set(UV_EINVAL);
 
+  AsyncHooks::InitScope init_scope(handle->env(), handle->get_async_id());
   args.GetReturnValue().Set((wrap->*Method)(args));
+}
+
+
+inline void ShutdownWrap::OnDone(int status) {
+  stream()->AfterShutdown(this, status);
 }
 
 
 WriteWrap* WriteWrap::New(Environment* env,
                           Local<Object> obj,
                           StreamBase* wrap,
-                          DoneCb cb,
                           size_t extra) {
   size_t storage_size = ROUND_UP(sizeof(WriteWrap), kAlignSize) + extra;
   char* storage = new char[storage_size];
 
-  return new(storage) WriteWrap(env, obj, wrap, cb, storage_size);
+  return new(storage) WriteWrap(env, obj, wrap, storage_size);
 }
 
 
@@ -160,6 +169,14 @@ char* WriteWrap::Extra(size_t offset) {
   return reinterpret_cast<char*>(this) +
          ROUND_UP(sizeof(*this), kAlignSize) +
          offset;
+}
+
+size_t WriteWrap::ExtraSize() const {
+  return storage_size_ - ROUND_UP(sizeof(*this), kAlignSize);
+}
+
+inline void WriteWrap::OnDone(int status) {
+  stream()->AfterWrite(this, status);
 }
 
 }  // namespace node

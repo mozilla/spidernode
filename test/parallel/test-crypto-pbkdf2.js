@@ -1,12 +1,12 @@
 'use strict';
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
+
+const assert = require('assert');
 const crypto = require('crypto');
+
+const { INT_MAX } = process.binding('constants').crypto;
 
 //
 // Test PBKDF2 with RFC 6070 test vectors (except #4)
@@ -57,37 +57,25 @@ function ondone(err, key) {
 }
 
 // Error path should not leak memory (check with valgrind).
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, 20, null);
-}, /^Error: No callback provided to pbkdf2$/);
+common.expectsError(
+  () => crypto.pbkdf2('password', 'salt', 1, 20, null),
+  {
+    code: 'ERR_INVALID_CALLBACK',
+    type: TypeError
+  }
+);
 
-// Should not work with Infinity key length
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, Infinity, 'sha256',
-                common.mustNotCall());
-}, /^TypeError: Bad key length$/);
-
-// Should not work with negative Infinity key length
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, -Infinity, 'sha256',
-                common.mustNotCall());
-}, /^TypeError: Bad key length$/);
-
-// Should not work with NaN key length
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, NaN, 'sha256', common.mustNotCall());
-}, /^TypeError: Bad key length$/);
-
-// Should not work with negative key length
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, -1, 'sha256', common.mustNotCall());
-}, /^TypeError: Bad key length$/);
-
-// Should not work with key length that does not fit into 32 signed bits
-assert.throws(function() {
-  crypto.pbkdf2('password', 'salt', 1, 4073741824, 'sha256',
-                common.mustNotCall());
-}, /^TypeError: Bad key length$/);
+[Infinity, -Infinity, NaN, -1, 4073741824, INT_MAX + 1].forEach((i) => {
+  common.expectsError(
+    () => {
+      crypto.pbkdf2('password', 'salt', 1, i, 'sha256',
+                    common.mustNotCall());
+    }, {
+      code: 'ERR_OUT_OF_RANGE',
+      type: RangeError,
+      message: 'The "keylen" argument is out of range'
+    });
+});
 
 // Should not get FATAL ERROR with empty password and salt
 // https://github.com/nodejs/node/issues/8571
@@ -97,10 +85,121 @@ assert.doesNotThrow(() => {
   }));
 });
 
-assert.throws(() => {
-  crypto.pbkdf2('password', 'salt', 8, 8, common.noop);
-}, /^TypeError: The "digest" argument is required and must not be undefined$/);
+common.expectsError(
+  () => crypto.pbkdf2('password', 'salt', 8, 8, common.mustNotCall()),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "digest" argument must be one of type string or null'
+  });
 
-assert.throws(() => {
-  crypto.pbkdf2Sync('password', 'salt', 8, 8);
-}, /^TypeError: The "digest" argument is required and must not be undefined$/);
+common.expectsError(
+  () => crypto.pbkdf2Sync('password', 'salt', 8, 8),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "digest" argument must be one of type string or null'
+  });
+
+[1, {}, [], true, undefined, null].forEach((i) => {
+  common.expectsError(
+    () => crypto.pbkdf2(i, 'salt', 8, 8, 'sha256', common.mustNotCall()),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "password" argument must be one of type string, ' +
+               'Buffer, or TypedArray'
+    }
+  );
+
+  common.expectsError(
+    () => crypto.pbkdf2('pass', i, 8, 8, 'sha256', common.mustNotCall()),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "salt" argument must be one of type string, ' +
+               'Buffer, or TypedArray'
+    }
+  );
+
+  common.expectsError(
+    () => crypto.pbkdf2Sync(i, 'salt', 8, 8, 'sha256'),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "password" argument must be one of type string, ' +
+               'Buffer, or TypedArray'
+    }
+  );
+
+  common.expectsError(
+    () => crypto.pbkdf2Sync('pass', i, 8, 8, 'sha256'),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "salt" argument must be one of type string, ' +
+               'Buffer, or TypedArray'
+    }
+  );
+});
+
+['test', {}, [], true, undefined, null].forEach((i) => {
+  common.expectsError(
+    () => crypto.pbkdf2('pass', 'salt', i, 8, 'sha256', common.mustNotCall()),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "iterations" argument must be of type number'
+    }
+  );
+
+  common.expectsError(
+    () => crypto.pbkdf2Sync('pass', 'salt', i, 8, 'sha256'),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+      type: TypeError,
+      message: 'The "iterations" argument must be of type number'
+    }
+  );
+});
+
+// Any TypedArray should work for password and salt
+crypto.pbkdf2(new Uint8Array(10), 'salt', 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2('pass', new Uint8Array(10), 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2(new Uint16Array(10), 'salt', 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2('pass', new Uint16Array(10), 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2(new Uint32Array(10), 'salt', 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2('pass', new Uint32Array(10), 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2(new Float32Array(10), 'salt', 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2('pass', new Float32Array(10), 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2(new Float64Array(10), 'salt', 8, 8, 'sha256', common.mustCall());
+crypto.pbkdf2('pass', new Float64Array(10), 8, 8, 'sha256', common.mustCall());
+
+crypto.pbkdf2Sync(new Uint8Array(10), 'salt', 8, 8, 'sha256');
+crypto.pbkdf2Sync('pass', new Uint8Array(10), 8, 8, 'sha256');
+crypto.pbkdf2Sync(new Uint16Array(10), 'salt', 8, 8, 'sha256');
+crypto.pbkdf2Sync('pass', new Uint16Array(10), 8, 8, 'sha256');
+crypto.pbkdf2Sync(new Uint32Array(10), 'salt', 8, 8, 'sha256');
+crypto.pbkdf2Sync('pass', new Uint32Array(10), 8, 8, 'sha256');
+crypto.pbkdf2Sync(new Float32Array(10), 'salt', 8, 8, 'sha256');
+crypto.pbkdf2Sync('pass', new Float32Array(10), 8, 8, 'sha256');
+crypto.pbkdf2Sync(new Float64Array(10), 'salt', 8, 8, 'sha256');
+crypto.pbkdf2Sync('pass', new Float64Array(10), 8, 8, 'sha256');
+
+common.expectsError(
+  () => crypto.pbkdf2('pass', 'salt', 8, 8, 'md55', common.mustNotCall()),
+  {
+    code: 'ERR_CRYPTO_INVALID_DIGEST',
+    type: TypeError,
+    message: 'Invalid digest: md55'
+  }
+);
+
+common.expectsError(
+  () => crypto.pbkdf2Sync('pass', 'salt', 8, 8, 'md55'),
+  {
+    code: 'ERR_CRYPTO_INVALID_DIGEST',
+    type: TypeError,
+    message: 'Invalid digest: md55'
+  }
+);

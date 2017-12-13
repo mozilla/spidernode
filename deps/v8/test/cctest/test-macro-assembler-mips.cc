@@ -28,17 +28,18 @@
 #include <stdlib.h>
 #include <iostream>  // NOLINT(readability/streams)
 
+#include "src/api.h"
 #include "src/base/utils/random-number-generator.h"
 #include "src/macro-assembler.h"
 #include "src/mips/macro-assembler-mips.h"
 #include "src/mips/simulator-mips.h"
+#include "src/objects-inl.h"
 #include "src/v8.h"
 #include "test/cctest/cctest.h"
 
+namespace v8 {
+namespace internal {
 
-using namespace v8::internal;
-
-typedef void* (*F)(int x, int y, int p2, int p3, int p4);
 typedef Object* (*F1)(int x, int p1, int p2, int p3, int p4);
 typedef Object* (*F3)(void* p, int p1, int p2, int p3, int p4);
 typedef Object* (*F4)(void* p0, void* p1, int p2, int p3, int p4);
@@ -92,10 +93,10 @@ TEST(BYTESWAP) {
   __ nop();
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
-  ::F3 f = FUNCTION_CAST<::F3>(code->entry());
+  masm->GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
+  F3 f = FUNCTION_CAST<F3>(code->entry());
   t.r1 = 0x781A15C3;
   t.r2 = 0x2CDE;
   t.r3 = 0x9F;
@@ -201,9 +202,9 @@ TEST(jump_tables4) {
   __ Branch(&near_start);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  masm->GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef OBJECT_PRINT
   code->Print(std::cout);
 #endif
@@ -268,9 +269,9 @@ TEST(jump_tables5) {
   __ nop();
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  masm->GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef OBJECT_PRINT
   code->Print(std::cout);
 #endif
@@ -359,9 +360,9 @@ TEST(jump_tables6) {
   __ Branch(&near_start);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  masm->GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef OBJECT_PRINT
   code->Print(std::cout);
 #endif
@@ -386,9 +387,9 @@ static uint32_t run_lsa(uint32_t rt, uint32_t rs, int8_t sa) {
   __ nop();
 
   CodeDesc desc;
-  assembler.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assembler.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 
   F1 f = FUNCTION_CAST<F1>(code->entry());
 
@@ -516,9 +517,9 @@ RET_TYPE run_Cvt(IN_TYPE x, Func GenerateConvertInstructionFunc) {
   __ nop();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 
   F_CVT f = FUNCTION_CAST<F_CVT>(code->entry());
 
@@ -621,9 +622,9 @@ static bool runOverflow(IN_TYPE valLeft, IN_TYPE valRight,
   __ nop();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 
   F_CVT f = FUNCTION_CAST<F_CVT>(code->entry());
 
@@ -1008,8 +1009,8 @@ TEST(min_max_nan) {
 
   auto handle_dnan = [masm](FPURegister dst, Label* nan, Label* back) {
     __ bind(nan);
-    __ LoadRoot(at, Heap::kNanValueRootIndex);
-    __ ldc1(dst, FieldMemOperand(at, HeapNumber::kValueOffset));
+    __ LoadRoot(t8, Heap::kNanValueRootIndex);
+    __ Ldc1(dst, FieldMemOperand(t8, HeapNumber::kValueOffset));
     __ Branch(back);
   };
 
@@ -1024,8 +1025,8 @@ TEST(min_max_nan) {
 
   __ push(s6);
   __ InitializeRootRegister();
-  __ ldc1(f4, MemOperand(a0, offsetof(TestFloat, a)));
-  __ ldc1(f8, MemOperand(a0, offsetof(TestFloat, b)));
+  __ Ldc1(f4, MemOperand(a0, offsetof(TestFloat, a)));
+  __ Ldc1(f8, MemOperand(a0, offsetof(TestFloat, b)));
   __ lwc1(f2, MemOperand(a0, offsetof(TestFloat, e)));
   __ lwc1(f6, MemOperand(a0, offsetof(TestFloat, f)));
   __ Float64Min(f10, f4, f8, &handle_mind_nan);
@@ -1036,8 +1037,8 @@ TEST(min_max_nan) {
   __ bind(&back_mins_nan);
   __ Float32Max(f16, f2, f6, &handle_maxs_nan);
   __ bind(&back_maxs_nan);
-  __ sdc1(f10, MemOperand(a0, offsetof(TestFloat, c)));
-  __ sdc1(f12, MemOperand(a0, offsetof(TestFloat, d)));
+  __ Sdc1(f10, MemOperand(a0, offsetof(TestFloat, c)));
+  __ Sdc1(f12, MemOperand(a0, offsetof(TestFloat, d)));
   __ swc1(f14, MemOperand(a0, offsetof(TestFloat, g)));
   __ swc1(f16, MemOperand(a0, offsetof(TestFloat, h)));
   __ pop(s6);
@@ -1050,10 +1051,10 @@ TEST(min_max_nan) {
   handle_snan(f16, &handle_maxs_nan, &back_maxs_nan);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
-  ::F3 f = FUNCTION_CAST<::F3>(code->entry());
+  masm->GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
+  F3 f = FUNCTION_CAST<F3>(code->entry());
   for (int i = 0; i < kTableLength; i++) {
     test.a = inputsa[i];
     test.b = inputsb[i];
@@ -1086,9 +1087,9 @@ bool run_Unaligned(char* memory_buffer, int32_t in_offset, int32_t out_offset,
   __ nop();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 
   F_CVT f = FUNCTION_CAST<F_CVT>(code->entry());
 
@@ -1334,9 +1335,9 @@ bool run_Sltu(uint32_t rs, uint32_t rd, Func GenerateSltuInstructionFunc) {
   __ nop();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 
   F_CVT f = FUNCTION_CAST<F_CVT>(code->entry());
   int32_t res = reinterpret_cast<int32_t>(
@@ -1366,7 +1367,7 @@ TEST(Sltu) {
 }
 
 template <typename T, typename Inputs, typename Results>
-static ::F4 GenerateMacroFloat32MinMax(MacroAssembler* masm) {
+static F4 GenerateMacroFloat32MinMax(MacroAssembler* masm) {
   T a = T::from_code(4);  // f4
   T b = T::from_code(6);  // f6
   T c = T::from_code(8);  // f8
@@ -1429,14 +1430,14 @@ static ::F4 GenerateMacroFloat32MinMax(MacroAssembler* masm) {
   __ Branch(&done_max_aba);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = masm->isolate()->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  masm->GetCode(masm->isolate(), &desc);
+  Handle<Code> code =
+      masm->isolate()->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   OFStream os(stdout);
   code->Print(os);
 #endif
-  return FUNCTION_CAST<::F4>(code->entry());
+  return FUNCTION_CAST<F4>(code->entry());
 }
 
 TEST(macro_float_minmax_f32) {
@@ -1465,7 +1466,7 @@ TEST(macro_float_minmax_f32) {
     float max_aba_;
   };
 
-  ::F4 f = GenerateMacroFloat32MinMax<FPURegister, Inputs, Results>(masm);
+  F4 f = GenerateMacroFloat32MinMax<FPURegister, Inputs, Results>(masm);
   Object* dummy = nullptr;
   USE(dummy);
 
@@ -1509,7 +1510,7 @@ TEST(macro_float_minmax_f32) {
 }
 
 template <typename T, typename Inputs, typename Results>
-static ::F4 GenerateMacroFloat64MinMax(MacroAssembler* masm) {
+static F4 GenerateMacroFloat64MinMax(MacroAssembler* masm) {
   T a = T::from_code(4);  // f4
   T b = T::from_code(6);  // f6
   T c = T::from_code(8);  // f8
@@ -1521,11 +1522,11 @@ static ::F4 GenerateMacroFloat64MinMax(MacroAssembler* masm) {
   Label done_max_abc, done_max_aab, done_max_aba;
 
 #define FLOAT_MIN_MAX(fminmax, res, x, y, done, ool, res_field) \
-  __ ldc1(x, MemOperand(a0, offsetof(Inputs, src1_)));          \
-  __ ldc1(y, MemOperand(a0, offsetof(Inputs, src2_)));          \
+  __ Ldc1(x, MemOperand(a0, offsetof(Inputs, src1_)));          \
+  __ Ldc1(y, MemOperand(a0, offsetof(Inputs, src2_)));          \
   __ fminmax(res, x, y, &ool);                                  \
   __ bind(&done);                                               \
-  __ sdc1(a, MemOperand(a1, offsetof(Results, res_field)))
+  __ Sdc1(a, MemOperand(a1, offsetof(Results, res_field)))
 
   // a = min(b, c);
   FLOAT_MIN_MAX(Float64Min, a, b, c, done_min_abc, ool_min_abc, min_abc_);
@@ -1572,14 +1573,14 @@ static ::F4 GenerateMacroFloat64MinMax(MacroAssembler* masm) {
   __ Branch(&done_max_aba);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
-  Handle<Code> code = masm->isolate()->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  masm->GetCode(masm->isolate(), &desc);
+  Handle<Code> code =
+      masm->isolate()->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   OFStream os(stdout);
   code->Print(os);
 #endif
-  return FUNCTION_CAST<::F4>(code->entry());
+  return FUNCTION_CAST<F4>(code->entry());
 }
 
 TEST(macro_float_minmax_f64) {
@@ -1608,7 +1609,7 @@ TEST(macro_float_minmax_f64) {
     double max_aba_;
   };
 
-  ::F4 f = GenerateMacroFloat64MinMax<DoubleRegister, Inputs, Results>(masm);
+  F4 f = GenerateMacroFloat64MinMax<DoubleRegister, Inputs, Results>(masm);
   Object* dummy = nullptr;
   USE(dummy);
 
@@ -1652,3 +1653,6 @@ TEST(macro_float_minmax_f64) {
 }
 
 #undef __
+
+}  // namespace internal
+}  // namespace v8

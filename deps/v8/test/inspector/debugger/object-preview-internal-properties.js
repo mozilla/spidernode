@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-print("Check internal properties reported in object preview.");
+let {session, contextGroup, Protocol} = InspectorTest.start("Check internal properties reported in object preview.");
 
 Protocol.Debugger.enable();
 Protocol.Runtime.enable();
 Protocol.Runtime.onConsoleAPICalled(dumpInternalPropertiesAndEntries);
+
+contextGroup.setupInjectedScriptEnvironment();
 
 InspectorTest.runTestSuite([
   function boxedObjects(next)
@@ -95,10 +97,8 @@ function dumpInternalPropertiesAndEntries(message)
     InspectorTest.logMessage(message);
     return;
   }
-  for (var property of properties) {
-    if (property.name.startsWith("[["))
-      InspectorTest.logMessage(property);
-  }
+  for (var property of properties)
+    InspectorTest.logMessage(property);
   if (entries) {
     InspectorTest.log("[[Entries]]:");
     InspectorTest.logMessage(entries);

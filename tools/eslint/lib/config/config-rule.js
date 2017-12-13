@@ -9,9 +9,10 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-const rules = require("../rules"),
+const Rules = require("../rules"),
     loadRules = require("../load-rules");
 
+const rules = new Rules();
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -168,38 +169,37 @@ function combinePropertyObjects(objArr1, objArr2) {
     return res;
 }
 
- /**
-  * Creates a new instance of a rule configuration set
-  *
-  * A rule configuration set is an array of configurations that are valid for a
-  * given rule.  For example, the configuration set for the "semi" rule could be:
-  *
-  * ruleConfigSet.ruleConfigs // -> [[2], [2, "always"], [2, "never"]]
-  *
-  * @param {ruleConfig[]} configs Valid rule configurations
-  * @constructor
-  */
-function RuleConfigSet(configs) {
+/**
+ * Creates a new instance of a rule configuration set
+ *
+ * A rule configuration set is an array of configurations that are valid for a
+ * given rule.  For example, the configuration set for the "semi" rule could be:
+ *
+ * ruleConfigSet.ruleConfigs // -> [[2], [2, "always"], [2, "never"]]
+ *
+ * Rule configuration set class
+ */
+class RuleConfigSet {
 
     /**
-    * Stored valid rule configurations for this instance
-    * @type {array}
-    */
-    this.ruleConfigs = configs || [];
+     * @param {ruleConfig[]} configs Valid rule configurations
+     */
+    constructor(configs) {
 
-}
-
-RuleConfigSet.prototype = {
-
-    constructor: RuleConfigSet,
+        /**
+         * Stored valid rule configurations for this instance
+         * @type {array}
+         */
+        this.ruleConfigs = configs || [];
+    }
 
     /**
-    * Add a severity level to the front of all configs in the instance.
-    * This should only be called after all configs have been added to the instance.
-    *
-    * @param {number} [severity=2] The level of severity for the rule (0, 1, 2)
-    * @returns {void}
-    */
+     * Add a severity level to the front of all configs in the instance.
+     * This should only be called after all configs have been added to the instance.
+     *
+     * @param {number} [severity=2] The level of severity for the rule (0, 1, 2)
+     * @returns {void}
+     */
     addErrorSeverity(severity) {
         severity = severity || 2;
 
@@ -210,22 +210,22 @@ RuleConfigSet.prototype = {
 
         // Add a single config at the beginning consisting of only the severity
         this.ruleConfigs.unshift(severity);
-    },
+    }
 
     /**
-    * Add rule configs from an array of strings (schema enums)
-    * @param  {string[]} enums Array of valid rule options (e.g. ["always", "never"])
-    * @returns {void}
-    */
+     * Add rule configs from an array of strings (schema enums)
+     * @param  {string[]} enums Array of valid rule options (e.g. ["always", "never"])
+     * @returns {void}
+     */
     addEnums(enums) {
         this.ruleConfigs = this.ruleConfigs.concat(combineArrays(this.ruleConfigs, enums));
-    },
+    }
 
     /**
-    * Add rule configurations from a schema object
-    * @param  {Object} obj Schema item with type === "object"
-    * @returns {void}
-    */
+     * Add rule configurations from a schema object
+     * @param  {Object} obj Schema item with type === "object"
+     * @returns {boolean} true if at least one schema for the object could be generated, false otherwise
+     */
     addObject(obj) {
         const objectConfigSet = {
             objectConfigs: [],
@@ -259,42 +259,46 @@ RuleConfigSet.prototype = {
 
         if (objectConfigSet.objectConfigs.length > 0) {
             this.ruleConfigs = this.ruleConfigs.concat(combineArrays(this.ruleConfigs, objectConfigSet.objectConfigs));
+            return true;
         }
+
+        return false;
     }
-};
+}
 
 /**
-* Generate valid rule configurations based on a schema object
-* @param   {Object} schema  A rule's schema object
-* @returns {array[]}        Valid rule configurations
-*/
+ * Generate valid rule configurations based on a schema object
+ * @param   {Object} schema  A rule's schema object
+ * @returns {array[]}        Valid rule configurations
+ */
 function generateConfigsFromSchema(schema) {
     const configSet = new RuleConfigSet();
 
     if (Array.isArray(schema)) {
-        schema.forEach(opt => {
+        for (const opt of schema) {
             if (opt.enum) {
                 configSet.addEnums(opt.enum);
-            }
+            } else if (opt.type && opt.type === "object") {
+                if (!configSet.addObject(opt)) {
+                    break;
+                }
 
-            if (opt.type && opt.type === "object") {
-                configSet.addObject(opt);
-            }
+            // TODO (IanVS): support oneOf
+            } else {
 
-            if (opt.oneOf) {
-
-                // TODO (IanVS): not yet implemented
+                // If we don't know how to fill in this option, don't fill in any of the following options.
+                break;
             }
-        });
+        }
     }
     configSet.addErrorSeverity();
     return configSet.ruleConfigs;
 }
 
 /**
-* Generate possible rule configurations for all of the core rules
-* @returns {rulesConfig} Hash of rule names and arrays of possible configurations
-*/
+ * Generate possible rule configurations for all of the core rules
+ * @returns {rulesConfig} Hash of rule names and arrays of possible configurations
+ */
 function createCoreRuleConfigs() {
     const ruleList = loadRules();
 

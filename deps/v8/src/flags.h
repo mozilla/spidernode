@@ -5,6 +5,8 @@
 #ifndef V8_FLAGS_H_
 #define V8_FLAGS_H_
 
+#include <vector>
+
 #include "src/globals.h"
 
 namespace v8 {
@@ -15,7 +17,7 @@ namespace internal {
 #include "src/flag-definitions.h"  // NOLINT
 
 // The global list of all flags.
-class FlagList {
+class V8_EXPORT_PRIVATE FlagList {
  public:
   // The list of all flags with a value different from the default
   // and their values. The format of the list is like the format of the
@@ -24,7 +26,7 @@ class FlagList {
   //
   // The caller is responsible for disposing the list, as well
   // as every element of it.
-  static List<const char*>* argv();
+  static std::vector<const char*>* argv();
 
   // Set the flag values by parsing the command line. If remove_flags is
   // set, the flags and associated values are removed from (argc,

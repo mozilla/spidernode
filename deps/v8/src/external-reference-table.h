@@ -5,7 +5,10 @@
 #ifndef V8_EXTERNAL_REFERENCE_TABLE_H_
 #define V8_EXTERNAL_REFERENCE_TABLE_H_
 
+#include <vector>
+
 #include "src/address-map.h"
+#include "src/builtins/builtins.h"
 
 namespace v8 {
 namespace internal {
@@ -19,40 +22,24 @@ class ExternalReferenceTable {
  public:
   static ExternalReferenceTable* instance(Isolate* isolate);
 
-  uint32_t size() const { return static_cast<uint32_t>(refs_.length()); }
+  uint32_t size() const { return static_cast<uint32_t>(refs_.size()); }
   Address address(uint32_t i) { return refs_[i].address; }
   const char* name(uint32_t i) { return refs_[i].name; }
 
-#ifdef DEBUG
-  void increment_count(uint32_t i) { refs_[i].count++; }
-  int count(uint32_t i) { return refs_[i].count; }
-  void ResetCount();
-  void PrintCount();
-#endif  // DEBUG
-
   static const char* ResolveSymbol(void* address);
-
-  static const int kDeoptTableSerializeEntryCount = 64;
 
  private:
   struct ExternalReferenceEntry {
     Address address;
     const char* name;
-#ifdef DEBUG
-    int count;
-#endif  // DEBUG
+
+    ExternalReferenceEntry(Address address, const char* name)
+        : address(address), name(name) {}
   };
 
   explicit ExternalReferenceTable(Isolate* isolate);
 
-  void Add(Address address, const char* name) {
-#ifdef DEBUG
-    ExternalReferenceEntry entry = {address, name, 0};
-#else
-    ExternalReferenceEntry entry = {address, name};
-#endif  // DEBUG
-    refs_.Add(entry);
-  }
+  void Add(Address address, const char* name);
 
   void AddReferences(Isolate* isolate);
   void AddBuiltins(Isolate* isolate);
@@ -60,11 +47,8 @@ class ExternalReferenceTable {
   void AddIsolateAddresses(Isolate* isolate);
   void AddAccessors(Isolate* isolate);
   void AddStubCache(Isolate* isolate);
-  void AddDeoptEntries(Isolate* isolate);
-  void AddApiReferences(Isolate* isolate);
 
-  List<ExternalReferenceEntry> refs_;
-
+  std::vector<ExternalReferenceEntry> refs_;
   DISALLOW_COPY_AND_ASSIGN(ExternalReferenceTable);
 };
 

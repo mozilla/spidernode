@@ -21,23 +21,23 @@
 
 'use strict';
 const common = require('../common');
-const assert = require('assert');
 const net = require('net');
 
-connect({
-  host: 'localhost',
-  port: common.PORT,
-  localPort: 'foobar',
-}, /^TypeError: "localPort" option should be a number: foobar$/);
+const connect = (opts, code, type) => {
+  common.expectsError(
+    () => net.connect(opts),
+    { code, type }
+  );
+};
 
 connect({
   host: 'localhost',
-  port: common.PORT,
+  port: 0,
   localAddress: 'foobar',
-}, /^TypeError: "localAddress" option must be a valid IP: foobar$/);
+}, 'ERR_INVALID_IP_ADDRESS', TypeError);
 
-function connect(opts, msg) {
-  assert.throws(function() {
-    net.connect(opts);
-  }, msg);
-}
+connect({
+  host: 'localhost',
+  port: 0,
+  localPort: 'foobar',
+}, 'ERR_INVALID_ARG_TYPE', TypeError);

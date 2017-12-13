@@ -3,32 +3,34 @@ const common = require('../common');
 const assert = require('assert');
 const net = require('net');
 
-const expectedError = /^TypeError: "lookup" option should be a function$/;
-
 ['foobar', 1, {}, []].forEach((input) => connectThrows(input));
 
+// Using port 0 as lookup is emitted before connecting.
 function connectThrows(input) {
   const opts = {
     host: 'localhost',
-    port: common.PORT,
+    port: 0,
     lookup: input
   };
 
-  assert.throws(function() {
+  common.expectsError(() => {
     net.connect(opts);
-  }, expectedError);
+  }, {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError
+  });
 }
 
-connectDoesNotThrow(common.noop);
+connectDoesNotThrow(() => {});
 
 function connectDoesNotThrow(input) {
   const opts = {
     host: 'localhost',
-    port: common.PORT,
+    port: 0,
     lookup: input
   };
 
-  assert.doesNotThrow(function() {
+  assert.doesNotThrow(() => {
     net.connect(opts);
   });
 }

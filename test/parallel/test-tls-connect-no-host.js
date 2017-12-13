@@ -1,18 +1,16 @@
 'use strict';
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
+
 const tls = require('tls');
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 
-const cert = fs.readFileSync(path.join(common.fixturesDir, 'test_cert.pem'));
-const key = fs.readFileSync(path.join(common.fixturesDir, 'test_key.pem'));
+const cert = fixtures.readSync('test_cert.pem');
+const key = fixtures.readSync('test_key.pem');
 
 // https://github.com/nodejs/node/issues/1489
 // tls.connect(options) with no options.host should accept a cert with

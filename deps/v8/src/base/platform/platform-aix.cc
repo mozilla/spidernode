@@ -29,21 +29,22 @@
 #undef MAP_TYPE
 
 #include "src/base/macros.h"
+#include "src/base/platform/platform-posix.h"
 #include "src/base/platform/platform.h"
-
 
 namespace v8 {
 namespace base {
 
 
-static inline void* mmapHelper(size_t len, int prot, int flags, int fildes,
-                               off_t off) {
-  void* addr = OS::GetRandomMmapAddr();
-  return mmap(addr, len, prot, flags, fildes, off);
-}
+class AIXTimezoneCache : public PosixTimezoneCache {
+  const char* LocalTimezone(double time) override;
 
+  double LocalTimeOffset() override;
 
-const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
+  ~AIXTimezoneCache() override {}
+};
+
+const char* AIXTimezoneCache::LocalTimezone(double time) {
   if (std::isnan(time)) return "";
   time_t tv = static_cast<time_t>(floor(time / msPerSecond));
   struct tm tm;
@@ -52,8 +53,7 @@ const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
   return tzname[0];  // The location of the timezone string on AIX.
 }
 
-
-double OS::LocalTimeOffset(TimezoneCache* cache) {
+double AIXTimezoneCache::LocalTimeOffset() {
   // On AIX, struct tm does not contain a tm_gmtoff field.
   time_t utc = time(NULL);
   DCHECK(utc != -1);
@@ -63,22 +63,103 @@ double OS::LocalTimeOffset(TimezoneCache* cache) {
   return static_cast<double>((mktime(loc) - utc) * msPerSecond);
 }
 
+TimezoneCache* OS::CreateTimezoneCache() { return new AIXTimezoneCache(); }
 
-void* OS::Allocate(const size_t requested, size_t* allocated, bool executable) {
+// Constants used for mmap.
+static const int kMmapFd = -1;
+static const int kMmapFdOffset = 0;
+
+void* OS::Allocate(const size_t requested, size_t* allocated,
+                   OS::MemoryPermission access, void* hint) {
   const size_t msize = RoundUp(requested, getpagesize());
-  int prot = PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0);
-  void* mbase = mmapHelper(msize, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  int prot = GetProtectionFromMemoryPermission(access);
+  void* mbase = mmap(hint, msize, prot, MAP_PRIVATE | MAP_ANONYMOUS, kMmapFd,
+                     kMmapFdOffset);
 
   if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
 
+// static
+void* OS::ReserveRegion(size_t size, void* hint) {
+  void* result = mmap(hint, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS,
+                      kMmapFd, kMmapFdOffset);
+
+  if (result == MAP_FAILED) return nullptr;
+
+  return result;
+}
+
+// static
+void* OS::ReserveAlignedRegion(size_t size, size_t alignment, void* hint,
+                               size_t* allocated) {
+  DCHECK((alignment % OS::AllocateAlignment()) == 0);
+  hint = AlignedAddress(hint, alignment);
+  size_t request_size =
+      RoundUp(size + alignment, static_cast<intptr_t>(OS::AllocateAlignment()));
+  void* result = ReserveRegion(request_size, hint);
+  if (result == nullptr) {
+    *allocated = 0;
+    return nullptr;
+  }
+
+  uint8_t* base = static_cast<uint8_t*>(result);
+  uint8_t* aligned_base = RoundUp(base, alignment);
+  DCHECK_LE(base, aligned_base);
+
+  // Unmap extra memory reserved before and after the desired block.
+  if (aligned_base != base) {
+    size_t prefix_size = static_cast<size_t>(aligned_base - base);
+    OS::Free(base, prefix_size);
+    request_size -= prefix_size;
+  }
+
+  size_t aligned_size = RoundUp(size, OS::AllocateAlignment());
+  DCHECK_LE(aligned_size, request_size);
+
+  if (aligned_size != request_size) {
+    size_t suffix_size = request_size - aligned_size;
+    OS::Free(aligned_base + aligned_size, suffix_size);
+    request_size -= suffix_size;
+  }
+
+  DCHECK(aligned_size == request_size);
+
+  *allocated = aligned_size;
+  return static_cast<void*>(aligned_base);
+}
+
+// static
+bool OS::CommitRegion(void* address, size_t size, bool is_executable) {
+  int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
+
+  if (mprotect(address, size, prot) == -1) return false;
+
+  return true;
+}
+
+// static
+bool OS::UncommitRegion(void* address, size_t size) {
+  return mprotect(address, size, PROT_NONE) != -1;
+}
+
+// static
+bool OS::ReleaseRegion(void* address, size_t size) {
+  return munmap(address, size) == 0;
+}
+
+// static
+bool OS::ReleasePartialRegion(void* address, size_t size) {
+  return munmap(address, size) == 0;
+}
+
+// static
+bool OS::HasLazyCommits() { return true; }
 
 static unsigned StringToLong(char* buffer) {
   return static_cast<unsigned>(strtol(buffer, NULL, 16));  // NOLINT
 }
-
 
 std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
   std::vector<SharedLibraryAddress> result;
@@ -120,126 +201,7 @@ std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
   return result;
 }
 
+void OS::SignalCodeMovingGC(void* hint) {}
 
-void OS::SignalCodeMovingGC() {}
-
-
-// Constants used for mmap.
-static const int kMmapFd = -1;
-static const int kMmapFdOffset = 0;
-
-VirtualMemory::VirtualMemory() : address_(NULL), size_(0) {}
-
-
-VirtualMemory::VirtualMemory(size_t size)
-    : address_(ReserveRegion(size)), size_(size) {}
-
-
-VirtualMemory::VirtualMemory(size_t size, size_t alignment)
-    : address_(NULL), size_(0) {
-  DCHECK((alignment % OS::AllocateAlignment()) == 0);
-  size_t request_size =
-      RoundUp(size + alignment, static_cast<intptr_t>(OS::AllocateAlignment()));
-  void* reservation =
-      mmapHelper(request_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, kMmapFd,
-                 kMmapFdOffset);
-  if (reservation == MAP_FAILED) return;
-
-  uint8_t* base = static_cast<uint8_t*>(reservation);
-  uint8_t* aligned_base = RoundUp(base, alignment);
-  DCHECK_LE(base, aligned_base);
-
-  // Unmap extra memory reserved before and after the desired block.
-  if (aligned_base != base) {
-    size_t prefix_size = static_cast<size_t>(aligned_base - base);
-    OS::Free(base, prefix_size);
-    request_size -= prefix_size;
-  }
-
-  size_t aligned_size = RoundUp(size, OS::AllocateAlignment());
-  DCHECK_LE(aligned_size, request_size);
-
-  if (aligned_size != request_size) {
-    size_t suffix_size = request_size - aligned_size;
-    OS::Free(aligned_base + aligned_size, suffix_size);
-    request_size -= suffix_size;
-  }
-
-  DCHECK(aligned_size == request_size);
-
-  address_ = static_cast<void*>(aligned_base);
-  size_ = aligned_size;
-}
-
-
-VirtualMemory::~VirtualMemory() {
-  if (IsReserved()) {
-    bool result = ReleaseRegion(address(), size());
-    DCHECK(result);
-    USE(result);
-  }
-}
-
-
-bool VirtualMemory::IsReserved() { return address_ != NULL; }
-
-
-void VirtualMemory::Reset() {
-  address_ = NULL;
-  size_ = 0;
-}
-
-
-bool VirtualMemory::Commit(void* address, size_t size, bool is_executable) {
-  return CommitRegion(address, size, is_executable);
-}
-
-
-bool VirtualMemory::Uncommit(void* address, size_t size) {
-  return UncommitRegion(address, size);
-}
-
-
-bool VirtualMemory::Guard(void* address) {
-  OS::Guard(address, OS::CommitPageSize());
-  return true;
-}
-
-
-void* VirtualMemory::ReserveRegion(size_t size) {
-  void* result = mmapHelper(size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS,
-                            kMmapFd, kMmapFdOffset);
-
-  if (result == MAP_FAILED) return NULL;
-
-  return result;
-}
-
-
-bool VirtualMemory::CommitRegion(void* base, size_t size, bool is_executable) {
-  int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
-
-  if (mprotect(base, size, prot) == -1) return false;
-
-  return true;
-}
-
-
-bool VirtualMemory::UncommitRegion(void* base, size_t size) {
-  return mprotect(base, size, PROT_NONE) != -1;
-}
-
-bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
-                                         void* free_start, size_t free_size) {
-  return munmap(free_start, free_size) == 0;
-}
-
-
-bool VirtualMemory::ReleaseRegion(void* base, size_t size) {
-  return munmap(base, size) == 0;
-}
-
-
-bool VirtualMemory::HasLazyCommits() { return true; }
 }  // namespace base
 }  // namespace v8

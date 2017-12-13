@@ -65,11 +65,11 @@ module.exports = {
         //--------------------------------------------------------------------------
 
         /**
-        * Reports that there shouldn't be a space after the first token
-        * @param {ASTNode} node - The node to report in the event of an error.
-        * @param {Token} token - The token to use for the report.
-        * @returns {void}
-        */
+         * Reports that there shouldn't be a space after the first token
+         * @param {ASTNode} node - The node to report in the event of an error.
+         * @param {Token} token - The token to use for the report.
+         * @returns {void}
+         */
         function reportNoBeginningSpace(node, token) {
             context.report({
                 node,
@@ -87,11 +87,11 @@ module.exports = {
         }
 
         /**
-        * Reports that there shouldn't be a space before the last token
-        * @param {ASTNode} node - The node to report in the event of an error.
-        * @param {Token} token - The token to use for the report.
-        * @returns {void}
-        */
+         * Reports that there shouldn't be a space before the last token
+         * @param {ASTNode} node - The node to report in the event of an error.
+         * @param {Token} token - The token to use for the report.
+         * @returns {void}
+         */
         function reportNoEndingSpace(node, token) {
             context.report({
                 node,
@@ -109,11 +109,11 @@ module.exports = {
         }
 
         /**
-        * Reports that there should be a space after the first token
-        * @param {ASTNode} node - The node to report in the event of an error.
-        * @param {Token} token - The token to use for the report.
-        * @returns {void}
-        */
+         * Reports that there should be a space after the first token
+         * @param {ASTNode} node - The node to report in the event of an error.
+         * @param {Token} token - The token to use for the report.
+         * @returns {void}
+         */
         function reportRequiredBeginningSpace(node, token) {
             context.report({
                 node,
@@ -129,11 +129,11 @@ module.exports = {
         }
 
         /**
-        * Reports that there should be a space before the last token
-        * @param {ASTNode} node - The node to report in the event of an error.
-        * @param {Token} token - The token to use for the report.
-        * @returns {void}
-        */
+         * Reports that there should be a space before the last token
+         * @param {ASTNode} node - The node to report in the event of an error.
+         * @param {Token} token - The token to use for the report.
+         * @returns {void}
+         */
         function reportRequiredEndingSpace(node, token) {
             context.report({
                 node,
@@ -171,10 +171,10 @@ module.exports = {
 
             if (astUtils.isTokenOnSameLine(penultimate, last)) {
                 const shouldCheckPenultimate = (
-                    options.arraysInObjectsException && penultimate.value === "]" ||
-                    options.objectsInObjectsException && penultimate.value === "}"
+                    options.arraysInObjectsException && astUtils.isClosingBracketToken(penultimate) ||
+                    options.objectsInObjectsException && astUtils.isClosingBraceToken(penultimate)
                 );
-                const penultimateType = shouldCheckPenultimate && sourceCode.getNodeByRangeIndex(penultimate.start).type;
+                const penultimateType = shouldCheckPenultimate && sourceCode.getNodeByRangeIndex(penultimate.range[0]).type;
 
                 const closingCurlyBraceMustBeSpaced = (
                     options.arraysInObjectsException && penultimateType === "ArrayExpression" ||
@@ -206,14 +206,8 @@ module.exports = {
          */
         function getClosingBraceOfObject(node) {
             const lastProperty = node.properties[node.properties.length - 1];
-            let token = sourceCode.getTokenAfter(lastProperty);
 
-            // skip ')' and trailing commas.
-            while (token.type !== "Punctuator" || token.value !== "}") {
-                token = sourceCode.getTokenAfter(token);
-            }
-
-            return token;
+            return sourceCode.getTokenAfter(lastProperty, astUtils.isClosingBraceToken);
         }
 
         /**
@@ -254,15 +248,9 @@ module.exports = {
                 firstSpecifier = node.specifiers[1];
             }
 
-            const first = sourceCode.getTokenBefore(firstSpecifier);
-            let last = sourceCode.getTokenAfter(lastSpecifier);
-
-            // to support a trailing comma.
-            if (last.value === ",") {
-                last = sourceCode.getTokenAfter(last);
-            }
-
-            const second = sourceCode.getTokenAfter(first),
+            const first = sourceCode.getTokenBefore(firstSpecifier),
+                last = sourceCode.getTokenAfter(lastSpecifier, astUtils.isNotCommaToken),
+                second = sourceCode.getTokenAfter(first),
                 penultimate = sourceCode.getTokenBefore(last);
 
             validateBraceSpacing(node, first, second, penultimate, last);
@@ -280,15 +268,9 @@ module.exports = {
 
             const firstSpecifier = node.specifiers[0],
                 lastSpecifier = node.specifiers[node.specifiers.length - 1],
-                first = sourceCode.getTokenBefore(firstSpecifier);
-            let last = sourceCode.getTokenAfter(lastSpecifier);
-
-            // to support a trailing comma.
-            if (last.value === ",") {
-                last = sourceCode.getTokenAfter(last);
-            }
-
-            const second = sourceCode.getTokenAfter(first),
+                first = sourceCode.getTokenBefore(firstSpecifier),
+                last = sourceCode.getTokenAfter(lastSpecifier, astUtils.isNotCommaToken),
+                second = sourceCode.getTokenAfter(first),
                 penultimate = sourceCode.getTokenBefore(last);
 
             validateBraceSpacing(node, first, second, penultimate, last);

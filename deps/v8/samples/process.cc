@@ -35,8 +35,30 @@
 #include <map>
 #include <string>
 
-using namespace std;
-using namespace v8;
+using std::map;
+using std::pair;
+using std::string;
+
+using v8::Context;
+using v8::EscapableHandleScope;
+using v8::External;
+using v8::Function;
+using v8::FunctionTemplate;
+using v8::Global;
+using v8::HandleScope;
+using v8::Isolate;
+using v8::Local;
+using v8::MaybeLocal;
+using v8::Name;
+using v8::NamedPropertyHandlerConfiguration;
+using v8::NewStringType;
+using v8::Object;
+using v8::ObjectTemplate;
+using v8::PropertyCallbackInfo;
+using v8::Script;
+using v8::String;
+using v8::TryCatch;
+using v8::Value;
 
 // These interfaces represent an existing request processing interface.
 // The idea is to imagine a real application that uses these interfaces
@@ -144,9 +166,10 @@ class JsHttpRequestProcessor : public HttpRequestProcessor {
 
 static void LogCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (args.Length() < 1) return;
-  HandleScope scope(args.GetIsolate());
+  Isolate* isolate = args.GetIsolate();
+  HandleScope scope(isolate);
   Local<Value> arg = args[0];
-  String::Utf8Value value(arg);
+  String::Utf8Value value(isolate, arg);
   HttpRequestProcessor::Log(*value);
 }
 
@@ -221,7 +244,7 @@ bool JsHttpRequestProcessor::ExecuteScript(Local<String> script) {
   // Compile the script and check for errors.
   Local<Script> compiled_script;
   if (!Script::Compile(context, script).ToLocal(&compiled_script)) {
-    String::Utf8Value error(try_catch.Exception());
+    String::Utf8Value error(GetIsolate(), try_catch.Exception());
     Log(*error);
     // The script failed to compile; bail out.
     return false;
@@ -231,11 +254,12 @@ bool JsHttpRequestProcessor::ExecuteScript(Local<String> script) {
   Local<Value> result;
   if (!compiled_script->Run(context).ToLocal(&result)) {
     // The TryCatch above is still in effect and will have caught the error.
-    String::Utf8Value error(try_catch.Exception());
+    String::Utf8Value error(GetIsolate(), try_catch.Exception());
     Log(*error);
     // Running the script failed; bail out.
     return false;
   }
+
   return true;
 }
 
@@ -295,17 +319,16 @@ bool JsHttpRequestProcessor::Process(HttpRequest* request) {
       v8::Local<v8::Function>::New(GetIsolate(), process_);
   Local<Value> result;
   if (!process->Call(context, context->Global(), argc, argv).ToLocal(&result)) {
-    String::Utf8Value error(try_catch.Exception());
+    String::Utf8Value error(GetIsolate(), try_catch.Exception());
     Log(*error);
     return false;
-  } else {
-    return true;
   }
+  return true;
 }
 
 
 JsHttpRequestProcessor::~JsHttpRequestProcessor() {
-  // Dispose the persistent handles.  When noone else has any
+  // Dispose the persistent handles.  When no one else has any
   // references to the objects stored in the handles they will be
   // automatically reclaimed.
   context_.Reset();
@@ -366,8 +389,8 @@ map<string, string>* JsHttpRequestProcessor::UnwrapMap(Local<Object> obj) {
 
 // Convert a JavaScript string to a std::string.  To not bother too
 // much with string encodings we just use ascii.
-string ObjectToString(Local<Value> value) {
-  String::Utf8Value utf8_value(value);
+string ObjectToString(v8::Isolate* isolate, Local<Value> value) {
+  String::Utf8Value utf8_value(isolate, value);
   return string(*utf8_value);
 }
 
@@ -380,7 +403,7 @@ void JsHttpRequestProcessor::MapGet(Local<Name> name,
   map<string, string>* obj = UnwrapMap(info.Holder());
 
   // Convert the JavaScript string to a std::string.
-  string key = ObjectToString(Local<String>::Cast(name));
+  string key = ObjectToString(info.GetIsolate(), Local<String>::Cast(name));
 
   // Look up the value if it exists using the standard STL ideom.
   map<string, string>::iterator iter = obj->find(key);
@@ -405,8 +428,8 @@ void JsHttpRequestProcessor::MapSet(Local<Name> name, Local<Value> value_obj,
   map<string, string>* obj = UnwrapMap(info.Holder());
 
   // Convert the key and value to std::strings.
-  string key = ObjectToString(Local<String>::Cast(name));
-  string value = ObjectToString(value_obj);
+  string key = ObjectToString(info.GetIsolate(), Local<String>::Cast(name));
+  string value = ObjectToString(info.GetIsolate(), value_obj);
 
   // Update the map.
   (*obj)[key] = value;

@@ -27,11 +27,19 @@
     # Default to -O0 for debug builds.
     'v8_optimized_debug%': 0,
 
+    # Reset this number to 0 on major V8 upgrades.
+    # Increment by one for each non-official patch applied to deps/v8.
+    'v8_embedder_string': '-node.3',
+
     # Enable disassembler for `--print-code` v8 options
     'v8_enable_disassembler': 1,
 
     # Don't bake anything extra into the snapshot.
     'v8_use_external_startup_data%': 0,
+
+    # Some STL containers (e.g. std::vector) do not preserve ABI compatibility
+    # between debug and non-debug mode.
+    'disable_glibcxx_debug': 1,
 
     # Don't use ICU data file (icudtl.dat) from V8, we use our own.
     'icu_use_data_file_flag%': 0,
@@ -39,6 +47,13 @@
     'conditions': [
       ['node_engine=="v8"', {
         'conditions': [
+          ['GENERATOR=="ninja"', {
+            'OBJ_DIR': '<(PRODUCT_DIR)/obj',
+            'V8_BASE': '<(PRODUCT_DIR)/obj/deps/v8/src/libv8_base.a',
+           }, {
+             'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+             'V8_BASE%': '<(PRODUCT_DIR)/obj.target/deps/v8/src/libv8_base.a',
+          }],
           ['OS == "win"', {
             'os_posix': 0,
             'v8_postmortem_support%': 'false',
@@ -49,18 +64,8 @@
             'v8_postmortem_support%': 'true',
           }],
           ['OS== "mac"', {
-            'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
+            'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
             'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
-          }, {
-            'conditions': [
-              ['GENERATOR=="ninja"', {
-                'OBJ_DIR': '<(PRODUCT_DIR)/obj',
-                'V8_BASE': '<(PRODUCT_DIR)/obj/deps/v8/src/libv8_base.a',
-              }, {
-                'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
-                'V8_BASE%': '<(PRODUCT_DIR)/obj.target/deps/v8/src/libv8_base.a',
-              }],
-            ],
           }],
         ],
       }],
@@ -74,10 +79,12 @@
         'OBJ_DIR': '<(PRODUCT_DIR)/obj',
       }, {
         'os_posix': 1,
+        'v8_postmortem_support%': 'true',
       }],
       ['OS=="mac"', {
         'clang%': 1,
-        'OBJ_DIR': '<(PRODUCT_DIR)/obj.target',
+        'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
+        'V8_BASE': '<(PRODUCT_DIR)/libv8_base.a',
       }, {
         'clang%': 0,
         'conditions': [
@@ -87,6 +94,11 @@
             'OBJ_DIR%': '<(PRODUCT_DIR)/obj.target',
           }],
         ],
+      }],
+      ['openssl_fips != ""', {
+        'OPENSSL_PRODUCT': '<(STATIC_LIB_PREFIX)crypto<(STATIC_LIB_SUFFIX)',
+      }, {
+        'OPENSSL_PRODUCT': '<(STATIC_LIB_PREFIX)openssl<(STATIC_LIB_SUFFIX)',
       }],
     ],
   },
@@ -143,7 +155,7 @@
         'variables': {
           'v8_enable_handle_zapping': 1,
         },
-        'defines': [ 'DEBUG', '_DEBUG' ],
+        'defines': [ 'DEBUG', '_DEBUG', 'V8_ENABLE_CHECKS' ],
         'cflags': [ '-g', '-O0' ],
         'conditions': [
           ['target_arch=="x64"', {
@@ -181,6 +193,10 @@
             'MinimalRebuild': 'false',
             'OmitFramePointers': 'false',
             'BasicRuntimeChecks': 3, # /RTC1
+            'AdditionalOptions': [
+              '/bigobj', # prevent error C1128 in VS2015
+              '/MP', # compile across multiple CPUs
+            ],
           },
           'VCLinkerTool': {
             'LinkIncremental': 2, # enable incremental linking
@@ -231,7 +247,7 @@
         'msvs_settings': {
           'VCCLCompilerTool': {
             'Optimization': 3, # /Ox, full optimization
-            'FavorSizeOrSpeed': 1, # /Ot, favour speed over size
+            'FavorSizeOrSpeed': 1, # /Ot, favor speed over size
             'InlineFunctionExpansion': 2, # /Ob2, inline anything eligible
             'WholeProgramOptimization': 'true', # /GL, whole program optimization, needed for LTCG
             'OmitFramePointers': 'true',
@@ -248,10 +264,12 @@
             ],
           },
           'VCLinkerTool': {
-            'LinkTimeCodeGeneration': 1, # link-time code generation
             'OptimizeReferences': 2, # /OPT:REF
             'EnableCOMDATFolding': 2, # /OPT:ICF
             'LinkIncremental': 1, # disable incremental linking
+            'AdditionalOptions': [
+              '/LTCG:INCREMENTAL', # incremental link-time code generation
+            ],
           },
         },
       }
@@ -273,8 +291,6 @@
         # and their sheer number drowns out other, more legitimate warnings.
         'DisableSpecificWarnings': ['4267'],
         'WarnAsError': 'false',
-      },
-      'VCLibrarianTool': {
       },
       'VCLinkerTool': {
         'conditions': [
@@ -352,7 +368,7 @@
         'cflags': [ '-pthread', ],
         'ldflags': [ '-pthread' ],
       }],
-      [ 'OS in "linux freebsd openbsd solaris android aix"', {
+      [ 'OS in "linux freebsd openbsd solaris android aix cloudabi"', {
         'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter -fPIC', ],
         'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++0x' ],
         'ldflags': [ '-rdynamic' ],
@@ -484,6 +500,15 @@
         'libraries': [ '-lelf' ],
       }],
       ['OS=="freebsd"', {
+        'conditions': [
+          ['"0" < llvm_version < "4.0"', {
+            # Use this flag because on FreeBSD std::pairs copy constructor is non-trivial.
+            # Doesn't apply to llvm 4.0 (FreeBSD 11.1) or later.
+            # Refs: https://lists.freebsd.org/pipermail/freebsd-toolchain/2016-March/002094.html
+            # Refs: https://svnweb.freebsd.org/ports/head/www/node/Makefile?revision=444555&view=markup
+            'cflags': [ '-D_LIBCPP_TRIVIAL_PAIR_COPY_CTOR=1' ],
+          }],
+        ],
         'ldflags': [
           '-Wl,--export-dynamic',
         ],

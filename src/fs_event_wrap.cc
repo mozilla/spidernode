@@ -19,11 +19,8 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
-#include "env.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
-#include "util.h"
 #include "util-inl.h"
 #include "node.h"
 #include "handle_wrap.h"
@@ -39,9 +36,12 @@ using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
+using v8::MaybeLocal;
 using v8::Object;
 using v8::String;
 using v8::Value;
+
+namespace {
 
 class FSEventWrap: public HandleWrap {
  public:
@@ -91,6 +91,7 @@ void FSEventWrap::Initialize(Local<Object> target,
   t->InstanceTemplate()->SetInternalFieldCount(1);
   t->SetClassName(fsevent_string);
 
+  AsyncWrap::AddWrapMethods(env, t);
   env->SetProtoMethod(t, "start", Start);
   env->SetProtoMethod(t, "close", Close);
 
@@ -110,7 +111,8 @@ void FSEventWrap::Start(const FunctionCallbackInfo<Value>& args) {
 
   FSEventWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
-  CHECK_EQ(wrap->initialized_, false);
+  if (wrap->initialized_)
+    return args.GetReturnValue().Set(0);
 
   static const char kErrMsg[] = "filename must be a string or Buffer";
   if (args.Length() < 1)
@@ -185,17 +187,20 @@ void FSEventWrap::OnEvent(uv_fs_event_t* handle, const char* filename,
   };
 
   if (filename != nullptr) {
-    Local<Value> fn = StringBytes::Encode(env->isolate(),
-                                          filename,
-                                          wrap->encoding_);
+    Local<Value> error;
+    MaybeLocal<Value> fn = StringBytes::Encode(env->isolate(),
+                                               filename,
+                                               wrap->encoding_,
+                                               &error);
     if (fn.IsEmpty()) {
       argv[0] = Integer::New(env->isolate(), UV_EINVAL);
       argv[2] = StringBytes::Encode(env->isolate(),
                                     filename,
                                     strlen(filename),
-                                    BUFFER);
+                                    BUFFER,
+                                    &error).ToLocalChecked();
     } else {
-      argv[2] = fn;
+      argv[2] = fn.ToLocalChecked();
     }
   }
 
@@ -214,6 +219,7 @@ void FSEventWrap::Close(const FunctionCallbackInfo<Value>& args) {
   HandleWrap::Close(args);
 }
 
+}  // anonymous namespace
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(fs_event_wrap, node::FSEventWrap::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(fs_event_wrap, node::FSEventWrap::Initialize)

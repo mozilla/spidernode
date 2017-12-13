@@ -33,17 +33,13 @@
 
 namespace node {
 
-// Forward declaration
-class StreamWrap;
-
-class StreamWrap : public HandleWrap, public StreamBase {
+class LibuvStreamWrap : public HandleWrap, public StreamBase {
  public:
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
                          v8::Local<v8::Context> context);
 
   int GetFD() override;
-  void* Cast() override;
   bool IsAlive() override;
   bool IsClosing() override;
   bool IsIPCPipe() override;
@@ -78,23 +74,24 @@ class StreamWrap : public HandleWrap, public StreamBase {
   }
 
  protected:
-  StreamWrap(Environment* env,
-             v8::Local<v8::Object> object,
-             uv_stream_t* stream,
-             AsyncWrap::ProviderType provider,
-             AsyncWrap* parent = nullptr);
+  LibuvStreamWrap(Environment* env,
+                  v8::Local<v8::Object> object,
+                  uv_stream_t* stream,
+                  AsyncWrap::ProviderType provider);
 
-  ~StreamWrap() {
+  ~LibuvStreamWrap() {
   }
 
   AsyncWrap* GetAsyncWrap() override;
-  void UpdateWriteQueueSize();
+  uint32_t UpdateWriteQueueSize();
 
   static void AddMethods(Environment* env,
                          v8::Local<v8::FunctionTemplate> target,
                          int flags = StreamBase::kFlagNone);
 
  private:
+  static void UpdateWriteQueueSize(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetBlocking(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Callbacks for libuv
@@ -105,20 +102,17 @@ class StreamWrap : public HandleWrap, public StreamBase {
   static void OnRead(uv_stream_t* handle,
                      ssize_t nread,
                      const uv_buf_t* buf);
-  static void OnReadCommon(uv_stream_t* handle,
-                           ssize_t nread,
-                           const uv_buf_t* buf,
-                           uv_handle_type pending);
-  static void AfterWrite(uv_write_t* req, int status);
-  static void AfterShutdown(uv_shutdown_t* req, int status);
+  static void AfterUvWrite(uv_write_t* req, int status);
+  static void AfterUvShutdown(uv_shutdown_t* req, int status);
 
   // Resource interface implementation
-  static void OnAfterWriteImpl(WriteWrap* w, void* ctx);
   static void OnAllocImpl(size_t size, uv_buf_t* buf, void* ctx);
   static void OnReadImpl(ssize_t nread,
                          const uv_buf_t* buf,
                          uv_handle_type pending,
                          void* ctx);
+
+  void AfterWrite(WriteWrap* req_wrap, int status) override;
 
   uv_stream_t* const stream_;
 };

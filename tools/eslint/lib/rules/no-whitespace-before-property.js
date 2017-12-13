@@ -4,6 +4,10 @@
  */
 "use strict";
 
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
@@ -30,21 +34,6 @@ module.exports = {
         //--------------------------------------------------------------------------
 
         /**
-         * Finds opening bracket token of node's computed property
-         * @param {ASTNode} node - the node to check
-         * @returns {Token} opening bracket token of node's computed property
-         * @private
-         */
-        function findOpeningBracket(node) {
-            let token = sourceCode.getTokenBefore(node.property);
-
-            while (token.value !== "[") {
-                token = sourceCode.getTokenBefore(token);
-            }
-            return token;
-        }
-
-        /**
          * Reports whitespace before property token
          * @param {ASTNode} node - the node to report in the event of an error
          * @param {Token} leftToken - the left token
@@ -64,8 +53,10 @@ module.exports = {
                 fix(fixer) {
                     if (!node.computed && astUtils.isDecimalInteger(node.object)) {
 
-                        // If the object is a number literal, fixing it to something like 5.toString() would cause a SyntaxError.
-                        // Don't fix this case.
+                        /*
+                         * If the object is a number literal, fixing it to something like 5.toString() would cause a SyntaxError.
+                         * Don't fix this case.
+                         */
                         return null;
                     }
                     return fixer.replaceTextRange([leftToken.range[1], rightToken.range[0]], replacementText);
@@ -87,7 +78,7 @@ module.exports = {
                 }
 
                 if (node.computed) {
-                    rightToken = findOpeningBracket(node);
+                    rightToken = sourceCode.getTokenBefore(node.property, astUtils.isOpeningBracketToken);
                     leftToken = sourceCode.getTokenBefore(rightToken);
                 } else {
                     rightToken = sourceCode.getFirstToken(node.property);

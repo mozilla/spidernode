@@ -10,11 +10,12 @@
 
 #include <memory>
 
-#include "src/ast/prettyprinter.h"
 #include "src/bootstrapper.h"
 #include "src/compilation-info.h"
+#include "src/counters.h"
 #include "src/debug/debug.h"
 #include "src/eh-frame.h"
+#include "src/objects-inl.h"
 #include "src/runtime/runtime.h"
 
 namespace v8 {
@@ -66,53 +67,7 @@ UNARY_MATH_FUNCTION(sqrt, CreateSqrtFunction)
 
 #undef UNARY_MATH_FUNCTION
 
-
-#define __ ACCESS_MASM(masm_)
-
-#ifdef DEBUG
-
-Comment::Comment(MacroAssembler* masm, const char* msg)
-    : masm_(masm), msg_(msg) {
-  __ RecordComment(msg);
-}
-
-
-Comment::~Comment() {
-  if (msg_[0] == '[') __ RecordComment("]");
-}
-
-#endif  // DEBUG
-
-#undef __
-
-
-void CodeGenerator::MakeCodePrologue(CompilationInfo* info, const char* kind) {
-  bool print_ast = false;
-  const char* ftype;
-
-  if (info->isolate()->bootstrapper()->IsActive()) {
-    print_ast = FLAG_print_builtin_ast;
-    ftype = "builtin";
-  } else {
-    print_ast = FLAG_print_ast;
-    ftype = "user-defined";
-  }
-
-  if (FLAG_trace_codegen || print_ast) {
-    std::unique_ptr<char[]> name = info->GetDebugName();
-    PrintF("[generating %s code for %s function: %s]\n", kind, ftype,
-           name.get());
-  }
-
-#ifdef DEBUG
-  if (info->parse_info() && print_ast) {
-    PrintF("--- AST ---\n%s\n",
-           AstPrinter(info->isolate()).PrintProgram(info->literal()));
-  }
-#endif  // DEBUG
-}
-
-Handle<Code> CodeGenerator::MakeCodeEpilogue(MacroAssembler* masm,
+Handle<Code> CodeGenerator::MakeCodeEpilogue(TurboAssembler* tasm,
                                              EhFrameWriter* eh_frame_writer,
                                              CompilationInfo* info,
                                              Handle<Object> self_reference) {
@@ -120,19 +75,12 @@ Handle<Code> CodeGenerator::MakeCodeEpilogue(MacroAssembler* masm,
 
   // Allocate and install the code.
   CodeDesc desc;
-  Code::Flags flags = info->code_flags();
-  bool is_crankshafted =
-      Code::ExtractKindFromFlags(flags) == Code::OPTIMIZED_FUNCTION ||
-      info->IsStub();
-  masm->GetCode(&desc);
+  tasm->GetCode(isolate, &desc);
   if (eh_frame_writer) eh_frame_writer->GetEhFrame(&desc);
 
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, flags, self_reference, false, is_crankshafted,
-      info->prologue_offset(), info->is_debug() && !is_crankshafted);
+  Handle<Code> code = isolate->factory()->NewCode(desc, info->code_kind(),
+                                                  self_reference, false);
   isolate->counters()->total_compiled_code_size()->Increment(
-      code->instruction_size());
-  isolate->heap()->IncrementCodeGeneratedBytes(is_crankshafted,
       code->instruction_size());
   return code;
 }
@@ -190,7 +138,7 @@ static int PrintFunctionSource(CompilationInfo* info,
 }
 
 // Print information for the given inlining: which function was inlined and
-// where the inlining occured.
+// where the inlining occurred.
 static void PrintInlinedFunctionInfo(
     CompilationInfo* info, int source_id, int inlining_id,
     const CompilationInfo::InlinedFunctionHolder& h) {
@@ -239,24 +187,23 @@ void CodeGenerator::PrintCode(Handle<Code> code, CompilationInfo* info) {
           ? FLAG_print_builtin_code
           : (FLAG_print_code || (info->IsStub() && FLAG_print_code_stubs) ||
              (info->IsOptimizing() && FLAG_print_opt_code &&
-              info->shared_info()->PassesFilter(FLAG_print_opt_code_filter)));
+              info->shared_info()->PassesFilter(FLAG_print_opt_code_filter)) ||
+             (info->IsWasm() && FLAG_print_wasm_code));
   if (print_code) {
     std::unique_ptr<char[]> debug_name = info->GetDebugName();
     CodeTracer::Scope tracing_scope(info->isolate()->GetCodeTracer());
     OFStream os(tracing_scope.file());
 
     // Print the source code if available.
-    bool print_source =
-        info->parse_info() && (code->kind() == Code::OPTIMIZED_FUNCTION ||
-                               code->kind() == Code::FUNCTION);
+    bool print_source = code->kind() == Code::OPTIMIZED_FUNCTION;
     if (print_source) {
       Handle<SharedFunctionInfo> shared = info->shared_info();
-      Handle<Script> script = info->script();
-      if (!script->IsUndefined(isolate) &&
-          !script->source()->IsUndefined(isolate)) {
+      if (shared->script()->IsScript() &&
+          !Script::cast(shared->script())->source()->IsUndefined(isolate)) {
         os << "--- Raw source ---\n";
-        StringCharacterStream stream(String::cast(script->source()),
-                                     shared->start_position());
+        StringCharacterStream stream(
+            String::cast(Script::cast(shared->script())->source()),
+            shared->start_position());
         // fun->end_position() points to the last character in the stream. We
         // need to compensate by adding one to calculate the length.
         int source_len = shared->end_position() - shared->start_position() + 1;
@@ -269,10 +216,6 @@ void CodeGenerator::PrintCode(Handle<Code> code, CompilationInfo* info) {
       }
     }
     if (info->IsOptimizing()) {
-      if (FLAG_print_unopt_code && info->parse_info()) {
-        os << "--- Unoptimized code ---\n";
-        info->closure()->shared()->code()->Disassemble(debug_name.get(), os);
-      }
       os << "--- Optimized code ---\n"
          << "optimization_id = " << info->optimization_id() << "\n";
     } else {

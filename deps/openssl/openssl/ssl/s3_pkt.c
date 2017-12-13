@@ -670,7 +670,7 @@ int ssl3_write_bytes(SSL *s, int type, const void *buf_, int len)
      * promptly send beyond the end of the users buffer ... so we trap and
      * report the error in a way the user will notice
      */
-    if (len < tot) {
+    if ((len < tot) || ((wb->left != 0) && (len < (tot + s->s3->wpend_tot)))) {
         SSLerr(SSL_F_SSL3_WRITE_BYTES, SSL_R_BAD_LENGTH);
         return (-1);
     }
@@ -699,6 +699,7 @@ int ssl3_write_bytes(SSL *s, int type, const void *buf_, int len)
         len >= 4 * (int)(max_send_fragment = s->max_send_fragment) &&
         s->compress == NULL && s->msg_callback == NULL &&
         SSL_USE_EXPLICIT_IV(s) &&
+        s->enc_write_ctx != NULL &&
         EVP_CIPHER_flags(s->enc_write_ctx->cipher) &
         EVP_CIPH_FLAG_TLS1_1_MULTIBLOCK) {
         unsigned char aad[13];
@@ -1323,10 +1324,16 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
         }
 #ifndef OPENSSL_NO_HEARTBEATS
         else if (rr->type == TLS1_RT_HEARTBEAT) {
-            tls1_process_heartbeat(s);
+            i = tls1_process_heartbeat(s);
+
+            if (i < 0)
+                return i;
+
+            rr->length = 0;
+            if (s->mode & SSL_MODE_AUTO_RETRY)
+                goto start;
 
             /* Exit and notify application to read again */
-            rr->length = 0;
             s->rwstate = SSL_READING;
             BIO_clear_retry_flags(SSL_get_rbio(s));
             BIO_set_retry_read(SSL_get_rbio(s));
@@ -1426,7 +1433,7 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
         (s->s3->handshake_fragment_len >= 4) &&
         (s->s3->handshake_fragment[0] == SSL3_MT_CLIENT_HELLO) &&
         (s->session != NULL) && (s->session->cipher != NULL) &&
-        !(s->ctx->options & SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION)) {
+        !(s->options & SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION)) {
         /*
          * s->s3->handshake_fragment_len = 0;
          */

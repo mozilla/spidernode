@@ -22,11 +22,8 @@
 #include "node.h"
 #include "node_buffer.h"
 
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
-#include "env.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
-#include "util.h"
 #include "util-inl.h"
 
 #include "v8.h"
@@ -40,15 +37,21 @@
 namespace node {
 
 using v8::Array;
+using v8::ArrayBuffer;
 using v8::Context;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
-using v8::Integer;
 using v8::Local;
 using v8::Number;
 using v8::Object;
+using v8::Persistent;
+using v8::String;
+using v8::Uint32Array;
 using v8::Value;
+
+namespace {
 
 enum node_zlib_mode {
   NONE,
@@ -63,9 +66,6 @@ enum node_zlib_mode {
 
 #define GZIP_HEADER_ID1 0x1f
 #define GZIP_HEADER_ID2 0x8b
-
-void InitZlib(v8::Local<v8::Object> target);
-
 
 /**
  * Deflate/Inflate
@@ -87,8 +87,10 @@ class ZCtx : public AsyncWrap {
         write_in_progress_(false),
         pending_close_(false),
         refs_(0),
-        gzip_id_bytes_read_(0) {
+        gzip_id_bytes_read_(0),
+        write_result_(nullptr) {
     MakeWeak<ZCtx>(this);
+    Wrap(wrap, this);
   }
 
 
@@ -107,16 +109,18 @@ class ZCtx : public AsyncWrap {
     CHECK(init_done_ && "close before init");
     CHECK_LE(mode_, UNZIP);
 
+    int status = Z_OK;
     if (mode_ == DEFLATE || mode_ == GZIP || mode_ == DEFLATERAW) {
-      (void)deflateEnd(&strm_);
+      status = deflateEnd(&strm_);
       int64_t change_in_bytes = -static_cast<int64_t>(kDeflateContextSize);
       env()->isolate()->AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
     } else if (mode_ == INFLATE || mode_ == GUNZIP || mode_ == INFLATERAW ||
                mode_ == UNZIP) {
-      (void)inflateEnd(&strm_);
+      status = inflateEnd(&strm_);
       int64_t change_in_bytes = -static_cast<int64_t>(kInflateContextSize);
       env()->isolate()->AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
     }
+    CHECK(status == Z_OK || status == Z_DATA_ERROR);
     mode_ = NONE;
 
     if (dictionary_ != nullptr) {
@@ -174,7 +178,7 @@ class ZCtx : public AsyncWrap {
     } else {
       CHECK(Buffer::HasInstance(args[1]));
       Local<Object> in_buf;
-      in_buf = args[1]->ToObject(env->isolate());
+      in_buf = args[1]->ToObject(env->context()).ToLocalChecked();
       in_off = args[2]->Uint32Value();
       in_len = args[3]->Uint32Value();
 
@@ -183,7 +187,7 @@ class ZCtx : public AsyncWrap {
     }
 
     CHECK(Buffer::HasInstance(args[4]));
-    Local<Object> out_buf = args[4]->ToObject(env->isolate());
+    Local<Object> out_buf = args[4]->ToObject(env->context()).ToLocalChecked();
     out_off = args[5]->Uint32Value();
     out_len = args[6]->Uint32Value();
     CHECK(Buffer::IsWithinBounds(out_off, out_len, Buffer::Length(out_buf)));
@@ -200,38 +204,19 @@ class ZCtx : public AsyncWrap {
 
     if (!async) {
       // sync version
-      ctx->env()->PrintSyncTrace();
+      env->PrintSyncTrace();
       Process(work_req);
-      if (CheckError(ctx))
-        AfterSync(ctx, args);
+      if (CheckError(ctx)) {
+        ctx->write_result_[0] = ctx->strm_.avail_out;
+        ctx->write_result_[1] = ctx->strm_.avail_in;
+        ctx->write_in_progress_ = false;
+        ctx->Unref();
+      }
       return;
     }
 
     // async version
-    uv_queue_work(ctx->env()->event_loop(),
-                  work_req,
-                  ZCtx::Process,
-                  ZCtx::After);
-
-    args.GetReturnValue().Set(ctx->object());
-  }
-
-
-  static void AfterSync(ZCtx* ctx, const FunctionCallbackInfo<Value>& args) {
-    Environment* env = ctx->env();
-    Local<Integer> avail_out = Integer::New(env->isolate(),
-                                            ctx->strm_.avail_out);
-    Local<Integer> avail_in = Integer::New(env->isolate(),
-                                           ctx->strm_.avail_in);
-
-    ctx->write_in_progress_ = false;
-
-    Local<Array> result = Array::New(env->isolate(), 2);
-    result->Set(0, avail_in);
-    result->Set(1, avail_out);
-    args.GetReturnValue().Set(result);
-
-    ctx->Unref();
+    uv_queue_work(env->event_loop(), work_req, ZCtx::Process, ZCtx::After);
   }
 
 
@@ -337,7 +322,7 @@ class ZCtx : public AsyncWrap {
         }
         break;
       default:
-        CHECK(0 && "wtf?");
+        UNREACHABLE();
     }
 
     // pass any errors back to the main thread to deal with.
@@ -389,16 +374,14 @@ class ZCtx : public AsyncWrap {
     if (!CheckError(ctx))
       return;
 
-    Local<Integer> avail_out = Integer::New(env->isolate(),
-                                            ctx->strm_.avail_out);
-    Local<Integer> avail_in = Integer::New(env->isolate(),
-                                           ctx->strm_.avail_in);
-
+    ctx->write_result_[0] = ctx->strm_.avail_out;
+    ctx->write_result_[1] = ctx->strm_.avail_in;
     ctx->write_in_progress_ = false;
 
     // call the write() cb
-    Local<Value> args[2] = { avail_in, avail_out };
-    ctx->MakeCallback(env->callback_string(), arraysize(args), args);
+    Local<Function> cb = PersistentToLocal(env->isolate(),
+                                           ctx->write_js_callback_);
+    ctx->MakeCallback(cb, 0, nullptr);
 
     ctx->Unref();
     if (ctx->pending_close_)
@@ -432,57 +415,74 @@ class ZCtx : public AsyncWrap {
 
   static void New(const FunctionCallbackInfo<Value>& args) {
     Environment* env = Environment::GetCurrent(args);
-
-    if (args.Length() < 1 || !args[0]->IsInt32()) {
-      return env->ThrowTypeError("Bad argument");
-    }
+    CHECK(args[0]->IsInt32());
     node_zlib_mode mode = static_cast<node_zlib_mode>(args[0]->Int32Value());
-
-    if (mode < DEFLATE || mode > UNZIP) {
-      return env->ThrowTypeError("Bad argument");
-    }
-
     new ZCtx(env, args.This(), mode);
   }
 
   // just pull the ints out of the args and call the other Init
   static void Init(const FunctionCallbackInfo<Value>& args) {
-    CHECK((args.Length() == 4 || args.Length() == 5) &&
-           "init(windowBits, level, memLevel, strategy, [dictionary])");
+    // Refs: https://github.com/nodejs/node/issues/16649
+    // Refs: https://github.com/nodejs/node/issues/14161
+    if (args.Length() == 5) {
+      fprintf(stderr,
+          "WARNING: You are likely using a version of node-tar or npm that "
+          "is incompatible with this version of Node.js.\nPlease use "
+          "either the version of npm that is bundled with Node.js, or "
+          "a version of npm (> 5.5.1 or < 5.4.0) or node-tar (> 4.0.1) "
+          "that is compatible with Node.js 9 and above.\n");
+    }
+    CHECK(args.Length() == 7 &&
+      "init(windowBits, level, memLevel, strategy, writeResult, writeCallback,"
+      " dictionary)");
 
     ZCtx* ctx;
     ASSIGN_OR_RETURN_UNWRAP(&ctx, args.Holder());
 
     int windowBits = args[0]->Uint32Value();
-    CHECK((windowBits >= 8 && windowBits <= 15) && "invalid windowBits");
+    CHECK((windowBits >= Z_MIN_WINDOWBITS && windowBits <= Z_MAX_WINDOWBITS) &&
+      "invalid windowBits");
 
     int level = args[1]->Int32Value();
-    CHECK((level >= -1 && level <= 9) && "invalid compression level");
+    CHECK((level >= Z_MIN_LEVEL && level <= Z_MAX_LEVEL) &&
+      "invalid compression level");
 
     int memLevel = args[2]->Uint32Value();
-    CHECK((memLevel >= 1 && memLevel <= 9) && "invalid memlevel");
+    CHECK((memLevel >= Z_MIN_MEMLEVEL && memLevel <= Z_MAX_MEMLEVEL) &&
+      "invalid memlevel");
 
     int strategy = args[3]->Uint32Value();
     CHECK((strategy == Z_FILTERED ||
-            strategy == Z_HUFFMAN_ONLY ||
-            strategy == Z_RLE ||
-            strategy == Z_FIXED ||
-            strategy == Z_DEFAULT_STRATEGY) && "invalid strategy");
+           strategy == Z_HUFFMAN_ONLY ||
+           strategy == Z_RLE ||
+           strategy == Z_FIXED ||
+           strategy == Z_DEFAULT_STRATEGY) && "invalid strategy");
+
+    CHECK(args[4]->IsUint32Array());
+    Local<Uint32Array> array = args[4].As<Uint32Array>();
+    Local<ArrayBuffer> ab = array->Buffer();
+    uint32_t* write_result = static_cast<uint32_t*>(ab->GetContents().Data());
+
+    Local<Function> write_js_callback = args[5].As<Function>();
 
     char* dictionary = nullptr;
     size_t dictionary_len = 0;
-    if (args.Length() >= 5 && Buffer::HasInstance(args[4])) {
-      Local<Object> dictionary_ = args[4]->ToObject(args.GetIsolate());
+    if (Buffer::HasInstance(args[6])) {
+      const char* dictionary_ = Buffer::Data(args[6]);
+      dictionary_len = Buffer::Length(args[6]);
 
-      dictionary_len = Buffer::Length(dictionary_);
       dictionary = new char[dictionary_len];
-
-      memcpy(dictionary, Buffer::Data(dictionary_), dictionary_len);
+      memcpy(dictionary, dictionary_, dictionary_len);
     }
 
-    Init(ctx, level, windowBits, memLevel, strategy,
-         dictionary, dictionary_len);
+    bool ret = Init(ctx, level, windowBits, memLevel, strategy, write_result,
+                    write_js_callback, dictionary, dictionary_len);
+    if (!ret) goto end;
+
     SetDictionary(ctx);
+
+   end:
+    return args.GetReturnValue().Set(ret);
   }
 
   static void Params(const FunctionCallbackInfo<Value>& args) {
@@ -499,8 +499,10 @@ class ZCtx : public AsyncWrap {
     SetDictionary(ctx);
   }
 
-  static void Init(ZCtx *ctx, int level, int windowBits, int memLevel,
-                   int strategy, char* dictionary, size_t dictionary_len) {
+  static bool Init(ZCtx *ctx, int level, int windowBits, int memLevel,
+                   int strategy, uint32_t* write_result,
+                   Local<Function> write_js_callback, char* dictionary,
+                   size_t dictionary_len) {
     ctx->level_ = level;
     ctx->windowBits_ = windowBits;
     ctx->memLevel_ = memLevel;
@@ -548,19 +550,27 @@ class ZCtx : public AsyncWrap {
             ->AdjustAmountOfExternalAllocatedMemory(kInflateContextSize);
         break;
       default:
-        CHECK(0 && "wtf?");
+        UNREACHABLE();
     }
-
-    if (ctx->err_ != Z_OK) {
-      ZCtx::Error(ctx, "Init error");
-    }
-
 
     ctx->dictionary_ = reinterpret_cast<Bytef *>(dictionary);
     ctx->dictionary_len_ = dictionary_len;
 
     ctx->write_in_progress_ = false;
     ctx->init_done_ = true;
+
+    if (ctx->err_ != Z_OK) {
+      if (dictionary != nullptr) {
+        delete[] dictionary;
+        ctx->dictionary_ = nullptr;
+      }
+      ctx->mode_ = NONE;
+      return false;
+    }
+
+    ctx->write_result_ = write_result;
+    ctx->write_js_callback_.Reset(ctx->env()->isolate(), write_js_callback);
+    return true;
   }
 
   static void SetDictionary(ZCtx* ctx) {
@@ -667,6 +677,8 @@ class ZCtx : public AsyncWrap {
   bool pending_close_;
   unsigned int refs_;
   unsigned int gzip_id_bytes_read_;
+  uint32_t* write_result_;
+  Persistent<Function> write_js_callback_;
 };
 
 
@@ -679,6 +691,7 @@ void InitZlib(Local<Object> target,
 
   z->InstanceTemplate()->SetInternalFieldCount(1);
 
+  AsyncWrap::AddWrapMethods(env, z);
   env->SetProtoMethod(z, "write", ZCtx::Write<true>);
   env->SetProtoMethod(z, "writeSync", ZCtx::Write<false>);
   env->SetProtoMethod(z, "init", ZCtx::Init);
@@ -686,13 +699,15 @@ void InitZlib(Local<Object> target,
   env->SetProtoMethod(z, "params", ZCtx::Params);
   env->SetProtoMethod(z, "reset", ZCtx::Reset);
 
-  z->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "Zlib"));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "Zlib"), z->GetFunction());
+  Local<String> zlibString = FIXED_ONE_BYTE_STRING(env->isolate(), "Zlib");
+  z->SetClassName(zlibString);
+  target->Set(zlibString, z->GetFunction());
 
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "ZLIB_VERSION"),
               FIXED_ONE_BYTE_STRING(env->isolate(), ZLIB_VERSION));
 }
 
+}  // anonymous namespace
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(zlib, node::InitZlib)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(zlib, node::InitZlib)

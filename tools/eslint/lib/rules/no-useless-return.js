@@ -8,7 +8,8 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-const astUtils = require("../ast-utils");
+const astUtils = require("../ast-utils"),
+    FixTracker = require("../util/fix-tracker");
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -45,13 +46,7 @@ function remove(array, element) {
  * @returns {boolean} `true` if the node is removeable.
  */
 function isRemovable(node) {
-    const parent = node.parent;
-
-    return (
-        parent.type === "Program" ||
-        parent.type === "BlockStatement" ||
-        parent.type === "SwitchCase"
-    );
+    return astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type);
 }
 
 /**
@@ -213,7 +208,7 @@ module.exports = {
                 scopeInfo = {
                     upper: scopeInfo,
                     uselessReturns: [],
-                    codePath,
+                    codePath
                 };
             },
 
@@ -225,20 +220,34 @@ module.exports = {
                         loc: node.loc,
                         message: "Unnecessary return statement.",
                         fix(fixer) {
-                            return isRemovable(node) ? fixer.remove(node) : null;
-                        },
+                            if (isRemovable(node)) {
+
+                                /*
+                                 * Extend the replacement range to include the
+                                 * entire function to avoid conflicting with
+                                 * no-else-return.
+                                 * https://github.com/eslint/eslint/issues/8026
+                                 */
+                                return new FixTracker(fixer, context.getSourceCode())
+                                    .retainEnclosingFunction(node)
+                                    .remove(node);
+                            }
+                            return null;
+                        }
                     });
                 }
 
                 scopeInfo = scopeInfo.upper;
             },
 
-            // Initializes segments.
-            // NOTE: This event is notified for only reachable segments.
+            /*
+             * Initializes segments.
+             * NOTE: This event is notified for only reachable segments.
+             */
             onCodePathSegmentStart(segment) {
                 const info = {
                     uselessReturns: getUselessReturns([], segment.allPrevSegments),
-                    returned: false,
+                    returned: false
                 };
 
                 // Stores the info.
@@ -265,8 +274,10 @@ module.exports = {
                 scopeInfo.uselessReturns.push(node);
             },
 
-            // Registers for all statement nodes except FunctionDeclaration, BlockStatement, BreakStatement.
-            // Removes return statements of the current segments from the useless return statement list.
+            /*
+             * Registers for all statement nodes except FunctionDeclaration, BlockStatement, BreakStatement.
+             * Removes return statements of the current segments from the useless return statement list.
+             */
             ClassDeclaration: markReturnStatementsOnCurrentSegmentsAsUsed,
             ContinueStatement: markReturnStatementsOnCurrentSegmentsAsUsed,
             DebuggerStatement: markReturnStatementsOnCurrentSegmentsAsUsed,
@@ -287,7 +298,7 @@ module.exports = {
             WithStatement: markReturnStatementsOnCurrentSegmentsAsUsed,
             ExportNamedDeclaration: markReturnStatementsOnCurrentSegmentsAsUsed,
             ExportDefaultDeclaration: markReturnStatementsOnCurrentSegmentsAsUsed,
-            ExportAllDeclaration: markReturnStatementsOnCurrentSegmentsAsUsed,
+            ExportAllDeclaration: markReturnStatementsOnCurrentSegmentsAsUsed
         };
     }
 };

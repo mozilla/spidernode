@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 
 // test variants of pid
@@ -38,16 +38,35 @@ const assert = require('assert');
 //
 // process.pid, String(process.pid): ourself
 
-assert.throws(function() { process.kill('SIGTERM'); }, TypeError);
-assert.throws(function() { process.kill(null); }, TypeError);
-assert.throws(function() { process.kill(undefined); }, TypeError);
-assert.throws(function() { process.kill(+'not a number'); }, TypeError);
-assert.throws(function() { process.kill(1 / 0); }, TypeError);
-assert.throws(function() { process.kill(-1 / 0); }, TypeError);
+const invalidPidArgument = common.expectsError({
+  code: 'ERR_INVALID_ARG_TYPE',
+  type: TypeError,
+  message: 'The "pid" argument must be of type number'
+}, 6);
+
+assert.throws(function() { process.kill('SIGTERM'); },
+              invalidPidArgument);
+assert.throws(function() { process.kill(null); },
+              invalidPidArgument);
+assert.throws(function() { process.kill(undefined); },
+              invalidPidArgument);
+assert.throws(function() { process.kill(+'not a number'); },
+              invalidPidArgument);
+assert.throws(function() { process.kill(1 / 0); },
+              invalidPidArgument);
+assert.throws(function() { process.kill(-1 / 0); },
+              invalidPidArgument);
 
 // Test that kill throws an error for invalid signal
+const unknownSignal = common.expectsError({
+  code: 'ERR_UNKNOWN_SIGNAL',
+  type: TypeError,
+  message: 'Unknown signal: test'
+});
 
-assert.throws(function() { process.kill(1, 'test'); }, Error);
+
+assert.throws(function() { process.kill(1, 'test'); },
+              unknownSignal);
 
 // Test kill argument processing in valid cases.
 //
@@ -73,7 +92,7 @@ function kill(tryPid, trySig, expectPid, expectSig) {
 }
 
 // Note that SIGHUP and SIGTERM map to 1 and 15 respectively, even on Windows
-// (for Windows, libuv maps 1 and 15 to the correct behaviour).
+// (for Windows, libuv maps 1 and 15 to the correct behavior).
 
 kill(0, 'SIGHUP', 0, 1);
 kill(0, undefined, 0, 15);

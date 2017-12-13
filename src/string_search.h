@@ -7,7 +7,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node.h"
+#include "node_internals.h"
 #include <string.h>
 
 namespace node {
@@ -28,7 +28,7 @@ class Vector {
  public:
   Vector(T* data, size_t length, bool isForward)
       : start_(data), length_(length), is_forward_(isForward) {
-    ASSERT(length > 0 && data != nullptr);
+    CHECK(length > 0 && data != nullptr);
   }
 
   // Returns the start of the memory range.
@@ -44,7 +44,9 @@ class Vector {
 
   // Access individual vector elements - checks bounds in debug mode.
   T& operator[](size_t index) const {
-    ASSERT(index < length_);
+#ifdef DEBUG
+    CHECK(index < length_);
+#endif
     return start_[is_forward_ ? index : (length_ - index - 1)];
   }
 
@@ -342,7 +344,7 @@ size_t StringSearch<Char>::LinearSearch(
     i = FindFirstCharacter(pattern, subject, i);
     if (i == subject.length())
       return subject.length();
-    ASSERT_LE(i, n);
+    CHECK_LE(i, n);
 
     bool matches = true;
     for (size_t j = 1; j < pattern_length; j++) {
@@ -591,7 +593,7 @@ size_t StringSearch<Char>::InitialSearch(
       i = FindFirstCharacter(pattern, subject, i);
       if (i == subject.length())
         return subject.length();
-      ASSERT_LE(i, n);
+      CHECK_LE(i, n);
       size_t j = 1;
       do {
         if (pattern[j] != subject[i + j]) {
@@ -636,6 +638,7 @@ size_t SearchString(const Char* haystack,
                     size_t needle_length,
                     size_t start_index,
                     bool is_forward) {
+  if (haystack_length < needle_length) return haystack_length;
   // To do a reverse search (lastIndexOf instead of indexOf) without redundant
   // code, create two vectors that are reversed views into the input strings.
   // For example, v_needle[0] would return the *last* character of the needle.
@@ -644,7 +647,6 @@ size_t SearchString(const Char* haystack,
       needle, needle_length, is_forward);
   Vector<const Char> v_haystack = Vector<const Char>(
       haystack, haystack_length, is_forward);
-  ASSERT(haystack_length >= needle_length);
   size_t diff = haystack_length - needle_length;
   size_t relative_start_index;
   if (is_forward) {
@@ -662,6 +664,15 @@ size_t SearchString(const Char* haystack,
   }
   return is_forward ? pos : (haystack_length - needle_length - pos);
 }
+
+template <size_t N>
+size_t SearchString(const char* haystack, size_t haystack_length,
+                    const char (&needle)[N]) {
+  return SearchString(
+      reinterpret_cast<const uint8_t*>(haystack), haystack_length,
+      reinterpret_cast<const uint8_t*>(needle), N - 1, 0, true);
+}
+
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

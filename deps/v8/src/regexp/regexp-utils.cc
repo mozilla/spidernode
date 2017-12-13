@@ -45,7 +45,8 @@ MaybeHandle<Object> RegExpUtils::SetLastIndex(Isolate* isolate,
                                               Handle<JSReceiver> recv,
                                               int value) {
   if (HasInitialRegExpMap(isolate, recv)) {
-    JSRegExp::cast(*recv)->SetLastIndex(value);
+    JSRegExp::cast(*recv)->set_last_index(Smi::FromInt(value),
+                                          SKIP_WRITE_BARRIER);
     return recv;
   } else {
     return Object::SetProperty(recv, isolate->factory()->lastIndex_string(),
@@ -56,7 +57,7 @@ MaybeHandle<Object> RegExpUtils::SetLastIndex(Isolate* isolate,
 MaybeHandle<Object> RegExpUtils::GetLastIndex(Isolate* isolate,
                                               Handle<JSReceiver> recv) {
   if (HasInitialRegExpMap(isolate, recv)) {
-    return handle(JSRegExp::cast(*recv)->LastIndex(), isolate);
+    return handle(JSRegExp::cast(*recv)->last_index(), isolate);
   } else {
     return Object::GetProperty(recv, isolate->factory()->lastIndex_string());
   }
@@ -145,7 +146,14 @@ bool RegExpUtils::IsUnmodifiedRegExp(Isolate* isolate, Handle<Object> obj) {
   if (!proto->IsJSReceiver()) return false;
 
   Handle<Map> initial_proto_initial_map = isolate->regexp_prototype_map();
-  return (JSReceiver::cast(proto)->map() == *initial_proto_initial_map);
+  if (JSReceiver::cast(proto)->map() != *initial_proto_initial_map) {
+    return false;
+  }
+
+  // The smi check is required to omit ToLength(lastIndex) calls with possible
+  // user-code execution on the fast path.
+  Object* last_index = JSRegExp::cast(recv)->last_index();
+  return last_index->IsSmi() && Smi::ToInt(last_index) >= 0;
 }
 
 int RegExpUtils::AdvanceStringIndex(Isolate* isolate, Handle<String> string,

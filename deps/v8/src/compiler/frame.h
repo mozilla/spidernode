@@ -6,7 +6,7 @@
 #define V8_COMPILER_FRAME_H_
 
 #include "src/bit-vector.h"
-#include "src/frames.h"
+#include "src/frame-constants.h"
 
 namespace v8 {
 namespace internal {
@@ -85,12 +85,12 @@ class Frame : public ZoneObject {
   inline int GetSpillSlotCount() const { return spill_slot_count_; }
 
   void SetAllocatedRegisters(BitVector* regs) {
-    DCHECK(allocated_registers_ == nullptr);
+    DCHECK_NULL(allocated_registers_);
     allocated_registers_ = regs;
   }
 
   void SetAllocatedDoubleRegisters(BitVector* regs) {
-    DCHECK(allocated_double_registers_ == nullptr);
+    DCHECK_NULL(allocated_double_registers_);
     allocated_double_registers_ = regs;
   }
 
@@ -111,9 +111,18 @@ class Frame : public ZoneObject {
     frame_slot_count_ += count;
   }
 
-  int AllocateSpillSlot(int width) {
+  int AllocateSpillSlot(int width, int alignment = 0) {
     int frame_slot_count_before = frame_slot_count_;
-    AllocateAlignedFrameSlots(width);
+    if (alignment <= kPointerSize) {
+      AllocateAlignedFrameSlots(width);
+    } else {
+      // We need to allocate more place for spill slot
+      // in case we need an aligned spill slot to be
+      // able to properly align start of spill slot
+      // and still have enough place to hold all the
+      // data
+      AllocateAlignedFrameSlots(width + alignment - kPointerSize);
+    }
     spill_slot_count_ += frame_slot_count_ - frame_slot_count_before;
     return frame_slot_count_ - 1;
   }
@@ -160,12 +169,12 @@ class FrameOffset {
   inline int offset() { return offset_ & ~1; }
 
   inline static FrameOffset FromStackPointer(int offset) {
-    DCHECK((offset & 1) == 0);
+    DCHECK_EQ(0, offset & 1);
     return FrameOffset(offset | kFromSp);
   }
 
   inline static FrameOffset FromFramePointer(int offset) {
-    DCHECK((offset & 1) == 0);
+    DCHECK_EQ(0, offset & 1);
     return FrameOffset(offset | kFromFp);
   }
 

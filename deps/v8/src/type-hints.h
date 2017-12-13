@@ -15,7 +15,9 @@ namespace internal {
 enum class BinaryOperationHint : uint8_t {
   kNone,
   kSignedSmall,
+  kSignedSmallInputs,
   kSigned32,
+  kNumber,
   kNumberOrOddball,
   kString,
   kAny
@@ -35,6 +37,8 @@ enum class CompareOperationHint : uint8_t {
   kNumberOrOddball,
   kInternalizedString,
   kString,
+  kSymbol,
+  kReceiver,
   kAny
 };
 
@@ -43,6 +47,16 @@ inline size_t hash_value(CompareOperationHint hint) {
 }
 
 std::ostream& operator<<(std::ostream&, CompareOperationHint);
+
+// Type hints for for..in statements.
+enum class ForInHint : uint8_t {
+  kNone,
+  kEnumCacheKeysAndIndices,
+  kEnumCacheKeys,
+  kAny
+};
+
+std::ostream& operator<<(std::ostream&, ForInHint);
 
 // Type hints for the ToBoolean type conversion.
 enum class ToBooleanHint : uint16_t {
@@ -55,10 +69,9 @@ enum class ToBooleanHint : uint16_t {
   kString = 1u << 5,
   kSymbol = 1u << 6,
   kHeapNumber = 1u << 7,
-  kSimdValue = 1u << 8,
   kAny = kUndefined | kBoolean | kNull | kSmallInteger | kReceiver | kString |
-         kSymbol | kHeapNumber | kSimdValue,
-  kNeedsMap = kReceiver | kString | kSymbol | kHeapNumber | kSimdValue,
+         kSymbol | kHeapNumber,
+  kNeedsMap = kReceiver | kString | kSymbol | kHeapNumber,
   kCanBeUndetectable = kReceiver,
 };
 

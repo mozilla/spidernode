@@ -1,11 +1,21 @@
 'use strict';
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 
 assert.strictEqual(process.assert(1, 'error'), undefined);
-assert.throws(() => {
+common.expectsError(() => {
   process.assert(undefined, 'errorMessage');
-}, /^Error: errorMessage$/);
-assert.throws(() => {
+}, {
+  code: 'ERR_ASSERTION',
+  type: Error,
+  message: 'errorMessage'
+}
+);
+common.expectsError(() => {
   process.assert(false);
-}, /^Error: assertion error$/);
+}, {
+  code: 'ERR_ASSERTION',
+  type: Error,
+  message: 'assertion error'
+}
+);

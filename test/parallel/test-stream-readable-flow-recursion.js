@@ -58,17 +58,17 @@ function flow(stream, size, callback) {
     callback(chunk);
 
   depth -= 1;
-  console.log('flow(' + depth + '): exit');
+  console.log(`flow(${depth}): exit`);
 }
 
 flow(stream, 5000, function() {
-  console.log('complete (' + depth + ')');
+  console.log(`complete (${depth})`);
 });
 
 process.on('exit', function(code) {
   assert.strictEqual(reads, 2);
   // we pushed up the high water mark
-  assert.strictEqual(stream._readableState.highWaterMark, 8192);
+  assert.strictEqual(stream.readableHighWaterMark, 8192);
   // length is 0 right now, because we pulled it all out.
   assert.strictEqual(stream._readableState.length, 0);
   assert(!code);

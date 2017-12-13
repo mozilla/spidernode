@@ -9,9 +9,10 @@
 #include "src/base/flags.h"
 #include "src/compiler/frame.h"
 #include "src/compiler/operator.h"
-#include "src/frames.h"
 #include "src/globals.h"
+#include "src/interface-descriptors.h"
 #include "src/machine-type.h"
+#include "src/reglist.h"
 #include "src/runtime/runtime.h"
 #include "src/zone/zone.h"
 
@@ -46,12 +47,12 @@ class LinkageLocation {
 
   static LinkageLocation ForRegister(int32_t reg,
                                      MachineType type = MachineType::None()) {
-    DCHECK(reg >= 0);
+    DCHECK_LE(0, reg);
     return LinkageLocation(REGISTER, reg, type);
   }
 
   static LinkageLocation ForCallerFrameSlot(int32_t slot, MachineType type) {
-    DCHECK(slot < 0);
+    DCHECK_GT(0, slot);
     return LinkageLocation(STACK_SLOT, slot, type);
   }
 
@@ -100,25 +101,6 @@ class LinkageLocation {
     return caller_location;
   }
 
- private:
-  friend class CallDescriptor;
-  friend class OperandGenerator;
-
-  enum LocationType { REGISTER, STACK_SLOT };
-
-  class TypeField : public BitField<LocationType, 0, 1> {};
-  class LocationField : public BitField<int32_t, TypeField::kNext, 31> {};
-
-  static const int32_t ANY_REGISTER = -1;
-  static const int32_t MAX_STACK_SLOT = 32767;
-
-  LinkageLocation(LocationType type, int32_t location,
-                  MachineType machine_type) {
-    bit_field_ = TypeField::encode(type) |
-                 ((location << LocationField::kShift) & LocationField::kMask);
-    machine_type_ = machine_type;
-  }
-
   MachineType GetType() const { return machine_type_; }
 
   int GetSize() const {
@@ -153,6 +135,22 @@ class LinkageLocation {
   int32_t AsCalleeFrameSlot() const {
     DCHECK(IsCalleeFrameSlot());
     return GetLocation();
+  }
+
+ private:
+  enum LocationType { REGISTER, STACK_SLOT };
+
+  class TypeField : public BitField<LocationType, 0, 1> {};
+  class LocationField : public BitField<int32_t, TypeField::kNext, 31> {};
+
+  static constexpr int32_t ANY_REGISTER = -1;
+  static constexpr int32_t MAX_STACK_SLOT = 32767;
+
+  LinkageLocation(LocationType type, int32_t location,
+                  MachineType machine_type) {
+    bit_field_ = TypeField::encode(type) |
+                 ((location << LocationField::kShift) & LocationField::kMask);
+    machine_type_ = machine_type;
   }
 
   int32_t bit_field_;
@@ -198,7 +196,8 @@ class V8_EXPORT_PRIVATE CallDescriptor final
                  Operator::Properties properties,
                  RegList callee_saved_registers,
                  RegList callee_saved_fp_registers, Flags flags,
-                 const char* debug_name = "")
+                 const char* debug_name = "",
+                 const RegList allocatable_registers = 0)
       : kind_(kind),
         target_type_(target_type),
         target_loc_(target_loc),
@@ -207,9 +206,9 @@ class V8_EXPORT_PRIVATE CallDescriptor final
         properties_(properties),
         callee_saved_registers_(callee_saved_registers),
         callee_saved_fp_registers_(callee_saved_fp_registers),
+        allocatable_registers_(allocatable_registers),
         flags_(flags),
-        debug_name_(debug_name) {
-  }
+        debug_name_(debug_name) {}
 
   // Returns the kind of this call.
   Kind kind() const { return kind_; }
@@ -301,8 +300,19 @@ class V8_EXPORT_PRIVATE CallDescriptor final
 
   int CalculateFixedFrameSize() const;
 
+  RegList AllocatableRegisters() const { return allocatable_registers_; }
+
+  bool HasRestrictedAllocatableRegisters() const {
+    return allocatable_registers_ != 0;
+  }
+
+  void set_save_fp_mode(SaveFPRegsMode mode) { save_fp_mode_ = mode; }
+
+  SaveFPRegsMode get_save_fp_mode() const { return save_fp_mode_; }
+
  private:
   friend class Linkage;
+  SaveFPRegsMode save_fp_mode_ = kSaveFPRegs;
 
   const Kind kind_;
   const MachineType target_type_;
@@ -312,6 +322,9 @@ class V8_EXPORT_PRIVATE CallDescriptor final
   const Operator::Properties properties_;
   const RegList callee_saved_registers_;
   const RegList callee_saved_fp_registers_;
+  // Non-zero value means restricting the set of allocatable registers for
+  // register allocator to use.
+  const RegList allocatable_registers_;
   const Flags flags_;
   const char* const debug_name_;
 
@@ -340,6 +353,8 @@ V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
 // Call[BytecodeDispatch] address,    arg 1, arg 2, [...]
 class V8_EXPORT_PRIVATE Linkage : public NON_EXPORTED_BASE(ZoneObject) {
  public:
+  enum ContextSpecification { kNoContext, kPassContext };
+
   explicit Linkage(CallDescriptor* incoming) : incoming_(incoming) {}
 
   static CallDescriptor* ComputeIncoming(Zone* zone, CompilationInfo* info);
@@ -365,7 +380,8 @@ class V8_EXPORT_PRIVATE Linkage : public NON_EXPORTED_BASE(ZoneObject) {
       int stack_parameter_count, CallDescriptor::Flags flags,
       Operator::Properties properties = Operator::kNoProperties,
       MachineType return_type = MachineType::AnyTagged(),
-      size_t return_count = 1);
+      size_t return_count = 1,
+      ContextSpecification context_spec = kPassContext);
 
   static CallDescriptor* GetAllocateCallDescriptor(Zone* zone);
   static CallDescriptor* GetBytecodeDispatchCallDescriptor(

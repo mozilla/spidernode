@@ -1,5 +1,7 @@
 # Readline
 
+<!--introduced_in=v0.10.0-->
+
 > Stability: 2 - Stable
 
 The `readline` module provides an interface for reading data from a [Readable][]
@@ -27,7 +29,7 @@ rl.question('What do you think of Node.js? ', (answer) => {
 });
 ```
 
-*Note* Once this code is invoked, the Node.js application will not
+*Note*: Once this code is invoked, the Node.js application will not
 terminate until the `readline.Interface` is closed because the interface
 waits for data to be received on the `input` stream.
 
@@ -158,7 +160,7 @@ For example:
 
 ```js
 rl.on('SIGINT', () => {
-  rl.question('Are you sure you want to exit?', (answer) => {
+  rl.question('Are you sure you want to exit? ', (answer) => {
     if (answer.match(/^y(es)?$/i)) rl.pause();
   });
 });
@@ -255,7 +257,7 @@ If the `readline.Interface` was created with `output` set to `null` or
 Example usage:
 
 ```js
-rl.question('What is your favorite food?', (answer) => {
+rl.question('What is your favorite food? ', (answer) => {
   console.log(`Oh, so your favorite food is ${answer}`);
 });
 ```
@@ -310,7 +312,7 @@ For example:
 ```js
 rl.write('Delete this!');
 // Simulate Ctrl+u to delete the line written previously
-rl.write(null, {ctrl: true, name: 'u'});
+rl.write(null, { ctrl: true, name: 'u' });
 ```
 
 *Note*: The `rl.write()` method will write the data to the `readline`
@@ -345,6 +347,12 @@ the current position of the cursor down.
 <!-- YAML
 added: v0.1.98
 changes:
+  - version: v8.3.0, 6.11.4
+    pr-url: https://github.com/nodejs/node/pull/13497
+    description: Remove max limit of `crlfDelay` option.
+  - version: v6.6.0
+    pr-url: https://github.com/nodejs/node/pull/8109
+    description: The `crlfDelay` option is supported now.
   - version: v6.3.0
     pr-url: https://github.com/nodejs/node/pull/7125
     description: The `prompt` option is supported now.
@@ -361,18 +369,20 @@ changes:
   * `terminal` {boolean} `true` if the `input` and `output` streams should be
     treated like a TTY, and have ANSI/VT100 escape codes written to it.
     Defaults to checking `isTTY` on the `output` stream upon instantiation.
-  * `historySize` {number} maximum number of history lines retained. To disable
-    the history set this value to `0`. Defaults to `30`. This option makes sense
-    only if `terminal` is set to `true` by the user or by an internal `output`
-    check, otherwise the history caching mechanism is not initialized at all.
-  * `prompt` - the prompt string to use. Default: `'> '`
+  * `historySize` {number} Maximum number of history lines retained. To disable
+    the history set this value to `0`. This option makes sense only if `terminal`
+    is set to `true` by the user or by an internal `output` check, otherwise the
+    history caching mechanism is not initialized at all. **Default:** `30`
+  * `prompt` {string} The prompt string to use. **Default:** `'> '`
   * `crlfDelay` {number} If the delay between `\r` and `\n` exceeds
     `crlfDelay` milliseconds, both `\r` and `\n` will be treated as separate
-    end-of-line input. Default to `100` milliseconds.
-    `crlfDelay` will be coerced to `[100, 2000]` range.
+    end-of-line input. `crlfDelay` will be coerced to a number no less than `100`.
+    It can be set to `Infinity`, in which case `\r` followed by `\n` will always be
+    considered a single newline (which may be reasonable for [reading files][]
+    with `\r\n` line delimiter). **Default:** `100`
   * `removeHistoryDuplicates` {boolean} If `true`, when a new input line added
     to the history list duplicates an older one, this removes the older line
-    from the list. Defaults to `false`.
+    from the list. **Default:** `false`
 
 The `readline.createInterface()` method creates a new `readline.Interface`
 instance.
@@ -403,8 +413,8 @@ a `'resize'` event on the `output` if or when the columns ever change
 
 ### Use of the `completer` Function
 
-When called, the `completer` function is provided the current line entered by
-the user, and is expected to return an Array with 2 entries:
+The `completer` function takes the current line entered by the user
+as an argument, and returns an Array with 2 entries:
 
 * An Array with matching entries for the completion.
 * The substring that was used for the matching.
@@ -414,7 +424,7 @@ For instance: `[[substr1, substr2, ...], originalsubstring]`.
 ```js
 function completer(line) {
   const completions = '.help .error .exit .quit .q'.split(' ');
-  const hits = completions.filter((c) => { return c.indexOf(line) === 0 });
+  const hits = completions.filter((c) => c.startsWith(line));
   // show all completions if none found
   return [hits.length ? hits : completions, line];
 }
@@ -449,13 +459,17 @@ added: v0.7.7
 * `stream` {Readable}
 * `interface` {readline.Interface}
 
-The `readline.emitKeypressEvents()` method causes the given [Writable][]
+The `readline.emitKeypressEvents()` method causes the given [Readable][]
 `stream` to begin emitting `'keypress'` events corresponding to received input.
 
 Optionally, `interface` specifies a `readline.Interface` instance for which
 autocompletion is disabled when copy-pasted input is detected.
 
 If the `stream` is a [TTY][], then it must be in raw mode.
+
+*Note*: This is automatically called by any readline instance on its `input`
+if the `input` is a terminal. Closing the `readline` instance does not stop
+the `input` from emitting `'keypress'` events.
 
 ```js
 readline.emitKeypressEvents(process.stdin);
@@ -492,7 +506,7 @@ const rl = readline.createInterface({
 rl.prompt();
 
 rl.on('line', (line) => {
-  switch(line.trim()) {
+  switch (line.trim()) {
     case 'hello':
       console.log('world!');
       break;
@@ -518,7 +532,8 @@ const readline = require('readline');
 const fs = require('fs');
 
 const rl = readline.createInterface({
-  input: fs.createReadStream('sample.txt')
+  input: fs.createReadStream('sample.txt'),
+  crlfDelay: Infinity
 });
 
 rl.on('line', (line) => {
@@ -526,10 +541,11 @@ rl.on('line', (line) => {
 });
 ```
 
+[`SIGCONT`]: readline.html#readline_event_sigcont
+[`SIGTSTP`]: readline.html#readline_event_sigtstp
 [`process.stdin`]: process.html#process_process_stdin
 [`process.stdout`]: process.html#process_process_stdout
-[Writable]: stream.html#stream_writable_streams
 [Readable]: stream.html#stream_readable_streams
 [TTY]: tty.html
-[`SIGTSTP`]: readline.html#readline_event_sigtstp
-[`SIGCONT`]: readline.html#readline_event_sigcont
+[Writable]: stream.html#stream_writable_streams
+[reading files]: #readline_example_read_file_stream_line_by_line

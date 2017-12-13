@@ -12,7 +12,9 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-using namespace interpreter;
+using interpreter::Bytecode;
+using interpreter::Bytecodes;
+using interpreter::OperandType;
 
 BytecodeLoopAssignments::BytecodeLoopAssignments(int parameter_count,
                                                  int register_count, Zone* zone)
@@ -28,35 +30,20 @@ void BytecodeLoopAssignments::Add(interpreter::Register r) {
   }
 }
 
-void BytecodeLoopAssignments::AddPair(interpreter::Register r) {
+void BytecodeLoopAssignments::AddList(interpreter::Register r, uint32_t count) {
   if (r.is_parameter()) {
-    DCHECK(interpreter::Register(r.index() + 1).is_parameter());
-    bit_vector_->Add(r.ToParameterIndex(parameter_count_));
-    bit_vector_->Add(r.ToParameterIndex(parameter_count_) + 1);
+    for (uint32_t i = 0; i < count; i++) {
+      DCHECK(interpreter::Register(r.index() + i).is_parameter());
+      bit_vector_->Add(r.ToParameterIndex(parameter_count_) + i);
+    }
   } else {
-    DCHECK(!interpreter::Register(r.index() + 1).is_parameter());
-    bit_vector_->Add(parameter_count_ + r.index());
-    bit_vector_->Add(parameter_count_ + r.index() + 1);
+    for (uint32_t i = 0; i < count; i++) {
+      DCHECK(!interpreter::Register(r.index() + i).is_parameter());
+      bit_vector_->Add(parameter_count_ + r.index() + i);
+    }
   }
 }
 
-void BytecodeLoopAssignments::AddTriple(interpreter::Register r) {
-  if (r.is_parameter()) {
-    DCHECK(interpreter::Register(r.index() + 1).is_parameter());
-    DCHECK(interpreter::Register(r.index() + 2).is_parameter());
-    bit_vector_->Add(r.ToParameterIndex(parameter_count_));
-    bit_vector_->Add(r.ToParameterIndex(parameter_count_) + 1);
-    bit_vector_->Add(r.ToParameterIndex(parameter_count_) + 2);
-  } else {
-    DCHECK(!interpreter::Register(r.index() + 1).is_parameter());
-    DCHECK(!interpreter::Register(r.index() + 2).is_parameter());
-    bit_vector_->Add(parameter_count_ + r.index());
-    bit_vector_->Add(parameter_count_ + r.index() + 1);
-    bit_vector_->Add(parameter_count_ + r.index() + 2);
-  }
-}
-
-void BytecodeLoopAssignments::AddAll() { bit_vector_->AddAll(); }
 
 void BytecodeLoopAssignments::Union(const BytecodeLoopAssignments& other) {
   bit_vector_->Union(*other.bit_vector_);
@@ -74,13 +61,6 @@ bool BytecodeLoopAssignments::ContainsLocal(int index) const {
   return bit_vector_->Contains(parameter_count_ + index);
 }
 
-bool BytecodeLoopAssignments::ContainsAccumulator() const {
-  // TODO(leszeks): This assumes the accumulator is always assigned. This is
-  // probably correct, but that assignment is also probably dead, so we should
-  // check liveness.
-  return true;
-}
-
 BytecodeAnalysis::BytecodeAnalysis(Handle<BytecodeArray> bytecode_array,
                                    Zone* zone, bool do_liveness_analysis)
     : bytecode_array_(bytecode_array),
@@ -90,17 +70,17 @@ BytecodeAnalysis::BytecodeAnalysis(Handle<BytecodeArray> bytecode_array,
       loop_end_index_queue_(zone),
       end_to_header_(zone),
       header_to_info_(zone),
+      osr_entry_point_(-1),
       liveness_map_(bytecode_array->length(), zone) {}
 
 namespace {
 
 void UpdateInLiveness(Bytecode bytecode, BytecodeLivenessState& in_liveness,
-                      const BytecodeArrayAccessor& accessor) {
+                      const interpreter::BytecodeArrayAccessor& accessor) {
   int num_operands = Bytecodes::NumberOfOperands(bytecode);
   const OperandType* operand_types = Bytecodes::GetOperandTypes(bytecode);
-  AccumulatorUse accumulator_use = Bytecodes::GetAccumulatorUse(bytecode);
 
-  if (accumulator_use == AccumulatorUse::kWrite) {
+  if (Bytecodes::WritesAccumulator(bytecode)) {
     in_liveness.MarkAccumulatorDead();
   }
   for (int i = 0; i < num_operands; ++i) {
@@ -109,6 +89,17 @@ void UpdateInLiveness(Bytecode bytecode, BytecodeLivenessState& in_liveness,
         interpreter::Register r = accessor.GetRegisterOperand(i);
         if (!r.is_parameter()) {
           in_liveness.MarkRegisterDead(r.index());
+        }
+        break;
+      }
+      case OperandType::kRegOutList: {
+        interpreter::Register r = accessor.GetRegisterOperand(i++);
+        uint32_t reg_count = accessor.GetRegisterCountOperand(i);
+        if (!r.is_parameter()) {
+          for (uint32_t j = 0; j < reg_count; ++j) {
+            DCHECK(!interpreter::Register(r.index() + j).is_parameter());
+            in_liveness.MarkRegisterDead(r.index() + j);
+          }
         }
         break;
       }
@@ -138,7 +129,7 @@ void UpdateInLiveness(Bytecode bytecode, BytecodeLivenessState& in_liveness,
     }
   }
 
-  if (accumulator_use == AccumulatorUse::kRead) {
+  if (Bytecodes::ReadsAccumulator(bytecode)) {
     in_liveness.MarkAccumulatorLive();
   }
   for (int i = 0; i < num_operands; ++i) {
@@ -168,6 +159,7 @@ void UpdateInLiveness(Bytecode bytecode, BytecodeLivenessState& in_liveness,
             in_liveness.MarkRegisterLive(r.index() + j);
           }
         }
+        break;
       }
       default:
         DCHECK(!Bytecodes::IsRegisterInputOperandType(operand_types[i]));
@@ -178,7 +170,7 @@ void UpdateInLiveness(Bytecode bytecode, BytecodeLivenessState& in_liveness,
 
 void UpdateOutLiveness(Bytecode bytecode, BytecodeLivenessState& out_liveness,
                        BytecodeLivenessState* next_bytecode_in_liveness,
-                       const BytecodeArrayAccessor& accessor,
+                       const interpreter::BytecodeArrayAccessor& accessor,
                        const BytecodeLivenessMap& liveness_map) {
   int current_offset = accessor.current_offset();
   const Handle<BytecodeArray>& bytecode_array = accessor.bytecode_array();
@@ -188,6 +180,10 @@ void UpdateOutLiveness(Bytecode bytecode, BytecodeLivenessState& out_liveness,
   if (Bytecodes::IsForwardJump(bytecode)) {
     int target_offset = accessor.GetJumpTargetOffset();
     out_liveness.Union(*liveness_map.GetInLiveness(target_offset));
+  } else if (Bytecodes::IsSwitch(bytecode)) {
+    for (const auto& entry : accessor.GetJumpTableTargetOffsets()) {
+      out_liveness.Union(*liveness_map.GetInLiveness(entry.target_offset));
+    }
   }
 
   // Update from next bytecode (unless there isn't one or this is an
@@ -206,14 +202,27 @@ void UpdateOutLiveness(Bytecode bytecode, BytecodeLivenessState& out_liveness,
         table->LookupRange(current_offset, &handler_context, nullptr);
 
     if (handler_offset != -1) {
+      bool was_accumulator_live = out_liveness.AccumulatorIsLive();
       out_liveness.Union(*liveness_map.GetInLiveness(handler_offset));
       out_liveness.MarkRegisterLive(handler_context);
+      if (!was_accumulator_live) {
+        // The accumulator is reset to the exception on entry into a handler,
+        // and so shouldn't be considered live coming out of this bytecode just
+        // because it's live coming into the handler. So, kill the accumulator
+        // if the handler is the only thing that made it live.
+        out_liveness.MarkAccumulatorDead();
+
+        // TODO(leszeks): Ideally the accumulator wouldn't be considered live at
+        // the start of the handler, but looking up if the current bytecode is
+        // the start of a handler is not free, so we should only do it if we
+        // decide it's necessary.
+      }
     }
   }
 }
 
 void UpdateAssignments(Bytecode bytecode, BytecodeLoopAssignments& assignments,
-                       const BytecodeArrayAccessor& accessor) {
+                       const interpreter::BytecodeArrayAccessor& accessor) {
   int num_operands = Bytecodes::NumberOfOperands(bytecode);
   const OperandType* operand_types = Bytecodes::GetOperandTypes(bytecode);
 
@@ -223,12 +232,18 @@ void UpdateAssignments(Bytecode bytecode, BytecodeLoopAssignments& assignments,
         assignments.Add(accessor.GetRegisterOperand(i));
         break;
       }
+      case OperandType::kRegOutList: {
+        interpreter::Register r = accessor.GetRegisterOperand(i++);
+        uint32_t reg_count = accessor.GetRegisterCountOperand(i);
+        assignments.AddList(r, reg_count);
+        break;
+      }
       case OperandType::kRegOutPair: {
-        assignments.AddPair(accessor.GetRegisterOperand(i));
+        assignments.AddList(accessor.GetRegisterOperand(i), 2);
         break;
       }
       case OperandType::kRegOutTriple: {
-        assignments.AddTriple(accessor.GetRegisterOperand(i));
+        assignments.AddList(accessor.GetRegisterOperand(i), 3);
         break;
       }
       default:
@@ -248,7 +263,7 @@ void BytecodeAnalysis::Analyze(BailoutId osr_bailout_id) {
   int osr_loop_end_offset =
       osr_bailout_id.IsNone() ? -1 : osr_bailout_id.ToInt();
 
-  BytecodeArrayRandomIterator iterator(bytecode_array(), zone());
+  interpreter::BytecodeArrayRandomIterator iterator(bytecode_array(), zone());
   for (iterator.GoToEnd(); iterator.IsValid(); --iterator) {
     Bytecode bytecode = iterator.current_bytecode();
     int current_offset = iterator.current_offset();
@@ -257,24 +272,16 @@ void BytecodeAnalysis::Analyze(BailoutId osr_bailout_id) {
       // Every byte up to and including the last byte within the backwards jump
       // instruction is considered part of the loop, set loop end accordingly.
       int loop_end = current_offset + iterator.current_bytecode_size();
-      PushLoop(iterator.GetJumpTargetOffset(), loop_end);
+      int loop_header = iterator.GetJumpTargetOffset();
+      PushLoop(loop_header, loop_end);
 
-      // Normally prefixed bytecodes are treated as if the prefix's offset was
-      // the actual bytecode's offset. However, the OSR id is the offset of the
-      // actual JumpLoop bytecode, so we need to find the location of that
-      // bytecode ignoring the prefix.
-      int jump_loop_offset = current_offset + iterator.current_prefix_offset();
-      bool is_osr_loop = (jump_loop_offset == osr_loop_end_offset);
-
-      // Check that is_osr_loop is set iff the osr_loop_end_offset is within
-      // this bytecode.
-      DCHECK(!is_osr_loop ||
-             iterator.OffsetWithinBytecode(osr_loop_end_offset));
-
-      // OSR "assigns" everything to OSR values on entry into an OSR loop, so we
-      // need to make sure to considered everything to be assigned.
-      if (is_osr_loop) {
-        loop_stack_.top().loop_info->assignments().AddAll();
+      if (current_offset == osr_loop_end_offset) {
+        osr_entry_point_ = loop_header;
+      } else if (current_offset < osr_loop_end_offset) {
+        // Check we've found the osr_entry_point if we've gone past the
+        // osr_loop_end_offset. Note, we are iterating the bytecode in reverse,
+        // so the less than in the check is correct.
+        DCHECK_NE(-1, osr_entry_point_);
       }
 
       // Save the index so that we can do another pass later.
@@ -415,7 +422,7 @@ int BytecodeAnalysis::GetLoopOffsetFor(int offset) const {
   if (loop_end_to_header == end_to_header_.end()) {
     return -1;
   }
-  // If the header preceeds the offset, this is the loop
+  // If the header precedes the offset, this is the loop
   //
   //   .> header  <--loop_end_to_header
   //   |
@@ -491,7 +498,7 @@ std::ostream& BytecodeAnalysis::PrintLivenessTo(std::ostream& os) const {
 
 #if DEBUG
 bool BytecodeAnalysis::LivenessIsValid() {
-  BytecodeArrayRandomIterator iterator(bytecode_array(), zone());
+  interpreter::BytecodeArrayRandomIterator iterator(bytecode_array(), zone());
 
   BytecodeLivenessState previous_liveness(bytecode_array()->register_count(),
                                           zone());
@@ -543,6 +550,36 @@ bool BytecodeAnalysis::LivenessIsValid() {
     next_bytecode_in_liveness = liveness.in;
   }
 
+  // Ensure that the accumulator is not live when jumping out of a loop, or on
+  // the back-edge of a loop.
+  for (iterator.GoToStart(); iterator.IsValid() && invalid_offset == -1;
+       ++iterator) {
+    Bytecode bytecode = iterator.current_bytecode();
+    int current_offset = iterator.current_offset();
+    int loop_header = GetLoopOffsetFor(current_offset);
+
+    // We only care if we're inside a loop.
+    if (loop_header == -1) continue;
+
+    // We only care about jumps.
+    if (!Bytecodes::IsJump(bytecode)) continue;
+
+    int jump_target = iterator.GetJumpTargetOffset();
+
+    // If this is a forward jump to somewhere else in the same loop, ignore it.
+    if (Bytecodes::IsForwardJump(bytecode) &&
+        GetLoopOffsetFor(jump_target) == loop_header) {
+      continue;
+    }
+
+    // The accumulator must be dead at the start of the target of the jump.
+    if (liveness_map_.GetLiveness(jump_target).in->AccumulatorIsLive()) {
+      invalid_offset = jump_target;
+      which_invalid = 0;
+      break;
+    }
+  }
+
   if (invalid_offset != -1) {
     OFStream of(stderr);
     of << "Invalid liveness:" << std::endl;
@@ -551,7 +588,7 @@ bool BytecodeAnalysis::LivenessIsValid() {
 
     int loop_indent = 0;
 
-    BytecodeArrayIterator forward_iterator(bytecode_array());
+    interpreter::BytecodeArrayIterator forward_iterator(bytecode_array());
     for (; !forward_iterator.done(); forward_iterator.Advance()) {
       int current_offset = forward_iterator.current_offset();
       const BitVector& in_liveness =
@@ -577,21 +614,28 @@ bool BytecodeAnalysis::LivenessIsValid() {
         loop_indent--;
       }
       for (int i = 0; i < loop_indent; ++i) {
-        of << " | ";
+        of << "| ";
       }
       if (forward_iterator.current_bytecode() == Bytecode::kJumpLoop) {
-        of << " `-" << current_offset;
+        of << "`-";
       } else if (IsLoopHeader(current_offset)) {
-        of << " .>" << current_offset;
+        of << ".>";
         loop_indent++;
       }
-      forward_iterator.PrintTo(of) << std::endl;
+      forward_iterator.PrintTo(of);
+      if (Bytecodes::IsJump(forward_iterator.current_bytecode())) {
+        of << " (@" << forward_iterator.GetJumpTargetOffset() << ")";
+      }
+      of << std::endl;
 
       if (current_offset == invalid_offset) {
         // Underline the invalid liveness.
         if (which_invalid == 0) {
           for (int i = 0; i < in_liveness.length(); ++i) {
             of << '^';
+          }
+          for (int i = 0; i < out_liveness.length() + 3; ++i) {
+            of << ' ';
           }
         } else {
           for (int i = 0; i < in_liveness.length() + 3; ++i) {
@@ -605,7 +649,7 @@ bool BytecodeAnalysis::LivenessIsValid() {
         // Make sure to draw the loop indentation marks on this additional line.
         of << " : " << current_offset << " : ";
         for (int i = 0; i < loop_indent; ++i) {
-          of << " | ";
+          of << "| ";
         }
 
         of << std::endl;

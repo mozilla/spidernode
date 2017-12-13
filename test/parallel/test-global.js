@@ -19,9 +19,13 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+// This test cannot run in strict mode because it tests that `baseFoo` is
+// treated as a global without being declared with `var`/`let`/`const`.
+
 /* eslint-disable strict */
 const common = require('../common');
-const path = require('path');
+const fixtures = require('../common/fixtures');
+
 const assert = require('assert');
 
 common.globalCheck = false;
@@ -29,18 +33,19 @@ common.globalCheck = false;
 baseFoo = 'foo'; // eslint-disable-line no-undef
 global.baseBar = 'bar';
 
-assert.strictEqual('foo', global.baseFoo,
-                   'x -> global.x in base level not working');
+assert.strictEqual(global.baseFoo, 'foo',
+                   `x -> global.x failed: global.baseFoo = ${global.baseFoo}`);
 
-assert.strictEqual('bar',
-                   baseBar, // eslint-disable-line no-undef
-                   'global.x -> x in base level not working');
+assert.strictEqual(baseBar, // eslint-disable-line no-undef
+                   'bar',
+                   // eslint-disable-next-line no-undef
+                   `global.x -> x failed: baseBar = ${baseBar}`);
 
-const mod = require(path.join(common.fixturesDir, 'global', 'plain'));
+const mod = require(fixtures.path('global', 'plain'));
 const fooBar = mod.fooBar;
 
-assert.strictEqual('foo', fooBar.foo, 'x -> global.x in sub level not working');
+assert.strictEqual(fooBar.foo, 'foo');
 
-assert.strictEqual('bar', fooBar.bar, 'global.x -> x in sub level not working');
+assert.strictEqual(fooBar.bar, 'bar');
 
 assert.strictEqual(Object.prototype.toString.call(global), '[object global]');

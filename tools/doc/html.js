@@ -31,18 +31,19 @@ const typeParser = require('./type-parser.js');
 module.exports = toHTML;
 
 const STABILITY_TEXT_REG_EXP = /(.*:)\s*(\d)([\s\S]*)/;
+const DOC_CREATED_REG_EXP = /<!--\s*introduced_in\s*=\s*v([0-9]+)\.([0-9]+)\.([0-9]+)\s*-->/;
 
 // customized heading without id attribute
-var renderer = new marked.Renderer();
+const renderer = new marked.Renderer();
 renderer.heading = function(text, level) {
-  return '<h' + level + '>' + text + '</h' + level + '>\n';
+  return `<h${level}>${text}</h${level}>\n`;
 };
 marked.setOptions({
   renderer: renderer
 });
 
 // TODO(chrisdickinson): never stop vomitting / fix this.
-var gtocPath = path.resolve(path.join(
+const gtocPath = path.resolve(path.join(
   __dirname,
   '..',
   '..',
@@ -52,13 +53,17 @@ var gtocPath = path.resolve(path.join(
 ));
 var gtocLoading = null;
 var gtocData = null;
+var docCreated = null;
+var nodeVersion = null;
 
 /**
  * opts: input, filename, template, nodeVersion.
  */
 function toHTML(opts, cb) {
-  var template = opts.template;
-  var nodeVersion = opts.nodeVersion || process.version;
+  const template = opts.template;
+
+  nodeVersion = opts.nodeVersion || process.version;
+  docCreated = opts.input.match(DOC_CREATED_REG_EXP);
 
   if (gtocData) {
     return onGtocLoaded();
@@ -80,7 +85,7 @@ function toHTML(opts, cb) {
   }
 
   function onGtocLoaded() {
-    var lexed = marked.lexer(opts.input);
+    const lexed = marked.lexer(opts.input);
     fs.readFile(template, 'utf8', function(er, template) {
       if (er) return cb(er);
       render({
@@ -102,7 +107,7 @@ function loadGtoc(cb) {
       if (err) return cb(err);
 
       data = marked(data).replace(/<a href="(.*?)"/gm, function(a, m) {
-        return '<a class="nav-' + toID(m) + '" href="' + m + '"';
+        return `<a class="nav-${toID(m)}" href="${m}"`;
       });
       return cb(null, data);
     });
@@ -120,13 +125,11 @@ function toID(filename) {
  * opts: lexed, filename, template, nodeVersion.
  */
 function render(opts, cb) {
-  var lexed = opts.lexed;
-  var filename = opts.filename;
-  var template = opts.template;
-  var nodeVersion = opts.nodeVersion || process.version;
+  var { lexed, filename, template } = opts;
+  const nodeVersion = opts.nodeVersion || process.version;
 
   // get the section
-  var section = getSection(lexed);
+  const section = getSection(lexed);
 
   filename = path.basename(filename, '.md');
 
@@ -138,7 +141,7 @@ function render(opts, cb) {
   buildToc(lexed, filename, function(er, toc) {
     if (er) return cb(er);
 
-    var id = toID(path.basename(filename));
+    const id = toID(path.basename(filename));
 
     template = template.replace(/__ID__/g, id);
     template = template.replace(/__FILENAME__/g, filename);
@@ -147,7 +150,7 @@ function render(opts, cb) {
     template = template.replace(/__TOC__/g, toc);
     template = template.replace(
       /__GTOC__/g,
-      gtocData.replace('class="nav-' + id, 'class="nav-' + id + ' active')
+      gtocData.replace(`class="nav-${id}`, `class="nav-${id} active`)
     );
 
     if (opts.analytics) {
@@ -156,6 +159,8 @@ function render(opts, cb) {
         analyticsScript(opts.analytics)
       );
     }
+
+    template = template.replace(/__ALTDOCS__/, altDocs(filename));
 
     // content has to be the last thing we do with
     // the lexed tokens, because it's destructive.
@@ -183,13 +188,86 @@ function analyticsScript(analytics) {
   `;
 }
 
+// replace placeholders in text tokens
+function replaceInText(text) {
+  return linkJsTypeDocs(linkManPages(text));
+}
+
+function altDocs(filename) {
+  if (!docCreated) {
+    console.error(`Failed to add alternative version links to ${filename}`);
+    return '';
+  }
+
+  function lte(v) {
+    const ns = v.num.split('.');
+    if (docCreated[1] > +ns[0])
+      return false;
+    if (docCreated[1] < +ns[0])
+      return true;
+    return docCreated[2] <= +ns[1];
+  }
+
+  const versions = [
+    { num: '9.x' },
+    { num: '8.x', lts: true },
+    { num: '7.x' },
+    { num: '6.x', lts: true },
+    { num: '5.x' },
+    { num: '4.x', lts: true },
+    { num: '0.12.x' },
+    { num: '0.10.x' }
+  ];
+
+  const host = 'https://nodejs.org';
+  const href = (v) => `${host}/docs/latest-v${v.num}/api/${filename}.html`;
+
+  function li(v) {
+    let html = `<li><a href="${href(v)}">${v.num}`;
+
+    if (v.lts)
+      html += ' <b>LTS</b>';
+
+    return html + '</a></li>';
+  }
+
+  const lis = versions.filter(lte).map(li).join('\n');
+
+  if (!lis.length)
+    return '';
+
+  return `
+    <li class="version-picker">
+      <a href="#">View another version <span>&#x25bc;</span></a>
+      <ol class="version-picker">${lis}</ol>
+    </li>
+  `;
+}
+
 // handle general body-text replacements
 // for example, link man page references to the actual page
 function parseText(lexed) {
   lexed.forEach(function(tok) {
-    if (tok.text && tok.type !== 'code') {
-      tok.text = linkManPages(tok.text);
-      tok.text = linkJsTypeDocs(tok.text);
+    if (tok.type === 'table') {
+      if (tok.cells) {
+        tok.cells.forEach((row, x) => {
+          row.forEach((_, y) => {
+            if (tok.cells[x] && tok.cells[x][y]) {
+              tok.cells[x][y] = replaceInText(tok.cells[x][y]);
+            }
+          });
+        });
+      }
+
+      if (tok.header) {
+        tok.header.forEach((_, i) => {
+          if (tok.header[i]) {
+            tok.header[i] = replaceInText(tok.header[i]);
+          }
+        });
+      }
+    } else if (tok.text && tok.type !== 'code') {
+      tok.text = replaceInText(tok.text);
     }
   });
 }
@@ -198,9 +276,9 @@ function parseText(lexed) {
 // lists that come right after a heading are what we're after.
 function parseLists(input) {
   var state = null;
-  var savedState = [];
+  const savedState = [];
   var depth = 0;
-  var output = [];
+  const output = [];
   let headingIndex = -1;
   let heading = null;
 
@@ -331,17 +409,17 @@ function parseYAML(text) {
 }
 
 // Syscalls which appear in the docs, but which only exist in BSD / OSX
-var BSD_ONLY_SYSCALLS = new Set(['lchmod']);
+const BSD_ONLY_SYSCALLS = new Set(['lchmod']);
 
 // Handle references to man pages, eg "open(2)" or "lchmod(2)"
 // Returns modified text, with such refs replace with HTML links, for example
 // '<a href="http://man7.org/linux/man-pages/man2/open.2.html">open(2)</a>'
 function linkManPages(text) {
   return text.replace(
-    / ([a-z.]+)\((\d)([a-z]?)\)/gm,
+    /\b([a-z.]+)\((\d)([a-z]?)\)/gm,
     (match, name, number, optionalCharacter) => {
       // name consists of lowercase letters, number is a single digit
-      var displayAs = `${name}(${number}${optionalCharacter})`;
+      const displayAs = `${name}(${number}${optionalCharacter})`;
       if (BSD_ONLY_SYSCALLS.has(name)) {
         return ` <a href="https://www.freebsd.org/cgi/man.cgi?query=${name}` +
           `&sektion=${number}">${displayAs}</a>`;
@@ -353,7 +431,7 @@ function linkManPages(text) {
 }
 
 function linkJsTypeDocs(text) {
-  var parts = text.split('`');
+  const parts = text.split('`');
   var i;
   var typeMatches;
 
@@ -378,7 +456,7 @@ function parseAPIHeader(text) {
 
   text = text.replace(
     STABILITY_TEXT_REG_EXP,
-    `<pre class="${classNames}"><a href="${docsUrl}">$1 $2</a>$3</pre>`
+    `<div class="${classNames}"><a href="${docsUrl}">$1 $2</a>$3</div>`
   );
   return text;
 }
@@ -392,6 +470,9 @@ function getSection(lexed) {
   return '';
 }
 
+function getMark(anchor) {
+  return `<span><a class="mark" href="#${anchor}" id="${anchor}">#</a></span>`;
+}
 
 function buildToc(lexed, filename, cb) {
   var toc = [];
@@ -419,26 +500,29 @@ function buildToc(lexed, filename, cb) {
 
     depth = tok.depth;
     const realFilename = path.basename(realFilenames[0], '.md');
-    const id = getId(realFilename + '_' + tok.text.trim());
+    const apiName = tok.text.trim();
+    const id = getId(`${realFilename}_${apiName}`);
     toc.push(new Array((depth - 1) * 2 + 1).join(' ') +
-             '* <span class="stability_' + tok.stability + '">' +
-             '<a href="#' + id + '">' + tok.text + '</a></span>');
-    tok.text += '<span><a class="mark" href="#' + id + '" ' +
-                'id="' + id + '">#</a></span>';
+             `* <span class="stability_${tok.stability}">` +
+             `<a href="#${id}">${tok.text}</a></span>`);
+    tok.text += getMark(id);
+    if (realFilename === 'errors' && apiName.startsWith('ERR_')) {
+      tok.text += getMark(apiName);
+    }
   });
 
   toc = marked.parse(toc.join('\n'));
   cb(null, toc);
 }
 
-var idCounters = {};
+const idCounters = {};
 function getId(text) {
   text = text.toLowerCase();
   text = text.replace(/[^a-z0-9]+/g, '_');
   text = text.replace(/^_+|_+$/, '');
   text = text.replace(/^([^a-z])/, '_$1');
   if (idCounters.hasOwnProperty(text)) {
-    text += '_' + (++idCounters[text]);
+    text += `_${++idCounters[text]}`;
   } else {
     idCounters[text] = 0;
   }

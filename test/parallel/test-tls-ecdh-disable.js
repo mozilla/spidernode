@@ -19,37 +19,42 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+// Test that the usage of eliptic curves are not permitted if disabled during
+// server initialization.
+
 'use strict';
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+const { readKey } = require('../common/fixtures');
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
 
-if (!common.opensslCli) {
+if (!common.opensslCli)
   common.skip('missing openssl-cli');
-  return;
-}
 
+const OPENSSL_VERSION_NUMBER =
+  require('crypto').constants.OPENSSL_VERSION_NUMBER;
+if (OPENSSL_VERSION_NUMBER >= 0x10100000)
+  common.skip('false ecdhCurve not supported in OpenSSL 1.1.0');
+
+const assert = require('assert');
 const tls = require('tls');
-
 const exec = require('child_process').exec;
-const fs = require('fs');
 
 const options = {
-  key: fs.readFileSync(common.fixturesDir + '/keys/agent2-key.pem'),
-  cert: fs.readFileSync(common.fixturesDir + '/keys/agent2-cert.pem'),
-  ciphers: 'ECDHE-RSA-RC4-SHA',
+  key: readKey('agent2-key.pem'),
+  cert: readKey('agent2-cert.pem'),
+  ciphers: 'ECDHE-RSA-AES128-SHA',
   ecdhCurve: false
 };
+
+common.expectWarning('DeprecationWarning',
+                     '{ ecdhCurve: false } is deprecated.');
 
 const server = tls.createServer(options, common.mustNotCall());
 
 server.listen(0, '127.0.0.1', common.mustCall(function() {
-  let cmd = '"' + common.opensslCli + '" s_client -cipher ' + options.ciphers +
-            ` -connect 127.0.0.1:${this.address().port}`;
+  let cmd = `"${common.opensslCli}" s_client -cipher ${
+    options.ciphers} -connect 127.0.0.1:${this.address().port}`;
 
   // for the performance and stability issue in s_client on Windows
   if (common.isWindows)

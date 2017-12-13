@@ -19,9 +19,9 @@ const xmlEscape = require("../util/xml-escape");
 function getMessageType(message) {
     if (message.fatal || message.severity === 2) {
         return "error";
-    } else {
-        return "warning";
     }
+    return "warning";
+
 }
 
 //------------------------------------------------------------------------------
@@ -32,7 +32,7 @@ module.exports = function(results) {
 
     let output = "";
 
-    output += "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
+    output += "<?xml version=\"1.1\" encoding=\"utf-8\"?>";
     output += "<checkstyle version=\"4.3\">";
 
     results.forEach(result => {

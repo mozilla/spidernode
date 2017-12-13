@@ -9,6 +9,8 @@
 #include "src/globals.h"
 #include "src/isolate.h"
 #include "src/objects.h"
+#include "src/objects/descriptor-array.h"
+#include "src/objects/map.h"
 
 namespace v8 {
 namespace internal {
@@ -20,7 +22,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     kInterceptor = 1 << 0,
     kPrototypeChain = 1 << 1,
 
-    // Convience combinations of bits.
+    // Convenience combinations of bits.
     OWN_SKIP_INTERCEPTOR = 0,
     OWN = kInterceptor,
     PROTOTYPE_CHAIN_SKIP_INTERCEPTOR = kPrototypeChain,
@@ -69,7 +71,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
         initial_holder_(holder),
         // kMaxUInt32 isn't a valid index.
         index_(kMaxUInt32),
-        number_(DescriptorArray::kNotFound) {
+        number_(static_cast<uint32_t>(DescriptorArray::kNotFound)) {
 #ifdef DEBUG
     uint32_t index;  // Assert that the name is not an array index.
     DCHECK(!name->AsArrayIndex(&index));
@@ -92,7 +94,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
         receiver_(receiver),
         initial_holder_(holder),
         index_(index),
-        number_(DescriptorArray::kNotFound) {
+        number_(static_cast<uint32_t>(DescriptorArray::kNotFound)) {
     // kMaxUInt32 isn't a valid index.
     DCHECK_NE(kMaxUInt32, index_);
     Start<true>();
@@ -126,7 +128,19 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
 
   static LookupIterator PropertyOrElement(
       Isolate* isolate, Handle<Object> receiver, Handle<Object> key,
+      bool* success, Handle<JSReceiver> holder,
+      Configuration configuration = DEFAULT);
+
+  static LookupIterator PropertyOrElement(
+      Isolate* isolate, Handle<Object> receiver, Handle<Object> key,
       bool* success, Configuration configuration = DEFAULT);
+
+  static LookupIterator ForTransitionHandler(Isolate* isolate,
+                                             Handle<Object> receiver,
+                                             Handle<Name> name,
+                                             Handle<Object> value,
+                                             MaybeHandle<Object> handler,
+                                             Handle<Map> transition_map);
 
   void Restart() {
     InterceptorState state = InterceptorState::kUninitialized;
@@ -188,6 +202,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     return Handle<T>::cast(holder_);
   }
 
+  bool HolderIsReceiver() const;
   bool HolderIsReceiverOrHiddenPrototype() const;
 
   bool check_prototype_chain() const {
@@ -204,15 +219,16 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
            (IsElement() || !name_->IsPrivate());
   }
   void PrepareForDataProperty(Handle<Object> value);
-  void PrepareTransitionToDataProperty(Handle<JSObject> receiver,
+  bool PrepareTransitionToDataProperty(Handle<JSObject> receiver,
                                        Handle<Object> value,
                                        PropertyAttributes attributes,
                                        Object::StoreFromKeyed store_mode);
   bool IsCacheableTransition() {
     DCHECK_EQ(TRANSITION, state_);
     return transition_->IsPropertyCell() ||
-           (!transition_map()->is_dictionary_map() &&
-            transition_map()->GetBackPointer()->IsMap());
+           (transition_map()->is_dictionary_map() &&
+            !GetStoreTarget()->HasFastProperties()) ||
+           transition_map()->GetBackPointer()->IsMap();
   }
   void ApplyTransitionToDataProperty(Handle<JSObject> receiver);
   void ReconfigureDataProperty(Handle<Object> value,
@@ -236,6 +252,9 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   Representation representation() const {
     return property_details().representation();
   }
+  PropertyLocation location() const { return property_details().location(); }
+  PropertyConstness constness() const { return property_details().constness(); }
+  Handle<Map> GetFieldOwnerMap() const;
   FieldIndex GetFieldIndex() const;
   Handle<FieldType> GetFieldType() const;
   int GetFieldDescriptorIndex() const;
@@ -252,13 +271,14 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   }
   Handle<InterceptorInfo> GetInterceptorForFailedAccessCheck() const;
   Handle<Object> GetDataValue() const;
-  void WriteDataValue(Handle<Object> value);
+  void WriteDataValue(Handle<Object> value, bool initializing_store);
   inline void UpdateProtector() {
     if (IsElement()) return;
+    // This list must be kept in sync with
+    // CodeStubAssembler::HasAssociatedProtector!
     if (*name_ == heap()->is_concat_spreadable_symbol() ||
         *name_ == heap()->constructor_string() ||
         *name_ == heap()->species_symbol() ||
-        *name_ == heap()->has_instance_symbol() ||
         *name_ == heap()->iterator_symbol()) {
       InternalUpdateProtector();
     }
@@ -270,6 +290,11 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   bool LookupCachedProperty();
 
  private:
+  // For |ForTransitionHandler|.
+  LookupIterator(Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
+                 Handle<Map> transition_map, PropertyDetails details,
+                 bool has_property);
+
   void InternalUpdateProtector();
 
   enum class InterceptorState {
@@ -303,6 +328,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   template <bool is_element>
   void RestartInternal(InterceptorState interceptor_state);
   Handle<Object> FetchValue() const;
+  bool IsConstFieldValueEqualTo(Object* value) const;
   template <bool is_element>
   void ReloadPropertyInformation();
 

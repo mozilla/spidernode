@@ -24,6 +24,7 @@
 // after http.globalAgent.maxSockets number of files.
 // See https://groups.google.com/forum/#!topic/nodejs-dev/V5fB69hFa9o
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 const assert = require('assert');
 const http = require('http');
 const fs = require('fs');
@@ -32,9 +33,9 @@ http.globalAgent.maxSockets = 1;
 
 common.refreshTmpDir();
 
-const image = fs.readFileSync(common.fixturesDir + '/person.jpg');
+const image = fixtures.readSync('/person.jpg');
 
-console.log('image.length = ' + image.length);
+console.log(`image.length = ${image.length}`);
 
 const total = 10;
 let requests = 0;
@@ -67,12 +68,12 @@ server.listen(0, function() {
       };
 
       http.get(opts, function(res) {
-        console.error('recv ' + x);
-        const s = fs.createWriteStream(common.tmpDir + '/' + x + '.jpg');
+        console.error(`recv ${x}`);
+        const s = fs.createWriteStream(`${common.tmpDir}/${x}.jpg`);
         res.pipe(s);
 
         s.on('finish', function() {
-          console.error('done ' + x);
+          console.error(`done ${x}`);
           if (++responses === total) {
             checkFiles();
           }
@@ -93,12 +94,12 @@ function checkFiles() {
   assert(total <= files.length);
 
   for (let i = 0; i < total; i++) {
-    const fn = i + '.jpg';
-    assert.ok(files.indexOf(fn) >= 0, "couldn't find '" + fn + "'");
-    const stat = fs.statSync(common.tmpDir + '/' + fn);
-    assert.strictEqual(image.length, stat.size,
-                       "size doesn't match on '" + fn +
-                 "'. Got " + stat.size + ' bytes');
+    const fn = `${i}.jpg`;
+    assert.ok(files.includes(fn), `couldn't find '${fn}'`);
+    const stat = fs.statSync(`${common.tmpDir}/${fn}`);
+    assert.strictEqual(
+      image.length, stat.size,
+      `size doesn't match on '${fn}'. Got ${stat.size} bytes`);
   }
 
   checkedFiles = true;

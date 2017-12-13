@@ -20,12 +20,10 @@
 #include "src/base/win32-headers.h"
 
 #include "src/base/bits.h"
-#include "src/base/lazy-instance.h"
 #include "src/base/macros.h"
 #include "src/base/platform/platform.h"
 #include "src/base/platform/time.h"
-#include "src/base/utils/random-number-generator.h"
-
+#include "src/base/timezone-cache.h"
 
 // Extra functions for MinGW. Most of these are the _s functions which are in
 // the Microsoft Visual Studio C++ CRT.
@@ -37,7 +35,7 @@
 #define _TRUNCATE 0
 #define STRUNCATE 80
 
-inline void MemoryBarrier() {
+inline void MemoryFence() {
   int barrier = 0;
   __asm__ __volatile__("xchgl %%eax,%0 ":"=r" (barrier));
 }
@@ -101,13 +99,19 @@ bool g_hard_abort = false;
 
 }  // namespace
 
-class TimezoneCache {
+class WindowsTimezoneCache : public TimezoneCache {
  public:
-  TimezoneCache() : initialized_(false) { }
+  WindowsTimezoneCache() : initialized_(false) {}
 
-  void Clear() {
-    initialized_ = false;
-  }
+  ~WindowsTimezoneCache() override {}
+
+  void Clear() override { initialized_ = false; }
+
+  const char* LocalTimezone(double time) override;
+
+  double LocalTimeOffset() override;
+
+  double DaylightSavingsOffset(double time) override;
 
   // Initialize timezone information. The timezone information is obtained from
   // windows. If we cannot get the timezone information we fall back to CET.
@@ -216,14 +220,14 @@ class Win32Time {
   // LocalOffset(CET) = 3600000 and LocalOffset(PST) = -28800000. This
   // routine also takes into account whether daylight saving is effect
   // at the time.
-  int64_t LocalOffset(TimezoneCache* cache);
+  int64_t LocalOffset(WindowsTimezoneCache* cache);
 
   // Returns the daylight savings time offset for the time in milliseconds.
-  int64_t DaylightSavingsOffset(TimezoneCache* cache);
+  int64_t DaylightSavingsOffset(WindowsTimezoneCache* cache);
 
   // Returns a string identifying the current timezone for the
   // timestamp taking into account daylight saving.
-  char* LocalTimezone(TimezoneCache* cache);
+  char* LocalTimezone(WindowsTimezoneCache* cache);
 
  private:
   // Constants for time conversion.
@@ -235,7 +239,7 @@ class Win32Time {
   static const bool kShortTzNames = false;
 
   // Return whether or not daylight savings time is in effect at this time.
-  bool InDST(TimezoneCache* cache);
+  bool InDST(WindowsTimezoneCache* cache);
 
   // Accessor for FILETIME representation.
   FILETIME& ft() { return time_.ft_; }
@@ -350,7 +354,7 @@ void Win32Time::SetToCurrentTime() {
 // Only times in the 32-bit Unix range may be passed to this function.
 // Also, adding the time-zone offset to the input must not overflow.
 // The function EquivalentTime() in date.js guarantees this.
-int64_t Win32Time::LocalOffset(TimezoneCache* cache) {
+int64_t Win32Time::LocalOffset(WindowsTimezoneCache* cache) {
   cache->InitializeIfNeeded();
 
   Win32Time rounded_to_second(*this);
@@ -384,7 +388,7 @@ int64_t Win32Time::LocalOffset(TimezoneCache* cache) {
 
 
 // Return whether or not daylight savings time is in effect at this time.
-bool Win32Time::InDST(TimezoneCache* cache) {
+bool Win32Time::InDST(WindowsTimezoneCache* cache) {
   cache->InitializeIfNeeded();
 
   // Determine if DST is in effect at the specified time.
@@ -409,14 +413,14 @@ bool Win32Time::InDST(TimezoneCache* cache) {
 
 
 // Return the daylight savings time offset for this time.
-int64_t Win32Time::DaylightSavingsOffset(TimezoneCache* cache) {
+int64_t Win32Time::DaylightSavingsOffset(WindowsTimezoneCache* cache) {
   return InDST(cache) ? 60 * kMsPerMinute : 0;
 }
 
 
 // Returns a string identifying the current timezone for the
 // timestamp taking into account daylight saving.
-char* Win32Time::LocalTimezone(TimezoneCache* cache) {
+char* Win32Time::LocalTimezone(WindowsTimezoneCache* cache) {
   // Return the standard or DST time zone name based on whether daylight
   // saving is in effect at the given time.
   return InDST(cache) ? cache->dst_tz_name_ : cache->std_tz_name_;
@@ -448,47 +452,30 @@ double OS::TimeCurrentMillis() {
   return Time::Now().ToJsTime();
 }
 
-
-TimezoneCache* OS::CreateTimezoneCache() {
-  return new TimezoneCache();
-}
-
-
-void OS::DisposeTimezoneCache(TimezoneCache* cache) {
-  delete cache;
-}
-
-
-void OS::ClearTimezoneCache(TimezoneCache* cache) {
-  cache->Clear();
-}
-
-
 // Returns a string identifying the current timezone taking into
 // account daylight saving.
-const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
-  return Win32Time(time).LocalTimezone(cache);
+const char* WindowsTimezoneCache::LocalTimezone(double time) {
+  return Win32Time(time).LocalTimezone(this);
 }
-
 
 // Returns the local time offset in milliseconds east of UTC without
 // taking daylight savings time into account.
-double OS::LocalTimeOffset(TimezoneCache* cache) {
+double WindowsTimezoneCache::LocalTimeOffset() {
   // Use current time, rounded to the millisecond.
-  Win32Time t(TimeCurrentMillis());
+  Win32Time t(OS::TimeCurrentMillis());
   // Time::LocalOffset inlcudes any daylight savings offset, so subtract it.
-  return static_cast<double>(t.LocalOffset(cache) -
-                             t.DaylightSavingsOffset(cache));
+  return static_cast<double>(t.LocalOffset(this) -
+                             t.DaylightSavingsOffset(this));
 }
-
 
 // Returns the daylight savings offset in milliseconds for the given
 // time.
-double OS::DaylightSavingsOffset(double time, TimezoneCache* cache) {
-  int64_t offset = Win32Time(time).DaylightSavingsOffset(cache);
+double WindowsTimezoneCache::DaylightSavingsOffset(double time) {
+  int64_t offset = Win32Time(time).DaylightSavingsOffset(this);
   return static_cast<double>(offset);
 }
 
+TimezoneCache* OS::CreateTimezoneCache() { return new WindowsTimezoneCache(); }
 
 int OS::GetLastError() {
   return ::GetLastError();
@@ -712,44 +699,14 @@ size_t OS::AllocateAlignment() {
   return allocate_alignment;
 }
 
-
-static LazyInstance<RandomNumberGenerator>::type
-    platform_random_number_generator = LAZY_INSTANCE_INITIALIZER;
-
-
-void OS::Initialize(int64_t random_seed, bool hard_abort,
-                    const char* const gc_fake_mmap) {
-  if (random_seed) {
-    platform_random_number_generator.Pointer()->SetSeed(random_seed);
-  }
+void OS::Initialize(bool hard_abort, const char* const gc_fake_mmap) {
   g_hard_abort = hard_abort;
 }
 
+namespace {
 
-void* OS::GetRandomMmapAddr() {
-  // The address range used to randomize RWX allocations in OS::Allocate
-  // Try not to map pages into the default range that windows loads DLLs
-  // Use a multiple of 64k to prevent committing unused memory.
-  // Note: This does not guarantee RWX regions will be within the
-  // range kAllocationRandomAddressMin to kAllocationRandomAddressMax
-#ifdef V8_HOST_ARCH_64_BIT
-  static const uintptr_t kAllocationRandomAddressMin = 0x0000000080000000;
-  static const uintptr_t kAllocationRandomAddressMax = 0x000003FFFFFF0000;
-#else
-  static const uintptr_t kAllocationRandomAddressMin = 0x04000000;
-  static const uintptr_t kAllocationRandomAddressMax = 0x3FFF0000;
-#endif
-  uintptr_t address;
-  platform_random_number_generator.Pointer()->NextBytes(&address,
-                                                        sizeof(address));
-  address <<= kPageSizeBits;
-  address += kAllocationRandomAddressMin;
-  address &= kAllocationRandomAddressMax;
-  return reinterpret_cast<void *>(address);
-}
-
-
-static void* RandomizedVirtualAlloc(size_t size, int action, int protection) {
+static void* RandomizedVirtualAlloc(size_t size, int action, int protection,
+                                    void* hint) {
   LPVOID base = NULL;
   static BOOL use_aslr = -1;
 #ifdef V8_HOST_ARCH_32_BIT
@@ -764,9 +721,7 @@ static void* RandomizedVirtualAlloc(size_t size, int action, int protection) {
   if (use_aslr &&
       (protection == PAGE_EXECUTE_READWRITE || protection == PAGE_NOACCESS)) {
     // For executable pages try and randomize the allocation address
-    for (size_t attempts = 0; base == NULL && attempts < 3; ++attempts) {
-      base = VirtualAlloc(OS::GetRandomMmapAddr(), size, action, protection);
-    }
+    base = VirtualAlloc(hint, size, action, protection);
   }
 
   // After three attempts give up and let the OS find an address to use.
@@ -775,19 +730,40 @@ static void* RandomizedVirtualAlloc(size_t size, int action, int protection) {
   return base;
 }
 
+}  // namespace
 
-void* OS::Allocate(const size_t requested,
-                   size_t* allocated,
-                   bool is_executable) {
+void* OS::Allocate(const size_t requested, size_t* allocated,
+                   bool is_executable, void* hint) {
+  return OS::Allocate(requested, allocated,
+                      is_executable ? OS::MemoryPermission::kReadWriteExecute
+                                    : OS::MemoryPermission::kReadWrite,
+                      hint);
+}
+
+void* OS::Allocate(const size_t requested, size_t* allocated,
+                   OS::MemoryPermission access, void* hint) {
   // VirtualAlloc rounds allocated size to page size automatically.
   size_t msize = RoundUp(requested, static_cast<int>(GetPageSize()));
 
   // Windows XP SP2 allows Data Excution Prevention (DEP).
-  int prot = is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+  int prot = PAGE_NOACCESS;
+  switch (access) {
+    case OS::MemoryPermission::kNoAccess: {
+      prot = PAGE_NOACCESS;
+      break;
+    }
+    case OS::MemoryPermission::kReadWrite: {
+      prot = PAGE_READWRITE;
+      break;
+    }
+    case OS::MemoryPermission::kReadWriteExecute: {
+      prot = PAGE_EXECUTE_READWRITE;
+      break;
+    }
+  }
 
-  LPVOID mbase = RandomizedVirtualAlloc(msize,
-                                        MEM_COMMIT | MEM_RESERVE,
-                                        prot);
+  LPVOID mbase =
+      RandomizedVirtualAlloc(msize, MEM_COMMIT | MEM_RESERVE, prot, hint);
 
   if (mbase == NULL) return NULL;
 
@@ -797,27 +773,20 @@ void* OS::Allocate(const size_t requested,
   return mbase;
 }
 
-void* OS::AllocateGuarded(const size_t requested) {
-  return VirtualAlloc(nullptr, requested, MEM_RESERVE, PAGE_NOACCESS);
-}
-
 void OS::Free(void* address, const size_t size) {
   // TODO(1240712): VirtualFree has a return value which is ignored here.
   VirtualFree(address, 0, MEM_RELEASE);
   USE(size);
 }
 
-
 intptr_t OS::CommitPageSize() {
   return 4096;
 }
-
 
 void OS::ProtectCode(void* address, const size_t size) {
   DWORD old_protect;
   VirtualProtect(address, size, PAGE_EXECUTE_READ, &old_protect);
 }
-
 
 void OS::Guard(void* address, const size_t size) {
   DWORD oldprotect;
@@ -826,7 +795,75 @@ void OS::Guard(void* address, const size_t size) {
 
 void OS::Unprotect(void* address, const size_t size) {
   LPVOID result = VirtualAlloc(address, size, MEM_COMMIT, PAGE_READWRITE);
-  DCHECK_IMPLIES(result != nullptr, GetLastError() == 0);
+  USE(result);
+}
+
+// static
+void* OS::ReserveRegion(size_t size, void* hint) {
+  return RandomizedVirtualAlloc(size, MEM_RESERVE, PAGE_NOACCESS, hint);
+}
+
+void* OS::ReserveAlignedRegion(size_t size, size_t alignment, void* hint,
+                               size_t* allocated) {
+  DCHECK((alignment % OS::AllocateAlignment()) == 0);
+  hint = AlignedAddress(hint, alignment);
+  size_t request_size =
+      RoundUp(size + alignment, static_cast<intptr_t>(OS::AllocateAlignment()));
+  void* address = ReserveRegion(request_size, hint);
+  if (address == nullptr) {
+    *allocated = 0;
+    return nullptr;
+  }
+  uint8_t* base = RoundUp(static_cast<uint8_t*>(address), alignment);
+  // Try reducing the size by freeing and then reallocating a specific area.
+  bool result = ReleaseRegion(address, request_size);
+  USE(result);
+  DCHECK(result);
+  address = VirtualAlloc(base, size, MEM_RESERVE, PAGE_NOACCESS);
+  if (address != nullptr) {
+    request_size = size;
+    DCHECK(base == static_cast<uint8_t*>(address));
+  } else {
+    // Resizing failed, just go with a bigger area.
+    address = ReserveRegion(request_size, hint);
+    if (address == nullptr) {
+      *allocated = 0;
+      return nullptr;
+    }
+  }
+
+  *allocated = request_size;
+  return static_cast<void*>(address);
+}
+
+// static
+bool OS::CommitRegion(void* address, size_t size, bool is_executable) {
+  int prot = is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+  if (NULL == VirtualAlloc(address, size, MEM_COMMIT, prot)) {
+    return false;
+  }
+  return true;
+}
+
+// static
+bool OS::UncommitRegion(void* address, size_t size) {
+  return VirtualFree(address, size, MEM_DECOMMIT) != 0;
+}
+
+// static
+bool OS::ReleaseRegion(void* address, size_t size) {
+  return VirtualFree(address, 0, MEM_RELEASE) != 0;
+}
+
+// static
+bool OS::ReleasePartialRegion(void* address, size_t size) {
+  return VirtualFree(address, size, MEM_DECOMMIT) != 0;
+}
+
+// static
+bool OS::HasLazyCommits() {
+  // TODO(alph): implement for the platform.
+  return false;
 }
 
 void OS::Sleep(TimeDelta interval) {
@@ -879,7 +916,7 @@ class Win32MemoryMappedFile final : public OS::MemoryMappedFile {
 
 
 // static
-OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
+OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name, void* hint) {
   // Open a physical file
   HANDLE file = CreateFileA(name, GENERIC_READ | GENERIC_WRITE,
       FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
@@ -887,7 +924,7 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
 
   DWORD size = GetFileSize(file, NULL);
 
-  // Create a file mapping for the physical file
+  // Create a file mapping for the physical file. Ignore hint on Windows.
   HANDLE file_mapping =
       CreateFileMapping(file, NULL, PAGE_READWRITE, 0, size, NULL);
   if (file_mapping == NULL) return NULL;
@@ -899,14 +936,14 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
 
 
 // static
-OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name,
+OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name, void* hint,
                                                    size_t size, void* initial) {
   // Open a physical file
   HANDLE file = CreateFileA(name, GENERIC_READ | GENERIC_WRITE,
                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
                             OPEN_ALWAYS, 0, NULL);
   if (file == NULL) return NULL;
-  // Create a file mapping for the physical file
+  // Create a file mapping for the physical file. Ignore hint on Windows.
   HANDLE file_mapping = CreateFileMapping(file, NULL, PAGE_READWRITE, 0,
                                           static_cast<DWORD>(size), NULL);
   if (file_mapping == NULL) return NULL;
@@ -1175,20 +1212,13 @@ std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
   return LoadSymbols(process_handle);
 }
 
-
-void OS::SignalCodeMovingGC() {
-}
-
-
 #else  // __MINGW32__
 std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
   return std::vector<OS::SharedLibraryAddress>();
 }
-
-
-void OS::SignalCodeMovingGC() { }
 #endif  // __MINGW32__
 
+void OS::SignalCodeMovingGC(void* hint) {}
 
 int OS::ActivationFrameAlignment() {
 #ifdef _WIN64
@@ -1201,116 +1231,6 @@ int OS::ActivationFrameAlignment() {
   return 8;  // Floating-point math runs faster with 8-byte alignment.
 #endif
 }
-
-
-VirtualMemory::VirtualMemory() : address_(NULL), size_(0) { }
-
-
-VirtualMemory::VirtualMemory(size_t size)
-    : address_(ReserveRegion(size)), size_(size) { }
-
-
-VirtualMemory::VirtualMemory(size_t size, size_t alignment)
-    : address_(NULL), size_(0) {
-  DCHECK((alignment % OS::AllocateAlignment()) == 0);
-  size_t request_size = RoundUp(size + alignment,
-                                static_cast<intptr_t>(OS::AllocateAlignment()));
-  void* address = ReserveRegion(request_size);
-  if (address == NULL) return;
-  uint8_t* base = RoundUp(static_cast<uint8_t*>(address), alignment);
-  // Try reducing the size by freeing and then reallocating a specific area.
-  bool result = ReleaseRegion(address, request_size);
-  USE(result);
-  DCHECK(result);
-  address = VirtualAlloc(base, size, MEM_RESERVE, PAGE_NOACCESS);
-  if (address != NULL) {
-    request_size = size;
-    DCHECK(base == static_cast<uint8_t*>(address));
-  } else {
-    // Resizing failed, just go with a bigger area.
-    address = ReserveRegion(request_size);
-    if (address == NULL) return;
-  }
-  address_ = address;
-  size_ = request_size;
-}
-
-
-VirtualMemory::~VirtualMemory() {
-  if (IsReserved()) {
-    bool result = ReleaseRegion(address(), size());
-    DCHECK(result);
-    USE(result);
-  }
-}
-
-
-bool VirtualMemory::IsReserved() {
-  return address_ != NULL;
-}
-
-
-void VirtualMemory::Reset() {
-  address_ = NULL;
-  size_ = 0;
-}
-
-
-bool VirtualMemory::Commit(void* address, size_t size, bool is_executable) {
-  return CommitRegion(address, size, is_executable);
-}
-
-
-bool VirtualMemory::Uncommit(void* address, size_t size) {
-  DCHECK(IsReserved());
-  return UncommitRegion(address, size);
-}
-
-
-bool VirtualMemory::Guard(void* address) {
-  if (NULL == VirtualAlloc(address,
-                           OS::CommitPageSize(),
-                           MEM_COMMIT,
-                           PAGE_NOACCESS)) {
-    return false;
-  }
-  return true;
-}
-
-
-void* VirtualMemory::ReserveRegion(size_t size) {
-  return RandomizedVirtualAlloc(size, MEM_RESERVE, PAGE_NOACCESS);
-}
-
-
-bool VirtualMemory::CommitRegion(void* base, size_t size, bool is_executable) {
-  int prot = is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
-  if (NULL == VirtualAlloc(base, size, MEM_COMMIT, prot)) {
-    return false;
-  }
-  return true;
-}
-
-
-bool VirtualMemory::UncommitRegion(void* base, size_t size) {
-  return VirtualFree(base, size, MEM_DECOMMIT) != 0;
-}
-
-bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
-                                         void* free_start, size_t free_size) {
-  return VirtualFree(free_start, free_size, MEM_DECOMMIT) != 0;
-}
-
-bool VirtualMemory::ReleaseRegion(void* base, size_t size) {
-  return VirtualFree(base, 0, MEM_RELEASE) != 0;
-}
-
-
-bool VirtualMemory::HasLazyCommits() {
-  // TODO(alph): implement for the platform.
-  return false;
-}
-
 
 // ----------------------------------------------------------------------------
 // Win32 thread support.

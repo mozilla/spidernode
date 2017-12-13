@@ -119,7 +119,7 @@ bool JumpThreading::ComputeForwarding(Zone* local_zone,
 
 #ifdef DEBUG
   for (RpoNumber num : result) {
-    CHECK(num.IsValid());
+    DCHECK(num.IsValid());
   }
 #endif
 
@@ -195,6 +195,8 @@ void JumpThreading::ApplyForwarding(ZoneVector<RpoNumber>& result,
     }
   }
 }
+
+#undef TRACE
 
 }  // namespace compiler
 }  // namespace internal

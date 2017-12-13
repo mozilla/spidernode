@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --icu_case_mapping
-
 // Some edge cases that unibrow got wrong
 
 assertEquals("𐐘", "𐑀".toUpperCase());
@@ -63,7 +61,7 @@ assertEquals("ABCSS", "abCß".toLocaleUpperCase("tr"));
 // test262/intl402/Strings/*
 
 // Buffer size decrease with a single locale or locale list.
-// In Turkic (tr, az), U+0307 preceeded by Capital Letter I is dropped.
+// In Turkic (tr, az), U+0307 preceded by Capital Letter I is dropped.
 assertEquals("abci", "aBcI\u0307".toLocaleLowerCase("tr"));
 assertEquals("abci", "aBcI\u0307".toLocaleLowerCase("az"));
 assertEquals("abci", "aBcI\u0307".toLocaleLowerCase(["tr", "en"]));
@@ -128,6 +126,8 @@ assertEquals("abci\u0307", "aBcI\u0307".toLowerCase());
 assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("fil"));
 assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("zh-Hant-TW"));
 assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("i-klingon"));
+assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("i-enochian"));
+assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("x-foobar"));
 
 // Up to 8 chars are allowed for the primary language tag in BCP 47.
 assertEquals("abci\u0307", "aBcI\u0307".toLocaleLowerCase("longlang"));

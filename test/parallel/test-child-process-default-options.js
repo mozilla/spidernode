@@ -39,11 +39,12 @@ let response = '';
 child.stdout.setEncoding('utf8');
 
 child.stdout.on('data', function(chunk) {
-  console.log('stdout: ' + chunk);
+  console.log(`stdout: ${chunk}`);
   response += chunk;
 });
 
 process.on('exit', function() {
-  assert.ok(response.indexOf('HELLO=WORLD') >= 0,
-            'spawn did not use process.env as default');
+  assert.ok(response.includes('HELLO=WORLD'),
+            'spawn did not use process.env as default ' +
+            `(process.env.HELLO = ${process.env.HELLO})`);
 });

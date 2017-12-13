@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "src/libplatform/default-platform.h"
+#include "src/base/platform/time.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using testing::InSequence;
@@ -10,6 +11,7 @@ using testing::StrictMock;
 
 namespace v8 {
 namespace platform {
+namespace default_platform_unittest {
 
 namespace {
 
@@ -27,8 +29,12 @@ struct MockIdleTask : public IdleTask {
 
 class DefaultPlatformWithMockTime : public DefaultPlatform {
  public:
-  DefaultPlatformWithMockTime() : time_(0) {}
+  DefaultPlatformWithMockTime()
+      : DefaultPlatform(IdleTaskSupport::kEnabled), time_(0) {}
   double MonotonicallyIncreasingTime() override { return time_; }
+  double CurrentClockTimeMillis() override {
+    return time_ * base::Time::kMillisecondsPerSecond;
+  }
   void IncreaseTime(double seconds) { time_ += seconds; }
 
  private:
@@ -161,5 +167,6 @@ TEST(DefaultPlatformTest, PendingIdleTasksAreDestroyedOnShutdown) {
   }
 }
 
+}  // namespace default_platform_unittest
 }  // namespace platform
 }  // namespace v8

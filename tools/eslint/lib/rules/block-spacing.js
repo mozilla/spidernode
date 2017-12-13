@@ -14,7 +14,7 @@ const util = require("../ast-utils");
 module.exports = {
     meta: {
         docs: {
-            description: "enforce consistent spacing inside single-line blocks",
+            description: "disallow or enforce spaces inside of blocks after opening block and before closing block",
             category: "Stylistic Issues",
             recommended: false
         },
@@ -74,8 +74,8 @@ module.exports = {
             // Gets braces and the first/last token of content.
             const openBrace = getOpenBrace(node);
             const closeBrace = sourceCode.getLastToken(node);
-            const firstToken = sourceCode.getTokenOrCommentAfter(openBrace);
-            const lastToken = sourceCode.getTokenOrCommentBefore(closeBrace);
+            const firstToken = sourceCode.getTokenAfter(openBrace, { includeComments: true });
+            const lastToken = sourceCode.getTokenBefore(closeBrace, { includeComments: true });
 
             // Skip if the node is invalid or empty.
             if (openBrace.type !== "Punctuator" ||

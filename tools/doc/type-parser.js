@@ -1,8 +1,8 @@
 'use strict';
 const nodeDocUrl = '';
 const jsDocPrefix = 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/';
-const jsDocUrl = jsDocPrefix + 'Reference/Global_Objects/';
-const jsPrimitiveUrl = jsDocPrefix + 'Data_structures';
+const jsDocUrl = `${jsDocPrefix}Reference/Global_Objects/`;
+const jsPrimitiveUrl = `${jsDocPrefix}Data_structures`;
 const jsPrimitives = {
   'boolean': 'Boolean',
   'integer': 'Number', // not a primitive, used for clarification
@@ -22,10 +22,10 @@ const jsGlobalTypes = [
   'AsyncFunction', 'SharedArrayBuffer'
 ];
 const typeMap = {
-  'Iterable': jsDocPrefix +
-              'Reference/Iteration_protocols#The_iterable_protocol',
-  'Iterator': jsDocPrefix +
-              'Reference/Iteration_protocols#The_iterator_protocol',
+  'Iterable':
+    `${jsDocPrefix}Reference/Iteration_protocols#The_iterable_protocol`,
+  'Iterator':
+    `${jsDocPrefix}Reference/Iteration_protocols#The_iterator_protocol`,
 
   'Buffer': 'buffer.html#buffer_class_buffer',
 
@@ -49,6 +49,7 @@ const typeMap = {
   'Stream': 'stream.html#stream_stream',
   'stream.Readable': 'stream.html#stream_class_stream_readable',
   'stream.Writable': 'stream.html#stream_class_stream_writable',
+  'stream.Duplex': 'stream.html#stream_class_stream_duplex',
 
   'tls.TLSSocket': 'tls.html#tls_class_tls_tlssocket',
 
@@ -57,6 +58,8 @@ const typeMap = {
   'URL': 'url.html#url_the_whatwg_url_api',
   'URLSearchParams': 'url.html#url_class_urlsearchparams'
 };
+
+const arrayPart = /(?:\[])+$/;
 
 module.exports = {
   toLink: function(typeInput) {
@@ -69,12 +72,10 @@ module.exports = {
       if (typeText) {
         let typeUrl = null;
 
-        // To support type[], we store the full string and use
-        // the bracket-less version to lookup the type URL
+        // To support type[], type[][] etc., we store the full string
+        // and use the bracket-less version to lookup the type URL
         const typeTextFull = typeText;
-        if (/\[]$/.test(typeText)) {
-          typeText = typeText.slice(0, -2);
-        }
+        typeText = typeText.replace(arrayPart, '');
 
         const primitive = jsPrimitives[typeText.toLowerCase()];
 
@@ -87,11 +88,10 @@ module.exports = {
         }
 
         if (typeUrl) {
-          typeLinks.push('<a href="' + typeUrl + '" class="type">&lt;' +
-            typeTextFull + '&gt;</a>');
+          typeLinks.push(`
+            <a href="${typeUrl}" class="type">&lt;${typeTextFull}&gt;</a>`);
         } else {
-          typeLinks.push('<span class="type">&lt;' + typeTextFull +
-                         '&gt;</span>');
+          typeLinks.push(`<span class="type">&lt;${typeTextFull}&gt;</span>`);
         }
       }
     });

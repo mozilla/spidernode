@@ -13,76 +13,127 @@
 namespace v8 {
 namespace internal {
 
-Handle<Object> LoadHandler::LoadField(Isolate* isolate,
-                                      FieldIndex field_index) {
-  int config = KindBits::encode(kForFields) |
+// Decodes kind from Smi-handler.
+LoadHandler::Kind LoadHandler::GetHandlerKind(Smi* smi_handler) {
+  return KindBits::decode(smi_handler->value());
+}
+
+Handle<Smi> LoadHandler::LoadNormal(Isolate* isolate) {
+  int config = KindBits::encode(kNormal);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::LoadGlobal(Isolate* isolate) {
+  int config = KindBits::encode(kGlobal);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::LoadInterceptor(Isolate* isolate) {
+  int config = KindBits::encode(kInterceptor);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::LoadField(Isolate* isolate, FieldIndex field_index) {
+  int config = KindBits::encode(kField) |
                IsInobjectBits::encode(field_index.is_inobject()) |
                IsDoubleBits::encode(field_index.is_double()) |
                FieldOffsetBits::encode(field_index.offset());
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::LoadConstant(Isolate* isolate, int descriptor) {
-  int config = KindBits::encode(kForConstants) |
-               IsAccessorInfoBits::encode(false) |
-               DescriptorValueIndexBits::encode(
-                   DescriptorArray::ToValueIndex(descriptor));
+Handle<Smi> LoadHandler::LoadConstant(Isolate* isolate, int descriptor) {
+  int config = KindBits::encode(kConstant) | IsAccessorInfoBits::encode(false) |
+               DescriptorBits::encode(descriptor);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::LoadApiGetter(Isolate* isolate, int descriptor) {
-  int config = KindBits::encode(kForConstants) |
-               IsAccessorInfoBits::encode(true) |
-               DescriptorValueIndexBits::encode(
-                   DescriptorArray::ToValueIndex(descriptor));
+Handle<Smi> LoadHandler::LoadAccessor(Isolate* isolate, int descriptor) {
+  int config = KindBits::encode(kAccessor) | IsAccessorInfoBits::encode(false) |
+               DescriptorBits::encode(descriptor);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::EnableAccessCheckOnReceiver(
-    Isolate* isolate, Handle<Object> smi_handler) {
-  int config = Smi::cast(*smi_handler)->value();
+Handle<Smi> LoadHandler::LoadProxy(Isolate* isolate) {
+  int config = KindBits::encode(kProxy);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::LoadApiGetter(Isolate* isolate, int descriptor) {
+  int config = KindBits::encode(kConstant) | IsAccessorInfoBits::encode(true) |
+               DescriptorBits::encode(descriptor);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::LoadModuleExport(Isolate* isolate, int index) {
+  int config =
+      KindBits::encode(kModuleExport) | ExportsIndexBits::encode(index);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> LoadHandler::EnableAccessCheckOnReceiver(Isolate* isolate,
+                                                     Handle<Smi> smi_handler) {
+  int config = smi_handler->value();
 #ifdef DEBUG
   Kind kind = KindBits::decode(config);
-  DCHECK_NE(kForElements, kind);
+  DCHECK_NE(kElement, kind);
 #endif
   config = DoAccessCheckOnReceiverBits::update(config, true);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::EnableNegativeLookupOnReceiver(
-    Isolate* isolate, Handle<Object> smi_handler) {
-  int config = Smi::cast(*smi_handler)->value();
+Handle<Smi> LoadHandler::EnableLookupOnReceiver(Isolate* isolate,
+                                                Handle<Smi> smi_handler) {
+  int config = smi_handler->value();
 #ifdef DEBUG
   Kind kind = KindBits::decode(config);
-  DCHECK_NE(kForElements, kind);
+  DCHECK_NE(kElement, kind);
 #endif
-  config = DoNegativeLookupOnReceiverBits::update(config, true);
+  config = LookupOnReceiverBits::update(config, true);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::LoadNonExistent(
-    Isolate* isolate, bool do_negative_lookup_on_receiver) {
-  int config =
-      KindBits::encode(kForNonExistent) |
-      DoNegativeLookupOnReceiverBits::encode(do_negative_lookup_on_receiver);
+Handle<Smi> LoadHandler::LoadNonExistent(Isolate* isolate) {
+  int config = KindBits::encode(kNonExistent);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> LoadHandler::LoadElement(Isolate* isolate,
-                                        ElementsKind elements_kind,
-                                        bool convert_hole_to_undefined,
-                                        bool is_js_array) {
-  int config = KindBits::encode(kForElements) |
+Handle<Smi> LoadHandler::LoadElement(Isolate* isolate,
+                                     ElementsKind elements_kind,
+                                     bool convert_hole_to_undefined,
+                                     bool is_js_array) {
+  int config = KindBits::encode(kElement) |
                ElementsKindBits::encode(elements_kind) |
                ConvertHoleBits::encode(convert_hole_to_undefined) |
                IsJsArrayBits::encode(is_js_array);
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> StoreHandler::StoreField(Isolate* isolate, Kind kind,
-                                        int descriptor, FieldIndex field_index,
-                                        Representation representation,
-                                        bool extend_storage) {
+Handle<Smi> StoreHandler::StoreGlobalProxy(Isolate* isolate) {
+  int config = KindBits::encode(kStoreGlobalProxy);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> StoreHandler::StoreNormal(Isolate* isolate) {
+  int config = KindBits::encode(kStoreNormal);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> StoreHandler::StoreProxy(Isolate* isolate) {
+  int config = KindBits::encode(kProxy);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> StoreHandler::EnableAccessCheckOnReceiver(Isolate* isolate,
+                                                      Handle<Smi> smi_handler) {
+  int config = smi_handler->value();
+  config = DoAccessCheckOnReceiverBits::update(config, true);
+  return handle(Smi::FromInt(config), isolate);
+}
+
+Handle<Smi> StoreHandler::StoreField(Isolate* isolate, Kind kind,
+                                     int descriptor, FieldIndex field_index,
+                                     Representation representation,
+                                     bool extend_storage) {
   StoreHandler::FieldRepresentation field_rep;
   switch (representation.kind()) {
     case Representation::kSmi:
@@ -99,11 +150,10 @@ Handle<Object> StoreHandler::StoreField(Isolate* isolate, Kind kind,
       break;
     default:
       UNREACHABLE();
-      return Handle<Object>::null();
   }
-  int value_index = DescriptorArray::ToValueIndex(descriptor);
 
-  DCHECK(kind == kStoreField || kind == kTransitionToField);
+  DCHECK(kind == kStoreField || kind == kTransitionToField ||
+         (kind == kStoreConstField && FLAG_track_constant_fields));
   DCHECK_IMPLIES(extend_storage, kind == kTransitionToField);
   DCHECK_IMPLIES(field_index.is_inobject(), !extend_storage);
 
@@ -111,33 +161,57 @@ Handle<Object> StoreHandler::StoreField(Isolate* isolate, Kind kind,
                StoreHandler::ExtendStorageBits::encode(extend_storage) |
                StoreHandler::IsInobjectBits::encode(field_index.is_inobject()) |
                StoreHandler::FieldRepresentationBits::encode(field_rep) |
-               StoreHandler::DescriptorValueIndexBits::encode(value_index) |
+               StoreHandler::DescriptorBits::encode(descriptor) |
                StoreHandler::FieldOffsetBits::encode(field_index.offset());
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Object> StoreHandler::StoreField(Isolate* isolate, int descriptor,
-                                        FieldIndex field_index,
-                                        Representation representation) {
-  return StoreField(isolate, kStoreField, descriptor, field_index,
-                    representation, false);
+Handle<Smi> StoreHandler::StoreField(Isolate* isolate, int descriptor,
+                                     FieldIndex field_index,
+                                     PropertyConstness constness,
+                                     Representation representation) {
+  DCHECK_IMPLIES(!FLAG_track_constant_fields, constness == kMutable);
+  Kind kind = constness == kMutable ? kStoreField : kStoreConstField;
+  return StoreField(isolate, kind, descriptor, field_index, representation,
+                    false);
 }
 
-Handle<Object> StoreHandler::TransitionToField(Isolate* isolate, int descriptor,
-                                               FieldIndex field_index,
-                                               Representation representation,
-                                               bool extend_storage) {
+Handle<Smi> StoreHandler::TransitionToField(Isolate* isolate, int descriptor,
+                                            FieldIndex field_index,
+                                            Representation representation,
+                                            bool extend_storage) {
   return StoreField(isolate, kTransitionToField, descriptor, field_index,
                     representation, extend_storage);
 }
 
-Handle<Object> StoreHandler::TransitionToConstant(Isolate* isolate,
-                                                  int descriptor) {
-  int value_index = DescriptorArray::ToValueIndex(descriptor);
+Handle<Smi> StoreHandler::TransitionToConstant(Isolate* isolate,
+                                               int descriptor) {
+  DCHECK(!FLAG_track_constant_fields);
   int config =
       StoreHandler::KindBits::encode(StoreHandler::kTransitionToConstant) |
-      StoreHandler::DescriptorValueIndexBits::encode(value_index);
+      StoreHandler::DescriptorBits::encode(descriptor);
   return handle(Smi::FromInt(config), isolate);
+}
+
+// static
+WeakCell* StoreHandler::GetTransitionCell(Object* handler) {
+  if (handler->IsTuple3()) {
+    STATIC_ASSERT(kTransitionOrHolderCellOffset == Tuple3::kValue1Offset);
+    WeakCell* cell = WeakCell::cast(Tuple3::cast(handler)->value1());
+    DCHECK(!cell->cleared());
+    return cell;
+  }
+
+  DCHECK(handler->IsFixedArray());
+  WeakCell* cell = WeakCell::cast(
+      FixedArray::cast(handler)->get(kTransitionMapOrHolderCellIndex));
+  DCHECK(!cell->cleared());
+  return cell;
+}
+
+// static
+bool StoreHandler::IsHandler(Object* maybe_handler) {
+  return maybe_handler->IsFixedArray() || maybe_handler->IsTuple3();
 }
 
 }  // namespace internal

@@ -63,13 +63,8 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   // place them into the current basic block. They don't perform control flow,
   // hence will not switch the current basic block.
 
-  Node* NullConstant() {
-    return HeapConstant(isolate()->factory()->null_value());
-  }
-
-  Node* UndefinedConstant() {
-    return HeapConstant(isolate()->factory()->undefined_value());
-  }
+  Node* NullConstant();
+  Node* UndefinedConstant();
 
   // Constants.
   Node* PointerConstant(void* value) {
@@ -84,8 +79,8 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   Node* Int32Constant(int32_t value) {
     return AddNode(common()->Int32Constant(value));
   }
-  Node* StackSlot(MachineRepresentation rep) {
-    return AddNode(machine()->StackSlot(rep));
+  Node* StackSlot(MachineRepresentation rep, int alignment = 0) {
+    return AddNode(machine()->StackSlot(rep, alignment));
   }
   Node* Int64Constant(int64_t value) {
     return AddNode(common()->Int64Constant(value));
@@ -139,14 +134,14 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   Node* Retain(Node* value) { return AddNode(common()->Retain(), value); }
 
   // Unaligned memory operations
-  Node* UnalignedLoad(MachineType rep, Node* base) {
-    return UnalignedLoad(rep, base, IntPtrConstant(0));
+  Node* UnalignedLoad(MachineType type, Node* base) {
+    return UnalignedLoad(type, base, IntPtrConstant(0));
   }
-  Node* UnalignedLoad(MachineType rep, Node* base, Node* index) {
-    if (machine()->UnalignedLoadSupported(rep, 1)) {
-      return AddNode(machine()->Load(rep), base, index);
+  Node* UnalignedLoad(MachineType type, Node* base, Node* index) {
+    if (machine()->UnalignedLoadSupported(type.representation())) {
+      return AddNode(machine()->Load(type), base, index);
     } else {
-      return AddNode(machine()->UnalignedLoad(rep), base, index);
+      return AddNode(machine()->UnalignedLoad(type), base, index);
     }
   }
   Node* UnalignedStore(MachineRepresentation rep, Node* base, Node* value) {
@@ -154,8 +149,7 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   }
   Node* UnalignedStore(MachineRepresentation rep, Node* base, Node* index,
                        Node* value) {
-    MachineType t = MachineType::TypeForRepresentation(rep);
-    if (machine()->UnalignedStoreSupported(t, 1)) {
+    if (machine()->UnalignedStoreSupported(rep)) {
       return AddNode(machine()->Store(StoreRepresentation(
                          rep, WriteBarrierKind::kNoWriteBarrier)),
                      base, index, value);
@@ -167,12 +161,29 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   }
 
   // Atomic memory operations.
-  Node* AtomicLoad(MachineType rep, Node* base, Node* index) {
-    return AddNode(machine()->AtomicLoad(rep), base, index);
+  Node* AtomicLoad(MachineType type, Node* base, Node* index) {
+    return AddNode(machine()->AtomicLoad(type), base, index);
   }
   Node* AtomicStore(MachineRepresentation rep, Node* base, Node* index,
                     Node* value) {
     return AddNode(machine()->AtomicStore(rep), base, index, value);
+  }
+#define ATOMIC_FUNCTION(name)                                                 \
+  Node* Atomic##name(MachineType rep, Node* base, Node* index, Node* value) { \
+    return AddNode(machine()->Atomic##name(rep), base, index, value);         \
+  }
+  ATOMIC_FUNCTION(Exchange);
+  ATOMIC_FUNCTION(Add);
+  ATOMIC_FUNCTION(Sub);
+  ATOMIC_FUNCTION(And);
+  ATOMIC_FUNCTION(Or);
+  ATOMIC_FUNCTION(Xor);
+#undef ATOMIC_FUNCTION
+
+  Node* AtomicCompareExchange(MachineType rep, Node* base, Node* index,
+                              Node* old_value, Node* new_value) {
+    return AddNode(machine()->AtomicCompareExchange(rep), base, index,
+                   old_value, new_value);
   }
 
   // Arithmetic Operations.
@@ -429,6 +440,19 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
 
 #undef UINTPTR_BINOP
 
+  Node* Int32AbsWithOverflow(Node* a) {
+    return AddNode(machine()->Int32AbsWithOverflow().op(), a);
+  }
+
+  Node* Int64AbsWithOverflow(Node* a) {
+    return AddNode(machine()->Int64AbsWithOverflow().op(), a);
+  }
+
+  Node* IntPtrAbsWithOverflow(Node* a) {
+    return kPointerSize == 8 ? Int64AbsWithOverflow(a)
+                             : Int32AbsWithOverflow(a);
+  }
+
   Node* Float32Add(Node* a, Node* b) {
     return AddNode(machine()->Float32Add(), a, b);
   }
@@ -534,13 +558,21 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
 
   // Conversions.
   Node* BitcastTaggedToWord(Node* a) {
+#ifdef ENABLE_VERIFY_CSA
     return AddNode(machine()->BitcastTaggedToWord(), a);
+#else
+    return a;
+#endif
   }
   Node* BitcastWordToTagged(Node* a) {
     return AddNode(machine()->BitcastWordToTagged(), a);
   }
   Node* BitcastWordToTaggedSigned(Node* a) {
+#ifdef ENABLE_VERIFY_CSA
     return AddNode(machine()->BitcastWordToTaggedSigned(), a);
+#else
+    return a;
+#endif
   }
   Node* TruncateFloat64ToWord32(Node* a) {
     return AddNode(machine()->TruncateFloat64ToWord32(), a);
@@ -559,6 +591,9 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   }
   Node* ChangeFloat64ToUint32(Node* a) {
     return AddNode(machine()->ChangeFloat64ToUint32(), a);
+  }
+  Node* ChangeFloat64ToUint64(Node* a) {
+    return AddNode(machine()->ChangeFloat64ToUint64(), a);
   }
   Node* TruncateFloat64ToUint32(Node* a) {
     return AddNode(machine()->TruncateFloat64ToUint32(), a);
@@ -724,6 +759,11 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   // Call to a C function with one parameter.
   Node* CallCFunction1(MachineType return_type, MachineType arg0_type,
                        Node* function, Node* arg0);
+  // Call to a C function with one argument, while saving/restoring caller
+  // registers.
+  Node* CallCFunction1WithCallerSavedRegisters(
+      MachineType return_type, MachineType arg0_type, Node* function,
+      Node* arg0, SaveFPRegsMode mode = kSaveFPRegs);
   // Call to a C function with two arguments.
   Node* CallCFunction2(MachineType return_type, MachineType arg0_type,
                        MachineType arg1_type, Node* function, Node* arg0,
@@ -732,6 +772,30 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   Node* CallCFunction3(MachineType return_type, MachineType arg0_type,
                        MachineType arg1_type, MachineType arg2_type,
                        Node* function, Node* arg0, Node* arg1, Node* arg2);
+  // Call to a C function with three arguments, while saving/restoring caller
+  // registers.
+  Node* CallCFunction3WithCallerSavedRegisters(
+      MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+      MachineType arg2_type, Node* function, Node* arg0, Node* arg1, Node* arg2,
+      SaveFPRegsMode mode = kSaveFPRegs);
+  // Call to a C function with four arguments.
+  Node* CallCFunction4(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, Node* function, Node* arg0,
+                       Node* arg1, Node* arg2, Node* arg3);
+  // Call to a C function with five arguments.
+  Node* CallCFunction5(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, MachineType arg4_type,
+                       Node* function, Node* arg0, Node* arg1, Node* arg2,
+                       Node* arg3, Node* arg4);
+  // Call to a C function with six arguments.
+  Node* CallCFunction6(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, MachineType arg4_type,
+                       MachineType arg5_type, Node* function, Node* arg0,
+                       Node* arg1, Node* arg2, Node* arg3, Node* arg4,
+                       Node* arg5);
   // Call to a C function with eight arguments.
   Node* CallCFunction8(MachineType return_type, MachineType arg0_type,
                        MachineType arg1_type, MachineType arg2_type,
@@ -740,6 +804,15 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
                        MachineType arg7_type, Node* function, Node* arg0,
                        Node* arg1, Node* arg2, Node* arg3, Node* arg4,
                        Node* arg5, Node* arg6, Node* arg7);
+  // Call to a C function with nine arguments.
+  Node* CallCFunction9(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, MachineType arg4_type,
+                       MachineType arg5_type, MachineType arg6_type,
+                       MachineType arg7_type, MachineType arg8_type,
+                       Node* function, Node* arg0, Node* arg1, Node* arg2,
+                       Node* arg3, Node* arg4, Node* arg5, Node* arg6,
+                       Node* arg7, Node* arg8);
 
   // ===========================================================================
   // The following utility methods deal with control flow, hence might switch
@@ -760,8 +833,16 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   void PopAndReturn(Node* pop, Node* v1, Node* v2, Node* v3);
   void Bind(RawMachineLabel* label);
   void Deoptimize(Node* state);
+  void DebugAbort(Node* message);
   void DebugBreak();
+  void Unreachable();
   void Comment(const char* msg);
+
+#if DEBUG
+  void Bind(RawMachineLabel* label, AssemblerDebugInfo info);
+  void SetInitialDebugInformation(AssemblerDebugInfo info);
+  void PrintCurrentBlock(std::ostream& os);
+#endif  // DEBUG
 
   // Add success / exception successor blocks and ends the current block ending
   // in a potentially throwing call node.
@@ -826,6 +907,8 @@ class V8_EXPORT_PRIVATE RawMachineLabel final {
   explicit RawMachineLabel(Type type = kNonDeferred)
       : deferred_(type == kDeferred) {}
   ~RawMachineLabel();
+
+  BasicBlock* block() const { return block_; }
 
  private:
   BasicBlock* block_ = nullptr;

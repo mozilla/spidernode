@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compiler/register-allocator.h"
+
+#include "src/assembler-inl.h"
 #include "src/base/adapters.h"
 #include "src/compiler/linkage.h"
-#include "src/compiler/register-allocator.h"
 #include "src/string-stream.h"
 
 namespace v8 {
@@ -90,7 +92,6 @@ int GetByteWidth(MachineRepresentation rep) {
       break;
   }
   UNREACHABLE();
-  return 0;
 }
 
 }  // namespace
@@ -314,7 +315,6 @@ bool UsePosition::HintRegister(int* register_code) const {
     }
   }
   UNREACHABLE();
-  return false;
 }
 
 
@@ -338,7 +338,6 @@ UsePositionHintType UsePosition::HintTypeForOperand(
       break;
   }
   UNREACHABLE();
-  return UsePositionHintType::kNone;
 }
 
 void UsePosition::SetHint(UsePosition* use_pos) {
@@ -636,7 +635,7 @@ UsePosition* LiveRange::DetachAt(LifetimePosition position, LiveRange* result,
     }
     current = next;
   }
-  DCHECK(nullptr != after);
+  DCHECK_NOT_NULL(after);
 
   // Partition original use intervals to the two live ranges.
   UseInterval* before = current;
@@ -815,7 +814,7 @@ void LiveRange::Print(const RegisterConfiguration* config,
 
 
 void LiveRange::Print(bool with_children) const {
-  Print(RegisterConfiguration::Turbofan(), with_children);
+  Print(RegisterConfiguration::Default(), with_children);
 }
 
 
@@ -1004,7 +1003,7 @@ void TopLevelLiveRange::UpdateSpillRangePostMerge(TopLevelLiveRange* merged) {
 
   if (HasNoSpillType() && merged->HasSpillRange()) {
     set_spill_type(merged->spill_type());
-    DCHECK(GetSpillRange()->live_ranges().size() > 0);
+    DCHECK_LT(0, GetSpillRange()->live_ranges().size());
     merged->spill_range_ = nullptr;
     merged->bits_ =
         SpillTypeField::update(merged->bits_, SpillType::kNoSpillType);
@@ -1090,7 +1089,7 @@ void TopLevelLiveRange::Verify() const {
 
 void TopLevelLiveRange::ShortenTo(LifetimePosition start) {
   TRACE("Shorten live range %d to [%d\n", vreg(), start.value());
-  DCHECK(first_interval_ != nullptr);
+  DCHECK_NOT_NULL(first_interval_);
   DCHECK(first_interval_->start() <= start);
   DCHECK(start < first_interval_->end());
   first_interval_->set_start(start);
@@ -1603,6 +1602,8 @@ InstructionOperand* ConstraintBuilder::AllocateFixed(
                                  operand->fixed_slot_index());
   } else if (operand->HasFixedRegisterPolicy()) {
     DCHECK(!IsFloatingPoint(rep));
+    DCHECK(data()->config()->IsAllocatableGeneralCode(
+        operand->fixed_register_index()));
     allocated = AllocatedOperand(AllocatedOperand::REGISTER, rep,
                                  operand->fixed_register_index());
   } else if (operand->HasFixedFPRegisterPolicy()) {
@@ -1669,7 +1670,7 @@ void ConstraintBuilder::MeetRegisterConstraintsForLastInstructionInBlock(
 
       for (const RpoNumber& succ : block->successors()) {
         const InstructionBlock* successor = code()->InstructionBlockAt(succ);
-        DCHECK(successor->PredecessorCount() == 1);
+        DCHECK_EQ(1, successor->PredecessorCount());
         int gap_index = successor->first_instruction_index();
         // Create an unconstrained operand for the same virtual register
         // and insert a gap move from the fixed output to the operand.
@@ -1681,7 +1682,7 @@ void ConstraintBuilder::MeetRegisterConstraintsForLastInstructionInBlock(
     if (!assigned) {
       for (const RpoNumber& succ : block->successors()) {
         const InstructionBlock* successor = code()->InstructionBlockAt(succ);
-        DCHECK(successor->PredecessorCount() == 1);
+        DCHECK_EQ(1, successor->PredecessorCount());
         int gap_index = successor->first_instruction_index();
         range->RecordSpillLocation(allocation_zone(), gap_index, output);
         range->SetSpillStartIndex(gap_index);
@@ -1768,13 +1769,14 @@ void ConstraintBuilder::MeetConstraintsBefore(int instr_index) {
     if (!output->IsUnallocated()) continue;
     UnallocatedOperand* second_output = UnallocatedOperand::cast(output);
     if (!second_output->HasSameAsInputPolicy()) continue;
-    DCHECK(i == 0);  // Only valid for first output.
+    DCHECK_EQ(0, i);  // Only valid for first output.
     UnallocatedOperand* cur_input =
         UnallocatedOperand::cast(second->InputAt(0));
     int output_vreg = second_output->virtual_register();
     int input_vreg = cur_input->virtual_register();
     UnallocatedOperand input_copy(UnallocatedOperand::ANY, input_vreg);
-    cur_input->set_virtual_register(second_output->virtual_register());
+    *cur_input =
+        UnallocatedOperand(*cur_input, second_output->virtual_register());
     MoveOperands* gap_move = data()->AddGapMove(instr_index, Instruction::END,
                                                 input_copy, *cur_input);
     if (code()->IsReference(input_vreg) && !code()->IsReference(output_vreg)) {
@@ -2040,7 +2042,7 @@ void LiveRangeBuilder::ProcessInstructions(const InstructionBlock* block,
     LifetimePosition curr_position =
         LifetimePosition::InstructionFromInstructionIndex(index);
     Instruction* instr = code()->InstructionAt(index);
-    DCHECK(instr != nullptr);
+    DCHECK_NOT_NULL(instr);
     DCHECK(curr_position.IsInstructionPosition());
     // Process output, inputs, and temps of this instruction.
     for (size_t i = 0; i < instr->OutputCount(); i++) {
@@ -2056,8 +2058,8 @@ void LiveRangeBuilder::ProcessInstructions(const InstructionBlock* block,
       }
       if (block->IsHandler() && index == block_start && output->IsAllocated() &&
           output->IsRegister() &&
-          AllocatedOperand::cast(output)->GetRegister().is(
-              v8::internal::kReturnRegister0)) {
+          AllocatedOperand::cast(output)->GetRegister() ==
+              v8::internal::kReturnRegister0) {
         // The register defined here is blocked from gap start - it is the
         // exception value.
         // TODO(mtrofin): should we explore an explicit opcode for
@@ -2234,7 +2236,7 @@ void LiveRangeBuilder::ProcessPhis(const InstructionBlock* block,
     // block.
     int phi_vreg = phi->virtual_register();
     live->Remove(phi_vreg);
-    // Select a hint from a predecessor block that preceeds this block in the
+    // Select a hint from a predecessor block that precedes this block in the
     // rpo order. In order of priority:
     // - Avoid hints from deferred blocks.
     // - Prefer hints from allocated (or explicit) operands.
@@ -2737,8 +2739,8 @@ LinearScanAllocator::LinearScanAllocator(RegisterAllocationData* data,
   inactive_live_ranges().reserve(8);
   // TryAllocateFreeReg and AllocateBlockedReg assume this
   // when allocating local arrays.
-  DCHECK(RegisterConfiguration::kMaxFPRegisters >=
-         this->data()->config()->num_general_registers());
+  DCHECK_GE(RegisterConfiguration::kMaxFPRegisters,
+            this->data()->config()->num_general_registers());
 }
 
 
@@ -3146,6 +3148,9 @@ bool LinearScanAllocator::TryAllocateFreeReg(
     // the range end. Split current at position where it becomes blocked.
     LiveRange* tail = SplitRangeAt(current, pos);
     AddToUnhandledSorted(tail);
+
+    // Try to allocate preferred register once more.
+    if (TryAllocatePreferredReg(current, free_until_pos)) return true;
   }
 
   // Register reg is available at the range start and is free until the range
@@ -3271,19 +3276,18 @@ void LinearScanAllocator::AllocateBlockedReg(LiveRange* current) {
     }
   }
 
-  LifetimePosition pos = use_pos[reg];
-
-  if (pos < register_use->pos()) {
+  if (use_pos[reg] < register_use->pos()) {
+    // If there is a gap position before the next register use, we can
+    // spill until there. The gap position will then fit the fill move.
     if (LifetimePosition::ExistsGapPositionBetween(current->Start(),
                                                    register_use->pos())) {
       SpillBetween(current, current->Start(), register_use->pos());
-    } else {
-      SetLiveRangeAssignedRegister(current, reg);
-      SplitAndSpillIntersecting(current);
+      return;
     }
-    return;
   }
 
+  // We couldn't spill until the next register use. Split before the register
+  // is blocked, if applicable.
   if (block_pos[reg] < current->End()) {
     // Register becomes blocked before the current range end. Split before that
     // position.
@@ -3409,7 +3413,7 @@ bool LinearScanAllocator::TryReuseSpillForPhi(TopLevelLiveRange* range) {
 
   // Try to merge the spilled operands and count the number of merged spilled
   // operands.
-  DCHECK(first_op != nullptr);
+  DCHECK_NOT_NULL(first_op);
   SpillRange* first_op_spill = first_op->TopLevel()->GetSpillRange();
   size_t num_merged = 1;
   for (size_t i = 1; i < phi->operands().size(); i++) {
@@ -3568,6 +3572,7 @@ void OperandAssigner::CommitAssignment() {
     for (LiveRange* range = top_range; range != nullptr;
          range = range->next()) {
       InstructionOperand assigned = range->GetAssignedOperand();
+      DCHECK(!assigned.IsUnallocated());
       range->ConvertUsesToOperand(assigned, spill_operand);
     }
 
@@ -3833,7 +3838,7 @@ int LiveRangeConnector::ResolveControlFlow(const InstructionBlock* block,
     gap_index = block->first_instruction_index();
     position = Instruction::START;
   } else {
-    DCHECK(pred->SuccessorCount() == 1);
+    DCHECK_EQ(1, pred->SuccessorCount());
     DCHECK(!code()
                 ->InstructionAt(pred->last_instruction_index())
                 ->HasReferenceMap());
@@ -4010,6 +4015,7 @@ void LiveRangeConnector::CommitSpillsInDeferredBlocks(
   }
 }
 
+#undef TRACE
 
 }  // namespace compiler
 }  // namespace internal

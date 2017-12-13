@@ -5,6 +5,8 @@
 #ifndef V8_UNITTESTS_TEST_UTILS_H_
 #define V8_UNITTESTS_TEST_UTILS_H_
 
+#include <vector>
+
 #include "include/v8.h"
 #include "src/base/macros.h"
 #include "src/base/utils/random-number-generator.h"
@@ -23,6 +25,10 @@ class TestWithIsolate : public virtual ::testing::Test {
   virtual ~TestWithIsolate();
 
   Isolate* isolate() const { return isolate_; }
+
+  v8::internal::Isolate* i_isolate() const {
+    return reinterpret_cast<v8::internal::Isolate*>(isolate());
+  }
 
   static void SetUpTestCase();
   static void TearDownTestCase();
@@ -43,10 +49,6 @@ class TestWithContext : public virtual TestWithIsolate {
   virtual ~TestWithContext();
 
   const Local<Context>& context() const { return context_; }
-
-  v8::internal::Isolate* i_isolate() const {
-    return reinterpret_cast<v8::internal::Isolate*>(isolate());
-  }
 
  private:
   Local<Context> context_;
@@ -133,6 +135,17 @@ class TestWithNativeContext : public virtual ::v8::TestWithContext,
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestWithNativeContext);
+};
+
+class SaveFlags {
+ public:
+  SaveFlags();
+  ~SaveFlags();
+
+ private:
+  std::vector<const char*>* non_default_flags_;
+
+  DISALLOW_COPY_AND_ASSIGN(SaveFlags);
 };
 
 }  // namespace internal

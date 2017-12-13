@@ -53,9 +53,9 @@ const EventEmitter = require('events');
   });
 
   ee.on('hello', hello);
-  ee.once('foo', common.fail);
+  ee.once('foo', assert.fail);
   assert.deepStrictEqual(['hello', 'foo'], events_new_listener_emitted);
-  assert.deepStrictEqual([hello, common.fail], listeners_new_listener_emitted);
+  assert.deepStrictEqual([hello, assert.fail], listeners_new_listener_emitted);
 
   ee.emit('hello', 'a', 'b');
 }
@@ -68,8 +68,8 @@ const EventEmitter = require('events');
 }
 
 {
-  const listen1 = function listen1() {};
-  const listen2 = function listen2() {};
+  const listen1 = () => {};
+  const listen2 = () => {};
   const ee = new EventEmitter();
 
   ee.once('newListener', function() {
@@ -86,8 +86,11 @@ const EventEmitter = require('events');
 }
 
 // Verify that the listener must be a function
-assert.throws(() => {
+common.expectsError(() => {
   const ee = new EventEmitter();
-
   ee.on('foo', null);
-}, /^TypeError: "listener" argument must be a function$/);
+}, {
+  code: 'ERR_INVALID_ARG_TYPE',
+  type: TypeError,
+  message: 'The "listener" argument must be of type Function'
+});

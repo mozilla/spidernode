@@ -221,14 +221,14 @@ class CPUInfo final {
     delete[] data_;
   }
 
-  // Extract the content of a the first occurence of a given field in
+  // Extract the content of a the first occurrence of a given field in
   // the content of the cpuinfo file and return it as a heap-allocated
   // string that must be freed by the caller using delete[].
   // Return NULL if not found.
   char* ExtractField(const char* field) const {
     DCHECK(field != NULL);
 
-    // Look for first field occurence, and ensure it starts the line.
+    // Look for first field occurrence, and ensure it starts the line.
     size_t fieldlen = strlen(field);
     char* p = data_;
     for (;;) {
@@ -596,7 +596,10 @@ CPU::CPU()
   CPUInfo cpu_info;
   char* cpu_model = cpu_info.ExtractField("cpu model");
   has_fpu_ = HasListItem(cpu_model, "FPU");
+  char* ASEs = cpu_info.ExtractField("ASEs implemented");
+  has_msa_ = HasListItem(ASEs, "msa");
   delete[] cpu_model;
+  delete[] ASEs;
 #ifdef V8_HOST_ARCH_MIPS
   is_fp64_mode_ = __detect_fp64_mode();
   architecture_ = __detect_mips_arch_revision();

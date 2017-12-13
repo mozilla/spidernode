@@ -5,6 +5,12 @@
 "use strict";
 
 //------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const astUtils = require("../ast-utils");
+
+//------------------------------------------------------------------------------
 // Helpers
 //------------------------------------------------------------------------------
 
@@ -27,7 +33,7 @@ function isCommutativeOperatorWithShorthand(operator) {
  *     a shorthand form.
  */
 function isNonCommutativeOperatorWithShorthand(operator) {
-    return ["+", "-", "/", "%", "<<", ">>", ">>>"].indexOf(operator) >= 0;
+    return ["+", "-", "/", "%", "<<", ">>", ">>>", "**"].indexOf(operator) >= 0;
 }
 
 //------------------------------------------------------------------------------
@@ -71,11 +77,11 @@ function same(a, b) {
 }
 
 /**
-* Determines if the left side of a node can be safely fixed (i.e. if it activates the same getters/setters and)
-* toString calls regardless of whether assignment shorthand is used)
-* @param {ASTNode} node The node on the left side of the expression
-* @returns {boolean} `true` if the node can be fixed
-*/
+ * Determines if the left side of a node can be safely fixed (i.e. if it activates the same getters/setters and)
+ * toString calls regardless of whether assignment shorthand is used)
+ * @param {ASTNode} node The node on the left side of the expression
+ * @returns {boolean} `true` if the node can be fixed
+ */
 function canBeFixed(node) {
     return node.type === "Identifier" ||
         node.type === "MemberExpression" && node.object.type === "Identifier" && (!node.computed || node.property.type === "Literal");
@@ -103,12 +109,12 @@ module.exports = {
         const sourceCode = context.getSourceCode();
 
         /**
-        * Returns the operator token of an AssignmentExpression or BinaryExpression
-        * @param {ASTNode} node An AssignmentExpression or BinaryExpression node
-        * @returns {Token} The operator token in the node
-        */
+         * Returns the operator token of an AssignmentExpression or BinaryExpression
+         * @param {ASTNode} node An AssignmentExpression or BinaryExpression node
+         * @returns {Token} The operator token in the node
+         */
         function getOperatorToken(node) {
-            return sourceCode.getTokensBetween(node.left, node.right).find(token => token.value === node.operator);
+            return sourceCode.getFirstTokenBetween(node.left, node.right, token => token.value === node.operator);
         }
 
         /**
@@ -135,7 +141,7 @@ module.exports = {
                                 const equalsToken = getOperatorToken(node);
                                 const operatorToken = getOperatorToken(expr);
                                 const leftText = sourceCode.getText().slice(node.range[0], equalsToken.range[0]);
-                                const rightText = sourceCode.getText().slice(operatorToken.range[1], node.range[1]);
+                                const rightText = sourceCode.getText().slice(operatorToken.range[1], node.right.range[1]);
 
                                 return fixer.replaceText(node, `${leftText}${expr.operator}=${rightText}`);
                             }
@@ -171,9 +177,20 @@ module.exports = {
                         if (canBeFixed(node.left)) {
                             const operatorToken = getOperatorToken(node);
                             const leftText = sourceCode.getText().slice(node.range[0], operatorToken.range[0]);
-                            const rightText = sourceCode.getText().slice(operatorToken.range[1], node.range[1]);
+                            const newOperator = node.operator.slice(0, -1);
+                            let rightText;
 
-                            return fixer.replaceText(node, `${leftText}= ${leftText}${node.operator.slice(0, -1)}${rightText}`);
+                            // If this change would modify precedence (e.g. `foo *= bar + 1` => `foo = foo * (bar + 1)`), parenthesize the right side.
+                            if (
+                                astUtils.getPrecedence(node.right) <= astUtils.getPrecedence({ type: "BinaryExpression", operator: newOperator }) &&
+                                !astUtils.isParenthesised(sourceCode, node.right)
+                            ) {
+                                rightText = `${sourceCode.text.slice(operatorToken.range[1], node.right.range[0])}(${sourceCode.getText(node.right)})`;
+                            } else {
+                                rightText = sourceCode.text.slice(operatorToken.range[1], node.range[1]);
+                            }
+
+                            return fixer.replaceText(node, `${leftText}= ${leftText}${newOperator}${rightText}`);
                         }
                         return null;
                     }

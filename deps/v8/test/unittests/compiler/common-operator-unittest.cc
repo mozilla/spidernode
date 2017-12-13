@@ -13,7 +13,7 @@
 namespace v8 {
 namespace internal {
 namespace compiler {
-
+namespace common_operator_unittest {
 
 // -----------------------------------------------------------------------------
 // Shared operators.
@@ -52,7 +52,7 @@ const SharedOperator kSharedOperators[] = {
     SHARED(IfFalse, Operator::kKontrol, 0, 0, 1, 0, 0, 1),
     SHARED(IfSuccess, Operator::kKontrol, 0, 0, 1, 0, 0, 1),
     SHARED(IfException, Operator::kKontrol, 0, 1, 1, 1, 1, 1),
-    SHARED(Throw, Operator::kKontrol, 1, 1, 1, 0, 0, 1),
+    SHARED(Throw, Operator::kKontrol, 0, 1, 1, 0, 0, 1),
     SHARED(Terminate, Operator::kKontrol, 0, 1, 1, 0, 0, 1)
 #undef SHARED
 };
@@ -387,6 +387,7 @@ TEST_F(CommonOperatorTest, Projection) {
   }
 }
 
+}  // namespace common_operator_unittest
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8

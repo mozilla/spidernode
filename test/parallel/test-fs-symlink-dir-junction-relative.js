@@ -23,14 +23,15 @@
 // Test creating and resolving relative junction or symbolic link
 
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 
 const linkPath1 = path.join(common.tmpDir, 'junction1');
 const linkPath2 = path.join(common.tmpDir, 'junction2');
-const linkTarget = path.join(common.fixturesDir);
-const linkData = path.join(common.fixturesDir);
+const linkTarget = fixtures.fixturesDir;
+const linkData = fixtures.fixturesDir;
 
 common.refreshTmpDir();
 
@@ -48,8 +49,8 @@ function verifyLink(linkPath) {
   const stats = fs.lstatSync(linkPath);
   assert.ok(stats.isSymbolicLink());
 
-  const data1 = fs.readFileSync(linkPath + '/x.txt', 'ascii');
-  const data2 = fs.readFileSync(linkTarget + '/x.txt', 'ascii');
+  const data1 = fs.readFileSync(`${linkPath}/x.txt`, 'ascii');
+  const data2 = fs.readFileSync(`${linkTarget}/x.txt`, 'ascii');
   assert.strictEqual(data1, data2);
 
   // Clean up.

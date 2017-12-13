@@ -68,6 +68,8 @@ class GenericStringUtf16CharacterStream : public BufferedUtf16CharacterStream {
   GenericStringUtf16CharacterStream(Handle<String> data, size_t start_position,
                                     size_t end_position);
 
+  bool can_access_heap() override { return true; }
+
  protected:
   size_t FillBuffer(size_t position) override;
 
@@ -104,6 +106,8 @@ class ExternalTwoByteStringUtf16CharacterStream : public Utf16CharacterStream {
   ExternalTwoByteStringUtf16CharacterStream(Handle<ExternalTwoByteString> data,
                                             size_t start_position,
                                             size_t end_position);
+
+  bool can_access_heap() override { return false; }
 
  private:
   bool ReadBlock() override;
@@ -156,6 +160,8 @@ class ExternalOneByteStringUtf16CharacterStream
   // For testing:
   ExternalOneByteStringUtf16CharacterStream(const char* data, size_t length);
 
+  bool can_access_heap() override { return false; }
+
  protected:
   size_t FillBuffer(size_t position) override;
 
@@ -203,6 +209,8 @@ class Utf8ExternalStreamingStream : public BufferedUtf16CharacterStream {
   ~Utf8ExternalStreamingStream() override {
     for (size_t i = 0; i < chunks_.size(); i++) delete[] chunks_[i].data;
   }
+
+  bool can_access_heap() override { return false; }
 
  protected:
   size_t FillBuffer(size_t position) override;
@@ -387,8 +395,10 @@ void Utf8ExternalStreamingStream::SearchPosition(size_t position) {
     //  checking whether the # bytes in a chunk are equal to the # chars, and if
     //  so avoid the expensive SkipToPosition.)
     bool ascii_only_chunk =
+        chunks_[chunk_no].start.incomplete_char ==
+            unibrow::Utf8::Utf8IncrementalBuffer(0) &&
         (chunks_[chunk_no + 1].start.bytes - chunks_[chunk_no].start.bytes) ==
-        (chunks_[chunk_no + 1].start.chars - chunks_[chunk_no].start.chars);
+            (chunks_[chunk_no + 1].start.chars - chunks_[chunk_no].start.chars);
     if (ascii_only_chunk) {
       size_t skip = position - chunks_[chunk_no].start.chars;
       current_ = {chunk_no,
@@ -433,7 +443,9 @@ size_t Utf8ExternalStreamingStream::FillBuffer(size_t position) {
 
   SearchPosition(position);
   bool out_of_data = current_.chunk_no != chunks_.size() &&
-                     chunks_[current_.chunk_no].length == 0;
+                     chunks_[current_.chunk_no].length == 0 &&
+                     current_.pos.incomplete_char == 0;
+
   if (out_of_data) return 0;
 
   // Fill the buffer, until we have at least one char (or are out of data).
@@ -532,6 +544,8 @@ class OneByteExternalStreamingStream : public BufferedUtf16CharacterStream {
       : source_(source), stats_(stats) {}
   ~OneByteExternalStreamingStream() override { DeleteChunks(chunks_); }
 
+  bool can_access_heap() override { return false; }
+
  protected:
   size_t FillBuffer(size_t position) override;
 
@@ -566,6 +580,8 @@ class TwoByteExternalStreamingStream : public Utf16CharacterStream {
       ScriptCompiler::ExternalSourceStream* source, RuntimeCallStats* stats);
   ~TwoByteExternalStreamingStream() override;
 
+  bool can_access_heap() override { return false; }
+
  protected:
   bool ReadBlock() override;
 
@@ -596,6 +612,7 @@ bool TwoByteExternalStreamingStream::ReadBlock() {
 
   // Out of data? Return 0.
   if (chunks_[chunk_no].byte_length == 0) {
+    buffer_pos_ = position;
     buffer_cursor_ = buffer_start_;
     buffer_end_ = buffer_start_;
     return false;
@@ -663,6 +680,8 @@ class TwoByteExternalBufferedStream : public Utf16CharacterStream {
       ScriptCompiler::ExternalSourceStream* source, RuntimeCallStats* stats);
   ~TwoByteExternalBufferedStream();
 
+  bool can_access_heap() override { return false; }
+
  protected:
   static const size_t kBufferSize = 512;
 
@@ -698,6 +717,7 @@ bool TwoByteExternalBufferedStream::ReadBlock() {
 
   // Out of data? Return 0.
   if (chunks_[chunk_no].byte_length == 0) {
+    buffer_pos_ = position;
     buffer_cursor_ = buffer_start_;
     buffer_end_ = buffer_start_;
     return false;
@@ -816,16 +836,20 @@ Utf16CharacterStream* ScannerStream::For(Handle<String> data) {
 Utf16CharacterStream* ScannerStream::For(Handle<String> data, int start_pos,
                                          int end_pos) {
   DCHECK(start_pos >= 0);
+  DCHECK(start_pos <= end_pos);
   DCHECK(end_pos <= data->length());
   if (data->IsExternalOneByteString()) {
     return new ExternalOneByteStringUtf16CharacterStream(
-        Handle<ExternalOneByteString>::cast(data), start_pos, end_pos);
+        Handle<ExternalOneByteString>::cast(data),
+        static_cast<size_t>(start_pos), static_cast<size_t>(end_pos));
   } else if (data->IsExternalTwoByteString()) {
     return new ExternalTwoByteStringUtf16CharacterStream(
-        Handle<ExternalTwoByteString>::cast(data), start_pos, end_pos);
+        Handle<ExternalTwoByteString>::cast(data),
+        static_cast<size_t>(start_pos), static_cast<size_t>(end_pos));
   } else {
     // TODO(vogelheim): Maybe call data.Flatten() first?
-    return new GenericStringUtf16CharacterStream(data, start_pos, end_pos);
+    return new GenericStringUtf16CharacterStream(
+        data, static_cast<size_t>(start_pos), static_cast<size_t>(end_pos));
   }
 }
 

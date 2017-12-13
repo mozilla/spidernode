@@ -66,7 +66,8 @@ void MemoryReducer::NotifyTimer(const Event& event) {
                                             state_.started_gcs);
     }
     heap()->StartIdleIncrementalMarking(
-        GarbageCollectionReason::kMemoryReducer);
+        GarbageCollectionReason::kMemoryReducer,
+        kGCCallbackFlagCollectAllExternalMemory);
   } else if (state_.action == kWait) {
     if (!heap()->incremental_marking()->IsStopped() &&
         heap()->ShouldOptimizeForMemoryUsage()) {
@@ -196,12 +197,11 @@ MemoryReducer::State MemoryReducer::Step(const State& state,
       }
   }
   UNREACHABLE();
-  return State(kDone, 0, 0, 0.0, 0);  // Make the compiler happy.
 }
 
 
 void MemoryReducer::ScheduleTimer(double time_ms, double delay_ms) {
-  DCHECK(delay_ms > 0);
+  DCHECK_LT(0, delay_ms);
   // Leave some room for precision error in task scheduler.
   const double kSlackMs = 100;
   v8::Isolate* isolate = reinterpret_cast<v8::Isolate*>(heap()->isolate());

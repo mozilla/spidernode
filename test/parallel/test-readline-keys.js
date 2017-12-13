@@ -2,14 +2,9 @@
 const common = require('../common');
 const PassThrough = require('stream').PassThrough;
 const assert = require('assert');
-const inherits = require('util').inherits;
 const Interface = require('readline').Interface;
 
-
-function FakeInput() {
-  PassThrough.call(this);
-}
-inherits(FakeInput, PassThrough);
+class FakeInput extends PassThrough {}
 
 function extend(k) {
   return Object.assign({ ctrl: false, meta: false, shift: false }, k);
@@ -298,7 +293,7 @@ const runKeyIntervalTests = [
     { name: 'escape', sequence: '\x1b', meta: true },
     { name: 'escape', sequence: '\x1b', meta: true }
   ])
-].reverse().reduce((acc, fn) => fn(acc), common.noop);
+].reverse().reduce((acc, fn) => fn(acc), () => {});
 
 // run key interval tests one after another
 runKeyIntervalTests();

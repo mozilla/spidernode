@@ -24,7 +24,7 @@ class Processor final : public AstVisitor<Processor> {
         breakable_(false),
         zone_(ast_value_factory->zone()),
         closure_scope_(closure_scope),
-        factory_(ast_value_factory) {
+        factory_(ast_value_factory, ast_value_factory->zone()) {
     DCHECK_EQ(closure_scope, closure_scope->GetClosureScope());
     InitializeAstVisitor(stack_limit);
   }
@@ -38,7 +38,7 @@ class Processor final : public AstVisitor<Processor> {
         breakable_(false),
         zone_(ast_value_factory->zone()),
         closure_scope_(closure_scope),
-        factory_(ast_value_factory) {
+        factory_(ast_value_factory, zone_) {
     DCHECK_EQ(closure_scope, closure_scope->GetClosureScope());
     InitializeAstVisitor(parser->stack_limit());
   }
@@ -112,11 +112,9 @@ class Processor final : public AstVisitor<Processor> {
 
 
 Statement* Processor::AssignUndefinedBefore(Statement* s) {
-  Expression* result_proxy = factory()->NewVariableProxy(result_);
   Expression* undef = factory()->NewUndefinedLiteral(kNoSourcePosition);
-  Expression* assignment = factory()->NewAssignment(Token::ASSIGN, result_proxy,
-                                                    undef, kNoSourcePosition);
-  Block* b = factory()->NewBlock(NULL, 2, false, kNoSourcePosition);
+  Expression* assignment = SetResult(undef);
+  Block* b = factory()->NewBlock(2, false);
   b->statements()->Add(
       factory()->NewExpressionStatement(assignment, kNoSourcePosition), zone());
   b->statements()->Add(s, zone());
@@ -360,43 +358,40 @@ bool Rewriter::Rewrite(ParseInfo* info) {
   DisallowHandleDereference no_deref;
 
   RuntimeCallTimerScope runtimeTimer(
-      info->isolate(), &RuntimeCallStats::CompileRewriteReturnResult);
+      info->runtime_call_stats(),
+      &RuntimeCallStats::CompileRewriteReturnResult);
 
   FunctionLiteral* function = info->literal();
   DCHECK_NOT_NULL(function);
   Scope* scope = function->scope();
   DCHECK_NOT_NULL(scope);
-  if (!scope->is_script_scope() && !scope->is_eval_scope()) return true;
+  DCHECK_EQ(scope, scope->GetClosureScope());
 
-  DeclarationScope* closure_scope = scope->GetClosureScope();
+  if (!(scope->is_script_scope() || scope->is_eval_scope() ||
+        scope->is_module_scope())) {
+    return true;
+  }
 
   ZoneList<Statement*>* body = function->body();
+  DCHECK_IMPLIES(scope->is_module_scope(), !body->is_empty());
   if (!body->is_empty()) {
-    Variable* result = closure_scope->NewTemporary(
+    Variable* result = scope->AsDeclarationScope()->NewTemporary(
         info->ast_value_factory()->dot_result_string());
-    Processor processor(info->isolate()->stack_guard()->real_climit(),
-                        closure_scope, result, info->ast_value_factory());
+    Processor processor(info->stack_limit(), scope->AsDeclarationScope(),
+                        result, info->ast_value_factory());
     processor.Process(body);
 
-    // TODO(leszeks): Remove this check and releases once internalization is
-    // moved out of parsing/analysis.
-    DCHECK(ThreadId::Current().Equals(info->isolate()->thread_id()));
-    no_deref.Release();
-    no_handles.Release();
-    no_allocation.Release();
-
-    // Internalize any values created during rewriting.
-    info->ast_value_factory()->Internalize(info->isolate());
-    if (processor.HasStackOverflow()) return false;
-
+    DCHECK_IMPLIES(scope->is_module_scope(), processor.result_assigned());
     if (processor.result_assigned()) {
       int pos = kNoSourcePosition;
-      VariableProxy* result_proxy =
+      Expression* result_value =
           processor.factory()->NewVariableProxy(result, pos);
       Statement* result_statement =
-          processor.factory()->NewReturnStatement(result_proxy, pos);
+          processor.factory()->NewReturnStatement(result_value, pos);
       body->Add(result_statement, info->zone());
     }
+
+    if (processor.HasStackOverflow()) return false;
   }
 
   return true;

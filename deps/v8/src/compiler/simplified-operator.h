@@ -34,30 +34,6 @@ size_t hash_value(BaseTaggedness);
 
 std::ostream& operator<<(std::ostream&, BaseTaggedness);
 
-
-// An access descriptor for loads/stores of array buffers.
-class BufferAccess final {
- public:
-  explicit BufferAccess(ExternalArrayType external_array_type)
-      : external_array_type_(external_array_type) {}
-
-  ExternalArrayType external_array_type() const { return external_array_type_; }
-  MachineType machine_type() const;
-
- private:
-  ExternalArrayType const external_array_type_;
-};
-
-V8_EXPORT_PRIVATE bool operator==(BufferAccess, BufferAccess);
-bool operator!=(BufferAccess, BufferAccess);
-
-size_t hash_value(BufferAccess);
-
-V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, BufferAccess);
-
-V8_EXPORT_PRIVATE BufferAccess const BufferAccessOf(const Operator* op)
-    WARN_UNUSED_RESULT;
-
 // An access descriptor for loads/stores of fixed structures like field
 // accesses of heap objects. Accesses from either tagged or untagged base
 // pointers are supported; untagging is done automatically during lowering.
@@ -141,7 +117,8 @@ enum class CheckForMinusZeroMode : uint8_t {
 
 size_t hash_value(CheckForMinusZeroMode);
 
-std::ostream& operator<<(std::ostream&, CheckForMinusZeroMode);
+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&,
+                                           CheckForMinusZeroMode);
 
 CheckForMinusZeroMode CheckMinusZeroModeOf(const Operator*) WARN_UNUSED_RESULT;
 
@@ -180,21 +157,23 @@ std::ostream& operator<<(std::ostream&, CheckMapsParameters const&);
 CheckMapsParameters const& CheckMapsParametersOf(Operator const*)
     WARN_UNUSED_RESULT;
 
-// A descriptor for growing elements backing stores.
-enum class GrowFastElementsFlag : uint8_t {
-  kNone = 0u,
-  kArrayObject = 1u << 0,     // Update JSArray::length field.
-  kHoleyElements = 1u << 1,   // Backing store is holey.
-  kDoubleElements = 1u << 2,  // Backing store contains doubles.
-};
-typedef base::Flags<GrowFastElementsFlag> GrowFastElementsFlags;
-
-DEFINE_OPERATORS_FOR_FLAGS(GrowFastElementsFlags)
-
-std::ostream& operator<<(std::ostream&, GrowFastElementsFlags);
-
-GrowFastElementsFlags GrowFastElementsFlagsOf(const Operator*)
+// Parameters for CompareMaps operator.
+ZoneHandleSet<Map> const& CompareMapsParametersOf(Operator const*)
     WARN_UNUSED_RESULT;
+
+// A descriptor for growing elements backing stores.
+enum class GrowFastElementsMode : uint8_t {
+  kDoubleElements,
+  kSmiOrObjectElements
+};
+
+inline size_t hash_value(GrowFastElementsMode mode) {
+  return static_cast<uint8_t>(mode);
+}
+
+std::ostream& operator<<(std::ostream&, GrowFastElementsMode);
+
+GrowFastElementsMode GrowFastElementsModeOf(const Operator*) WARN_UNUSED_RESULT;
 
 // A descriptor for elements kind transitions.
 class ElementsTransition final {
@@ -227,12 +206,17 @@ std::ostream& operator<<(std::ostream&, ElementsTransition);
 ElementsTransition const& ElementsTransitionOf(const Operator* op)
     WARN_UNUSED_RESULT;
 
+// Parameters for TransitionAndStoreElement.
+Handle<Map> DoubleMapParameterOf(const Operator* op);
+Handle<Map> FastMapParameterOf(const Operator* op);
+
 // A hint for speculative number operations.
 enum class NumberOperationHint : uint8_t {
-  kSignedSmall,      // Inputs were always Smi so far, output was in Smi range.
-  kSigned32,         // Inputs and output were Signed32 so far.
-  kNumber,           // Inputs were Number, output was Number.
-  kNumberOrOddball,  // Inputs were Number or Oddball, output was Number.
+  kSignedSmall,        // Inputs were Smi, output was in Smi.
+  kSignedSmallInputs,  // Inputs were Smi, output was Number.
+  kSigned32,           // Inputs were Signed32, output was Number.
+  kNumber,             // Inputs were Number, output was Number.
+  kNumberOrOddball,    // Inputs were Number or Oddball, output was Number.
 };
 
 size_t hash_value(NumberOperationHint);
@@ -242,11 +226,36 @@ V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, NumberOperationHint);
 NumberOperationHint NumberOperationHintOf(const Operator* op)
     WARN_UNUSED_RESULT;
 
-int ParameterCountOf(const Operator* op) WARN_UNUSED_RESULT;
+int FormalParameterCountOf(const Operator* op) WARN_UNUSED_RESULT;
+bool IsRestLengthOf(const Operator* op) WARN_UNUSED_RESULT;
+
+class AllocateParameters {
+ public:
+  AllocateParameters(Type* type, PretenureFlag pretenure)
+      : type_(type), pretenure_(pretenure) {}
+
+  Type* type() const { return type_; }
+  PretenureFlag pretenure() const { return pretenure_; }
+
+ private:
+  Type* type_;
+  PretenureFlag pretenure_;
+};
+
+size_t hash_value(AllocateParameters);
+
+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, AllocateParameters);
+
+bool operator==(AllocateParameters const&, AllocateParameters const&);
+bool operator!=(AllocateParameters const&, AllocateParameters const&);
 
 PretenureFlag PretenureFlagOf(const Operator* op) WARN_UNUSED_RESULT;
 
+Type* AllocateTypeOf(const Operator* op) WARN_UNUSED_RESULT;
+
 UnicodeEncoding UnicodeEncodingOf(const Operator*) WARN_UNUSED_RESULT;
+
+BailoutReason BailoutReasonOf(const Operator* op) WARN_UNUSED_RESULT;
 
 // Interface for building simplified operators, which represent the
 // medium-level operations of V8, including adding numbers, allocating objects,
@@ -331,6 +340,9 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
 
   const Operator* NumberSilenceNaN();
 
+  const Operator* SpeculativeSafeIntegerAdd(NumberOperationHint hint);
+  const Operator* SpeculativeSafeIntegerSubtract(NumberOperationHint hint);
+
   const Operator* SpeculativeNumberAdd(NumberOperationHint hint);
   const Operator* SpeculativeNumberSubtract(NumberOperationHint hint);
   const Operator* SpeculativeNumberMultiply(NumberOperationHint hint);
@@ -354,8 +366,17 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
   const Operator* StringLessThanOrEqual();
   const Operator* StringCharAt();
   const Operator* StringCharCodeAt();
+  const Operator* SeqStringCharCodeAt();
   const Operator* StringFromCharCode();
   const Operator* StringFromCodePoint(UnicodeEncoding encoding);
+  const Operator* StringIndexOf();
+  const Operator* StringToLowerCaseIntl();
+  const Operator* StringToUpperCaseIntl();
+
+  const Operator* FindOrderedHashMapEntry();
+  const Operator* FindOrderedHashMapEntryForInt32Key();
+
+  const Operator* SpeculativeToNumber(NumberOperationHint hint);
 
   const Operator* PlainPrimitiveToNumber();
   const Operator* PlainPrimitiveToWord32();
@@ -365,26 +386,32 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
   const Operator* ChangeTaggedToInt32();
   const Operator* ChangeTaggedToUint32();
   const Operator* ChangeTaggedToFloat64();
+  const Operator* ChangeTaggedToTaggedSigned();
   const Operator* ChangeInt31ToTaggedSigned();
   const Operator* ChangeInt32ToTagged();
   const Operator* ChangeUint32ToTagged();
-  const Operator* ChangeFloat64ToTagged();
+  const Operator* ChangeFloat64ToTagged(CheckForMinusZeroMode);
   const Operator* ChangeFloat64ToTaggedPointer();
   const Operator* ChangeTaggedToBit();
   const Operator* ChangeBitToTagged();
   const Operator* TruncateTaggedToWord32();
   const Operator* TruncateTaggedToFloat64();
   const Operator* TruncateTaggedToBit();
+  const Operator* TruncateTaggedPointerToBit();
 
   const Operator* CheckIf();
   const Operator* CheckBounds();
   const Operator* CheckMaps(CheckMapsFlags, ZoneHandleSet<Map>);
+  const Operator* CompareMaps(ZoneHandleSet<Map>);
 
   const Operator* CheckHeapObject();
   const Operator* CheckInternalizedString();
   const Operator* CheckNumber();
   const Operator* CheckSmi();
   const Operator* CheckString();
+  const Operator* CheckSeqString();
+  const Operator* CheckSymbol();
+  const Operator* CheckReceiver();
 
   const Operator* CheckedInt32Add();
   const Operator* CheckedInt32Sub();
@@ -402,24 +429,35 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
   const Operator* CheckedTaggedToFloat64(CheckTaggedInputMode);
   const Operator* CheckedTaggedToTaggedSigned();
   const Operator* CheckedTaggedToTaggedPointer();
-  const Operator* CheckedTruncateTaggedToWord32();
+  const Operator* CheckedTruncateTaggedToWord32(CheckTaggedInputMode);
 
   const Operator* CheckFloat64Hole(CheckFloat64HoleMode);
-  const Operator* CheckTaggedHole();
+  const Operator* CheckNotTaggedHole();
   const Operator* ConvertTaggedHoleToUndefined();
 
+  const Operator* ObjectIsArrayBufferView();
   const Operator* ObjectIsCallable();
+  const Operator* ObjectIsConstructor();
+  const Operator* ObjectIsDetectableCallable();
+  const Operator* ObjectIsMinusZero();
+  const Operator* ObjectIsNaN();
+  const Operator* ObjectIsNonCallable();
   const Operator* ObjectIsNumber();
   const Operator* ObjectIsReceiver();
   const Operator* ObjectIsSmi();
   const Operator* ObjectIsString();
+  const Operator* ObjectIsSymbol();
   const Operator* ObjectIsUndetectable();
 
-  // new-rest-parameter-elements
-  const Operator* NewRestParameterElements(int parameter_count);
+  const Operator* ArgumentsFrame();
+  const Operator* ArgumentsLength(int formal_parameter_count,
+                                  bool is_rest_length);
 
-  // new-unmapped-arguments-elements
-  const Operator* NewUnmappedArgumentsElements(int parameter_count);
+  const Operator* NewDoubleElements(PretenureFlag);
+  const Operator* NewSmiOrObjectElements(PretenureFlag);
+
+  // new-arguments-elements arguments-frame, arguments-length
+  const Operator* NewArgumentsElements(int mapped_count);
 
   // array-buffer-was-neutered buffer
   const Operator* ArrayBufferWasNeutered();
@@ -428,21 +466,16 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
   const Operator* EnsureWritableFastElements();
 
   // maybe-grow-fast-elements object, elements, index, length
-  const Operator* MaybeGrowFastElements(GrowFastElementsFlags flags);
+  const Operator* MaybeGrowFastElements(GrowFastElementsMode mode);
 
   // transition-elements-kind object, from-map, to-map
   const Operator* TransitionElementsKind(ElementsTransition transition);
 
-  const Operator* Allocate(PretenureFlag pretenure = NOT_TENURED);
+  const Operator* Allocate(Type* type, PretenureFlag pretenure = NOT_TENURED);
 
+  const Operator* LoadFieldByIndex();
   const Operator* LoadField(FieldAccess const&);
   const Operator* StoreField(FieldAccess const&);
-
-  // load-buffer buffer, offset, length
-  const Operator* LoadBuffer(BufferAccess);
-
-  // store-buffer buffer, offset, length, value
-  const Operator* StoreBuffer(BufferAccess);
 
   // load-element [base + index]
   const Operator* LoadElement(ElementAccess const&);
@@ -450,11 +483,20 @@ class V8_EXPORT_PRIVATE SimplifiedOperatorBuilder final
   // store-element [base + index], value
   const Operator* StoreElement(ElementAccess const&);
 
+  // store-element [base + index], value, only with fast arrays.
+  const Operator* TransitionAndStoreElement(Handle<Map> double_map,
+                                            Handle<Map> fast_map);
+  // store-element [base + index], smi value, only with fast arrays.
+  const Operator* StoreSignedSmallElement();
+
   // load-typed-element buffer, [base + external + index]
   const Operator* LoadTypedElement(ExternalArrayType const&);
 
   // store-typed-element buffer, [base + external + index], value
   const Operator* StoreTypedElement(ExternalArrayType const&);
+
+  // Abort (for terminating execution on internal error).
+  const Operator* RuntimeAbort(BailoutReason reason);
 
  private:
   Zone* zone() const { return zone_; }

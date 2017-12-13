@@ -300,6 +300,28 @@ class ValueHelper {
     return std::vector<double>(&values[0], &values[arraysize(values)]);
   }
 
+  static const std::vector<int16_t> int16_vector() {
+    static const int16_t kValues[] = {
+        0, 1, 2, INT16_MAX - 1, INT16_MAX, INT16_MIN, INT16_MIN + 1, -2, -1};
+    return std::vector<int16_t>(&kValues[0], &kValues[arraysize(kValues)]);
+  }
+
+  static const std::vector<uint16_t> uint16_vector() {
+    std::vector<int16_t> values = int16_vector();
+    return std::vector<uint16_t>(values.begin(), values.end());
+  }
+
+  static const std::vector<int8_t> int8_vector() {
+    static const int8_t kValues[] = {
+        0, 1, 2, INT8_MAX - 1, INT8_MAX, INT8_MIN, INT8_MIN + 1, -2, -1};
+    return std::vector<int8_t>(&kValues[0], &kValues[arraysize(kValues)]);
+  }
+
+  static const std::vector<uint8_t> uint8_vector() {
+    std::vector<int8_t> values = int8_vector();
+    return std::vector<uint8_t>(values.begin(), values.end());
+  }
+
   static const std::vector<uint32_t> ror_vector() {
     static const uint32_t kValues[31] = {
         1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16,
@@ -310,13 +332,18 @@ class ValueHelper {
 
 // Helper macros that can be used in FOR_INT32_INPUTS(i) { ... *i ... }
 // Watch out, these macros aren't hygenic; they pollute your scope. Thanks STL.
-#define FOR_INPUTS(ctype, itype, var)                           \
-  std::vector<ctype> var##_vec = ValueHelper::itype##_vector(); \
-  for (std::vector<ctype>::iterator var = var##_vec.begin();    \
+#define FOR_INPUTS(ctype, itype, var)                          \
+  std::vector<ctype> var##_vec =                               \
+      ::v8::internal::compiler::ValueHelper::itype##_vector(); \
+  for (std::vector<ctype>::iterator var = var##_vec.begin();   \
        var != var##_vec.end(); ++var)
 
 #define FOR_INT32_INPUTS(var) FOR_INPUTS(int32_t, int32, var)
 #define FOR_UINT32_INPUTS(var) FOR_INPUTS(uint32_t, uint32, var)
+#define FOR_INT16_INPUTS(var) FOR_INPUTS(int16_t, int16, var)
+#define FOR_UINT16_INPUTS(var) FOR_INPUTS(uint16_t, uint16, var)
+#define FOR_INT8_INPUTS(var) FOR_INPUTS(int8_t, int8, var)
+#define FOR_UINT8_INPUTS(var) FOR_INPUTS(uint8_t, uint8, var)
 #define FOR_INT64_INPUTS(var) FOR_INPUTS(int64_t, int64, var)
 #define FOR_UINT64_INPUTS(var) FOR_INPUTS(uint64_t, uint64, var)
 #define FOR_FLOAT32_INPUTS(var) FOR_INPUTS(float, float32, var)
@@ -336,10 +363,10 @@ static inline void CheckFloatEq(volatile float x, volatile float y) {
   }
 }
 
-#define CHECK_FLOAT_EQ(lhs, rhs) \
-  do {                           \
-    volatile float tmp = lhs;    \
-    CheckFloatEq(tmp, rhs);      \
+#define CHECK_FLOAT_EQ(lhs, rhs)                      \
+  do {                                                \
+    volatile float tmp = lhs;                         \
+    ::v8::internal::compiler::CheckFloatEq(tmp, rhs); \
   } while (0)
 
 static inline void CheckDoubleEq(volatile double x, volatile double y) {
@@ -351,10 +378,10 @@ static inline void CheckDoubleEq(volatile double x, volatile double y) {
   }
 }
 
-#define CHECK_DOUBLE_EQ(lhs, rhs) \
-  do {                            \
-    volatile double tmp = lhs;    \
-    CheckDoubleEq(tmp, rhs);      \
+#define CHECK_DOUBLE_EQ(lhs, rhs)                      \
+  do {                                                 \
+    volatile double tmp = lhs;                         \
+    ::v8::internal::compiler::CheckDoubleEq(tmp, rhs); \
   } while (0)
 
 }  // namespace compiler

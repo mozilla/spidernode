@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/code-stubs.h"
 #include "src/compiler/js-graph.h"
+
+#include "src/code-stubs.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/typer.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -16,17 +18,22 @@ namespace compiler {
 
 Node* JSGraph::AllocateInNewSpaceStubConstant() {
   return CACHED(kAllocateInNewSpaceStubConstant,
-                HeapConstant(isolate()->builtins()->AllocateInNewSpace()));
+                HeapConstant(BUILTIN_CODE(isolate(), AllocateInNewSpace)));
 }
 
 Node* JSGraph::AllocateInOldSpaceStubConstant() {
   return CACHED(kAllocateInOldSpaceStubConstant,
-                HeapConstant(isolate()->builtins()->AllocateInOldSpace()));
+                HeapConstant(BUILTIN_CODE(isolate(), AllocateInOldSpace)));
+}
+
+Node* JSGraph::ArrayConstructorStubConstant() {
+  return CACHED(kArrayConstructorStubConstant,
+                HeapConstant(ArrayConstructorStub(isolate()).GetCode()));
 }
 
 Node* JSGraph::ToNumberBuiltinConstant() {
   return CACHED(kToNumberBuiltinConstant,
-                HeapConstant(isolate()->builtins()->ToNumber()));
+                HeapConstant(BUILTIN_CODE(isolate(), ToNumber)));
 }
 
 Node* JSGraph::CEntryStubConstant(int result_size, SaveFPRegsMode save_doubles,
@@ -40,7 +47,7 @@ Node* JSGraph::CEntryStubConstant(int result_size, SaveFPRegsMode save_doubles,
       } else if (result_size == 2) {
         key = kCEntryStub2Constant;
       } else {
-        DCHECK(result_size == 3);
+        DCHECK_EQ(3, result_size);
         key = kCEntryStub3Constant;
       }
       return CACHED(
@@ -66,11 +73,6 @@ Node* JSGraph::EmptyFixedArrayConstant() {
                 HeapConstant(factory()->empty_fixed_array()));
 }
 
-Node* JSGraph::EmptyLiteralsArrayConstant() {
-  return CACHED(kEmptyLiteralsArrayConstant,
-                HeapConstant(factory()->empty_literals_array()));
-}
-
 Node* JSGraph::EmptyStringConstant() {
   return CACHED(kEmptyStringConstant, HeapConstant(factory()->empty_string()));
 }
@@ -78,6 +80,11 @@ Node* JSGraph::EmptyStringConstant() {
 Node* JSGraph::FixedArrayMapConstant() {
   return CACHED(kFixedArrayMapConstant,
                 HeapConstant(factory()->fixed_array_map()));
+}
+
+Node* JSGraph::PropertyArrayMapConstant() {
+  return CACHED(kPropertyArrayMapConstant,
+                HeapConstant(factory()->property_array_map()));
 }
 
 Node* JSGraph::FixedDoubleArrayMapConstant() {
@@ -133,6 +140,9 @@ Node* JSGraph::OneConstant() {
   return CACHED(kOneConstant, NumberConstant(1.0));
 }
 
+Node* JSGraph::MinusOneConstant() {
+  return CACHED(kMinusOneConstant, NumberConstant(-1.0));
+}
 
 Node* JSGraph::NaNConstant() {
   return CACHED(kNaNConstant,
@@ -281,6 +291,14 @@ Node* JSGraph::ExternalConstant(Runtime::FunctionId function_id) {
 Node* JSGraph::EmptyStateValues() {
   return CACHED(kEmptyStateValues, graph()->NewNode(common()->StateValues(
                                        0, SparseInputMask::Dense())));
+}
+
+Node* JSGraph::SingleDeadTypedStateValues() {
+  return CACHED(kSingleDeadTypedStateValues,
+                graph()->NewNode(common()->TypedStateValues(
+                    new (graph()->zone()->New(sizeof(ZoneVector<MachineType>)))
+                        ZoneVector<MachineType>(0, graph()->zone()),
+                    SparseInputMask(SparseInputMask::kEndMarker << 1))));
 }
 
 Node* JSGraph::Dead() {

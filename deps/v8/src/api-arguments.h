@@ -7,6 +7,7 @@
 
 #include "src/api.h"
 #include "src/isolate.h"
+#include "src/visitors.h"
 
 namespace v8 {
 namespace internal {
@@ -17,8 +18,8 @@ namespace internal {
 template <int kArrayLength>
 class CustomArgumentsBase : public Relocatable {
  public:
-  virtual inline void IterateInstance(ObjectVisitor* v) {
-    v->VisitPointers(values_, values_ + kArrayLength);
+  virtual inline void IterateInstance(RootVisitor* v) {
+    v->VisitRootPointers(Root::kRelocatable, values_, values_ + kArrayLength);
   }
 
  protected:
@@ -62,6 +63,8 @@ Handle<V> CustomArguments<T>::GetReturnValue(Isolate* isolate) {
   return result;
 }
 
+// Note: Calling args.Call() sets the return value on args. For multiple
+// Call()'s, a new args should be used every time.
 class PropertyCallbackArguments
     : public CustomArguments<PropertyCallbackInfo<Value> > {
  public:
@@ -96,14 +99,14 @@ class PropertyCallbackArguments
     DCHECK(values[T::kIsolateIndex]->IsSmi());
   }
 
-/*
- * The following Call functions wrap the calling of all callbacks to handle
- * calling either the old or the new style callbacks depending on which one
- * has been registered.
- * For old callbacks which return an empty handle, the ReturnValue is checked
- * and used if it's been set to anything inside the callback.
- * New style callbacks always use the return value.
- */
+  /*
+   * The following Call functions wrap the calling of all callbacks to handle
+   * calling either the old or the new style callbacks depending on which one
+   * has been registered.
+   * For old callbacks which return an empty handle, the ReturnValue is checked
+   * and used if it's been set to anything inside the callback.
+   * New style callbacks always use the return value.
+   */
   Handle<JSObject> Call(IndexedPropertyEnumeratorCallback f);
 
   inline Handle<Object> Call(AccessorNameGetterCallback f, Handle<Name> name);
@@ -138,6 +141,10 @@ class PropertyCallbackArguments
   }
 
   bool PerformSideEffectCheck(Isolate* isolate, Address function);
+
+  // Don't copy PropertyCallbackArguments, because they would both have the
+  // same prev_ pointer.
+  DISALLOW_COPY_AND_ASSIGN(PropertyCallbackArguments);
 };
 
 class FunctionCallbackArguments

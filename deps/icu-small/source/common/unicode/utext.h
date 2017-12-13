@@ -1,4 +1,4 @@
-// Copyright (C) 2016 and later: Unicode, Inc. and others.
+// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html
 /*
 *******************************************************************************
@@ -8,7 +8,7 @@
 *
 *******************************************************************************
 *   file name:  utext.h
-*   encoding:   US-ASCII
+*   encoding:   UTF-8
 *   tab size:   8 (not used)
 *   indentation:4
 *
@@ -768,7 +768,7 @@ utext_extract(UText *ut,
   */
 #define UTEXT_SETNATIVEINDEX(ut, ix)                       \
     { int64_t __offset = (ix) - (ut)->chunkNativeStart; \
-      if (__offset>=0 && __offset<=(int64_t)(ut)->nativeIndexingLimit) { \
+      if (__offset>=0 && __offset<(int64_t)(ut)->nativeIndexingLimit && (ut)->chunkContents[__offset]<0xdc00) { \
           (ut)->chunkOffset=(int32_t)__offset; \
       } else { \
           utext_setNativeIndex((ut), (ix)); } }

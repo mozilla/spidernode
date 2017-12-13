@@ -35,6 +35,7 @@ class V8_EXPORT_PRIVATE CompilerDispatcherTracer {
     kPrepareToParse,
     kParse,
     kFinalizeParsing,
+    kAnalyze,
     kPrepareToCompile,
     kCompile,
     kFinalizeCompiling
@@ -62,15 +63,17 @@ class V8_EXPORT_PRIVATE CompilerDispatcherTracer {
   void RecordPrepareToParse(double duration_ms);
   void RecordParse(double duration_ms, size_t source_length);
   void RecordFinalizeParsing(double duration_ms);
+  void RecordAnalyze(double duration_ms);
   void RecordPrepareToCompile(double duration_ms);
-  void RecordCompile(double duration_ms, size_t ast_size_in_bytes);
+  void RecordCompile(double duration_ms);
   void RecordFinalizeCompiling(double duration_ms);
 
   double EstimatePrepareToParseInMs() const;
   double EstimateParseInMs(size_t source_length) const;
   double EstimateFinalizeParsingInMs() const;
+  double EstimateAnalyzeInMs() const;
   double EstimatePrepareToCompileInMs() const;
-  double EstimateCompileInMs(size_t ast_size_in_bytes) const;
+  double EstimateCompileInMs() const;
   double EstimateFinalizeCompilingInMs() const;
 
   void DumpStatistics() const;
@@ -84,8 +87,9 @@ class V8_EXPORT_PRIVATE CompilerDispatcherTracer {
   base::RingBuffer<double> prepare_parse_events_;
   base::RingBuffer<std::pair<size_t, double>> parse_events_;
   base::RingBuffer<double> finalize_parsing_events_;
+  base::RingBuffer<double> analyze_events_;
   base::RingBuffer<double> prepare_compile_events_;
-  base::RingBuffer<std::pair<size_t, double>> compile_events_;
+  base::RingBuffer<double> compile_events_;
   base::RingBuffer<double> finalize_compiling_events_;
 
   RuntimeCallStats* runtime_call_stats_;

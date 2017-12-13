@@ -12,7 +12,8 @@
 #include "src/unicode-cache.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
+namespace v8 {
+namespace internal {
 
 namespace {
 
@@ -28,6 +29,7 @@ struct ScannerTestHelper {
   std::unique_ptr<UnicodeCache> unicode_cache;
   std::unique_ptr<Utf16CharacterStream> stream;
   std::unique_ptr<Scanner> scanner;
+  int use_counts[v8::Isolate::kUseCounterFeatureCount];
 
   Scanner* operator->() const { return scanner.get(); }
   Scanner* get() const { return scanner.get(); }
@@ -37,17 +39,20 @@ ScannerTestHelper make_scanner(const char* src) {
   ScannerTestHelper helper;
   helper.unicode_cache = std::unique_ptr<UnicodeCache>(new UnicodeCache);
   helper.stream = ScannerStream::ForTesting(src);
-  helper.scanner =
-      std::unique_ptr<Scanner>(new Scanner(helper.unicode_cache.get()));
-  helper.scanner->Initialize(helper.stream.get());
+  for (int i = 0; i < v8::Isolate::kUseCounterFeatureCount; i++) {
+    helper.use_counts[i] = 0;
+  }
+  helper.scanner = std::unique_ptr<Scanner>(
+      new Scanner(helper.unicode_cache.get(), helper.use_counts));
+  helper.scanner->Initialize(helper.stream.get(), false);
   return helper;
 }
 
 }  // anonymous namespace
 
-// DCHECK_TOK checks token equality, but by checking for equality of the token
+// CHECK_TOK checks token equality, but by checking for equality of the token
 // names. That should have the same result, but has much nicer error messaages.
-#define DCHECK_TOK(a, b) DCHECK_EQ(Token::Name(a), Token::Name(b))
+#define CHECK_TOK(a, b) CHECK_EQ(Token::Name(a), Token::Name(b))
 
 TEST(Bookmarks) {
   // Scan through the given source and record the tokens for use as reference
@@ -75,12 +80,12 @@ TEST(Bookmarks) {
       if (i == bookmark_pos) {
         bookmark.Set();
       }
-      DCHECK_TOK(tokens[i], scanner->Next());
+      CHECK_TOK(tokens[i], scanner->Next());
     }
 
     bookmark.Apply();
     for (size_t i = bookmark_pos; i < tokens.size(); i++) {
-      DCHECK_TOK(tokens[i], scanner->Next());
+      CHECK_TOK(tokens[i], scanner->Next());
     }
   }
 }
@@ -100,8 +105,35 @@ TEST(AllThePushbacks) {
   for (const auto& test_case : test_cases) {
     auto scanner = make_scanner(test_case.src);
     for (size_t i = 0; test_case.tokens[i] != Token::EOS; i++) {
-      DCHECK_TOK(test_case.tokens[i], scanner->Next());
+      CHECK_TOK(test_case.tokens[i], scanner->Next());
     }
-    DCHECK_TOK(Token::EOS, scanner->Next());
+    CHECK_TOK(Token::EOS, scanner->Next());
   }
 }
+
+TEST(ContextualKeywordTokens) {
+  auto scanner = make_scanner("function of get bla");
+
+  // function (regular keyword)
+  scanner->Next();
+  CHECK_TOK(Token::FUNCTION, scanner->current_token());
+  CHECK_TOK(Token::UNINITIALIZED, scanner->current_contextual_token());
+
+  // of (contextual keyword)
+  scanner->Next();
+  CHECK_TOK(Token::IDENTIFIER, scanner->current_token());
+  CHECK_TOK(Token::OF, scanner->current_contextual_token());
+
+  // get (contextual keyword)
+  scanner->Next();
+  CHECK_TOK(Token::IDENTIFIER, scanner->current_token());
+  CHECK_TOK(Token::GET, scanner->current_contextual_token());
+
+  // bla (identfier, not any sort of keyword)
+  scanner->Next();
+  CHECK_TOK(Token::IDENTIFIER, scanner->current_token());
+  CHECK_TOK(Token::UNINITIALIZED, scanner->current_contextual_token());
+}
+
+}  // namespace internal
+}  // namespace v8

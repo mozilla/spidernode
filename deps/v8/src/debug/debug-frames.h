@@ -13,6 +13,11 @@
 namespace v8 {
 namespace internal {
 
+// Forward declaration:
+namespace wasm {
+class InterpretedFrame;
+}
+
 class FrameInspector {
  public:
   FrameInspector(StandardFrame* frame, int inlined_frame_index,
@@ -20,16 +25,20 @@ class FrameInspector {
 
   ~FrameInspector();
 
-  FrameSummary& summary() { return frame_summary_; }
-
   int GetParametersCount();
-  Handle<JSFunction> GetFunction();
-  Handle<Script> GetScript();
+  Handle<JSFunction> GetFunction() { return function_; }
+  Handle<Script> GetScript() { return script_; }
   Handle<Object> GetParameter(int index);
   Handle<Object> GetExpression(int index);
-  int GetSourcePosition();
-  bool IsConstructor();
+  int GetSourcePosition() { return source_position_; }
+  bool IsConstructor() { return is_constructor_; }
   Handle<Object> GetContext();
+  Handle<Object> GetReceiver() { return receiver_; }
+
+  Handle<String> GetFunctionName() { return function_name_; }
+
+  bool IsWasm();
+  bool IsJavaScript();
 
   inline JavaScriptFrame* javascript_frame() {
     return frame_->is_arguments_adaptor() ? ArgumentsAdaptorFrame::cast(frame_)
@@ -40,10 +49,12 @@ class FrameInspector {
   void SetArgumentsFrame(StandardFrame* frame);
 
   void MaterializeStackLocals(Handle<JSObject> target,
-                              Handle<ScopeInfo> scope_info);
+                              Handle<ScopeInfo> scope_info,
+                              bool materialize_arguments_object = false);
 
   void MaterializeStackLocals(Handle<JSObject> target,
-                              Handle<JSFunction> function);
+                              Handle<JSFunction> function,
+                              bool materialize_arguments_object = false);
 
   void UpdateStackLocalsFromMaterializedObject(Handle<JSObject> object,
                                                Handle<ScopeInfo> scope_info);
@@ -53,13 +64,18 @@ class FrameInspector {
                                          Handle<String> parameter_name);
 
   StandardFrame* frame_;
-  FrameSummary frame_summary_;
-  DeoptimizedFrameInfo* deoptimized_frame_;
+  std::unique_ptr<DeoptimizedFrameInfo> deoptimized_frame_;
+  std::unique_ptr<wasm::InterpretedFrame> wasm_interpreted_frame_;
   Isolate* isolate_;
-  bool is_optimized_;
-  bool is_interpreted_;
-  bool is_bottommost_;
-  bool has_adapted_arguments_;
+  Handle<Script> script_;
+  Handle<Object> receiver_;
+  Handle<JSFunction> function_;
+  Handle<String> function_name_;
+  int source_position_ = -1;
+  bool is_optimized_ = false;
+  bool is_interpreted_ = false;
+  bool has_adapted_arguments_ = false;
+  bool is_constructor_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FrameInspector);
 };

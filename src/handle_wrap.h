@@ -24,7 +24,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "async-wrap.h"
+#include "async_wrap.h"
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
@@ -74,8 +74,7 @@ class HandleWrap : public AsyncWrap {
   HandleWrap(Environment* env,
              v8::Local<v8::Object> object,
              uv_handle_t* handle,
-             AsyncWrap::ProviderType provider,
-             AsyncWrap* parent = nullptr);
+             AsyncWrap::ProviderType provider);
   ~HandleWrap() override;
 
  private:

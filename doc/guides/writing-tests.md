@@ -23,41 +23,46 @@ Add tests when:
 Let's analyze this basic test from the Node.js test suite:
 
 ```javascript
-1   'use strict';
-2   const common = require('../common');
-3
-4   // This test ensures that the http-parser can handle UTF-8 characters
-5   // in the http header.
-6
-7   const assert = require('assert');
-8   const http = require('http');
-9
-10  const server = http.createServer(common.mustCall((req, res) => {
-11    res.end('ok');
-12  }));
-13  server.listen(0, () => {
-14   http.get({
-15     port: server.address().port,
-16     headers: {'Test': 'Düsseldorf'}
-17   }, common.mustCall((res) => {
-18     assert.strictEqual(res.statusCode, 200);
-19     server.close();
-20   }));
-21 });
+'use strict';                                                          // 1
+const common = require('../common');                                   // 2
+const fixtures = require('../common/fixtures');                        // 3
+
+// This test ensures that the http-parser can handle UTF-8 characters  // 5
+// in the http header.                                                 // 6
+
+const assert = require('assert');                                      // 8
+const http = require('http');                                          // 9
+
+const server = http.createServer(common.mustCall((req, res) => {       // 11
+  res.end('ok');                                                       // 12
+}));                                                                   // 13
+server.listen(0, () => {                                               // 14
+  http.get({                                                           // 15
+    port: server.address().port,                                       // 16
+    headers: { 'Test': 'Düsseldorf' }                                  // 17
+  }, common.mustCall((res) => {                                        // 18
+    assert.strictEqual(res.statusCode, 200);                           // 19
+    server.close();                                                    // 20
+  }));                                                                 // 21
+});                                                                    // 22
+// ...                                                                 // 23
 ```
 
-### **Lines 1-2**
+### **Lines 1-3**
 
 ```javascript
 'use strict';
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 ```
 
 The first line enables strict mode. All tests should be in strict mode unless
 the nature of the test requires that the test run without it.
 
-The second line loads the `common` module. The `common` module is a helper
-module that provides useful tools for the tests.
+The second line loads the `common` module. The [`common` module][] is a helper
+module that provides useful tools for the tests. Some common functionality has
+been extracted into submodules, which are required separately like the fixtures
+module here.
 
 Even if a test uses no functions or other properties exported by `common`,
 the test should still include the `common` module before any other modules. This
@@ -70,7 +75,7 @@ assigning it to an identifier:
 require('../common');
 ```
 
-### **Lines 4-5**
+### **Lines 5-6**
 
 ```javascript
 // This test ensures that the http-parser can handle UTF-8 characters
@@ -80,7 +85,7 @@ require('../common');
 A test should start with a comment containing a brief description of what it is
 designed to test.
 
-### **Lines 7-8**
+### **Lines 8-9**
 
 ```javascript
 const assert = require('assert');
@@ -92,10 +97,10 @@ The test checks functionality in the `http` module.
 Most tests use the `assert` module to confirm expectations of the test.
 
 The require statements are sorted in
-[ASCII](http://man7.org/linux/man-pages/man7/ascii.7.html) order (digits, upper
+[ASCII][] order (digits, upper
 case, `_`, lower case).
 
-### **Lines 10-21**
+### **Lines 11-22**
 
 This is the body of the test. This test is simple, it just tests that an
 HTTP server accepts `non-ASCII` characters in the headers of an incoming
@@ -141,22 +146,22 @@ this with a real test from the test suite.
 
 ```javascript
 'use strict';
-var common = require('../common');
-var assert = require('assert');
-var http = require('http');
+require('../common');
+const assert = require('assert');
+const http = require('http');
 
-var request = 0;
-var response = 0;
+let request = 0;
+let response = 0;
 process.on('exit', function() {
   assert.equal(request, 1, 'http server "request" callback was not called');
   assert.equal(response, 1, 'http request "response" callback was not called');
 });
 
-var server = http.createServer(function(req, res) {
+const server = http.createServer(function(req, res) {
   request++;
   res.end();
 }).listen(0, function() {
-  var options = {
+  const options = {
     agent: null,
     port: this.address().port
   };
@@ -172,14 +177,13 @@ This test could be greatly simplified by using `common.mustCall` like this:
 
 ```javascript
 'use strict';
-var common = require('../common');
-var assert = require('assert');
-var http = require('http');
+const common = require('../common');
+const http = require('http');
 
-var server = http.createServer(common.mustCall(function(req, res) {
+const server = http.createServer(common.mustCall(function(req, res) {
   res.end();
 })).listen(0, function() {
-  var options = {
+  const options = {
     agent: null,
     port: this.address().port
   };
@@ -232,9 +236,9 @@ assert.throws(
 For performance considerations, we only use a selected subset of ES.Next
 features in JavaScript code in the `lib` directory. However, when writing
 tests, for the ease of backporting, it is encouraged to use those ES.Next
-features that can be used directly without a flag in [all maintained branches]
-(https://github.com/nodejs/lts), you can check [node.green](http://node.green)
-for all available features in each release.
+features that can be used directly without a flag in
+[all maintained branches][]. [node.green][] lists available features
+in each release.
 
 For example:
 
@@ -259,24 +263,24 @@ functions worked correctly with the `beforeExit` event, then it might be named
 ### Web Platform Tests
 
 Some of the tests for the WHATWG URL implementation (named
-`test-whatwg-url-*.js`) are imported from the
-[Web Platform Tests Project](https://github.com/w3c/web-platform-tests/tree/master/url).
+`test-whatwg-url-*.js`) are imported from the [Web Platform Tests Project][].
 These imported tests will be wrapped like this:
 
 ```js
-/* eslint-disable */
-/* WPT Refs:
+/* The following tests are copied from WPT. Modifications to them should be
+   upstreamed first. Refs:
    https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-stringifier.html
    License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
 */
+/* eslint-disable */
 
 // Test code
 
 /* eslint-enable */
 ```
 
-If you want to improve tests that have been imported this way, please send
-a PR to the upstream project first. When your proposed change is merged in
+To improve tests that have been imported this way, please send
+a PR to the upstream project first. When the proposed change is merged in
 the upstream project, send another PR here to update Node.js accordingly.
 Be sure to update the hash in the URL following `WPT Refs:`.
 
@@ -308,8 +312,8 @@ TEST_F(EnvTest, RunAtExit) {
   v8::Local<v8::Context> context = v8::Context::New(isolate_);
   node::IsolateData* isolateData = node::CreateIsolateData(isolate_, uv_default_loop());
   Argv argv{"node", "-e", ";"};
-  auto env = Environment:CreateEnvironment(isolateData, context, 1, *argv, 2, *argv);
-  node::AtExit(at_exit_callback);
+  auto env = node::CreateEnvironment(isolateData, context, 1, *argv, 2, *argv);
+  node::AtExit(env, at_exit_callback);
   node::RunAtExit(env);
   EXPECT_TRUE(called_cb);
 }
@@ -320,24 +324,34 @@ static void at_exit_callback(void* arg) {
 ```
 
 Next add the test to the `sources` in the `cctest` target in node.gyp:
-```
+```console
 'sources': [
   'test/cctest/test_env.cc',
   ...
 ],
 ```
+Note that the only sources that should be included in the cctest target are
+actual test or helper source files. There might be a need to include specific
+object files that are compiled by the `node` target and this can be done by
+adding them to the `libraries` section in the cctest target.
+
 The test can be executed by running the `cctest` target:
-```
+```console
 $ make cctest
 ```
 
 ### Node test fixture
-There is a [test fixture] named `node_test_fixture.h` which can be included by
+There is a [test fixture][] named `node_test_fixture.h` which can be included by
 unit tests. The fixture takes care of setting up the Node.js environment
 and tearing it down after the tests have finished.
 
 It also contains a helper to create arguments to be passed into Node.js. It
 will depend on what is being tested if this is required or not.
 
+[ASCII]: http://man7.org/linux/man-pages/man7/ascii.7.html
 [Google Test]: https://github.com/google/googletest
-[Test fixture]: https://github.com/google/googletest/blob/master/googletest/docs/Primer.md#test-fixtures-using-the-same-data-configuration-for-multiple-tests
+[Web Platform Tests Project]: https://github.com/w3c/web-platform-tests/tree/master/url
+[`common` module]: https://github.com/nodejs/node/blob/master/test/common/README.md
+[all maintained branches]: https://github.com/nodejs/lts
+[node.green]: http://node.green/
+[test fixture]: https://github.com/google/googletest/blob/master/googletest/docs/Primer.md#test-fixtures-using-the-same-data-configuration-for-multiple-tests

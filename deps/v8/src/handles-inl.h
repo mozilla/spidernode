@@ -5,10 +5,9 @@
 #ifndef V8_HANDLES_INL_H_
 #define V8_HANDLES_INL_H_
 
-#include "src/api.h"
 #include "src/handles.h"
-#include "src/heap/heap.h"
 #include "src/isolate.h"
+#include "src/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -33,6 +32,11 @@ HandleScope::HandleScope(Isolate* isolate) {
   data->level++;
 }
 
+template <typename T>
+Handle<T>::Handle(T* object) : Handle(object, object->GetIsolate()) {}
+
+template <typename T>
+Handle<T>::Handle(T* object, Isolate* isolate) : HandleBase(object, isolate) {}
 
 template <typename T>
 inline std::ostream& operator<<(std::ostream& os, Handle<T> handle) {
@@ -94,7 +98,6 @@ Handle<T> HandleScope::CloseAndEscape(Handle<T> handle_value) {
   return result;
 }
 
-
 Object** HandleScope::CreateHandle(Isolate* isolate, Object* value) {
   DCHECK(AllowHandleAllocation::IsAllowed());
   HandleScopeData* data = isolate->handle_scope_data();
@@ -122,7 +125,7 @@ Object** HandleScope::GetHandle(Isolate* isolate, Object* value) {
 #ifdef DEBUG
 inline SealHandleScope::SealHandleScope(Isolate* isolate) : isolate_(isolate) {
   // Make sure the current thread is allowed to create handles to begin with.
-  CHECK(AllowHandleAllocation::IsAllowed());
+  DCHECK(AllowHandleAllocation::IsAllowed());
   HandleScopeData* current = isolate_->handle_scope_data();
   // Shrink the current handle scope to make it impossible to do
   // handle allocations without an explicit handle scope.

@@ -1,5 +1,5 @@
 'use strict';
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 
 // testing basic buffer read functions
@@ -8,15 +8,17 @@ const buf = Buffer.from([0xa4, 0xfd, 0x48, 0xea, 0xcf, 0xff, 0xd9, 0x01, 0xde]);
 function read(buff, funx, args, expected) {
 
   assert.strictEqual(buff[funx](...args), expected);
-  assert.throws(
+  common.expectsError(
     () => buff[funx](-1),
-    /^RangeError: Index out of range$/
+    {
+      code: 'ERR_INDEX_OUT_OF_RANGE'
+    }
   );
 
   assert.doesNotThrow(
-  () => assert.strictEqual(buff[funx](...args, true), expected),
-  'noAssert does not change return value for valid ranges'
-);
+    () => assert.strictEqual(buff[funx](...args, true), expected),
+    'noAssert does not change return value for valid ranges'
+  );
 
 }
 
@@ -59,13 +61,13 @@ read(buf, 'readUIntBE', [2, 0], 0xfd);
 read(buf, 'readUIntLE', [2, 0], 0x48);
 
 // attempt to overflow buffers, similar to previous bug in array buffers
-assert.throws(() => Buffer.allocUnsafe(8).readFloatLE(0xffffffff),
+assert.throws(() => Buffer.allocUnsafe(8).readFloatBE(0xffffffff),
               RangeError);
 assert.throws(() => Buffer.allocUnsafe(8).readFloatLE(0xffffffff),
               RangeError);
 
 // ensure negative values can't get past offset
-assert.throws(() => Buffer.allocUnsafe(8).readFloatLE(-1), RangeError);
+assert.throws(() => Buffer.allocUnsafe(8).readFloatBE(-1), RangeError);
 assert.throws(() => Buffer.allocUnsafe(8).readFloatLE(-1), RangeError);
 
 // offset checks

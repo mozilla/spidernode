@@ -7,17 +7,16 @@ prefix parallel
 [true] # This section applies to all platforms
 
 [$system==win32]
-# See https://github.com/nodejs/node/issues/12053, this test may be exposing a
-# genuine bug with kill() on Windows.
-test-child-process-exec-kill-throws : PASS,FLAKY
 
 [$system==linux]
 
 [$system==macos]
 
 [$arch==arm || $arch==arm64]
+test-npm-install:      PASS,FLAKY
 
 [$system==solaris] # Also applies to SmartOS
 
 [$system==freebsd]
 
+[$system==aix]

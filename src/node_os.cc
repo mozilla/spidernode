@@ -19,10 +19,7 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "node.h"
-#include "v8.h"
-#include "env.h"
-#include "env-inl.h"
+#include "node_internals.h"
 #include "string_bytes.h"
 
 #include <errno.h>
@@ -57,6 +54,7 @@ using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::Integer;
 using v8::Local;
+using v8::MaybeLocal;
 using v8::Null;
 using v8::Number;
 using v8::Object;
@@ -74,7 +72,9 @@ static void GetHostname(const FunctionCallbackInfo<Value>& args) {
 #else  // __MINGW32__
     int errorno = WSAGetLastError();
 #endif  // __POSIX__
-    return env->ThrowErrnoException(errorno, "gethostname");
+    CHECK_GE(args.Length(), 1);
+    env->CollectExceptionInfo(args[args.Length() - 1], errorno, "gethostname");
+    return args.GetReturnValue().SetUndefined();
   }
   buf[sizeof(buf) - 1] = '\0';
 
@@ -89,7 +89,9 @@ static void GetOSType(const FunctionCallbackInfo<Value>& args) {
 #ifdef __POSIX__
   struct utsname info;
   if (uname(&info) < 0) {
-    return env->ThrowErrnoException(errno, "uname");
+    CHECK_GE(args.Length(), 1);
+    env->CollectExceptionInfo(args[args.Length() - 1], errno, "uname");
+    return args.GetReturnValue().SetUndefined();
   }
   rval = info.sysname;
 #else  // __MINGW32__
@@ -107,7 +109,9 @@ static void GetOSRelease(const FunctionCallbackInfo<Value>& args) {
 #ifdef __POSIX__
   struct utsname info;
   if (uname(&info) < 0) {
-    return env->ThrowErrnoException(errno, "uname");
+    CHECK_GE(args.Length(), 1);
+    env->CollectExceptionInfo(args[args.Length() - 1], errno, "uname");
+    return args.GetReturnValue().SetUndefined();
   }
 # ifdef _AIX
   char release[256];
@@ -244,7 +248,10 @@ static void GetInterfaceAddresses(const FunctionCallbackInfo<Value>& args) {
   if (err == UV_ENOSYS) {
     return args.GetReturnValue().Set(ret);
   } else if (err) {
-    return env->ThrowUVException(err, "uv_interface_addresses");
+    CHECK_GE(args.Length(), 1);
+    env->CollectUVExceptionInfo(args[args.Length() - 1], errno,
+                                "uv_interface_addresses");
+    return args.GetReturnValue().SetUndefined();
   }
 
   for (i = 0; i < count; i++) {
@@ -321,7 +328,9 @@ static void GetHomeDirectory(const FunctionCallbackInfo<Value>& args) {
   const int err = uv_os_homedir(buf, &len);
 
   if (err) {
-    return env->ThrowUVException(err, "uv_os_homedir");
+    CHECK_GE(args.Length(), 1);
+    env->CollectUVExceptionInfo(args[args.Length() - 1], err, "uv_os_homedir");
+    return args.GetReturnValue().SetUndefined();
   }
 
   Local<String> home = String::NewFromUtf8(env->isolate(),
@@ -339,7 +348,12 @@ static void GetUserInfo(const FunctionCallbackInfo<Value>& args) {
 
   if (args[0]->IsObject()) {
     Local<Object> options = args[0].As<Object>();
-    Local<Value> encoding_opt = options->Get(env->encoding_string());
+    MaybeLocal<Value> maybe_encoding = options->Get(env->context(),
+                                                    env->encoding_string());
+    if (maybe_encoding.IsEmpty())
+      return;
+
+    Local<Value> encoding_opt = maybe_encoding.ToLocalChecked();
     encoding = ParseEncoding(env->isolate(), encoding_opt, UTF8);
   } else {
     encoding = UTF8;
@@ -348,51 +362,45 @@ static void GetUserInfo(const FunctionCallbackInfo<Value>& args) {
   const int err = uv_os_get_passwd(&pwd);
 
   if (err) {
-    return env->ThrowUVException(err, "uv_os_get_passwd");
+    CHECK_GE(args.Length(), 2);
+    env->CollectUVExceptionInfo(args[args.Length() - 1], err,
+                                "uv_os_get_passwd");
+    return args.GetReturnValue().SetUndefined();
   }
+
+  Local<Value> error;
 
   Local<Value> uid = Number::New(env->isolate(), pwd.uid);
   Local<Value> gid = Number::New(env->isolate(), pwd.gid);
-  Local<Value> username = StringBytes::Encode(env->isolate(),
-                                              pwd.username,
-                                              encoding);
-  Local<Value> homedir = StringBytes::Encode(env->isolate(),
-                                             pwd.homedir,
-                                             encoding);
-  Local<Value> shell;
+  MaybeLocal<Value> username = StringBytes::Encode(env->isolate(),
+                                                   pwd.username,
+                                                   encoding,
+                                                   &error);
+  MaybeLocal<Value> homedir = StringBytes::Encode(env->isolate(),
+                                                  pwd.homedir,
+                                                  encoding,
+                                                  &error);
+  MaybeLocal<Value> shell;
 
-  if (pwd.shell == NULL)
+  if (pwd.shell == nullptr)
     shell = Null(env->isolate());
   else
-    shell = StringBytes::Encode(env->isolate(), pwd.shell, encoding);
+    shell = StringBytes::Encode(env->isolate(), pwd.shell, encoding, &error);
 
-  uv_os_free_passwd(&pwd);
-
-  if (username.IsEmpty()) {
-    return env->ThrowUVException(UV_EINVAL,
-                                 "uv_os_get_passwd",
-                                 "Invalid character encoding for username");
-  }
-
-  if (homedir.IsEmpty()) {
-    return env->ThrowUVException(UV_EINVAL,
-                                 "uv_os_get_passwd",
-                                 "Invalid character encoding for homedir");
-  }
-
-  if (shell.IsEmpty()) {
-    return env->ThrowUVException(UV_EINVAL,
-                                 "uv_os_get_passwd",
-                                 "Invalid character encoding for shell");
+  if (username.IsEmpty() || homedir.IsEmpty() || shell.IsEmpty()) {
+    CHECK(!error.IsEmpty());
+    uv_os_free_passwd(&pwd);
+    env->isolate()->ThrowException(error);
+    return;
   }
 
   Local<Object> entry = Object::New(env->isolate());
 
   entry->Set(env->uid_string(), uid);
   entry->Set(env->gid_string(), gid);
-  entry->Set(env->username_string(), username);
-  entry->Set(env->homedir_string(), homedir);
-  entry->Set(env->shell_string(), shell);
+  entry->Set(env->username_string(), username.ToLocalChecked());
+  entry->Set(env->homedir_string(), homedir.ToLocalChecked());
+  entry->Set(env->shell_string(), shell.ToLocalChecked());
 
   args.GetReturnValue().Set(entry);
 }
@@ -420,4 +428,4 @@ void Initialize(Local<Object> target,
 }  // namespace os
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(os, node::os::Initialize)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(os, node::os::Initialize)

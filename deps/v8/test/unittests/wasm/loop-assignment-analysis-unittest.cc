@@ -4,22 +4,21 @@
 
 #include "test/unittests/test-utils.h"
 
-#include "src/v8.h"
-
-#include "test/common/wasm/test-signatures.h"
-
 #include "src/bit-vector.h"
+#include "src/objects-inl.h"
 #include "src/objects.h"
-
+#include "src/v8.h"
 #include "src/wasm/function-body-decoder.h"
-#include "src/wasm/wasm-macro-gen.h"
 #include "src/wasm/wasm-module.h"
 
-#define WASM_SET_ZERO(i) WASM_SET_LOCAL(i, WASM_ZERO)
+#include "test/common/wasm/test-signatures.h"
+#include "test/common/wasm/wasm-macro-gen.h"
 
 namespace v8 {
 namespace internal {
 namespace wasm {
+
+#define WASM_SET_ZERO(i) WASM_SET_LOCAL(i, WASM_ZERO)
 
 class WasmLoopAssignmentAnalyzerTest : public TestWithZone {
  public:
@@ -191,6 +190,8 @@ TEST_F(WasmLoopAssignmentAnalyzerTest, regress_642867) {
   // Just make sure that the analysis does not crash.
   Analyze(code, code + arraysize(code));
 }
+
+#undef WASM_SET_ZERO
 
 }  // namespace wasm
 }  // namespace internal

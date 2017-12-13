@@ -6,7 +6,6 @@
 
 #include "src/base/lazy-instance.h"
 #include "src/base/platform/platform.h"
-#include "src/debug/debug.h"
 #include "src/isolate.h"
 #include "src/utils.h"
 
@@ -16,7 +15,8 @@ namespace internal {
 namespace {
 
 struct PerThreadAssertKeyConstructTrait final {
-  static void Construct(base::Thread::LocalStorageKey* key) {
+  static void Construct(void* key_arg) {
+    auto key = reinterpret_cast<base::Thread::LocalStorageKey*>(key_arg);
     *key = base::Thread::CreateThreadLocalKey();
   }
 };

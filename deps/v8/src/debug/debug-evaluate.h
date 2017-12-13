@@ -5,8 +5,11 @@
 #ifndef V8_DEBUG_DEBUG_EVALUATE_H_
 #define V8_DEBUG_DEBUG_EVALUATE_H_
 
+#include <vector>
+
 #include "src/frames.h"
 #include "src/objects.h"
+#include "src/objects/string-table.h"
 
 namespace v8 {
 namespace internal {
@@ -22,7 +25,8 @@ class DebugEvaluate : public AllStatic {
   // - The arguments object needs to materialized.
   static MaybeHandle<Object> Local(Isolate* isolate, StackFrame::Id frame_id,
                                    int inlined_jsframe_index,
-                                   Handle<String> source);
+                                   Handle<String> source,
+                                   bool throw_on_side_effect);
 
   static bool FunctionHasNoSideEffect(Handle<SharedFunctionInfo> info);
   static bool CallbackHasNoSideEffect(Address function_addr);
@@ -64,11 +68,6 @@ class DebugEvaluate : public AllStatic {
       Handle<StringSet> whitelist;
     };
 
-    // Helper function to find or create the arguments object for
-    // Runtime_DebugEvaluate.
-    void MaterializeArgumentsObject(Handle<JSObject> target,
-                                    Handle<JSFunction> function);
-
     void MaterializeReceiver(Handle<JSObject> target,
                              Handle<Context> local_context,
                              Handle<JSFunction> local_function,
@@ -76,7 +75,7 @@ class DebugEvaluate : public AllStatic {
 
     Handle<SharedFunctionInfo> outer_info_;
     Handle<Context> evaluation_context_;
-    List<ContextChainElement> context_chain_;
+    std::vector<ContextChainElement> context_chain_;
     Isolate* isolate_;
     JavaScriptFrame* frame_;
     int inlined_jsframe_index_;
@@ -86,7 +85,8 @@ class DebugEvaluate : public AllStatic {
                                       Handle<SharedFunctionInfo> outer_info,
                                       Handle<Context> context,
                                       Handle<Object> receiver,
-                                      Handle<String> source);
+                                      Handle<String> source,
+                                      bool throw_on_side_effect);
 };
 
 

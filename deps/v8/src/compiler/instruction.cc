@@ -2,18 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/compiler/instruction.h"
+
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
-#include "src/compiler/instruction.h"
 #include "src/compiler/schedule.h"
 #include "src/compiler/state-values-utils.h"
+#include "src/source-position.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
-const RegisterConfiguration* (*GetRegConfig)() =
-    RegisterConfiguration::Turbofan;
+const RegisterConfiguration* (*GetRegConfig)() = RegisterConfiguration::Default;
 
 FlagsCondition CommuteFlagsCondition(FlagsCondition condition) {
   switch (condition) {
@@ -62,7 +63,6 @@ FlagsCondition CommuteFlagsCondition(FlagsCondition condition) {
       return condition;
   }
   UNREACHABLE();
-  return condition;
 }
 
 bool InstructionOperand::InterferesWith(const InstructionOperand& other) const {
@@ -224,7 +224,6 @@ std::ostream& operator<<(std::ostream& os,
       return os << "(x)";
   }
   UNREACHABLE();
-  return os;
 }
 
 void MoveOperands::Print(const RegisterConfiguration* config) const {
@@ -404,7 +403,6 @@ std::ostream& operator<<(std::ostream& os, const ArchOpcode& ao) {
 #undef CASE
   }
   UNREACHABLE();
-  return os;
 }
 
 
@@ -419,7 +417,6 @@ std::ostream& operator<<(std::ostream& os, const AddressingMode& am) {
 #undef CASE
   }
   UNREACHABLE();
-  return os;
 }
 
 
@@ -437,7 +434,6 @@ std::ostream& operator<<(std::ostream& os, const FlagsMode& fm) {
       return os << "trap";
   }
   UNREACHABLE();
-  return os;
 }
 
 
@@ -493,7 +489,6 @@ std::ostream& operator<<(std::ostream& os, const FlagsCondition& fc) {
       return os << "negative";
   }
   UNREACHABLE();
-  return os;
 }
 
 
@@ -565,6 +560,12 @@ Handle<HeapObject> Constant::ToHeapObject() const {
   return value;
 }
 
+Handle<Code> Constant::ToCode() const {
+  DCHECK_EQ(kHeapObject, type());
+  Handle<Code> value(bit_cast<Code**>(static_cast<intptr_t>(value_)));
+  return value;
+}
+
 std::ostream& operator<<(std::ostream& os, const Constant& constant) {
   switch (constant.type()) {
     case Constant::kInt32:
@@ -574,7 +575,7 @@ std::ostream& operator<<(std::ostream& os, const Constant& constant) {
     case Constant::kFloat32:
       return os << constant.ToFloat32() << "f";
     case Constant::kFloat64:
-      return os << constant.ToFloat64();
+      return os << constant.ToFloat64().value();
     case Constant::kExternalReference:
       return os << static_cast<const void*>(
                        constant.ToExternalReference().address());
@@ -584,7 +585,6 @@ std::ostream& operator<<(std::ostream& os, const Constant& constant) {
       return os << "RPO" << constant.ToRpoNumber().ToInt();
   }
   UNREACHABLE();
-  return os;
 }
 
 
@@ -861,7 +861,7 @@ int InstructionSequence::AddInstruction(Instruction* instr) {
   instr->set_block(current_block_);
   instructions_.push_back(instr);
   if (instr->NeedsReferenceMap()) {
-    DCHECK(instr->reference_map() == nullptr);
+    DCHECK_NULL(instr->reference_map());
     ReferenceMap* reference_map = new (zone()) ReferenceMap(zone());
     reference_map->set_instruction_position(index);
     instr->set_reference_map(reference_map);
@@ -885,18 +885,18 @@ static MachineRepresentation FilterRepresentation(MachineRepresentation rep) {
       return InstructionSequence::DefaultRepresentation();
     case MachineRepresentation::kWord32:
     case MachineRepresentation::kWord64:
-    case MachineRepresentation::kFloat32:
-    case MachineRepresentation::kFloat64:
-    case MachineRepresentation::kSimd128:
     case MachineRepresentation::kTaggedSigned:
     case MachineRepresentation::kTaggedPointer:
     case MachineRepresentation::kTagged:
+    case MachineRepresentation::kFloat32:
+    case MachineRepresentation::kFloat64:
+    case MachineRepresentation::kSimd128:
       return rep;
     case MachineRepresentation::kNone:
       break;
   }
+
   UNREACHABLE();
-  return MachineRepresentation::kNone;
 }
 
 
@@ -926,9 +926,11 @@ void InstructionSequence::MarkAsRepresentation(MachineRepresentation rep,
 }
 
 int InstructionSequence::AddDeoptimizationEntry(
-    FrameStateDescriptor* descriptor, DeoptimizeReason reason) {
+    FrameStateDescriptor* descriptor, DeoptimizeKind kind,
+    DeoptimizeReason reason) {
   int deoptimization_id = static_cast<int>(deoptimization_entries_.size());
-  deoptimization_entries_.push_back(DeoptimizationEntry(descriptor, reason));
+  deoptimization_entries_.push_back(
+      DeoptimizationEntry(descriptor, kind, reason));
   return deoptimization_id;
 }
 
@@ -991,7 +993,7 @@ const RegisterConfiguration*
 
 const RegisterConfiguration*
 InstructionSequence::RegisterConfigurationForTesting() {
-  DCHECK(registerConfigurationForTesting_ != nullptr);
+  DCHECK_NOT_NULL(registerConfigurationForTesting_);
   return registerConfigurationForTesting_;
 }
 
@@ -1017,18 +1019,9 @@ FrameStateDescriptor::FrameStateDescriptor(
       shared_info_(shared_info),
       outer_state_(outer_state) {}
 
-
-size_t FrameStateDescriptor::GetSize(OutputFrameStateCombine combine) const {
-  size_t size = 1 + parameters_count() + locals_count() + stack_count() +
-                (HasContext() ? 1 : 0);
-  switch (combine.kind()) {
-    case OutputFrameStateCombine::kPushOutput:
-      size += combine.GetPushCount();
-      break;
-    case OutputFrameStateCombine::kPokeAt:
-      break;
-  }
-  return size;
+size_t FrameStateDescriptor::GetSize() const {
+  return 1 + parameters_count() + locals_count() + stack_count() +
+         (HasContext() ? 1 : 0);
 }
 
 

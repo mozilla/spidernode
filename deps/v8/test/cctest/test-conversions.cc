@@ -29,22 +29,15 @@
 
 #include "src/base/platform/platform.h"
 #include "src/conversions.h"
-#include "src/factory.h"
+#include "src/factory-inl.h"
 #include "src/isolate.h"
-// FIXME(mstarzinger, marja): This is weird, but required because of the missing
-// (disallowed) include: src/factory.h -> src/objects-inl.h
-#include "src/objects-inl.h"
 #include "src/objects.h"
-// FIXME(mstarzinger, marja): This is weird, but required because of the missing
-// (disallowed) include: src/feedback-vector.h ->
-// src/feedback-vector-inl.h
-#include "src/feedback-vector-inl.h"
 #include "src/unicode-cache.h"
 #include "src/v8.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
-
+namespace v8 {
+namespace internal {
 
 TEST(Hex) {
   UnicodeCache uc;
@@ -502,3 +495,6 @@ TEST(PositiveNumberToUint32) {
   number = factory->NewHeapNumber(std::nan(""));
   CHECK_EQ(PositiveNumberToUint32(*number), 0u);
 }
+
+}  // namespace internal
+}  // namespace v8

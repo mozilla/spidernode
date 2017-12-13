@@ -23,25 +23,23 @@
 // Flags: --expose-gc
 
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
-const tls = require('tls');
 
-const fs = require('fs');
+const assert = require('assert');
+const tls = require('tls');
+const fixtures = require('../common/fixtures');
 
 assert.strictEqual(
   typeof global.gc,
   'function',
-  'Run this test with --expose-gc'
+  `Type of global.gc is not a function. Type: ${typeof global.gc}.` +
+    ' Run this test with --expose-gc'
 );
 
 tls.createServer({
-  cert: fs.readFileSync(common.fixturesDir + '/test_cert.pem'),
-  key: fs.readFileSync(common.fixturesDir + '/test_key.pem')
+  cert: fixtures.readSync('test_cert.pem'),
+  key: fixtures.readSync('test_key.pem')
 }).listen(common.PORT);
 
 {

@@ -1,31 +1,39 @@
 'use strict';
-const common = require('../common');
-if (!common.hasCrypto) {
-  common.skip('missing crypto');
-  return;
-}
 
-if (!common.hasIPv6) {
+// Test that the family option of https.get is honored.
+
+const common = require('../common');
+if (!common.hasCrypto)
+  common.skip('missing crypto');
+
+if (!common.hasIPv6)
   common.skip('no IPv6 support');
-  return;
-}
 
 const assert = require('assert');
+const fixtures = require('../common/fixtures');
 const https = require('https');
-const dns = require('dns');
 
-function runTest() {
-  const ciphers = 'AECDH-NULL-SHA';
-  https.createServer({ ciphers }, common.mustCall(function(req, res) {
+{
+  // Test that `https` machinery passes host name, and receives IP.
+  const hostAddrIPv6 = '::1';
+  const HOSTNAME = 'dummy';
+  https.createServer({
+    cert: fixtures.readKey('agent1-cert.pem'),
+    key: fixtures.readKey('agent1-key.pem'),
+  }, common.mustCall(function(req, res) {
     this.close();
     res.end();
-  })).listen(common.PORT, '::1', common.mustCall(function() {
+  })).listen(0, hostAddrIPv6, common.mustCall(function() {
     const options = {
-      host: 'localhost',
-      port: common.PORT,
+      host: HOSTNAME,
+      port: this.address().port,
       family: 6,
-      ciphers: ciphers,
       rejectUnauthorized: false,
+      lookup: common.mustCall((addr, opt, cb) => {
+        assert.strictEqual(addr, HOSTNAME);
+        assert.strictEqual(opt.family, 6);
+        cb(null, hostAddrIPv6, opt.family);
+      })
     };
     // Will fail with ECONNREFUSED if the address family is not honored.
     https.get(options, common.mustCall(function() {
@@ -34,18 +42,3 @@ function runTest() {
     }));
   }));
 }
-
-dns.lookup('localhost', {family: 6, all: true}, (err, addresses) => {
-  if (err) {
-    if (err.code === 'ENOTFOUND') {
-      common.skip('localhost does not resolve to ::1');
-      return;
-    }
-    throw err;
-  }
-
-  if (addresses.some((val) => val.address === '::1'))
-    runTest();
-  else
-    common.skip('localhost does not resolve to ::1');
-});

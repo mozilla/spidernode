@@ -36,8 +36,9 @@
 #undef MAP_TYPE
 
 #include "src/base/macros.h"
+#include "src/base/platform/platform-posix-time.h"
+#include "src/base/platform/platform-posix.h"
 #include "src/base/platform/platform.h"
-
 
 namespace v8 {
 namespace base {
@@ -50,96 +51,43 @@ namespace base {
 static const int kMmapFd = VM_MAKE_TAG(255);
 static const off_t kMmapFdOffset = 0;
 
-
-void* OS::Allocate(const size_t requested,
-                   size_t* allocated,
-                   bool is_executable) {
+// static
+void* OS::Allocate(const size_t requested, size_t* allocated,
+                   OS::MemoryPermission access, void* hint) {
   const size_t msize = RoundUp(requested, getpagesize());
-  int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
-  void* mbase = mmap(OS::GetRandomMmapAddr(),
-                     msize,
-                     prot,
-                     MAP_PRIVATE | MAP_ANON,
-                     kMmapFd,
-                     kMmapFdOffset);
+  int prot = GetProtectionFromMemoryPermission(access);
+  void* mbase =
+      mmap(hint, msize, prot, MAP_PRIVATE | MAP_ANON, kMmapFd, kMmapFdOffset);
   if (mbase == MAP_FAILED) return NULL;
   *allocated = msize;
   return mbase;
 }
 
+// static
+void* OS::ReserveRegion(size_t size, void* hint) {
+  void* result =
+      mmap(hint, size, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
+           kMmapFd, kMmapFdOffset);
 
-std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
-  std::vector<SharedLibraryAddress> result;
-  unsigned int images_count = _dyld_image_count();
-  for (unsigned int i = 0; i < images_count; ++i) {
-    const mach_header* header = _dyld_get_image_header(i);
-    if (header == NULL) continue;
-#if V8_HOST_ARCH_X64
-    uint64_t size;
-    char* code_ptr = getsectdatafromheader_64(
-        reinterpret_cast<const mach_header_64*>(header),
-        SEG_TEXT,
-        SECT_TEXT,
-        &size);
-#else
-    unsigned int size;
-    char* code_ptr = getsectdatafromheader(header, SEG_TEXT, SECT_TEXT, &size);
-#endif
-    if (code_ptr == NULL) continue;
-    const intptr_t slide = _dyld_get_image_vmaddr_slide(i);
-    const uintptr_t start = reinterpret_cast<uintptr_t>(code_ptr) + slide;
-    result.push_back(SharedLibraryAddress(_dyld_get_image_name(i), start,
-                                          start + size, slide));
-  }
+  if (result == MAP_FAILED) return nullptr;
+
   return result;
 }
 
-
-void OS::SignalCodeMovingGC() {
-}
-
-
-const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
-  if (std::isnan(time)) return "";
-  time_t tv = static_cast<time_t>(std::floor(time/msPerSecond));
-  struct tm tm;
-  struct tm* t = localtime_r(&tv, &tm);
-  if (NULL == t) return "";
-  return t->tm_zone;
-}
-
-
-double OS::LocalTimeOffset(TimezoneCache* cache) {
-  time_t tv = time(NULL);
-  struct tm tm;
-  struct tm* t = localtime_r(&tv, &tm);
-  // tm_gmtoff includes any daylight savings offset, so subtract it.
-  return static_cast<double>(t->tm_gmtoff * msPerSecond -
-                             (t->tm_isdst > 0 ? 3600 * msPerSecond : 0));
-}
-
-
-VirtualMemory::VirtualMemory() : address_(NULL), size_(0) { }
-
-
-VirtualMemory::VirtualMemory(size_t size)
-    : address_(ReserveRegion(size)), size_(size) { }
-
-
-VirtualMemory::VirtualMemory(size_t size, size_t alignment)
-    : address_(NULL), size_(0) {
+// static
+void* OS::ReserveAlignedRegion(size_t size, size_t alignment, void* hint,
+                               size_t* allocated) {
   DCHECK((alignment % OS::AllocateAlignment()) == 0);
+  hint = AlignedAddress(hint, alignment);
   size_t request_size = RoundUp(size + alignment,
                                 static_cast<intptr_t>(OS::AllocateAlignment()));
-  void* reservation = mmap(OS::GetRandomMmapAddr(),
-                           request_size,
-                           PROT_NONE,
-                           MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
-                           kMmapFd,
-                           kMmapFdOffset);
-  if (reservation == MAP_FAILED) return;
+  void* result = ReserveRegion(request_size, hint);
+  if (result == nullptr) {
+    *allocated = 0;
+    return nullptr;
+  }
 
-  uint8_t* base = static_cast<uint8_t*>(reservation);
+  uint8_t* base = static_cast<uint8_t*>(result);
   uint8_t* aligned_base = RoundUp(base, alignment);
   DCHECK_LE(base, aligned_base);
 
@@ -161,64 +109,12 @@ VirtualMemory::VirtualMemory(size_t size, size_t alignment)
 
   DCHECK(aligned_size == request_size);
 
-  address_ = static_cast<void*>(aligned_base);
-  size_ = aligned_size;
+  *allocated = aligned_size;
+  return static_cast<void*>(aligned_base);
 }
 
-
-VirtualMemory::~VirtualMemory() {
-  if (IsReserved()) {
-    bool result = ReleaseRegion(address(), size());
-    DCHECK(result);
-    USE(result);
-  }
-}
-
-
-bool VirtualMemory::IsReserved() {
-  return address_ != NULL;
-}
-
-
-void VirtualMemory::Reset() {
-  address_ = NULL;
-  size_ = 0;
-}
-
-
-bool VirtualMemory::Commit(void* address, size_t size, bool is_executable) {
-  return CommitRegion(address, size, is_executable);
-}
-
-
-bool VirtualMemory::Uncommit(void* address, size_t size) {
-  return UncommitRegion(address, size);
-}
-
-
-bool VirtualMemory::Guard(void* address) {
-  OS::Guard(address, OS::CommitPageSize());
-  return true;
-}
-
-
-void* VirtualMemory::ReserveRegion(size_t size) {
-  void* result = mmap(OS::GetRandomMmapAddr(),
-                      size,
-                      PROT_NONE,
-                      MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
-                      kMmapFd,
-                      kMmapFdOffset);
-
-  if (result == MAP_FAILED) return NULL;
-
-  return result;
-}
-
-
-bool VirtualMemory::CommitRegion(void* address,
-                                 size_t size,
-                                 bool is_executable) {
+// static
+bool OS::CommitRegion(void* address, size_t size, bool is_executable) {
   int prot = PROT_READ | PROT_WRITE | (is_executable ? PROT_EXEC : 0);
   if (MAP_FAILED == mmap(address,
                          size,
@@ -231,8 +127,8 @@ bool VirtualMemory::CommitRegion(void* address,
   return true;
 }
 
-
-bool VirtualMemory::UncommitRegion(void* address, size_t size) {
+// static
+bool OS::UncommitRegion(void* address, size_t size) {
   return mmap(address,
               size,
               PROT_NONE,
@@ -241,16 +137,48 @@ bool VirtualMemory::UncommitRegion(void* address, size_t size) {
               kMmapFdOffset) != MAP_FAILED;
 }
 
-bool VirtualMemory::ReleasePartialRegion(void* base, size_t size,
-                                         void* free_start, size_t free_size) {
-  return munmap(free_start, free_size) == 0;
-}
-
-bool VirtualMemory::ReleaseRegion(void* address, size_t size) {
+// static
+bool OS::ReleaseRegion(void* address, size_t size) {
   return munmap(address, size) == 0;
 }
 
-bool VirtualMemory::HasLazyCommits() { return true; }
+// static
+bool OS::ReleasePartialRegion(void* address, size_t size) {
+  return munmap(address, size) == 0;
+}
+
+// static
+bool OS::HasLazyCommits() { return true; }
+
+std::vector<OS::SharedLibraryAddress> OS::GetSharedLibraryAddresses() {
+  std::vector<SharedLibraryAddress> result;
+  unsigned int images_count = _dyld_image_count();
+  for (unsigned int i = 0; i < images_count; ++i) {
+    const mach_header* header = _dyld_get_image_header(i);
+    if (header == NULL) continue;
+#if V8_HOST_ARCH_X64
+    uint64_t size;
+    char* code_ptr = getsectdatafromheader_64(
+        reinterpret_cast<const mach_header_64*>(header), SEG_TEXT, SECT_TEXT,
+        &size);
+#else
+    unsigned int size;
+    char* code_ptr = getsectdatafromheader(header, SEG_TEXT, SECT_TEXT, &size);
+#endif
+    if (code_ptr == NULL) continue;
+    const intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+    const uintptr_t start = reinterpret_cast<uintptr_t>(code_ptr) + slide;
+    result.push_back(SharedLibraryAddress(_dyld_get_image_name(i), start,
+                                          start + size, slide));
+  }
+  return result;
+}
+
+void OS::SignalCodeMovingGC(void* hint) {}
+
+TimezoneCache* OS::CreateTimezoneCache() {
+  return new PosixDefaultTimezoneCache();
+}
 
 }  // namespace base
 }  // namespace v8

@@ -22,6 +22,7 @@ using testing::IsNaN;
 namespace v8 {
 namespace internal {
 namespace compiler {
+namespace typed_optimization_unittest {
 
 namespace {
 
@@ -72,9 +73,7 @@ class TypedOptimizationTest : public TypedGraphTest {
                     &machine);
     // TODO(titzer): mock the GraphReducer here for better unit testing.
     GraphReducer graph_reducer(zone(), graph());
-    TypedOptimization reducer(&graph_reducer, &deps_,
-                              TypedOptimization::kDeoptimizationEnabled,
-                              &jsgraph);
+    TypedOptimization reducer(&graph_reducer, &deps_, &jsgraph);
     return reducer.Reduce(node);
   }
 
@@ -221,6 +220,7 @@ TEST_F(TypedOptimizationTest, JSToBooleanWithNonZeroPlainNumber) {
   EXPECT_THAT(r.replacement(), IsTrueConstant());
 }
 
+}  // namespace typed_optimization_unittest
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8

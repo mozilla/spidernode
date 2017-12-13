@@ -5,6 +5,7 @@
 #ifndef V8_REGISTER_ALLOCATOR_H_
 #define V8_REGISTER_ALLOCATOR_H_
 
+#include "src/base/bits.h"
 #include "src/base/compiler-specific.h"
 #include "src/compiler/instruction.h"
 #include "src/globals.h"
@@ -105,7 +106,7 @@ class LifetimePosition final {
   // Returns the lifetime position for the beginning of the previous START.
   LifetimePosition PrevStart() const {
     DCHECK(IsValid());
-    DCHECK(value_ >= kHalfStep);
+    DCHECK_LE(kHalfStep, value_);
     return LifetimePosition(Start().value_ - kHalfStep);
   }
 
@@ -159,8 +160,8 @@ class LifetimePosition final {
   static const int kHalfStep = 2;
   static const int kStep = 2 * kHalfStep;
 
-  // Code relies on kStep and kHalfStep being a power of two.
-  STATIC_ASSERT(IS_POWER_OF_TWO(kHalfStep));
+  static_assert(base::bits::IsPowerOfTwo(kHalfStep),
+                "Code relies on kStep and kHalfStep being a power of two");
 
   explicit LifetimePosition(int value) : value_(value) {}
 
@@ -530,17 +531,17 @@ class V8_EXPORT_PRIVATE TopLevelLiveRange final : public LiveRange {
   }
   SpillType spill_type() const { return SpillTypeField::decode(bits_); }
   InstructionOperand* GetSpillOperand() const {
-    DCHECK(spill_type() == SpillType::kSpillOperand);
+    DCHECK_EQ(SpillType::kSpillOperand, spill_type());
     return spill_operand_;
   }
 
   SpillRange* GetAllocatedSpillRange() const {
-    DCHECK(spill_type() != SpillType::kSpillOperand);
+    DCHECK_NE(SpillType::kSpillOperand, spill_type());
     return spill_range_;
   }
 
   SpillRange* GetSpillRange() const {
-    DCHECK(spill_type() == SpillType::kSpillRange);
+    DCHECK_EQ(SpillType::kSpillRange, spill_type());
     return spill_range_;
   }
   bool HasNoSpillType() const {

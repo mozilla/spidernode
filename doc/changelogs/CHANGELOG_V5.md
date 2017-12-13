@@ -1,4 +1,6 @@
-# Node.js v5 ChangeLog
+# Node.js 5 ChangeLog
+
+<!--lint disable prohibited-strings-->
 
 <table>
 <tr>
@@ -30,6 +32,8 @@
 </table>
 
 * Other Versions
+  * [9.x](CHANGELOG_V9.md)
+  * [8.x](CHANGELOG_V8.md)
   * [7.x](CHANGELOG_V7.md)
   * [6.x](CHANGELOG_V6.md)
   * [4.x](CHANGELOG_V4.md)
@@ -38,7 +42,7 @@
   * [io.js](CHANGELOG_IOJS.md)
   * [Archive](CHANGELOG_ARCHIVE.md)
 
-**Note:** Official support for the v5 release line is scheduled to expire
+*Note*: Official support for the v5 release line is scheduled to expire
 around June 2016. Users of v5 should upgrade to [Node.js v6](CHANGELOG_V6.md).
 
 <a id="5.12.0"></a>

@@ -45,8 +45,7 @@ module.exports = {
         const MISSING_SPACE_MESSAGE = "There must be a space inside this paren.",
             REJECTED_SPACE_MESSAGE = "There should be no spaces inside this paren.",
             ALWAYS = context.options[0] === "always",
-
-            exceptionsArrayOptions = (context.options.length === 2) ? context.options[1].exceptions : [],
+            exceptionsArrayOptions = (context.options[1] && context.options[1].exceptions) || [],
             options = {};
         let exceptions;
 
@@ -128,13 +127,13 @@ module.exports = {
             }
 
             if (ALWAYS) {
-                if (right.type === "Punctuator" && right.value === ")") {
+                if (astUtils.isClosingParenToken(right)) {
                     return false;
                 }
                 return !isOpenerException(right);
-            } else {
-                return isOpenerException(right);
             }
+            return isOpenerException(right);
+
         }
 
         /**
@@ -144,7 +143,7 @@ module.exports = {
          * @returns {boolean} True if the paren should have a space
          */
         function shouldCloserHaveSpace(left, right) {
-            if (left.type === "Punctuator" && left.value === "(") {
+            if (astUtils.isOpeningParenToken(left)) {
                 return false;
             }
 
@@ -154,9 +153,9 @@ module.exports = {
 
             if (ALWAYS) {
                 return !isCloserException(left);
-            } else {
-                return isCloserException(left);
             }
+            return isCloserException(left);
+
         }
 
         /**
@@ -180,9 +179,9 @@ module.exports = {
 
             if (ALWAYS) {
                 return isOpenerException(right);
-            } else {
-                return !isOpenerException(right);
             }
+            return !isOpenerException(right);
+
         }
 
         /**
@@ -192,7 +191,7 @@ module.exports = {
          * @returns {boolean} True if the paren should reject the space
          */
         function shouldCloserRejectSpace(left, right) {
-            if (left.type === "Punctuator" && left.value === "(") {
+            if (astUtils.isOpeningParenToken(left)) {
                 return false;
             }
 
@@ -206,9 +205,9 @@ module.exports = {
 
             if (ALWAYS) {
                 return isCloserException(left);
-            } else {
-                return !isCloserException(left);
             }
+            return !isCloserException(left);
+
         }
 
         //--------------------------------------------------------------------------
@@ -224,11 +223,7 @@ module.exports = {
                     const prevToken = tokens[i - 1];
                     const nextToken = tokens[i + 1];
 
-                    if (token.type !== "Punctuator") {
-                        return;
-                    }
-
-                    if (token.value !== "(" && token.value !== ")") {
+                    if (!astUtils.isOpeningParenToken(token) && !astUtils.isClosingParenToken(token)) {
                         return;
                     }
 

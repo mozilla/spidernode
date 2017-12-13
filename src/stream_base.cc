@@ -1,14 +1,11 @@
-#include "stream_base.h"
 #include "stream_base-inl.h"
 #include "stream_wrap.h"
 
 #include "node.h"
 #include "node_buffer.h"
-#include "env.h"
 #include "env-inl.h"
 #include "js_stream.h"
 #include "string_bytes.h"
-#include "util.h"
 #include "util-inl.h"
 #include "v8.h"
 
@@ -53,10 +50,12 @@ int StreamBase::Shutdown(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsObject());
   Local<Object> req_wrap_obj = args[0].As<Object>();
 
+  AsyncWrap* wrap = GetAsyncWrap();
+  CHECK_NE(wrap, nullptr);
+  env->set_init_trigger_async_id(wrap->get_async_id());
   ShutdownWrap* req_wrap = new ShutdownWrap(env,
                                             req_wrap_obj,
-                                            this,
-                                            AfterShutdown);
+                                            this);
 
   int err = DoShutdown(req_wrap);
   if (err)
@@ -66,7 +65,6 @@ int StreamBase::Shutdown(const FunctionCallbackInfo<Value>& args) {
 
 
 void StreamBase::AfterShutdown(ShutdownWrap* req_wrap, int status) {
-  StreamBase* wrap = req_wrap->wrap();
   Environment* env = req_wrap->env();
 
   // The wrap and request objects should still be there.
@@ -78,7 +76,7 @@ void StreamBase::AfterShutdown(ShutdownWrap* req_wrap, int status) {
   Local<Object> req_wrap_obj = req_wrap->object();
   Local<Value> argv[3] = {
     Integer::New(env->isolate(), status),
-    wrap->GetObject(),
+    GetObject(),
     req_wrap_obj
   };
 
@@ -97,89 +95,116 @@ int StreamBase::Writev(const FunctionCallbackInfo<Value>& args) {
 
   Local<Object> req_wrap_obj = args[0].As<Object>();
   Local<Array> chunks = args[1].As<Array>();
+  bool all_buffers = args[2]->IsTrue();
 
-  size_t count = chunks->Length() >> 1;
+  size_t count;
+  if (all_buffers)
+    count = chunks->Length();
+  else
+    count = chunks->Length() >> 1;
 
   MaybeStackBuffer<uv_buf_t, 16> bufs(count);
+  uv_buf_t* buf_list = *bufs;
 
-  // Determine storage size first
   size_t storage_size = 0;
-  for (size_t i = 0; i < count; i++) {
-    storage_size = ROUND_UP(storage_size, WriteWrap::kAlignSize);
-
-    Local<Value> chunk = chunks->Get(i * 2);
-
-    if (Buffer::HasInstance(chunk))
-      continue;
-      // Buffer chunk, no additional storage required
-
-    // String chunk
-    Local<String> string = chunk->ToString(env->isolate());
-    enum encoding encoding = ParseEncoding(env->isolate(),
-                                           chunks->Get(i * 2 + 1));
-    size_t chunk_size;
-    if (encoding == UTF8 && string->Length() > 65535)
-      chunk_size = StringBytes::Size(env->isolate(), string, encoding);
-    else
-      chunk_size = StringBytes::StorageSize(env->isolate(), string, encoding);
-
-    storage_size += chunk_size;
-  }
-
-  if (storage_size > INT_MAX)
-    return UV_ENOBUFS;
-
-  WriteWrap* req_wrap = WriteWrap::New(env,
-                                       req_wrap_obj,
-                                       this,
-                                       AfterWrite,
-                                       storage_size);
-
   uint32_t bytes = 0;
-  size_t offset = 0;
-  for (size_t i = 0; i < count; i++) {
-    Local<Value> chunk = chunks->Get(i * 2);
+  size_t offset;
+  AsyncWrap* wrap;
+  WriteWrap* req_wrap;
+  int err;
 
-    // Write buffer
-    if (Buffer::HasInstance(chunk)) {
+  if (!all_buffers) {
+    // Determine storage size first
+    for (size_t i = 0; i < count; i++) {
+      storage_size = ROUND_UP(storage_size, WriteWrap::kAlignSize);
+
+      Local<Value> chunk = chunks->Get(i * 2);
+
+      if (Buffer::HasInstance(chunk))
+        continue;
+        // Buffer chunk, no additional storage required
+
+      // String chunk
+      Local<String> string = chunk->ToString(env->context()).ToLocalChecked();
+      enum encoding encoding = ParseEncoding(env->isolate(),
+                                             chunks->Get(i * 2 + 1));
+      size_t chunk_size;
+      if (encoding == UTF8 && string->Length() > 65535)
+        chunk_size = StringBytes::Size(env->isolate(), string, encoding);
+      else
+        chunk_size = StringBytes::StorageSize(env->isolate(), string, encoding);
+
+      storage_size += chunk_size;
+    }
+
+    if (storage_size > INT_MAX)
+      return UV_ENOBUFS;
+  } else {
+    for (size_t i = 0; i < count; i++) {
+      Local<Value> chunk = chunks->Get(i);
       bufs[i].base = Buffer::Data(chunk);
       bufs[i].len = Buffer::Length(chunk);
       bytes += bufs[i].len;
-      continue;
     }
 
-    // Write string
-    offset = ROUND_UP(offset, WriteWrap::kAlignSize);
-    CHECK_LE(offset, storage_size);
-    char* str_storage = req_wrap->Extra(offset);
-    size_t str_size = storage_size - offset;
-
-    Local<String> string = chunk->ToString(env->isolate());
-    enum encoding encoding = ParseEncoding(env->isolate(),
-                                           chunks->Get(i * 2 + 1));
-    str_size = StringBytes::Write(env->isolate(),
-                                  str_storage,
-                                  str_size,
-                                  string,
-                                  encoding);
-    bufs[i].base = str_storage;
-    bufs[i].len = str_size;
-    offset += str_size;
-    bytes += str_size;
+    // Try writing immediately without allocation
+    err = DoTryWrite(&buf_list, &count);
+    if (err != 0 || count == 0)
+      goto done;
   }
 
-  int err = DoWrite(req_wrap, *bufs, count, nullptr);
+  wrap = GetAsyncWrap();
+  CHECK_NE(wrap, nullptr);
+  env->set_init_trigger_async_id(wrap->get_async_id());
+  req_wrap = WriteWrap::New(env, req_wrap_obj, this, storage_size);
 
+  offset = 0;
+  if (!all_buffers) {
+    for (size_t i = 0; i < count; i++) {
+      Local<Value> chunk = chunks->Get(i * 2);
+
+      // Write buffer
+      if (Buffer::HasInstance(chunk)) {
+        bufs[i].base = Buffer::Data(chunk);
+        bufs[i].len = Buffer::Length(chunk);
+        bytes += bufs[i].len;
+        continue;
+      }
+
+      // Write string
+      offset = ROUND_UP(offset, WriteWrap::kAlignSize);
+      CHECK_LE(offset, storage_size);
+      char* str_storage = req_wrap->Extra(offset);
+      size_t str_size = storage_size - offset;
+
+      Local<String> string = chunk->ToString(env->context()).ToLocalChecked();
+      enum encoding encoding = ParseEncoding(env->isolate(),
+                                             chunks->Get(i * 2 + 1));
+      str_size = StringBytes::Write(env->isolate(),
+                                    str_storage,
+                                    str_size,
+                                    string,
+                                    encoding);
+      bufs[i].base = str_storage;
+      bufs[i].len = str_size;
+      offset += str_size;
+      bytes += str_size;
+    }
+  }
+
+  err = DoWrite(req_wrap, buf_list, count, nullptr);
   req_wrap_obj->Set(env->async(), True(env->isolate()));
-  req_wrap_obj->Set(env->bytes_string(), Number::New(env->isolate(), bytes));
+
+  if (err)
+    req_wrap->Dispose();
+
+ done:
   const char* msg = Error();
   if (msg != nullptr) {
     req_wrap_obj->Set(env->error_string(), OneByteString(env->isolate(), msg));
     ClearError();
   }
-
-  if (err)
-    req_wrap->Dispose();
+  req_wrap_obj->Set(env->bytes_string(), Number::New(env->isolate(), bytes));
 
   return err;
 }
@@ -189,13 +214,19 @@ int StreamBase::Writev(const FunctionCallbackInfo<Value>& args) {
 
 int StreamBase::WriteBuffer(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsObject());
-  CHECK(Buffer::HasInstance(args[1]));
+
   Environment* env = Environment::GetCurrent(args);
+
+  if (!args[1]->IsUint8Array()) {
+    env->ThrowTypeError("Second argument must be a buffer");
+    return 0;
+  }
 
   Local<Object> req_wrap_obj = args[0].As<Object>();
   const char* data = Buffer::Data(args[1]);
   size_t length = Buffer::Length(args[1]);
 
+  AsyncWrap* wrap;
   WriteWrap* req_wrap;
   uv_buf_t buf;
   buf.base = const_cast<char*>(data);
@@ -211,8 +242,11 @@ int StreamBase::WriteBuffer(const FunctionCallbackInfo<Value>& args) {
     goto done;
   CHECK_EQ(count, 1);
 
+  wrap = GetAsyncWrap();
+  if (wrap != nullptr)
+    env->set_init_trigger_async_id(wrap->get_async_id());
   // Allocate, or write rest
-  req_wrap = WriteWrap::New(env, req_wrap_obj, this, AfterWrite);
+  req_wrap = WriteWrap::New(env, req_wrap_obj, this);
 
   err = DoWrite(req_wrap, bufs, count, nullptr);
   req_wrap_obj->Set(env->async(), True(env->isolate()));
@@ -242,6 +276,7 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
   Local<Object> req_wrap_obj = args[0].As<Object>();
   Local<String> string = args[1].As<String>();
   Local<Object> send_handle_obj;
+  AsyncWrap* wrap;
   if (args[2]->IsObject())
     send_handle_obj = args[2].As<Object>();
 
@@ -292,7 +327,10 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
     CHECK_EQ(count, 1);
   }
 
-  req_wrap = WriteWrap::New(env, req_wrap_obj, this, AfterWrite, storage_size);
+  wrap = GetAsyncWrap();
+  if (wrap != nullptr)
+    env->set_init_trigger_async_id(wrap->get_async_id());
+  req_wrap = WriteWrap::New(env, req_wrap_obj, this, storage_size);
 
   data = req_wrap->Extra();
 
@@ -322,7 +360,7 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
       HandleWrap* wrap;
       ASSIGN_OR_RETURN_UNWRAP(&wrap, send_handle_obj, UV_EINVAL);
       send_handle = wrap->GetHandle();
-      // Reference StreamWrap instance to prevent it from being garbage
+      // Reference LibuvStreamWrap instance to prevent it from being garbage
       // collected before `AfterWrite` is called.
       CHECK_EQ(false, req_wrap->persistent().IsEmpty());
       req_wrap_obj->Set(env->handle_string(), send_handle_obj);
@@ -353,7 +391,6 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
 
 
 void StreamBase::AfterWrite(WriteWrap* req_wrap, int status) {
-  StreamBase* wrap = req_wrap->wrap();
   Environment* env = req_wrap->env();
 
   HandleScope handle_scope(env->isolate());
@@ -365,19 +402,19 @@ void StreamBase::AfterWrite(WriteWrap* req_wrap, int status) {
   // Unref handle property
   Local<Object> req_wrap_obj = req_wrap->object();
   req_wrap_obj->Delete(env->context(), env->handle_string()).FromJust();
-  wrap->OnAfterWrite(req_wrap);
+  OnAfterWrite(req_wrap, status);
 
   Local<Value> argv[] = {
     Integer::New(env->isolate(), status),
-    wrap->GetObject(),
+    GetObject(),
     req_wrap_obj,
     Undefined(env->isolate())
   };
 
-  const char* msg = wrap->Error();
+  const char* msg = Error();
   if (msg != nullptr) {
     argv[3] = OneByteString(env->isolate(), msg);
-    wrap->ClearError();
+    ClearError();
   }
 
   if (req_wrap_obj->Has(env->context(), env->oncomplete_string()).FromJust())
@@ -404,16 +441,9 @@ void StreamBase::EmitData(ssize_t nread,
   if (argv[2].IsEmpty())
     argv[2] = Undefined(env->isolate());
 
-  AsyncWrap* async = GetAsyncWrap();
-  if (async == nullptr) {
-    node::MakeCallback(env,
-                       GetObject(),
-                       env->onread_string(),
-                       arraysize(argv),
-                       argv);
-  } else {
-    async->MakeCallback(env->onread_string(), arraysize(argv), argv);
-  }
+  AsyncWrap* wrap = GetAsyncWrap();
+  CHECK_NE(wrap, nullptr);
+  wrap->MakeCallback(env->onread_string(), arraysize(argv), argv);
 }
 
 
@@ -424,11 +454,6 @@ bool StreamBase::IsIPCPipe() {
 
 int StreamBase::GetFD() {
   return -1;
-}
-
-
-AsyncWrap* StreamBase::GetAsyncWrap() {
-  return nullptr;
 }
 
 

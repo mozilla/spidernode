@@ -6,8 +6,10 @@
 
 #include "src/regexp/x64/regexp-macro-assembler-x64.h"
 
+#include "src/factory.h"
 #include "src/log.h"
 #include "src/macro-assembler.h"
+#include "src/objects-inl.h"
 #include "src/regexp/regexp-macro-assembler.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/unicode.h"
@@ -83,9 +85,10 @@ namespace internal {
  *              Address start,
  *              Address end,
  *              int* capture_output_array,
- *              bool at_start,
+ *              int num_capture_registers,
  *              byte* stack_area_base,
- *              bool direct_call)
+ *              bool direct_call = false,
+ *              Isolate* isolate);
  */
 
 #define __ ACCESS_MASM((&masm_))
@@ -136,8 +139,8 @@ void RegExpMacroAssemblerX64::AdvanceCurrentPosition(int by) {
 
 
 void RegExpMacroAssemblerX64::AdvanceRegister(int reg, int by) {
-  DCHECK(reg >= 0);
-  DCHECK(reg < num_registers_);
+  DCHECK_LE(0, reg);
+  DCHECK_GT(num_registers_, reg);
   if (by != 0) {
     __ addp(register_location(reg), Immediate(by));
   }
@@ -309,8 +312,8 @@ void RegExpMacroAssemblerX64::CheckNotBackReferenceIgnoreCase(
     //   size_t byte_length - length of capture in bytes(!)
 //   Isolate* isolate or 0 if unicode flag.
 #ifdef _WIN64
-    DCHECK(rcx.is(arg_reg_1));
-    DCHECK(rdx.is(arg_reg_2));
+    DCHECK(rcx == arg_reg_1);
+    DCHECK(rdx == arg_reg_2);
     // Compute and set byte_offset1 (start of capture).
     __ leap(rcx, Operand(rsi, rdx, times_1, 0));
     // Set byte_offset2.
@@ -319,8 +322,8 @@ void RegExpMacroAssemblerX64::CheckNotBackReferenceIgnoreCase(
       __ subq(rdx, rbx);
     }
 #else  // AMD64 calling convention
-    DCHECK(rdi.is(arg_reg_1));
-    DCHECK(rsi.is(arg_reg_2));
+    DCHECK(rdi == arg_reg_1);
+    DCHECK(rsi == arg_reg_2);
     // Compute byte_offset2 (current position = rsi+rdi).
     __ leap(rax, Operand(rsi, rdi, times_1, 0));
     // Compute and set byte_offset1 (start of capture).
@@ -335,11 +338,11 @@ void RegExpMacroAssemblerX64::CheckNotBackReferenceIgnoreCase(
     // Set byte_length.
     __ movp(arg_reg_3, rbx);
     // Isolate.
-#ifdef V8_I18N_SUPPORT
+#ifdef V8_INTL_SUPPORT
     if (unicode) {
       __ movp(arg_reg_4, Immediate(0));
     } else  // NOLINT
-#endif      // V8_I18N_SUPPORT
+#endif      // V8_INTL_SUPPORT
     {
       __ LoadAddress(arg_reg_4, ExternalReference::isolate_address(isolate()));
     }
@@ -490,7 +493,7 @@ void RegExpMacroAssemblerX64::CheckNotCharacterAfterMinusAnd(
     uc16 minus,
     uc16 mask,
     Label* on_not_equal) {
-  DCHECK(minus < String::kMaxUtf16CodeUnit);
+  DCHECK_GT(String::kMaxUtf16CodeUnit, minus);
   __ leap(rax, Operand(current_character(), -minus));
   __ andp(rax, Immediate(mask));
   __ cmpl(rax, Immediate(c));
@@ -1002,11 +1005,10 @@ Handle<HeapObject> RegExpMacroAssemblerX64::GetCode(Handle<String> source) {
   FixupCodeRelativePositions();
 
   CodeDesc code_desc;
-  masm_.GetCode(&code_desc);
   Isolate* isolate = this->isolate();
-  Handle<Code> code = isolate->factory()->NewCode(
-      code_desc, Code::ComputeFlags(Code::REGEXP),
-      masm_.CodeObject());
+  masm_.GetCode(isolate, &code_desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(code_desc, Code::REGEXP, masm_.CodeObject());
   PROFILE(isolate, RegExpCodeCreateEvent(AbstractCode::cast(*code), *source));
   return Handle<HeapObject>::cast(code);
 }
@@ -1287,7 +1289,7 @@ void RegExpMacroAssemblerX64::SafeReturn() {
 
 
 void RegExpMacroAssemblerX64::Push(Register source) {
-  DCHECK(!source.is(backtrack_stackpointer()));
+  DCHECK(source != backtrack_stackpointer());
   // Notice: This updates flags, unlike normal Push.
   __ subp(backtrack_stackpointer(), Immediate(kIntSize));
   __ movl(Operand(backtrack_stackpointer(), 0), source);
@@ -1327,7 +1329,7 @@ void RegExpMacroAssemblerX64::Push(Label* backtrack_target) {
 
 
 void RegExpMacroAssemblerX64::Pop(Register target) {
-  DCHECK(!target.is(backtrack_stackpointer()));
+  DCHECK(target != backtrack_stackpointer());
   __ movsxlq(target, Operand(backtrack_stackpointer(), 0));
   // Notice: This updates flags, unlike normal Pop.
   __ addp(backtrack_stackpointer(), Immediate(kIntSize));
@@ -1376,7 +1378,7 @@ void RegExpMacroAssemblerX64::LoadCurrentCharacterUnchecked(int cp_offset,
     } else if (characters == 2) {
       __ movzxwl(current_character(), Operand(rsi, rdi, times_1, cp_offset));
     } else {
-      DCHECK(characters == 1);
+      DCHECK_EQ(1, characters);
       __ movzxbl(current_character(), Operand(rsi, rdi, times_1, cp_offset));
     }
   } else {
@@ -1385,7 +1387,7 @@ void RegExpMacroAssemblerX64::LoadCurrentCharacterUnchecked(int cp_offset,
       __ movl(current_character(),
               Operand(rsi, rdi, times_1, cp_offset * sizeof(uc16)));
     } else {
-      DCHECK(characters == 1);
+      DCHECK_EQ(1, characters);
       __ movzxwl(current_character(),
                  Operand(rsi, rdi, times_1, cp_offset * sizeof(uc16)));
     }

@@ -60,7 +60,6 @@ from testrunner.local import utils
 LINT_RULES = """
 -build/header_guard
 -build/include_what_you_use
--build/namespaces
 -readability/check
 -readability/fn_size
 +readability/streams
@@ -69,6 +68,10 @@ LINT_RULES = """
 
 LINT_OUTPUT_PATTERN = re.compile(r'^.+[:(]\d+[:)]|^Done processing')
 FLAGS_LINE = re.compile("//\s*Flags:.*--([A-z0-9-])+_[A-z0-9].*\n")
+ASSERT_OPTIMIZED_PATTERN = re.compile("assertOptimized")
+FLAGS_ENABLE_OPT = re.compile("//\s*Flags:.*--opt[^-].*\n")
+ASSERT_UNOPTIMIZED_PATTERN = re.compile("assertUnoptimized")
+FLAGS_NO_ALWAYS_OPT = re.compile("//\s*Flags:.*--no-?always-opt.*\n")
 
 TOOLS_PATH = dirname(abspath(__file__))
 
@@ -189,7 +192,7 @@ class SourceFileProcessor(object):
   def IgnoreDir(self, name):
     return (name.startswith('.') or
             name in ('buildtools', 'data', 'gmock', 'gtest', 'kraken',
-                     'octane', 'sunspider'))
+                     'octane', 'sunspider', 'traces-arm64'))
 
   def IgnoreFile(self, name):
     return name.startswith('.')
@@ -217,15 +220,16 @@ class CppLintProcessor(SourceFileProcessor):
     return (super(CppLintProcessor, self).IgnoreDir(name)
               or (name == 'third_party'))
 
-  IGNORE_LINT = ['flag-definitions.h']
+  IGNORE_LINT = ['export-template.h', 'flag-definitions.h']
 
   def IgnoreFile(self, name):
     return (super(CppLintProcessor, self).IgnoreFile(name)
               or (name in CppLintProcessor.IGNORE_LINT))
 
   def GetPathsToSearch(self):
-    return ['src', 'include', 'samples', join('test', 'cctest'),
-            join('test', 'unittests'), join('test', 'inspector')]
+    dirs = ['include', 'samples', 'src']
+    test_dirs = ['cctest', 'common', 'fuzzer', 'inspector', 'unittests']
+    return dirs + [join('test', dir) for dir in test_dirs]
 
   def GetCpplintScript(self, prio_path):
     for path in [prio_path] + os.environ["PATH"].split(os.pathsep):
@@ -245,7 +249,6 @@ class CppLintProcessor(SourceFileProcessor):
       return True
 
     filters = ",".join([n for n in LINT_RULES])
-    command = [sys.executable, 'cpplint.py', '--filter', filters]
     cpplint = self.GetCpplintScript(TOOLS_PATH)
     if cpplint is None:
       print('Could not find cpplint.py. Make sure '
@@ -254,7 +257,7 @@ class CppLintProcessor(SourceFileProcessor):
 
     command = [sys.executable, cpplint, '--filter', filters]
 
-    commands = join([command + [file] for file in files])
+    commands = [command + [file] for file in files]
     count = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(count)
     try:
@@ -283,6 +286,25 @@ class SourceProcessor(SourceFileProcessor):
 
   RELEVANT_EXTENSIONS = ['.js', '.cc', '.h', '.py', '.c',
                          '.status', '.gyp', '.gypi']
+
+  def __init__(self):
+    self.runtime_function_call_pattern = self.CreateRuntimeFunctionCallMatcher()
+
+  def CreateRuntimeFunctionCallMatcher(self):
+    runtime_h_path = join(dirname(TOOLS_PATH), 'src/runtime/runtime.h')
+    pattern = re.compile(r'\s+F\(([^,]*),.*\)')
+    runtime_functions = []
+    with open(runtime_h_path) as f:
+      for line in f.readlines():
+        m = pattern.match(line)
+        if m:
+          runtime_functions.append(m.group(1))
+    if len(runtime_functions) < 500:
+      print ("Runtime functions list is suspiciously short. "
+             "Consider updating the presubmit script.")
+      sys.exit(1)
+    str = '(\%\s+(' + '|'.join(runtime_functions) + '))[\s\(]'
+    return re.compile(str)
 
   # Overwriting the one in the parent class.
   def FindFilesIn(self, path):
@@ -344,7 +366,6 @@ class SourceProcessor(SourceFileProcessor):
                        'regexp-pcre.js',
                        'resources-123.js',
                        'rjsmin.py',
-                       'script-breakpoint.h',
                        'sqlite.js',
                        'sqlite-change-heap.js',
                        'sqlite-pointer-masking.js',
@@ -401,10 +422,26 @@ class SourceProcessor(SourceFileProcessor):
       print "%s does not end with a single new line." % name
       result = False
     # Sanitize flags for fuzzer.
-    if "mjsunit" in name:
+    if "mjsunit" in name or "debugger" in name:
       match = FLAGS_LINE.search(contents)
       if match:
         print "%s Flags should use '-' (not '_')" % name
+        result = False
+      if not "mjsunit/mjsunit.js" in name:
+        if ASSERT_OPTIMIZED_PATTERN.search(contents) and \
+            not FLAGS_ENABLE_OPT.search(contents):
+          print "%s Flag --opt should be set if " \
+                "assertOptimized() is used" % name
+          result = False
+        if ASSERT_UNOPTIMIZED_PATTERN.search(contents) and \
+            not FLAGS_NO_ALWAYS_OPT.search(contents):
+          print "%s Flag --no-always-opt should be set if " \
+                "assertUnoptimized() is used" % name
+          result = False
+
+      match = self.runtime_function_call_pattern.search(contents)
+      if match:
+        print "%s has unexpected spaces in a runtime call '%s'" % (name, match.group(1))
         result = False
     return result
 
@@ -470,17 +507,46 @@ class StatusFilesProcessor(SourceFileProcessor):
   """Checks status files for incorrect syntax and duplicate keys."""
 
   def IsRelevant(self, name):
-    return name.endswith('.status')
+    # Several changes to files under the test directories could impact status
+    # files.
+    return True
 
   def GetPathsToSearch(self):
     return ['test']
 
   def ProcessFiles(self, files):
+    test_path = join(dirname(TOOLS_PATH), 'test')
+    status_files = set([])
+    for file_path in files:
+      if file_path.startswith(test_path):
+        # Strip off absolute path prefix pointing to test suites.
+        pieces = file_path[len(test_path):].lstrip(os.sep).split(os.sep)
+        if pieces:
+          # Infer affected status file name. Only care for existing status
+          # files. Some directories under "test" don't have any.
+          if not os.path.isdir(join(test_path, pieces[0])):
+            continue
+          status_file = join(test_path, pieces[0], pieces[0] + ".status")
+          if not os.path.exists(status_file):
+            continue
+          status_files.add(status_file)
+
     success = True
-    for status_file_path in files:
+    for status_file_path in sorted(status_files):
       success &= statusfile.PresubmitCheck(status_file_path)
       success &= _CheckStatusFileForDuplicateKeys(status_file_path)
     return success
+
+
+def CheckDeps(workspace):
+  checkdeps_py = join(workspace, 'buildtools', 'checkdeps', 'checkdeps.py')
+  return subprocess.call([sys.executable, checkdeps_py, workspace]) == 0
+
+
+def PyTests(workspace):
+  test_scripts = join(workspace, 'tools', 'release', 'test_scripts.py')
+  return subprocess.call(
+      [sys.executable, test_scripts], stdout=subprocess.PIPE) == 0
 
 
 def GetOptions():
@@ -495,6 +561,8 @@ def Main():
   parser = GetOptions()
   (options, args) = parser.parse_args()
   success = True
+  print "Running checkdeps..."
+  success &= CheckDeps(workspace)
   print "Running C++ lint check..."
   if not options.no_lint:
     success &= CppLintProcessor().RunOnPath(workspace)
@@ -503,6 +571,8 @@ def Main():
   success &= SourceProcessor().RunOnPath(workspace)
   print "Running status-files check..."
   success &= StatusFilesProcessor().RunOnPath(workspace)
+  print "Running python tests..."
+  success &= PyTests(workspace)
   if success:
     return 0
   else:

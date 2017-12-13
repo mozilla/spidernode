@@ -9,6 +9,8 @@
 // Requirements
 //------------------------------------------------------------------------------
 
+const lodash = require("lodash");
+
 const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
@@ -83,12 +85,14 @@ function isCallbackOfArrayMethod(node) {
                 node = parent;
                 break;
 
-            // If the upper function is IIFE, checks the destination of the return value.
-            // e.g.
-            //   foo.every((function() {
-            //     // setup...
-            //     return function callback() { ... };
-            //   })());
+            /*
+             * If the upper function is IIFE, checks the destination of the return value.
+             * e.g.
+             *   foo.every((function() {
+             *     // setup...
+             *     return function callback() { ... };
+             *   })());
+             */
             case "ReturnStatement": {
                 const func = astUtils.getUpperFunction(parent);
 
@@ -99,9 +103,11 @@ function isCallbackOfArrayMethod(node) {
                 break;
             }
 
-            // e.g.
-            //   Array.from([], function() {});
-            //   list.every(function() {});
+            /*
+             * e.g.
+             *   Array.from([], function() {});
+             *   list.every(function() {});
+             */
             case "CallExpression":
                 if (astUtils.isArrayFromMethod(parent.callee)) {
                     return (
@@ -147,7 +153,8 @@ module.exports = {
             upper: null,
             codePath: null,
             hasReturn: false,
-            shouldCheck: false
+            shouldCheck: false,
+            node: null
         };
 
         /**
@@ -168,8 +175,11 @@ module.exports = {
                     node,
                     loc: getLocation(node, context.getSourceCode()).loc.start,
                     message: funcInfo.hasReturn
-                        ? "Expected to return a value at the end of this function."
-                        : "Expected to return a value in this function."
+                        ? "Expected to return a value at the end of {{name}}."
+                        : "Expected to return a value in {{name}}.",
+                    data: {
+                        name: astUtils.getFunctionNameWithKind(funcInfo.node)
+                    }
                 });
             }
         }
@@ -187,7 +197,8 @@ module.exports = {
                         node.body.type === "BlockStatement" &&
                         isCallbackOfArrayMethod(node) &&
                         !node.async &&
-                        !node.generator
+                        !node.generator,
+                    node
                 };
             },
 
@@ -204,7 +215,10 @@ module.exports = {
                     if (!node.argument) {
                         context.report({
                             node,
-                            message: "Expected a return value."
+                            message: "{{name}} expected a return value.",
+                            data: {
+                                name: lodash.upperFirst(astUtils.getFunctionNameWithKind(funcInfo.node))
+                            }
                         });
                     }
                 }

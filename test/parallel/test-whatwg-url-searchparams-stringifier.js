@@ -1,15 +1,15 @@
 'use strict';
 
 const common = require('../common');
-const assert = require('assert');
 const URLSearchParams = require('url').URLSearchParams;
-const { test, assert_equals } = common.WPT;
+const { test, assert_equals } = require('../common/wpt');
 
-/* eslint-disable */
-/* WPT Refs:
+/* The following tests are copied from WPT. Modifications to them should be
+   upstreamed first. Refs:
    https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-stringifier.html
    License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
 */
+/* eslint-disable */
 test(function() {
     var params = new URLSearchParams();
     params.append('a', 'b c');
@@ -125,7 +125,11 @@ test(function() {
 // Tests below are not from WPT.
 {
   const params = new URLSearchParams();
-  assert.throws(() => {
+  common.expectsError(() => {
     params.toString.call(undefined);
-  }, /^TypeError: Value of `this` is not a URLSearchParams$/);
+  }, {
+    code: 'ERR_INVALID_THIS',
+    type: TypeError,
+    message: 'Value of "this" must be of type URLSearchParams'
+  });
 }

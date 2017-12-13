@@ -6,12 +6,13 @@
 !tools/doc/node_modules/**/.*
 !.editorconfig
 !.eslintignore
-!.eslintrc
+!.eslintrc.yaml
 !.gitattributes
 !.github
 !.gitignore
 !.gitkeep
 !.mailmap
+!.nycrc
 !.remarkrc
 
 core
@@ -35,6 +36,8 @@ node_g
 icu_config.gypi
 /.ycm_extra_conf.py
 .eslintcache
+node_trace.*.log
+coverage/
 
 /out
 
@@ -60,17 +63,17 @@ ipch/
 *.VC.opendb
 .vs/
 .vscode/
+/deps/v8/src/debug/obj
+/*.exe
 
 /config.mk
 /config.gypi
 /config_fips.gypi
 *-nodegyp*
 /gyp-mac-tool
-/dist-osx
 /npm.wxs
 /tools/msvs/npm.wixobj
 /tools/msvs/genfiles/
-/tools/osx-pkg.pmdoc/index.xml
 /test/addons/??_*/
 email.md
 deps/v8-*
@@ -98,13 +101,21 @@ deps/npm/node_modules/.bin/
 
 # build/release artifacts
 /*.tar.*
+/*.pkg
 /SHASUMS*.txt*
 
 # test artifacts
 tools/faketime
+tools/remark-cli/node_modules
+tools/remark-preset-lint-node/node_modules
 icu_config.gypi
 *.tap
 
 # Xcode workspaces and project folders
 *.xcodeproj
 *.xcworkspace
+
+# libuv book and GitHub template
+deps/uv/.github/
+deps/uv/docs/code/
+deps/uv/docs/src/guide/

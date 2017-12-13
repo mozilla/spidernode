@@ -1,27 +1,46 @@
 'use strict';
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
+
+const assert = require('assert');
 const crypto = require('crypto');
 
-// Test for binding layer robustness
 {
-  const binding = process.binding('crypto');
-  const h = new binding.Hmac();
-  // Fail to init the Hmac with an algorithm.
-  assert.throws(() => h.update('hello'), /^TypeError: HmacUpdate fail$/);
+  const Hmac = crypto.Hmac;
+  const instance = crypto.Hmac('sha256', 'Node');
+  assert(instance instanceof Hmac, 'Hmac is expected to return a new instance' +
+                                   ' when called without `new`');
 }
 
-// Test HMAC
-const h1 = crypto.createHmac('sha1', 'Node')
-               .update('some data')
-               .update('to hmac')
-               .digest('hex');
-assert.strictEqual(h1, '19fd6e1ba73d9ed2224dd5094a71babe85d9a892', 'test HMAC');
+common.expectsError(
+  () => crypto.createHmac(null),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "hmac" argument must be of type string'
+  });
+
+common.expectsError(
+  () => crypto.createHmac('sha1', null),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "key" argument must be one of type string, TypedArray, or ' +
+             'DataView'
+  });
+
+{
+  // Test HMAC
+  const actual = crypto.createHmac('sha1', 'Node')
+    .update('some data')
+    .update('to hmac')
+    .digest('hex');
+  const expected = '19fd6e1ba73d9ed2224dd5094a71babe85d9a892';
+  assert.strictEqual(actual,
+                     expected,
+                     `Test HMAC: ${actual} must be ${expected}`);
+}
 
 // Test HMAC (Wikipedia Test Cases)
 const wikipedia = [
@@ -72,12 +91,15 @@ for (let i = 0, l = wikipedia.length; i < l; i++) {
     // FIPS does not support MD5.
     if (common.hasFipsCrypto && hash === 'md5')
       continue;
-    const result = crypto.createHmac(hash, wikipedia[i]['key'])
+    const expected = wikipedia[i]['hmac'][hash];
+    const actual = crypto.createHmac(hash, wikipedia[i]['key'])
                          .update(wikipedia[i]['data'])
                          .digest('hex');
-    assert.strictEqual(wikipedia[i]['hmac'][hash],
-                       result,
-                       `Test HMAC-${hash}: Test case ${i + 1} wikipedia`);
+    assert.strictEqual(
+      actual,
+      expected,
+      `Test HMAC-${hash} wikipedia case ${i + 1}: ${actual} must be ${expected}`
+    );
   }
 }
 
@@ -234,17 +256,20 @@ for (let i = 0, l = rfc4231.length; i < l; i++) {
     const str = crypto.createHmac(hash, rfc4231[i].key);
     str.end(rfc4231[i].data);
     let strRes = str.read().toString('hex');
-    let result = crypto.createHmac(hash, rfc4231[i]['key'])
+    let actual = crypto.createHmac(hash, rfc4231[i]['key'])
                        .update(rfc4231[i]['data'])
                        .digest('hex');
     if (rfc4231[i]['truncate']) {
-      result = result.substr(0, 32); // first 128 bits == 32 hex chars
+      actual = actual.substr(0, 32); // first 128 bits == 32 hex chars
       strRes = strRes.substr(0, 32);
     }
-    assert.strictEqual(rfc4231[i]['hmac'][hash],
-                       result,
-                       `Test HMAC-${hash}: Test case ${i + 1} rfc 4231`);
-    assert.strictEqual(strRes, result, 'Should get same result from stream');
+    const expected = rfc4231[i]['hmac'][hash];
+    assert.strictEqual(
+      actual,
+      expected,
+      `Test HMAC-${hash} rfc 4231 case ${i + 1}: ${actual} must be ${expected}`
+    );
+    assert.strictEqual(actual, strRes, 'Should get same result from stream');
   }
 }
 
@@ -359,21 +384,67 @@ const rfc2202_sha1 = [
 
 if (!common.hasFipsCrypto) {
   for (let i = 0, l = rfc2202_md5.length; i < l; i++) {
+    const actual = crypto.createHmac('md5', rfc2202_md5[i]['key'])
+      .update(rfc2202_md5[i]['data'])
+      .digest('hex');
+    const expected = rfc2202_md5[i]['hmac'];
     assert.strictEqual(
-      rfc2202_md5[i]['hmac'],
-      crypto.createHmac('md5', rfc2202_md5[i]['key'])
-        .update(rfc2202_md5[i]['data'])
-        .digest('hex'),
-      `Test HMAC-MD5 : Test case ${i + 1} rfc 2202`
+      actual,
+      expected,
+      `Test HMAC-MD5 rfc 2202 case ${i + 1}: ${actual} must be ${expected}`
     );
   }
 }
 for (let i = 0, l = rfc2202_sha1.length; i < l; i++) {
+  const actual = crypto.createHmac('sha1', rfc2202_sha1[i]['key'])
+    .update(rfc2202_sha1[i]['data'])
+    .digest('hex');
+  const expected = rfc2202_sha1[i]['hmac'];
   assert.strictEqual(
-    rfc2202_sha1[i]['hmac'],
-    crypto.createHmac('sha1', rfc2202_sha1[i]['key'])
-      .update(rfc2202_sha1[i]['data'])
-      .digest('hex'),
-    `Test HMAC-SHA1 : Test case ${i + 1} rfc 2202`
+    actual,
+    expected,
+    `Test HMAC-SHA1 rfc 2202 case ${i + 1}: ${actual} must be ${expected}`
   );
+}
+
+common.expectsError(
+  () => crypto.createHmac('sha256', 'w00t').digest('ucs2'),
+  {
+    code: 'ERR_CRYPTO_HASH_DIGEST_NO_UTF16',
+    type: Error
+  });
+
+// Check initialized -> uninitialized state transition after calling digest().
+{
+  const expected =
+      '\u0010\u0041\u0052\u00c5\u00bf\u00dc\u00a0\u007b\u00c6\u0033' +
+      '\u00ee\u00bd\u0046\u0019\u009f\u0002\u0055\u00c9\u00f4\u009d';
+  {
+    const h = crypto.createHmac('sha1', 'key').update('data');
+    assert.deepStrictEqual(h.digest('buffer'), Buffer.from(expected, 'latin1'));
+    assert.deepStrictEqual(h.digest('buffer'), Buffer.from(''));
+  }
+  {
+    const h = crypto.createHmac('sha1', 'key').update('data');
+    assert.deepStrictEqual(h.digest('latin1'), expected);
+    assert.deepStrictEqual(h.digest('latin1'), '');
+  }
+}
+
+// Check initialized -> uninitialized state transition after calling digest().
+// Calls to update() omitted intentionally.
+{
+  const expected =
+      '\u00f4\u002b\u00b0\u00ee\u00b0\u0018\u00eb\u00bd\u0045\u0097' +
+      '\u00ae\u0072\u0013\u0071\u001e\u00c6\u0007\u0060\u0084\u003f';
+  {
+    const h = crypto.createHmac('sha1', 'key');
+    assert.deepStrictEqual(h.digest('buffer'), Buffer.from(expected, 'latin1'));
+    assert.deepStrictEqual(h.digest('buffer'), Buffer.from(''));
+  }
+  {
+    const h = crypto.createHmac('sha1', 'key');
+    assert.deepStrictEqual(h.digest('latin1'), expected);
+    assert.deepStrictEqual(h.digest('latin1'), '');
+  }
 }

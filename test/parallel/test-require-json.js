@@ -20,18 +20,14 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-const common = require('../common');
-const path = require('path');
+require('../common');
 const assert = require('assert');
+const fixtures = require('../common/fixtures');
 
 try {
-  require(path.join(common.fixturesDir, 'invalid.json'));
+  require(fixtures.path('invalid.json'));
 } catch (err) {
-  var re = common.engineSpecificMessage({
-    v8: /test[\/\\]fixtures[\/\\]invalid.json: Unexpected string/,
-    chakracore:
-    /test[\/\\]fixtures[\/\\]invalid.json: JSON.parse Error: Expected '}'/
-  });
-  const i = err.message.match(re);
-  assert.notStrictEqual(null, i, 'require() json error should include path');
+  assert.ok(
+    /test[/\\]fixtures[/\\]invalid\.json: /.test(err.message),
+    `require() json error should include path: ${err.message}`);
 }

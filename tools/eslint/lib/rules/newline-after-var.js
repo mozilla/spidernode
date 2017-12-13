@@ -1,9 +1,16 @@
 /**
  * @fileoverview Rule to check empty newline after "var" statement
  * @author Gopal Venkatesan
+ * @deprecated
  */
 
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const astUtils = require("../ast-utils");
 
 //------------------------------------------------------------------------------
 // Rule Definition
@@ -14,7 +21,8 @@ module.exports = {
         docs: {
             description: "require or disallow an empty line after variable declarations",
             category: "Stylistic Issues",
-            recommended: false
+            recommended: false,
+            replacedBy: ["padding-line-between-statements"]
         },
 
         schema: [
@@ -23,7 +31,9 @@ module.exports = {
             }
         ],
 
-        fixable: "whitespace"
+        fixable: "whitespace",
+
+        deprecated: true
     },
 
     create(context) {
@@ -122,10 +132,10 @@ module.exports = {
         }
 
         /**
-        * Gets the last line of a group of consecutive comments
-        * @param {number} commentStartLine The starting line of the group
-        * @returns {number} The number of the last comment line of the group
-        */
+         * Gets the last line of a group of consecutive comments
+         * @param {number} commentStartLine The starting line of the group
+         * @returns {number} The number of the last comment line of the group
+         */
         function getLastCommentLineOfBlock(commentStartLine) {
             const currentCommentEnd = commentEndLine[commentStartLine];
 
@@ -180,8 +190,10 @@ module.exports = {
                 return;
             }
 
-            // Some coding styles use multiple `var` statements, so do nothing if
-            // the next token is a `var` statement.
+            /*
+             * Some coding styles use multiple `var` statements, so do nothing if
+             * the next token is a `var` statement.
+             */
             if (nextToken.type === "Keyword" && isVar(nextToken.value)) {
                 return;
             }
@@ -201,8 +213,7 @@ module.exports = {
                     message: NEVER_MESSAGE,
                     data: { identifier: node.name },
                     fix(fixer) {
-                        const NEWLINE_REGEX = /\r\n|\r|\n|\u2028|\u2029/;
-                        const linesBetween = sourceCode.getText().slice(lastToken.range[1], nextToken.range[0]).split(NEWLINE_REGEX);
+                        const linesBetween = sourceCode.getText().slice(lastToken.range[1], nextToken.range[0]).split(astUtils.LINEBREAK_MATCHER);
 
                         return fixer.replaceTextRange([lastToken.range[1], nextToken.range[0]], `${linesBetween.slice(0, -1).join("")}\n${linesBetween[linesBetween.length - 1]}`);
                     }

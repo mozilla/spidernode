@@ -2,8 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef V8_TEST_CCTEST_INTERPRETER_INTERPRETER_TESTER_H_
+#define V8_TEST_CCTEST_INTERPRETER_INTERPRETER_TESTER_H_
+
 #include "src/v8.h"
 
+#include "src/api.h"
 #include "src/execution.h"
 #include "src/handles.h"
 #include "src/interpreter/bytecode-array-builder.h"
@@ -45,20 +49,16 @@ class InterpreterCallable {
   Handle<JSFunction> function_;
 };
 
-namespace {
-const char kFunctionName[] = "f";
-}  // namespace
-
 class InterpreterTester {
  public:
   InterpreterTester(Isolate* isolate, const char* source,
                     MaybeHandle<BytecodeArray> bytecode,
-                    MaybeHandle<FeedbackVector> feedback_vector,
+                    MaybeHandle<FeedbackMetadata> feedback_metadata,
                     const char* filter);
 
   InterpreterTester(Isolate* isolate, Handle<BytecodeArray> bytecode,
-                    MaybeHandle<FeedbackVector> feedback_vector =
-                        MaybeHandle<FeedbackVector>(),
+                    MaybeHandle<FeedbackMetadata> feedback_metadata =
+                        MaybeHandle<FeedbackMetadata>(),
                     const char* filter = kFunctionName);
 
   InterpreterTester(Isolate* isolate, const char* source,
@@ -81,11 +81,13 @@ class InterpreterTester {
 
   static std::string function_name();
 
+  static const char kFunctionName[];
+
  private:
   Isolate* isolate_;
   const char* source_;
   MaybeHandle<BytecodeArray> bytecode_;
-  MaybeHandle<FeedbackVector> feedback_vector_;
+  MaybeHandle<FeedbackMetadata> feedback_metadata_;
 
   template <class... A>
   Handle<JSFunction> GetBytecodeFunction() {
@@ -108,16 +110,17 @@ class InterpreterTester {
       source += "){})";
       function = Handle<JSFunction>::cast(v8::Utils::OpenHandle(
           *v8::Local<v8::Function>::Cast(CompileRun(source.c_str()))));
-      function->ReplaceCode(
-          *isolate_->builtins()->InterpreterEntryTrampoline());
+      function->set_code(*BUILTIN_CODE(isolate_, InterpreterEntryTrampoline));
     }
 
     if (!bytecode_.is_null()) {
       function->shared()->set_function_data(*bytecode_.ToHandleChecked());
     }
-    if (!feedback_vector_.is_null()) {
-      function->literals()->set_feedback_vector(
-          *feedback_vector_.ToHandleChecked());
+    if (!feedback_metadata_.is_null()) {
+      function->set_feedback_vector_cell(isolate_->heap()->undefined_cell());
+      function->shared()->set_feedback_metadata(
+          *feedback_metadata_.ToHandleChecked());
+      JSFunction::EnsureLiterals(function);
     }
     return function;
   }
@@ -128,3 +131,5 @@ class InterpreterTester {
 }  // namespace interpreter
 }  // namespace internal
 }  // namespace v8
+
+#endif  // V8_TEST_CCTEST_INTERPRETER_INTERPRETER_TESTER_H_

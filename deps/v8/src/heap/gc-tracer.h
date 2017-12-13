@@ -10,7 +10,9 @@
 #include "src/base/ring-buffer.h"
 #include "src/counters.h"
 #include "src/globals.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
+#include "src/heap-symbols.h"
+#include "src/heap/heap.h"
+#include "testing/gtest/include/gtest/gtest_prod.h"  // nogncheck
 
 namespace v8 {
 namespace internal {
@@ -22,75 +24,6 @@ inline BytesAndDuration MakeBytesAndDuration(uint64_t bytes, double duration) {
 }
 
 enum ScavengeSpeedMode { kForAllObjects, kForSurvivedObjects };
-
-#define INCREMENTAL_SCOPES(F)                                      \
-  /* MC_INCREMENTAL is the top-level incremental marking scope. */ \
-  F(MC_INCREMENTAL)                                                \
-  F(MC_INCREMENTAL_SWEEPING)                                       \
-  F(MC_INCREMENTAL_WRAPPER_PROLOGUE)                               \
-  F(MC_INCREMENTAL_WRAPPER_TRACING)                                \
-  F(MC_INCREMENTAL_FINALIZE)                                       \
-  F(MC_INCREMENTAL_FINALIZE_BODY)                                  \
-  F(MC_INCREMENTAL_FINALIZE_OBJECT_GROUPING)                       \
-  F(MC_INCREMENTAL_EXTERNAL_EPILOGUE)                              \
-  F(MC_INCREMENTAL_EXTERNAL_PROLOGUE)
-
-#define TRACER_SCOPES(F)                      \
-  INCREMENTAL_SCOPES(F)                       \
-  F(EXTERNAL_EPILOGUE)                        \
-  F(EXTERNAL_PROLOGUE)                        \
-  F(EXTERNAL_WEAK_GLOBAL_HANDLES)             \
-  F(MC_CLEAR)                                 \
-  F(MC_CLEAR_CODE_FLUSH)                      \
-  F(MC_CLEAR_DEPENDENT_CODE)                  \
-  F(MC_CLEAR_GLOBAL_HANDLES)                  \
-  F(MC_CLEAR_MAPS)                            \
-  F(MC_CLEAR_SLOTS_BUFFER)                    \
-  F(MC_CLEAR_STORE_BUFFER)                    \
-  F(MC_CLEAR_STRING_TABLE)                    \
-  F(MC_CLEAR_WEAK_CELLS)                      \
-  F(MC_CLEAR_WEAK_COLLECTIONS)                \
-  F(MC_CLEAR_WEAK_LISTS)                      \
-  F(MC_EPILOGUE)                              \
-  F(MC_EVACUATE)                              \
-  F(MC_EVACUATE_CANDIDATES)                   \
-  F(MC_EVACUATE_CLEAN_UP)                     \
-  F(MC_EVACUATE_COPY)                         \
-  F(MC_EVACUATE_UPDATE_POINTERS)              \
-  F(MC_EVACUATE_UPDATE_POINTERS_TO_EVACUATED) \
-  F(MC_EVACUATE_UPDATE_POINTERS_TO_NEW)       \
-  F(MC_EVACUATE_UPDATE_POINTERS_WEAK)         \
-  F(MC_FINISH)                                \
-  F(MC_MARK)                                  \
-  F(MC_MARK_FINISH_INCREMENTAL)               \
-  F(MC_MARK_PREPARE_CODE_FLUSH)               \
-  F(MC_MARK_ROOTS)                            \
-  F(MC_MARK_WEAK_CLOSURE)                     \
-  F(MC_MARK_WEAK_CLOSURE_EPHEMERAL)           \
-  F(MC_MARK_WEAK_CLOSURE_WEAK_HANDLES)        \
-  F(MC_MARK_WEAK_CLOSURE_WEAK_ROOTS)          \
-  F(MC_MARK_WEAK_CLOSURE_HARMONY)             \
-  F(MC_MARK_WRAPPER_EPILOGUE)                 \
-  F(MC_MARK_WRAPPER_PROLOGUE)                 \
-  F(MC_MARK_WRAPPER_TRACING)                  \
-  F(MC_MARK_OBJECT_GROUPING)                  \
-  F(MC_PROLOGUE)                              \
-  F(MC_SWEEP)                                 \
-  F(MC_SWEEP_CODE)                            \
-  F(MC_SWEEP_MAP)                             \
-  F(MC_SWEEP_OLD)                             \
-  F(MINOR_MC_MARK)                            \
-  F(MINOR_MC_MARK_CODE_FLUSH_CANDIDATES)      \
-  F(MINOR_MC_MARK_GLOBAL_HANDLES)             \
-  F(MINOR_MC_MARK_OLD_TO_NEW_POINTERS)        \
-  F(MINOR_MC_MARK_ROOTS)                      \
-  F(MINOR_MC_MARK_WEAK)                       \
-  F(SCAVENGER_CODE_FLUSH_CANDIDATES)          \
-  F(SCAVENGER_OLD_TO_NEW_POINTERS)            \
-  F(SCAVENGER_ROOTS)                          \
-  F(SCAVENGER_SCAVENGE)                       \
-  F(SCAVENGER_SEMISPACE)                      \
-  F(SCAVENGER_WEAK)
 
 #define TRACE_GC(tracer, scope_id)                             \
   GCTracer::Scope::ScopeId gc_tracer_scope_id(scope_id);       \
@@ -134,6 +67,7 @@ class V8_EXPORT_PRIVATE GCTracer {
 
       FIRST_INCREMENTAL_SCOPE = MC_INCREMENTAL,
       LAST_INCREMENTAL_SCOPE = MC_INCREMENTAL_EXTERNAL_PROLOGUE,
+      FIRST_SCOPE = MC_INCREMENTAL,
       NUMBER_OF_INCREMENTAL_SCOPES =
           LAST_INCREMENTAL_SCOPE - FIRST_INCREMENTAL_SCOPE + 1
     };
@@ -147,6 +81,7 @@ class V8_EXPORT_PRIVATE GCTracer {
     ScopeId scope_;
     double start_time_;
     RuntimeCallTimer timer_;
+    RuntimeCallStats* runtime_stats_ = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(Scope);
   };
@@ -224,6 +159,9 @@ class V8_EXPORT_PRIVATE GCTracer {
   };
 
   static const int kThroughputTimeFrameMs = 5000;
+  static const int kFirstGCIndexInRuntimeCallStats = 0;
+
+  static RuntimeCallStats::CounterId RCSCounterFromScope(Scope::ScopeId id);
 
   explicit GCTracer(Heap* heap);
 
@@ -233,6 +171,9 @@ class V8_EXPORT_PRIVATE GCTracer {
 
   // Stop collecting data and print results.
   void Stop(GarbageCollector collector);
+
+  void NotifyYoungGenerationHandling(
+      YoungGenerationHandling young_generation_handling);
 
   // Sample and accumulate bytes allocated since the last GC.
   void SampleAllocation(double current_ms, size_t new_space_counter_bytes,
@@ -367,9 +308,9 @@ class V8_EXPORT_PRIVATE GCTracer {
   void PRINTF_FORMAT(2, 3) Output(const char* format, ...) const;
 
   double TotalExternalTime() const {
-    return current_.scopes[Scope::EXTERNAL_WEAK_GLOBAL_HANDLES] +
-           current_.scopes[Scope::EXTERNAL_EPILOGUE] +
-           current_.scopes[Scope::EXTERNAL_PROLOGUE] +
+    return current_.scopes[Scope::HEAP_EXTERNAL_WEAK_GLOBAL_HANDLES] +
+           current_.scopes[Scope::HEAP_EXTERNAL_EPILOGUE] +
+           current_.scopes[Scope::HEAP_EXTERNAL_PROLOGUE] +
            current_.scopes[Scope::MC_INCREMENTAL_EXTERNAL_EPILOGUE] +
            current_.scopes[Scope::MC_INCREMENTAL_EXTERNAL_PROLOGUE];
   }
@@ -416,9 +357,6 @@ class V8_EXPORT_PRIVATE GCTracer {
 
   // Counts how many tracers were started without stopping.
   int start_counter_;
-
-  // Separate timer used for --runtime_call_stats
-  RuntimeCallTimer timer_;
 
   base::RingBuffer<BytesAndDuration> recorded_minor_gcs_total_;
   base::RingBuffer<BytesAndDuration> recorded_minor_gcs_survived_;

@@ -54,15 +54,17 @@ assertWrongList(['hello', 'world']);
 assertWrongList(['hello', Buffer.from('world')]);
 
 function assertWrongList(value) {
-  assert.throws(() => {
+  common.expectsError(() => {
     Buffer.concat(value);
-  }, function(err) {
-    return err instanceof TypeError &&
-           err.message === '"list" argument must be an Array of Buffer ' +
-                           'or Uint8Array instances';
+  }, {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "list" argument must be one of type ' +
+             'Array, Buffer, or Uint8Array'
   });
 }
 
+// eslint-disable-next-line crypto-check
 const random10 = common.hasCrypto ?
   require('crypto').randomBytes(10) :
   Buffer.alloc(10, 1);
@@ -82,8 +84,8 @@ assert.deepStrictEqual(Buffer.concat([random10, empty, empty]), random10);
 assert.deepStrictEqual(Buffer.concat([empty], 100), Buffer.alloc(100));
 assert.deepStrictEqual(Buffer.concat([empty], 4096), Buffer.alloc(4096));
 assert.deepStrictEqual(
-    Buffer.concat([random10], 40),
-    Buffer.concat([random10, Buffer.alloc(30)]));
+  Buffer.concat([random10], 40),
+  Buffer.concat([random10, Buffer.alloc(30)]));
 
 assert.deepStrictEqual(Buffer.concat([new Uint8Array([0x41, 0x42]),
                                       new Uint8Array([0x43, 0x44])]),

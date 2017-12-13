@@ -2,12 +2,17 @@
 const common = require('../common');
 const assert = require('assert');
 const http = require('http');
+const Countdown = require('../common/countdown');
 
 const MAX_REQUESTS = 13;
 let reqNum = 0;
 
 function test(res, header, code) {
-  const errRegExp = new RegExp(`^RangeError: Invalid status code: ${code}$`);
+  const errRegExp = common.expectsError({
+    code: 'ERR_HTTP_INVALID_STATUS_CODE',
+    type: RangeError,
+    message: `Invalid status code: ${code}`
+  });
   assert.throws(() => {
     res.writeHead(header);
   }, errRegExp);
@@ -25,7 +30,7 @@ const server = http.Server(common.mustCall(function(req, res) {
       test(res, NaN, 'NaN');
       break;
     case 3:
-      test(res, {}, '\\[object Object\\]');
+      test(res, {}, '[object Object]');
       break;
     case 4:
       test(res, 99, '99');
@@ -52,8 +57,12 @@ const server = http.Server(common.mustCall(function(req, res) {
       test(res, '404 this is not valid either', '404 this is not valid either');
       break;
     case 12:
-      assert.throws(() => { res.writeHead(); },
-                    /^RangeError: Invalid status code: undefined$/);
+      common.expectsError(() => { res.writeHead(); },
+                          {
+                            code: 'ERR_HTTP_INVALID_STATUS_CODE',
+                            type: RangeError,
+                            message: 'Invalid status code: undefined'
+                          });
       this.close();
       break;
     default:
@@ -64,13 +73,17 @@ const server = http.Server(common.mustCall(function(req, res) {
 }, MAX_REQUESTS));
 server.listen();
 
+const countdown = new Countdown(MAX_REQUESTS, () => server.close());
+
 server.on('listening', function makeRequest() {
   http.get({
     port: this.address().port
   }, (res) => {
     assert.strictEqual(res.statusCode, 200);
     res.on('end', () => {
-      if (++reqNum < MAX_REQUESTS)
+      countdown.dec();
+      reqNum = MAX_REQUESTS - countdown.remaining;
+      if (countdown.remaining > 0)
         makeRequest.call(this);
     });
     res.resume();

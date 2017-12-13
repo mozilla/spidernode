@@ -1,5 +1,7 @@
 # TTY
 
+<!--introduced_in=v0.10.0-->
+
 > Stability: 2 - Stable
 
 The `tty` module provides the `tty.ReadStream` and `tty.WriteStream` classes.
@@ -44,6 +46,13 @@ added: v0.7.7
 
 A `boolean` that is `true` if the TTY is currently configured to operate as a
 raw device. Defaults to `false`.
+
+### readStream.isTTY
+<!-- YAML
+added: v0.5.8
+-->
+
+A `boolean` that is always `true`.
 
 ### readStream.setRawMode(mode)
 <!-- YAML
@@ -96,6 +105,13 @@ added: v0.7.7
 A `number` specifying the number of columns the TTY currently has. This property
 is updated whenever the `'resize'` event is emitted.
 
+### writeStream.isTTY
+<!-- YAML
+added: v0.5.8
+-->
+
+A `boolean` that is always `true`.
+
 ### writeStream.rows
 <!-- YAML
 added: v0.7.7
@@ -112,4 +128,5 @@ added: v0.5.8
 * `fd` {number} A numeric file descriptor
 
 The `tty.isatty()` method returns `true` if the given `fd` is associated with
-a TTY and `false` if is not.
+a TTY and `false` if it is not, including whenever `fd` is not a non-negative
+integer.

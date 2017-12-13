@@ -21,15 +21,11 @@
 
 #include "node.h"
 #include "node_buffer.h"
-#include "node_http_parser.h"
 
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
-#include "env.h"
+#include "async_wrap-inl.h"
 #include "env-inl.h"
-#include "stream_base.h"
+#include "http_parser.h"
 #include "stream_base-inl.h"
-#include "util.h"
 #include "util-inl.h"
 #include "v8.h"
 
@@ -49,6 +45,7 @@
 
 
 namespace node {
+namespace {
 
 using v8::Array;
 using v8::Boolean;
@@ -61,6 +58,7 @@ using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
+using v8::MaybeLocal;
 using v8::Object;
 using v8::String;
 using v8::Uint32;
@@ -307,7 +305,7 @@ class Parser : public AsyncWrap {
 
     Environment::AsyncCallbackScope callback_scope(env());
 
-    Local<Value> head_response =
+    MaybeLocal<Value> head_response =
         MakeCallback(cb.As<Function>(), arraysize(argv), argv);
 
     if (head_response.IsEmpty()) {
@@ -315,7 +313,7 @@ class Parser : public AsyncWrap {
       return -1;
     }
 
-    return head_response->IntegerValue();
+    return head_response.ToLocalChecked()->IntegerValue();
   }
 
 
@@ -343,7 +341,9 @@ class Parser : public AsyncWrap {
       Integer::NewFromUnsigned(env()->isolate(), length)
     };
 
-    Local<Value> r = MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    MaybeLocal<Value> r = MakeCallback(cb.As<Function>(),
+                                       arraysize(argv),
+                                       argv);
 
     if (r.IsEmpty()) {
       got_exception_ = true;
@@ -368,7 +368,7 @@ class Parser : public AsyncWrap {
 
     Environment::AsyncCallbackScope callback_scope(env());
 
-    Local<Value> r = MakeCallback(cb.As<Function>(), 0, nullptr);
+    MaybeLocal<Value> r = MakeCallback(cb.As<Function>(), 0, nullptr);
 
     if (r.IsEmpty()) {
       got_exception_ = true;
@@ -394,6 +394,18 @@ class Parser : public AsyncWrap {
 
     if (--parser->refcount_ == 0)
       delete parser;
+  }
+
+
+  static void Free(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+    Parser* parser;
+    ASSIGN_OR_RETURN_UNWRAP(&parser, args.Holder());
+
+    // Since the Parser destructor isn't going to run the destroy() callbacks
+    // it needs to be triggered manually.
+    parser->EmitTraceEventDestroy();
+    parser->EmitDestroy(env, parser->get_async_id());
   }
 
 
@@ -454,7 +466,7 @@ class Parser : public AsyncWrap {
       enum http_errno err = HTTP_PARSER_ERRNO(&parser->parser_);
 
       Local<Value> e = Exception::Error(env->parse_error_string());
-      Local<Object> obj = e->ToObject(env->isolate());
+      Local<Object> obj = e.As<Object>();
       obj->Set(env->bytes_parsed_string(), Integer::New(env->isolate(), 0));
       obj->Set(env->code_string(),
                OneByteString(env->isolate(), http_errno_name(err)));
@@ -475,6 +487,8 @@ class Parser : public AsyncWrap {
     ASSIGN_OR_RETURN_UNWRAP(&parser, args.Holder());
     // Should always be called from the same context.
     CHECK_EQ(env, parser->env());
+    // The parser is being reused. Reset the async id and call init() callbacks.
+    parser->AsyncReset();
     parser->Init(type);
   }
 
@@ -493,6 +507,7 @@ class Parser : public AsyncWrap {
   static void Consume(const FunctionCallbackInfo<Value>& args) {
     Parser* parser;
     ASSIGN_OR_RETURN_UNWRAP(&parser, args.Holder());
+    CHECK(args[0]->IsExternal());
     Local<External> stream_obj = args[0].As<External>();
     StreamBase* stream = static_cast<StreamBase*>(stream_obj->Value());
     CHECK_NE(stream, nullptr);
@@ -523,6 +538,7 @@ class Parser : public AsyncWrap {
 
       stream->set_alloc_cb(parser->prev_alloc_cb_);
       stream->set_read_cb(parser->prev_read_cb_);
+      stream->Unconsume();
     }
 
     parser->prev_alloc_cb_.clear();
@@ -697,7 +713,9 @@ class Parser : public AsyncWrap {
       url_.ToString(env())
     };
 
-    Local<Value> r = MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    MaybeLocal<Value> r = MakeCallback(cb.As<Function>(),
+                                       arraysize(argv),
+                                       argv);
 
     if (r.IsEmpty())
       got_exception_ = true;
@@ -784,7 +802,9 @@ void InitHttpParser(Local<Object> target,
 #undef V
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "methods"), methods);
 
+  AsyncWrap::AddWrapMethods(env, t);
   env->SetProtoMethod(t, "close", Parser::Close);
+  env->SetProtoMethod(t, "free", Parser::Free);
   env->SetProtoMethod(t, "execute", Parser::Execute);
   env->SetProtoMethod(t, "finish", Parser::Finish);
   env->SetProtoMethod(t, "reinitialize", Parser::Reinitialize);
@@ -798,6 +818,7 @@ void InitHttpParser(Local<Object> target,
               t->GetFunction());
 }
 
+}  // anonymous namespace
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE_BUILTIN(http_parser, node::InitHttpParser)
+NODE_BUILTIN_MODULE_CONTEXT_AWARE(http_parser, node::InitHttpParser)

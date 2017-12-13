@@ -33,8 +33,8 @@
 #include "src/ppc/simulator-ppc.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
-
+namespace v8 {
+namespace internal {
 
 // Define these function prototypes to match JSEntryFunction in execution.cc.
 typedef Object* (*F1)(int x, int p1, int p2, int p3, int p4);
@@ -59,9 +59,9 @@ TEST(0) {
   __ blr();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   code->Print();
 #endif
@@ -98,9 +98,9 @@ TEST(1) {
   __ blr();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   code->Print();
 #endif
@@ -149,9 +149,9 @@ TEST(2) {
   __ mov(r0, Operand(0xFFF0FFFF));
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   code->Print();
 #endif
@@ -222,9 +222,9 @@ TEST(3) {
   __ blr();
 
   CodeDesc desc;
-  assm.GetCode(&desc);
-  Handle<Code> code = isolate->factory()->NewCode(
-      desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
+  assm.GetCode(isolate, &desc);
+  Handle<Code> code =
+      isolate->factory()->NewCode(desc, Code::STUB, Handle<Code>());
 #ifdef DEBUG
   code->Print();
 #endif
@@ -335,10 +335,10 @@ TEST(4) {
     __ ldm(ia_w, sp, r4.bit() | fp.bit() | pc.bit());
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -396,10 +396,10 @@ TEST(5) {
     __ mov(pc, Operand(lr));
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -432,10 +432,10 @@ TEST(6) {
     __ mov(pc, Operand(lr));
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -508,10 +508,10 @@ static void TestRoundingMode(VCVTTypes types,
     __ mov(pc, Operand(lr));
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -696,10 +696,10 @@ TEST(8) {
     __ ldm(ia_w, sp, r4.bit() | fp.bit() | pc.bit());
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -812,10 +812,10 @@ TEST(9) {
     __ ldm(ia_w, sp, r4.bit() | fp.bit() | pc.bit());
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -924,10 +924,10 @@ TEST(10) {
     __ ldm(ia_w, sp, r4.bit() | fp.bit() | pc.bit());
 
     CodeDesc desc;
-    assm.GetCode(&desc);
+    assm.GetCode(isolate, &desc);
     Object* code = isolate->heap()->CreateCode(
         desc,
-        Code::ComputeFlags(Code::STUB),
+        Code::STUB,
         Handle<Code>())->ToObjectChecked();
     CHECK(code->IsCode());
 #ifdef DEBUG
@@ -1022,10 +1022,10 @@ TEST(11) {
   __ mov(pc, Operand(lr));
 
   CodeDesc desc;
-  assm.GetCode(&desc);
+  assm.GetCode(isolate, &desc);
   Object* code = isolate->heap()->CreateCode(
       desc,
-      Code::ComputeFlags(Code::STUB),
+      Code::STUB,
       Handle<Code>())->ToObjectChecked();
   CHECK(code->IsCode());
 #ifdef DEBUG
@@ -1058,3 +1058,6 @@ TEST(12) {
 #endif
 
 #undef __
+
+}  // namespace internal
+}  // namespace v8

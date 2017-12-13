@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "src/compiler/int64-lowering.h"
+
 #include "src/compiler/common-operator.h"
 #include "src/compiler/diamond.h"
 #include "src/compiler/graph.h"
@@ -10,9 +11,8 @@
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
-
 #include "src/compiler/node.h"
-#include "src/wasm/wasm-module.h"
+#include "src/compiler/wasm-compiler.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -73,6 +73,8 @@ void Int64Lowering::LowerGraph() {
   }
 }
 
+namespace {
+
 static int GetParameterIndexAfterLowering(
     Signature<MachineRepresentation>* signature, int old_index) {
   int result = old_index;
@@ -84,6 +86,19 @@ static int GetParameterIndexAfterLowering(
   return result;
 }
 
+int GetReturnCountAfterLowering(Signature<MachineRepresentation>* signature) {
+  int result = static_cast<int>(signature->return_count());
+  for (int i = 0; i < static_cast<int>(signature->return_count()); i++) {
+    if (signature->GetReturn(i) == MachineRepresentation::kWord64) {
+      result++;
+    }
+  }
+  return result;
+}
+
+}  // namespace
+
+// static
 int Int64Lowering::GetParameterCountAfterLowering(
     Signature<MachineRepresentation>* signature) {
   // GetParameterIndexAfterLowering(parameter_count) returns the parameter count
@@ -92,15 +107,10 @@ int Int64Lowering::GetParameterCountAfterLowering(
       signature, static_cast<int>(signature->parameter_count()));
 }
 
-static int GetReturnCountAfterLowering(
-    Signature<MachineRepresentation>* signature) {
-  int result = static_cast<int>(signature->return_count());
-  for (int i = 0; i < static_cast<int>(signature->return_count()); i++) {
-    if (signature->GetReturn(i) == MachineRepresentation::kWord64) {
-      result++;
-    }
-  }
-  return result;
+// static
+bool Int64Lowering::IsI64AsTwoParameters(MachineOperatorBuilder* machine,
+                                         MachineRepresentation type) {
+  return machine->Is32() && type == MachineRepresentation::kWord64;
 }
 
 void Int64Lowering::GetIndexNodes(Node* index, Node*& index_low,
@@ -119,14 +129,6 @@ void Int64Lowering::GetIndexNodes(Node* index, Node*& index_low,
 #endif
 }
 
-#if defined(V8_TARGET_LITTLE_ENDIAN)
-const int Int64Lowering::kLowerWordOffset = 0;
-const int Int64Lowering::kHigherWordOffset = 4;
-#elif defined(V8_TARGET_BIG_ENDIAN)
-const int Int64Lowering::kLowerWordOffset = 4;
-const int Int64Lowering::kHigherWordOffset = 0;
-#endif
-
 void Int64Lowering::LowerNode(Node* node) {
   switch (node->opcode()) {
     case IrOpcode::kInt64Constant: {
@@ -144,7 +146,7 @@ void Int64Lowering::LowerNode(Node* node) {
       if (node->opcode() == IrOpcode::kLoad) {
         rep = LoadRepresentationOf(node->op()).representation();
       } else {
-        DCHECK(node->opcode() == IrOpcode::kUnalignedLoad);
+        DCHECK_EQ(IrOpcode::kUnalignedLoad, node->opcode());
         rep = UnalignedLoadRepresentationOf(node->op()).representation();
       }
 
@@ -159,7 +161,7 @@ void Int64Lowering::LowerNode(Node* node) {
         if (node->opcode() == IrOpcode::kLoad) {
           load_op = machine()->Load(MachineType::Int32());
         } else {
-          DCHECK(node->opcode() == IrOpcode::kUnalignedLoad);
+          DCHECK_EQ(IrOpcode::kUnalignedLoad, node->opcode());
           load_op = machine()->UnalignedLoad(MachineType::Int32());
         }
 
@@ -189,7 +191,7 @@ void Int64Lowering::LowerNode(Node* node) {
       if (node->opcode() == IrOpcode::kStore) {
         rep = StoreRepresentationOf(node->op()).representation();
       } else {
-        DCHECK(node->opcode() == IrOpcode::kUnalignedStore);
+        DCHECK_EQ(IrOpcode::kUnalignedStore, node->opcode());
         rep = UnalignedStoreRepresentationOf(node->op());
       }
 
@@ -214,7 +216,7 @@ void Int64Lowering::LowerNode(Node* node) {
           store_op = machine()->Store(StoreRepresentation(
               MachineRepresentation::kWord32, write_barrier_kind));
         } else {
-          DCHECK(node->opcode() == IrOpcode::kUnalignedStore);
+          DCHECK_EQ(IrOpcode::kUnalignedStore, node->opcode());
           store_op = machine()->UnalignedStore(MachineRepresentation::kWord32);
         }
 
@@ -237,7 +239,7 @@ void Int64Lowering::LowerNode(Node* node) {
         NodeProperties::ChangeOp(node, store_op);
         ReplaceNode(node, node, high_node);
       } else {
-        DefaultLowering(node);
+        DefaultLowering(node, true);
       }
       break;
     }
@@ -253,7 +255,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kParameter: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       // Only exchange the node if the parameter count actually changed. We do
       // not even have to do the default lowering because the the start node,
       // the only input of a parameter node, only changes if the parameter count
@@ -261,7 +263,17 @@ void Int64Lowering::LowerNode(Node* node) {
       if (GetParameterCountAfterLowering(signature()) !=
           static_cast<int>(signature()->parameter_count())) {
         int old_index = ParameterIndexOf(node->op());
+        // TODO(wasm): Make this part not wasm specific.
+        // Prevent special lowering of the WasmContext parameter.
+        if (old_index == kWasmContextParameterIndex) {
+          DefaultLowering(node);
+          break;
+        }
+        // Adjust old_index to be compliant with the signature.
+        --old_index;
         int new_index = GetParameterIndexAfterLowering(signature(), old_index);
+        // Adjust new_index to consider the WasmContext parameter.
+        ++new_index;
         NodeProperties::ChangeOp(node, common()->Parameter(new_index));
 
         Node* high_node = nullptr;
@@ -275,23 +287,26 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kReturn: {
+      int input_count = node->InputCount();
       DefaultLowering(node);
-      int new_return_count = GetReturnCountAfterLowering(signature());
-      if (static_cast<int>(signature()->return_count()) != new_return_count) {
-        NodeProperties::ChangeOp(node, common()->Return(new_return_count));
+      if (input_count != node->InputCount()) {
+        int new_return_count = GetReturnCountAfterLowering(signature());
+        if (static_cast<int>(signature()->return_count()) != new_return_count) {
+          NodeProperties::ChangeOp(node, common()->Return(new_return_count));
+        }
       }
       break;
     }
     case IrOpcode::kCall: {
-      // TODO(turbofan): Make WASM code const-correct wrt. CallDescriptor.
+      // TODO(turbofan): Make wasm code const-correct wrt. CallDescriptor.
       CallDescriptor* descriptor =
           const_cast<CallDescriptor*>(CallDescriptorOf(node->op()));
       if (DefaultLowering(node) ||
           (descriptor->ReturnCount() == 1 &&
            descriptor->GetReturnType(0) == MachineType::Int64())) {
         // We have to adjust the call descriptor.
-        const Operator* op = common()->Call(
-            wasm::ModuleEnv::GetI32WasmCallDescriptor(zone(), descriptor));
+        const Operator* op =
+            common()->Call(GetI32WasmCallDescriptor(zone(), descriptor));
         NodeProperties::ChangeOp(node, op);
       }
       if (descriptor->ReturnCount() == 1 &&
@@ -306,7 +321,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64And: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* left = node->InputAt(0);
       Node* right = node->InputAt(1);
 
@@ -320,14 +335,14 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kTruncateInt64ToInt32: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       ReplaceNode(node, GetReplacementLow(input), nullptr);
       node->NullAllInputs();
       break;
     }
     case IrOpcode::kInt64Add: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
 
       Node* right = node->InputAt(1);
       node->ReplaceInput(1, GetReplacementLow(right));
@@ -347,7 +362,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kInt64Sub: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
 
       Node* right = node->InputAt(1);
       node->ReplaceInput(1, GetReplacementLow(right));
@@ -367,7 +382,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kInt64Mul: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
 
       Node* right = node->InputAt(1);
       node->ReplaceInput(1, GetReplacementLow(right));
@@ -387,7 +402,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Or: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* left = node->InputAt(0);
       Node* right = node->InputAt(1);
 
@@ -401,7 +416,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Xor: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* left = node->InputAt(0);
       Node* right = node->InputAt(1);
 
@@ -417,7 +432,7 @@ void Int64Lowering::LowerNode(Node* node) {
     case IrOpcode::kWord64Shl: {
       // TODO(turbofan): if the shift count >= 32, then we can set the low word
       // of the output to 0 and just calculate the high word.
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* shift = node->InputAt(1);
       if (HasReplacementLow(shift)) {
         // We do not have to care about the high word replacement, because
@@ -441,7 +456,7 @@ void Int64Lowering::LowerNode(Node* node) {
     case IrOpcode::kWord64Shr: {
       // TODO(turbofan): if the shift count >= 32, then we can set the low word
       // of the output to 0 and just calculate the high word.
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* shift = node->InputAt(1);
       if (HasReplacementLow(shift)) {
         // We do not have to care about the high word replacement, because
@@ -465,7 +480,7 @@ void Int64Lowering::LowerNode(Node* node) {
     case IrOpcode::kWord64Sar: {
       // TODO(turbofan): if the shift count >= 32, then we can set the low word
       // of the output to 0 and just calculate the high word.
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* shift = node->InputAt(1);
       if (HasReplacementLow(shift)) {
         // We do not have to care about the high word replacement, because
@@ -487,7 +502,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Equal: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* left = node->InputAt(0);
       Node* right = node->InputAt(1);
 
@@ -526,7 +541,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kChangeInt32ToInt64: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       if (HasReplacementLow(input)) {
         input = GetReplacementLow(input);
@@ -540,7 +555,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kChangeUint32ToUint64: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       if (HasReplacementLow(input)) {
         input = GetReplacementLow(input);
@@ -550,7 +565,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kBitcastInt64ToFloat64: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       Node* stack_slot = graph()->NewNode(
           machine()->StackSlot(MachineRepresentation::kWord64));
@@ -560,7 +575,8 @@ void Int64Lowering::LowerNode(Node* node) {
               StoreRepresentation(MachineRepresentation::kWord32,
                                   WriteBarrierKind::kNoWriteBarrier)),
           stack_slot,
-          graph()->NewNode(common()->Int32Constant(kHigherWordOffset)),
+          graph()->NewNode(
+              common()->Int32Constant(kInt64UpperHalfMemoryOffset)),
           GetReplacementHigh(input), graph()->start(), graph()->start());
 
       Node* store_low_word = graph()->NewNode(
@@ -568,7 +584,8 @@ void Int64Lowering::LowerNode(Node* node) {
               StoreRepresentation(MachineRepresentation::kWord32,
                                   WriteBarrierKind::kNoWriteBarrier)),
           stack_slot,
-          graph()->NewNode(common()->Int32Constant(kLowerWordOffset)),
+          graph()->NewNode(
+              common()->Int32Constant(kInt64LowerHalfMemoryOffset)),
           GetReplacementLow(input), store_high_word, graph()->start());
 
       Node* load =
@@ -580,7 +597,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kBitcastFloat64ToInt64: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       if (HasReplacementLow(input)) {
         input = GetReplacementLow(input);
@@ -596,18 +613,20 @@ void Int64Lowering::LowerNode(Node* node) {
 
       Node* high_node = graph()->NewNode(
           machine()->Load(MachineType::Int32()), stack_slot,
-          graph()->NewNode(common()->Int32Constant(kHigherWordOffset)), store,
-          graph()->start());
+          graph()->NewNode(
+              common()->Int32Constant(kInt64UpperHalfMemoryOffset)),
+          store, graph()->start());
 
       Node* low_node = graph()->NewNode(
           machine()->Load(MachineType::Int32()), stack_slot,
-          graph()->NewNode(common()->Int32Constant(kLowerWordOffset)), store,
-          graph()->start());
+          graph()->NewNode(
+              common()->Int32Constant(kInt64LowerHalfMemoryOffset)),
+          store, graph()->start());
       ReplaceNode(node, low_node, high_node);
       break;
     }
     case IrOpcode::kWord64Ror: {
-      DCHECK(node->InputCount() == 2);
+      DCHECK_EQ(2, node->InputCount());
       Node* input = node->InputAt(0);
       Node* shift = HasReplacementLow(node->InputAt(1))
                         ? GetReplacementLow(node->InputAt(1))
@@ -715,7 +734,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Clz: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       Diamond d(
           graph(), common(),
@@ -733,7 +752,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Ctz: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       DCHECK(machine()->Word32Ctz().IsSupported());
       Node* input = node->InputAt(0);
       Diamond d(
@@ -752,7 +771,7 @@ void Int64Lowering::LowerNode(Node* node) {
       break;
     }
     case IrOpcode::kWord64Popcnt: {
-      DCHECK(node->InputCount() == 1);
+      DCHECK_EQ(1, node->InputCount());
       Node* input = node->InputAt(0);
       // We assume that a Word64Popcnt node only has been created if
       // Word32Popcnt is actually supported.
@@ -809,7 +828,7 @@ void Int64Lowering::LowerNode(Node* node) {
 
 void Int64Lowering::LowerComparison(Node* node, const Operator* high_word_op,
                                     const Operator* low_word_op) {
-  DCHECK(node->InputCount() == 2);
+  DCHECK_EQ(2, node->InputCount());
   Node* left = node->InputAt(0);
   Node* right = node->InputAt(1);
   Node* replacement = graph()->NewNode(
@@ -826,7 +845,7 @@ void Int64Lowering::LowerComparison(Node* node, const Operator* high_word_op,
   ReplaceNode(node, replacement, nullptr);
 }
 
-bool Int64Lowering::DefaultLowering(Node* node) {
+bool Int64Lowering::DefaultLowering(Node* node, bool low_word_only) {
   bool something_changed = false;
   for (int i = NodeProperties::PastValueIndex(node) - 1; i >= 0; i--) {
     Node* input = node->InputAt(i);
@@ -834,7 +853,7 @@ bool Int64Lowering::DefaultLowering(Node* node) {
       something_changed = true;
       node->ReplaceInput(i, GetReplacementLow(input));
     }
-    if (HasReplacementHigh(input)) {
+    if (!low_word_only && HasReplacementHigh(input)) {
       something_changed = true;
       node->InsertInput(zone(), i + 1, GetReplacementHigh(input));
     }

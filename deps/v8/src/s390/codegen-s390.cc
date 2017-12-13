@@ -35,8 +35,9 @@ UnaryMathFunctionWithIsolate CreateSqrtFunction(Isolate* isolate) {
   __ Ret();
 
   CodeDesc desc;
-  masm.GetCode(&desc);
-  DCHECK(ABI_USES_FUNCTION_DESCRIPTORS || !RelocInfo::RequiresRelocation(desc));
+  masm.GetCode(isolate, &desc);
+  DCHECK(ABI_USES_FUNCTION_DESCRIPTORS ||
+         !RelocInfo::RequiresRelocation(isolate, desc));
 
   Assembler::FlushICache(isolate, buffer, actual_size);
   base::OS::ProtectCode(buffer, actual_size);
@@ -47,21 +48,6 @@ UnaryMathFunctionWithIsolate CreateSqrtFunction(Isolate* isolate) {
 #undef __
 
 // -------------------------------------------------------------------------
-// Platform-specific RuntimeCallHelper functions.
-
-void StubRuntimeCallHelper::BeforeCall(MacroAssembler* masm) const {
-  masm->EnterFrame(StackFrame::INTERNAL);
-  DCHECK(!masm->has_frame());
-  masm->set_has_frame(true);
-}
-
-void StubRuntimeCallHelper::AfterCall(MacroAssembler* masm) const {
-  masm->LeaveFrame(StackFrame::INTERNAL);
-  DCHECK(masm->has_frame());
-  masm->set_has_frame(false);
-}
-
-// -------------------------------------------------------------------------
 // Code generators
 
 #define __ ACCESS_MASM(masm)
@@ -70,6 +56,9 @@ void StubRuntimeCallHelper::AfterCall(MacroAssembler* masm) const {
 void StringCharLoadGenerator::Generate(MacroAssembler* masm, Register string,
                                        Register index, Register result,
                                        Label* call_runtime) {
+  Label indirect_string_loaded;
+  __ bind(&indirect_string_loaded);
+
   // Fetch the instance type of the receiver into result register.
   __ LoadP(result, FieldMemOperand(string, HeapObject::kMapOffset));
   __ LoadlB(result, FieldMemOperand(result, Map::kInstanceTypeOffset));
@@ -81,19 +70,25 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm, Register string,
   __ beq(&check_sequential, Label::kNear /*, cr0*/);
 
   // Dispatch on the indirect string shape: slice or cons.
-  Label cons_string;
-  __ mov(ip, Operand(kSlicedNotConsMask));
-  __ LoadRR(r0, result);
-  __ AndP(r0, ip /*, SetRC*/);  // Should be okay to remove RC
-  __ beq(&cons_string, Label::kNear /*, cr0*/);
+  Label cons_string, thin_string;
+  __ LoadRR(ip, result);
+  __ nilf(ip, Operand(kStringRepresentationMask));
+  __ CmpP(ip, Operand(kConsStringTag));
+  __ beq(&cons_string);
+  __ CmpP(ip, Operand(kThinStringTag));
+  __ beq(&thin_string);
 
   // Handle slices.
-  Label indirect_string_loaded;
   __ LoadP(result, FieldMemOperand(string, SlicedString::kOffsetOffset));
   __ LoadP(string, FieldMemOperand(string, SlicedString::kParentOffset));
   __ SmiUntag(ip, result);
   __ AddP(index, ip);
-  __ b(&indirect_string_loaded, Label::kNear);
+  __ b(&indirect_string_loaded);
+
+  // Handle thin strings.
+  __ bind(&thin_string);
+  __ LoadP(string, FieldMemOperand(string, ThinString::kActualOffset));
+  __ b(&indirect_string_loaded);
 
   // Handle cons strings.
   // Check whether the right hand side is the empty string (i.e. if
@@ -106,10 +101,7 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm, Register string,
   __ bne(call_runtime);
   // Get the first of the two strings and load its instance type.
   __ LoadP(string, FieldMemOperand(string, ConsString::kFirstOffset));
-
-  __ bind(&indirect_string_loaded);
-  __ LoadP(result, FieldMemOperand(string, HeapObject::kMapOffset));
-  __ LoadlB(result, FieldMemOperand(result, Map::kInstanceTypeOffset));
+  __ b(&indirect_string_loaded);
 
   // Distinguish sequential and external strings. Only these two string
   // representations can reach here (slices and flat cons strings have been
@@ -160,73 +152,6 @@ void StringCharLoadGenerator::Generate(MacroAssembler* masm, Register string,
 }
 
 #undef __
-
-CodeAgingHelper::CodeAgingHelper(Isolate* isolate) {
-  USE(isolate);
-  DCHECK(young_sequence_.length() == kNoCodeAgeSequenceLength);
-  // Since patcher is a large object, allocate it dynamically when needed,
-  // to avoid overloading the stack in stress conditions.
-  // DONT_FLUSH is used because the CodeAgingHelper is initialized early in
-  // the process, before ARM simulator ICache is setup.
-  std::unique_ptr<CodePatcher> patcher(
-      new CodePatcher(isolate, young_sequence_.start(),
-                      young_sequence_.length(), CodePatcher::DONT_FLUSH));
-  PredictableCodeSizeScope scope(patcher->masm(), young_sequence_.length());
-  patcher->masm()->PushStandardFrame(r3);
-}
-
-#ifdef DEBUG
-bool CodeAgingHelper::IsOld(byte* candidate) const {
-  return Assembler::IsNop(Assembler::instr_at(candidate));
-}
-#endif
-
-bool Code::IsYoungSequence(Isolate* isolate, byte* sequence) {
-  bool result = isolate->code_aging_helper()->IsYoung(sequence);
-  DCHECK(result || isolate->code_aging_helper()->IsOld(sequence));
-  return result;
-}
-
-Code::Age Code::GetCodeAge(Isolate* isolate, byte* sequence) {
-  if (IsYoungSequence(isolate, sequence)) return kNoAgeCodeAge;
-
-  Code* code = NULL;
-  Address target_address =
-      Assembler::target_address_at(sequence + kCodeAgingTargetDelta, code);
-  Code* stub = GetCodeFromTargetAddress(target_address);
-  return GetAgeOfCodeAgeStub(stub);
-}
-
-void Code::PatchPlatformCodeAge(Isolate* isolate, byte* sequence,
-                                Code::Age age) {
-  uint32_t young_length = isolate->code_aging_helper()->young_sequence_length();
-  if (age == kNoAgeCodeAge) {
-    isolate->code_aging_helper()->CopyYoungSequenceTo(sequence);
-    Assembler::FlushICache(isolate, sequence, young_length);
-  } else {
-    // FIXED_SEQUENCE
-    Code* stub = GetCodeAgeStub(isolate, age);
-    CodePatcher patcher(isolate, sequence, young_length);
-    intptr_t target = reinterpret_cast<intptr_t>(stub->instruction_start());
-    // We need to push lr on stack so that GenerateMakeCodeYoungAgainCommon
-    // knows where to pick up the return address
-    //
-    // Since we can no longer guarentee ip will hold the branch address
-    // because of BRASL, use Call so that GenerateMakeCodeYoungAgainCommon
-    // can calculate the branch address offset
-    patcher.masm()->nop();  // marker to detect sequence (see IsOld)
-    patcher.masm()->CleanseP(r14);
-    patcher.masm()->Push(r14);
-    patcher.masm()->mov(r2, Operand(target));
-    patcher.masm()->Call(r2);
-    for (int i = 0; i < kNoCodeAgeSequenceLength - kCodeAgingSequenceLength;
-         i += 2) {
-      // TODO(joransiu): Create nop function to pad
-      //       (kNoCodeAgeSequenceLength - kCodeAgingSequenceLength) bytes.
-      patcher.masm()->nop();  // 2-byte nops().
-    }
-  }
-}
 
 }  // namespace internal
 }  // namespace v8

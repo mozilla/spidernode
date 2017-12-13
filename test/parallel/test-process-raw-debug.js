@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 const os = require('os');
 
@@ -30,7 +30,7 @@ switch (process.argv[2]) {
   case undefined:
     return parent();
   default:
-    throw new Error('wtf? ' + process.argv[2]);
+    throw new Error(`invalid: ${process.argv[2]}`);
 }
 
 function parent() {
@@ -46,14 +46,14 @@ function parent() {
   child.stderr.setEncoding('utf8');
 
   child.stderr.on('end', function() {
-    assert.strictEqual(output, 'I can still debug!' + os.EOL);
+    assert.strictEqual(output, `I can still debug!${os.EOL}`);
     console.log('ok - got expected message');
   });
 
-  child.on('exit', function(c) {
+  child.on('exit', common.mustCall(function(c) {
     assert(!c);
     console.log('ok - child exited nicely');
-  });
+  }));
 }
 
 function child() {
@@ -63,10 +63,7 @@ function child() {
     throw new Error('No ticking!');
   };
 
-  const stderr = process.stderr;
-  stderr.write = function() {
-    throw new Error('No writing to stderr!');
-  };
+  common.hijackStderr(common.mustNotCall('stderr.write must not be called.'));
 
   process._rawDebug('I can still %s!', 'debug');
 }

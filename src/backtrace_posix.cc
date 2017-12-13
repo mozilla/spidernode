@@ -1,4 +1,4 @@
-#include "node.h"
+#include "node_internals.h"
 
 #if defined(__linux__)
 #include <features.h>
@@ -25,9 +25,6 @@ void DumpBacktrace(FILE* fp) {
 #if HAVE_EXECINFO_H
   void* frames[256];
   const int size = backtrace(frames, arraysize(frames));
-  if (size <= 0) {
-    return;
-  }
   for (int i = 1; i < size; i += 1) {
     void* frame = frames[i];
     fprintf(fp, "%2d: ", i);

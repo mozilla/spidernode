@@ -7,7 +7,7 @@
 #include "src/compiler/node-properties.h"
 #include "src/compiler/pipeline.h"
 #include "src/compiler/scheduler.h"
-#include "src/objects-inl.h"
+#include "src/factory-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -33,6 +33,14 @@ RawMachineAssembler::RawMachineAssembler(
         AddNode(common()->Parameter(static_cast<int>(i)), graph->start());
   }
   graph->SetEnd(graph->NewNode(common_.End(0)));
+}
+
+Node* RawMachineAssembler::NullConstant() {
+  return HeapConstant(isolate()->factory()->null_value());
+}
+
+Node* RawMachineAssembler::UndefinedConstant() {
+  return HeapConstant(isolate()->factory()->undefined_value());
 }
 
 Node* RawMachineAssembler::RelocatableIntPtrConstant(intptr_t value,
@@ -164,7 +172,17 @@ void RawMachineAssembler::PopAndReturn(Node* pop, Node* v1, Node* v2,
   current_block_ = nullptr;
 }
 
+void RawMachineAssembler::DebugAbort(Node* message) {
+  AddNode(machine()->DebugAbort(), message);
+}
+
 void RawMachineAssembler::DebugBreak() { AddNode(machine()->DebugBreak()); }
+
+void RawMachineAssembler::Unreachable() {
+  Node* ret = MakeNode(common()->Throw(), 0, nullptr);
+  schedule()->AddThrow(CurrentBlock(), ret);
+  current_block_ = nullptr;
+}
 
 void RawMachineAssembler::Comment(const char* msg) {
   AddNode(machine()->Comment(msg));
@@ -220,6 +238,20 @@ Node* RawMachineAssembler::CallCFunction1(MachineType return_type,
   return AddNode(common()->Call(descriptor), function, arg0);
 }
 
+Node* RawMachineAssembler::CallCFunction1WithCallerSavedRegisters(
+    MachineType return_type, MachineType arg0_type, Node* function, Node* arg0,
+    SaveFPRegsMode mode) {
+  MachineSignature::Builder builder(zone(), 1, 1);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  descriptor->set_save_fp_mode(mode);
+
+  return AddNode(common()->CallWithCallerSavedRegisters(descriptor), function,
+                 arg0);
+}
 
 Node* RawMachineAssembler::CallCFunction2(MachineType return_type,
                                           MachineType arg0_type,
@@ -251,6 +283,79 @@ Node* RawMachineAssembler::CallCFunction3(MachineType return_type,
   return AddNode(common()->Call(descriptor), function, arg0, arg1, arg2);
 }
 
+Node* RawMachineAssembler::CallCFunction3WithCallerSavedRegisters(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, Node* function, Node* arg0, Node* arg1, Node* arg2,
+    SaveFPRegsMode mode) {
+  MachineSignature::Builder builder(zone(), 1, 3);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  descriptor->set_save_fp_mode(mode);
+
+  return AddNode(common()->CallWithCallerSavedRegisters(descriptor), function,
+                 arg0, arg1, arg2);
+}
+
+Node* RawMachineAssembler::CallCFunction4(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, MachineType arg3_type, Node* function, Node* arg0,
+    Node* arg1, Node* arg2, Node* arg3) {
+  MachineSignature::Builder builder(zone(), 1, 4);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  builder.AddParam(arg3_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  return AddNode(common()->Call(descriptor), function, arg0, arg1, arg2, arg3);
+}
+
+Node* RawMachineAssembler::CallCFunction5(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, MachineType arg3_type, MachineType arg4_type,
+    Node* function, Node* arg0, Node* arg1, Node* arg2, Node* arg3,
+    Node* arg4) {
+  MachineSignature::Builder builder(zone(), 1, 5);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  builder.AddParam(arg3_type);
+  builder.AddParam(arg4_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  return AddNode(common()->Call(descriptor), function, arg0, arg1, arg2, arg3,
+                 arg4);
+}
+
+Node* RawMachineAssembler::CallCFunction6(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, MachineType arg3_type, MachineType arg4_type,
+    MachineType arg5_type, Node* function, Node* arg0, Node* arg1, Node* arg2,
+    Node* arg3, Node* arg4, Node* arg5) {
+  MachineSignature::Builder builder(zone(), 1, 6);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  builder.AddParam(arg3_type);
+  builder.AddParam(arg4_type);
+  builder.AddParam(arg5_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  return AddNode(common()->Call(descriptor), function, arg0, arg1, arg2, arg3,
+                 arg4, arg5);
+}
+
 Node* RawMachineAssembler::CallCFunction8(
     MachineType return_type, MachineType arg0_type, MachineType arg1_type,
     MachineType arg2_type, MachineType arg3_type, MachineType arg4_type,
@@ -273,27 +378,73 @@ Node* RawMachineAssembler::CallCFunction8(
   return AddNode(common()->Call(descriptor), arraysize(args), args);
 }
 
-
-void RawMachineAssembler::Bind(RawMachineLabel* label) {
-  DCHECK(current_block_ == nullptr);
-  DCHECK(!label->bound_);
-  label->bound_ = true;
-  current_block_ = EnsureBlock(label);
-  current_block_->set_deferred(label->deferred_);
+Node* RawMachineAssembler::CallCFunction9(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, MachineType arg3_type, MachineType arg4_type,
+    MachineType arg5_type, MachineType arg6_type, MachineType arg7_type,
+    MachineType arg8_type, Node* function, Node* arg0, Node* arg1, Node* arg2,
+    Node* arg3, Node* arg4, Node* arg5, Node* arg6, Node* arg7, Node* arg8) {
+  MachineSignature::Builder builder(zone(), 1, 9);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  builder.AddParam(arg3_type);
+  builder.AddParam(arg4_type);
+  builder.AddParam(arg5_type);
+  builder.AddParam(arg6_type);
+  builder.AddParam(arg7_type);
+  builder.AddParam(arg8_type);
+  Node* args[] = {function, arg0, arg1, arg2, arg3,
+                  arg4,     arg5, arg6, arg7, arg8};
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+  return AddNode(common()->Call(descriptor), arraysize(args), args);
 }
-
 
 BasicBlock* RawMachineAssembler::Use(RawMachineLabel* label) {
   label->used_ = true;
   return EnsureBlock(label);
 }
 
-
 BasicBlock* RawMachineAssembler::EnsureBlock(RawMachineLabel* label) {
-  if (label->block_ == nullptr) label->block_ = schedule()->NewBasicBlock();
+  if (label->block_ == nullptr) {
+    label->block_ = schedule()->NewBasicBlock();
+  }
   return label->block_;
 }
 
+void RawMachineAssembler::Bind(RawMachineLabel* label) {
+  DCHECK_NULL(current_block_);
+  DCHECK(!label->bound_);
+  label->bound_ = true;
+  current_block_ = EnsureBlock(label);
+  current_block_->set_deferred(label->deferred_);
+}
+
+#if DEBUG
+void RawMachineAssembler::Bind(RawMachineLabel* label,
+                               AssemblerDebugInfo info) {
+  if (current_block_ != nullptr) {
+    std::stringstream str;
+    str << "Binding label without closing previous block:"
+        << "\n#    label:          " << info
+        << "\n#    previous block: " << *current_block_;
+    FATAL(str.str().c_str());
+  }
+  Bind(label);
+  current_block_->set_debug_info(info);
+}
+
+void RawMachineAssembler::PrintCurrentBlock(std::ostream& os) {
+  os << CurrentBlock();
+}
+
+void RawMachineAssembler::SetInitialDebugInformation(
+    AssemblerDebugInfo debug_info) {
+  CurrentBlock()->set_debug_info(debug_info);
+}
+#endif  // DEBUG
 
 BasicBlock* RawMachineAssembler::CurrentBlock() {
   DCHECK(current_block_);
@@ -332,7 +483,19 @@ Node* RawMachineAssembler::MakeNode(const Operator* op, int input_count,
   return graph()->NewNodeUnchecked(op, input_count, inputs);
 }
 
-RawMachineLabel::~RawMachineLabel() { DCHECK(bound_ || !used_); }
+RawMachineLabel::~RawMachineLabel() {
+#if DEBUG
+  if (bound_ == used_) return;
+  std::stringstream str;
+  if (bound_) {
+    str << "A label has been bound but it's not used."
+        << "\n#    label: " << *block_;
+  } else {
+    str << "A label has been used but it's not bound.";
+  }
+  FATAL(str.str().c_str());
+#endif  // DEBUG
+}
 
 }  // namespace compiler
 }  // namespace internal

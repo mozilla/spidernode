@@ -136,6 +136,9 @@ void AstTraversalVisitor<Subclass>::VisitFunctionDeclaration(
 template <class Subclass>
 void AstTraversalVisitor<Subclass>::VisitBlock(Block* stmt) {
   PROCESS_NODE(stmt);
+  if (stmt->scope() != nullptr) {
+    RECURSE_EXPRESSION(VisitDeclarations(stmt->scope()->declarations()));
+  }
   RECURSE(VisitStatements(stmt->statements()));
 }
 
@@ -205,11 +208,6 @@ void AstTraversalVisitor<Subclass>::VisitSwitchStatement(
     ZoneList<Statement*>* stmts = clause->statements();
     RECURSE(VisitStatements(stmts));
   }
-}
-
-template <class Subclass>
-void AstTraversalVisitor<Subclass>::VisitCaseClause(CaseClause* clause) {
-  UNREACHABLE();
 }
 
 template <class Subclass>
@@ -357,9 +355,26 @@ void AstTraversalVisitor<Subclass>::VisitAssignment(Assignment* expr) {
 }
 
 template <class Subclass>
+void AstTraversalVisitor<Subclass>::VisitCompoundAssignment(
+    CompoundAssignment* expr) {
+  VisitAssignment(expr);
+}
+
+template <class Subclass>
 void AstTraversalVisitor<Subclass>::VisitYield(Yield* expr) {
   PROCESS_EXPRESSION(expr);
-  RECURSE_EXPRESSION(Visit(expr->generator_object()));
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+template <class Subclass>
+void AstTraversalVisitor<Subclass>::VisitYieldStar(YieldStar* expr) {
+  PROCESS_EXPRESSION(expr);
+  RECURSE_EXPRESSION(Visit(expr->expression()));
+}
+
+template <class Subclass>
+void AstTraversalVisitor<Subclass>::VisitAwait(Await* expr) {
+  PROCESS_EXPRESSION(expr);
   RECURSE_EXPRESSION(Visit(expr->expression()));
 }
 
@@ -474,6 +489,19 @@ template <class Subclass>
 void AstTraversalVisitor<Subclass>::VisitGetIterator(GetIterator* expr) {
   PROCESS_EXPRESSION(expr);
   RECURSE_EXPRESSION(Visit(expr->iterable()));
+}
+
+template <class Subclass>
+void AstTraversalVisitor<Subclass>::VisitGetTemplateObject(
+    GetTemplateObject* expr) {
+  PROCESS_EXPRESSION(expr);
+}
+
+template <class Subclass>
+void AstTraversalVisitor<Subclass>::VisitImportCallExpression(
+    ImportCallExpression* expr) {
+  PROCESS_EXPRESSION(expr);
+  RECURSE_EXPRESSION(Visit(expr->argument()));
 }
 
 template <class Subclass>

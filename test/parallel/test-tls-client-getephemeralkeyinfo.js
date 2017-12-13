@@ -1,24 +1,23 @@
 'use strict';
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  process.exit();
-}
-const tls = require('tls');
+const fixtures = require('../common/fixtures');
 
+const assert = require('assert');
+const tls = require('tls');
 const fs = require('fs');
-const key = fs.readFileSync(common.fixturesDir + '/keys/agent2-key.pem');
-const cert = fs.readFileSync(common.fixturesDir + '/keys/agent2-cert.pem');
+
+const key = fixtures.readKey('agent2-key.pem');
+const cert = fixtures.readKey('agent2-cert.pem');
 
 let ntests = 0;
 let nsuccess = 0;
 
 function loadDHParam(n) {
-  let path = common.fixturesDir;
+  let path = fixtures.fixturesDir;
   if (n !== 'error') path += '/keys';
-  return fs.readFileSync(path + '/dh' + n + '.pem');
+  return fs.readFileSync(`${path}/dh${n}.pem`);
 }
 
 const cipherlist = {
@@ -81,7 +80,7 @@ function testDHE2048() {
 }
 
 function testECDHE256() {
-  test(256, 'ECDH', tls.DEFAULT_ECDH_CURVE, testECDHE512);
+  test(256, 'ECDH', 'prime256v1', testECDHE512);
   ntests++;
 }
 
