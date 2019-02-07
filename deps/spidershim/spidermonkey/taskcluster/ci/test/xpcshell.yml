@@ -1,0 +1,60 @@
+job-defaults:
+    serviceworker-e10s:
+        by-test-platform:
+            linux64/debug: both
+            default: false
+    mozharness:
+        script:
+            by-test-platform:
+                android-em.*: android_emulator_unittest.py
+                default: desktop_unittest.py
+        config:
+            by-test-platform:
+                android-em.*:
+                    - android/android_common.py
+                    - android/androidarm_4_3.py
+                linux.*:
+                    - unittests/linux_unittest.py
+                    - remove_executables.py
+                macosx.*:
+                    - unittests/mac_unittest.py
+                windows.*:
+                    - unittests/win_taskcluster_unittest.py
+        requires-signed-builds:
+            by-test-platform:
+                windows10-64-asan/opt: false    # No XPCShell on ASAN yet
+                windows.*: true
+                default: false
+
+xpcshell:
+    description: "xpcshell test run"
+    suite: xpcshell
+    treeherder-symbol: X(X)
+    run-on-projects:
+        by-test-platform:
+            windows10-64-asan/opt: []  # No XPCShell on ASAN yet
+            default: built-projects
+    chunks:
+        by-test-platform:
+            linux32/debug: 12
+            linux64/debug: 10
+            android-em-4.3-arm7-api-16/debug: 12
+            macosx.*: 1
+            windows.*: 1
+            windows10-64-ccov/debug: 8
+            macosx64-ccov/debug: 8
+            default: 8
+    instance-size:
+        by-test-platform:
+            android-em.*: xlarge
+            default: default
+    max-run-time:
+        by-test-platform:
+            android-em-4.3-arm7-api-16/debug: 7200
+            default: 5400
+    e10s: false
+    allow-software-gl-layers: false
+    tier:
+        by-test-platform:
+            windows10-64-asan.*: 3
+            default: default

@@ -60,7 +60,7 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
       .setUTF8(true)
       .setSourceIsLazy(false)
       .setLine(1)
-      .setColumn(0, 0)
+      .setColumn(0)
       .forceAsync = true;
   ;
   if (origin) {
@@ -80,7 +80,7 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source,
       options.setLine(origin->ResourceLineOffset()->Value() + 1);
     }
     if (!origin->ResourceColumnOffset().IsEmpty()) {
-      options.setColumn(origin->ResourceColumnOffset()->Value(), 0);
+      options.setColumn(origin->ResourceColumnOffset()->Value());
     }
   }
   JS::RootedScript jsScript(cx);

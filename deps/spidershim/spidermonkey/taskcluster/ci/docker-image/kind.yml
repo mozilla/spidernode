@@ -1,0 +1,164 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+loader: taskgraph.loader.transform:loader
+
+kind-dependencies:
+  - packages
+
+transforms:
+  - taskgraph.transforms.docker_image:transforms
+  - taskgraph.transforms.cached_tasks:transforms
+  - taskgraph.transforms.task:transforms
+
+# make a task for each docker-image we might want.  For the moment, since we
+# write artifacts for each, these are whitelisted, but ideally that will change
+# (to use subdirectory clones of the proper directory), at which point we can
+# generate tasks for every docker image in the directory, secure in the
+# knowledge that unnecessary images will be omitted from the target task graph
+jobs:
+  image_builder:
+    symbol: I(ib)
+  desktop1604-test:
+    symbol: I(dt16t)
+  debian7-base:
+    symbol: I(deb7-base)
+    definition: debian-base
+    args:
+      DIST: wheezy
+      BASE_TAG: '20171210'
+      SNAPSHOT: '20171210T214726Z'
+    packages:
+      - deb7-gdb
+      - deb7-git
+      - deb7-make
+      - deb7-mercurial
+      - deb7-python
+      - deb7-python3.5
+      - deb7-python3-defaults
+      - deb7-python-zstandard
+      - deb7-sqlite3
+      - deb7-xz-utils
+  toolchain-build:
+    symbol: I(toolchain)
+    parent: debian7-base
+    packages:
+      - deb7-cmake
+      - deb7-ninja
+  custom-v8:
+    symbol: I(custom-v8)
+    parent: debian9-base
+  debian7-amd64-build-base:
+    symbol: I(deb7-bb)
+    parent: debian7-base
+    definition: debian-build
+    packages:
+      - deb7-nasm
+      - deb7-valgrind
+    args:
+      ARCH: amd64
+  debian7-amd64-build:
+    symbol: I(deb7)
+    parent: debian7-base
+    definition: debian-build
+    packages:
+      - deb7-atk
+      - deb7-glib
+      - deb7-gdk-pixbuf
+      - deb7-gtk3
+      - deb7-harfbuzz
+      - deb7-libxkbcommon
+      - deb7-nasm
+      - deb7-pango
+      - deb7-pcre3
+      - deb7-valgrind
+      - deb7-wayland
+    args:
+      ARCH: amd64
+  debian7-i386-build:
+    symbol: I(deb7-32)
+    parent: debian7-base
+    definition: debian-build
+    packages:
+      - deb7-32-atk
+      - deb7-32-glib
+      - deb7-32-gdk-pixbuf
+      - deb7-32-gtk3
+      - deb7-32-harfbuzz
+      - deb7-32-libxkbcommon
+      - deb7-32-pango
+      - deb7-32-pcre3
+      - deb7-32-xkeyboard-config
+      - deb7-32-wayland
+      - deb7-atk
+      - deb7-glib
+      - deb7-gtk3
+      - deb7-harfbuzz
+      - deb7-nasm
+      - deb7-python-defaults
+      - deb7-pcre3
+      - deb7-valgrind
+    args:
+      ARCH: i386
+  debian7-mozjs-rust-build:
+    symbol: I(deb7jsrs)
+    parent: debian7-amd64-build
+    packages:
+      - deb7-cmake
+  valgrind-build:
+    symbol: I(vb)
+    parent: debian7-amd64-build
+  lint:
+    symbol: I(lnt)
+  debian9-base:
+    symbol: I(deb9-base)
+    definition: debian-base
+    args:
+      DIST: stretch
+      BASE_TAG: '20170620'
+      SNAPSHOT: '20170830T000511Z'
+    packages:
+      - deb9-mercurial
+      - deb9-python-zstandard
+  debian9-amd64-build:
+    symbol: I(deb9)
+    parent: debian9-base
+    definition: debian-build
+    args:
+      ARCH: amd64
+  android-build:
+    symbol: I(agb)
+    parent: debian9-base
+  fetch:
+    symbol: I(fetch)
+    parent: debian9-base
+  static-analysis-build:
+    symbol: I(static-analysis-build)
+    parent: android-build
+  mingw32-build:
+    symbol: I(mingw)
+    parent: debian9-base
+  index-task:
+    symbol: I(idx)
+  funsize-update-generator:
+    symbol: I(pg)
+  google-play-strings:
+    symbol: I(gps)
+  update-verify:
+    symbol: I(uv)
+  diffoscope:
+    symbol: I(diff)
+  partner-repack:
+    symbol: I(PR)
+    parent: debian9-base
+    definition: partner-repack
+  periodic-updates:
+    symbol: I(file)
+  pipfile-updates:
+    symbol: I(pip)
+  firefox-snap:
+    symbol: I(snap)
+  webrender:
+    symbol: I(webrender)
+    parent: debian9-base

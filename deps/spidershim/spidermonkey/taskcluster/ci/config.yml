@@ -1,0 +1,245 @@
+trust-domain: gecko
+project-repo-param-prefix: ''
+product-dir: 'browser'
+treeherder:
+    group-names:
+        'cram': 'Cram tests'
+        'js-bench-sm': 'JavaScript shell benchmarks with Spidermonkey'
+        'js-bench-v8': 'JavaScript shell benchmarks with Google V8'
+        'mocha': 'Mocha unit tests'
+        'py2': 'Python 2 unit tests'
+        'py3': 'Python 3 unit tests'
+        'A': 'Android Gradle tests'
+        'Bpgo': 'Profile-guided optimization builds'
+        'Fetch-URL': 'Fetch and store content'
+        'Fxfn-l': 'Firefox functional tests (local)'
+        'Fxfn-l-e10s': 'Firefox functional tests (local) with e10s'
+        'Fxfn-r': 'Firefox functional tests (remote)'
+        'Fxfn-r-e10s': 'Firefox functional tests (remote) with e10s'
+        'M': 'Mochitests'
+        'M-sw': 'Mochitests with serviceworker redesign'
+        'M-e10s': 'Mochitests with e10s'
+        'M-sw-e10s': 'Mochitests with serviceworker redesign and e10s'
+        'M-V': 'Mochitests on Valgrind'
+        'MSI': 'Repack installers into MSIs'
+        'MSIs': 'Signing of Repacked installers of MSIs'
+        'R': 'Reftests'
+        'R-sw': 'Reftests with serviceworker redesign enabled'
+        'R-e10s': 'Reftests with e10s'
+        'R-sw-e10s': 'Reftests with serviceworker redesign and e10s'
+        'Rap': 'Raptor performance tests on Firefox'
+        'Rap-e10s': 'Raptor performance tests on Firefox with e10s'
+        'Rap-Prof': 'Raptor performance tests on Firefox with Gecko Profiling'
+        'Rap-Prof-e10s': 'Raptor performance tests on Firefox with Gecko Profiling'
+        'Rap-C': 'Raptor performance tests on Google Chrome'
+        'Rap-C-e10s': 'Raptor performance tests on Google Chrome with e10s'
+        'Rap-P': 'Raptor power tests on Firefox'
+        'Rap-P-e10s': 'Raptor power tests on Firefox with e10s'
+        'T': 'Talos performance tests'
+        'Tsd': 'Talos performance tests with Stylo disabled'
+        'Tss': 'Talos performance tests with Stylo sequential'
+        'T-e10s': 'Talos performance tests with e10s'
+        'Tsd-e10s': 'Talos performance tests with e10s, Stylo disabled'
+        'Tss-e10s': 'Talos performance tests with e10s, Stylo sequential'
+        'tt': 'Telemetry tests'
+        'tt-e10s': 'Telemetry tests with e10s'
+        'SY-e10s': 'Are we slim yet tests by TaskCluster with e10s'
+        'SYsd-e10s': 'Are we slim yet tests by TaskCluster with e10s, Stylo disabled'
+        'SYss-e10s': 'Are we slim yet tests by TaskCluster with e10s, Stylo sequential'
+        'VP': 'VideoPuppeteer tests'
+        'W': 'Web platform tests'
+        'W-sw': 'Web platform tests with serviceworker redesign'
+        'W-e10s': 'Web platform tests with e10s'
+        'W-sw-e10s': 'Web platform tests with serviceworker redesign and e10s'
+        'X': 'Xpcshell tests'
+        'X-sw': 'Xpcshell tests with serviceworker redesign'
+        'L10n': 'Localised Repacks'
+        'L10n-Rpk': 'Localized Repackaged Repacks'
+        'BM': 'Beetmover'
+        'BMR': 'Beetmover repackages'
+        'c-Up': 'Balrog submission of complete updates'
+        'cs': 'Checksum signing'
+        'css': 'Checksum signing for source'
+        'rs': 'Repackage signing'
+        'BMcs': 'Beetmover checksums'
+        'BMcslang': 'Beetmover checksums for language packs'
+        'BMcss': 'Beetmover checksums for source'
+        'Aries': 'Aries Device Image'
+        'Deb7': 'Packages for Debian 7'
+        'Deb7-32': 'Packages for Debian 7 32-bits'
+        'Deb9': 'Packages for Debian 9'
+        'Nexus 5-L': 'Nexus 5-L Device Image'
+        'I': 'Docker Image Builds'
+        'TL': 'Toolchain builds for Linux 64-bits'
+        'TM': 'Toolchain builds for OSX'
+        'TMW': 'Toolchain builds for Windows MinGW'
+        'TW32': 'Toolchain builds for Windows 32-bits'
+        'TW64': 'Toolchain builds for Windows 64-bits'
+        'WMC32': 'MinGW-Clang builds for Windows 32-bits'
+        'WMC64': 'MinGW-Clang builds for Windows 64-bits'
+        'Searchfox': 'Searchfox builds'
+        'SM': 'Spidermonkey builds'
+        'pub': 'APK publishing'
+        'p': 'Partial generation'
+        'ps': 'Partials signing'
+        'ms': 'Complete MAR signing'
+        'Rel': 'Release promotion'
+        'Snap': 'Snap image generation'
+        'langpack': 'Langpack sigatures and uploads'
+        'TPS': 'Sync tests'
+        'UV': 'Update verify'
+        'pipfu': 'pipfile update'
+        'WR': 'WebRender standalone'
+
+index:
+    products:
+        - 'firefox'
+        - 'fennec'
+        - 'mobile'
+        - 'static-analysis'
+        - 'devedition'
+        - 'source'
+
+try:
+    # We have a few platforms for which we want to do some "extra" builds, or at
+    # least build-ish things.  Sort of.  Anyway, these other things are implemented
+    # as different "platforms".  These do *not* automatically ride along with "-p
+    # all"
+    ridealong-builds:
+        'linux':
+            - 'sm-arm-sim-linux32'
+        'linux64':
+            - 'sm-plain-linux64'
+            - 'sm-nojit-linux64'
+            - 'sm-nonunified-linux64'
+            - 'sm-arm-sim-linux32'
+            - 'sm-arm64-sim-linux64'
+            - 'sm-compacting-linux64'
+            - 'sm-rootanalysis-linux64'
+            - 'sm-package-linux64'
+            - 'sm-tsan-linux64'
+            - 'sm-asan-linux64'
+            - 'sm-mozjs-sys-linux64'
+            - 'sm-msan-linux64'
+            - 'sm-fuzzing-linux64'
+            - 'sm-rust-bindings-linux64'
+        'win32':
+            - 'sm-plain-win32'
+            - 'sm-compacting-win32'
+
+release-promotion:
+    products:
+        - 'devedition'
+        - 'fennec'
+        - 'firefox'
+    flavors:
+        promote_devedition:
+            product: devedition
+            target-tasks-method: promote_desktop
+            partial-updates: true
+        promote_fennec:
+            product: fennec
+            target-tasks-method: promote_fennec
+        promote_firefox:
+            product: firefox
+            target-tasks-method: promote_desktop
+            partial-updates: true
+        promote_firefox_partners:
+            product: firefox
+            rebuild-kinds:
+                - release-partner-repack
+                - release-partner-beetmover
+                - release-partner-repack-chunking-dummy
+                - release-partner-repackage-signing
+                - release-partner-repackage
+                - release-partner-signing
+            target-tasks-method: promote_desktop
+        promote_firefox_rc:
+            product: firefox
+            is-rc: true
+            target-tasks-method: promote_desktop
+            partial-updates: true
+        push_devedition:
+            product: devedition
+            target-tasks-method: push_desktop
+            partial-updates: true
+        push_firefox:
+            product: firefox
+            target-tasks-method: push_desktop
+            partial-updates: true
+        ship_devedition:
+            product: devedition
+            target-tasks-method: ship_desktop
+            version-bump: true
+            partial-updates: true
+        ship_fennec:
+            product: fennec
+            target-tasks-method: ship_fennec
+            version-bump: true
+        ship_fennec_rc:
+            product: fennec
+            is-rc: true
+            target-tasks-method: ship_fennec
+        ship_firefox:
+            product: firefox
+            target-tasks-method: ship_desktop
+            version-bump: true
+            partial-updates: true
+        ship_firefox_rc:
+            product: firefox
+            is-rc: true
+            target-tasks-method: ship_desktop
+            partial-updates: true
+
+scriptworker:
+    # See additional configuration in taskcluster/taskgraph/util/scriptworker.py
+    scope-prefix: 'project:releng'
+    worker-types:
+        'scriptworker-prov-v1/signing-linux-v1':
+            - 'project:releng:signing:cert:release-signing'
+            - 'project:releng:signing:cert:nightly-signing'
+        'scriptworker-prov-v1/depsigning':
+            - 'project:releng:signing:cert:dep-signing'
+        'scriptworker-prov-v1/beetmoverworker-v1':
+            - 'project:releng:beetmover:bucket:release'
+            - 'project:releng:beetmover:bucket:nightly'
+            - 'project:releng:beetmover:bucket:partner'
+            - 'project:releng:beetmover:bucket:maven-production'
+        'scriptworker-prov-v1/beetmoverworker-dev':
+            - 'project:releng:beetmover:bucket:dep'
+            - 'project:releng:beetmover:bucket:dep-partner'
+            - 'project:releng:beetmover:bucket:maven-staging'
+        'scriptworker-prov-v1/balrogworker-v1':
+            - 'project:releng:balrog:server:nightly'
+            - 'project:releng:balrog:server:aurora'
+            - 'project:releng:balrog:server:beta'
+            - 'project:releng:balrog:server:release'
+            - 'project:releng:balrog:server:esr'
+        'scriptworker-prov-v1/balrog-dev':
+            - 'project:releng:balrog:server:dep'
+
+partner-urls:
+    release-partner-repack:
+        by-release-product:
+            default: null
+            firefox:
+                by-release-type:
+                    default: null
+                    beta|release.*:
+                        by-release-level:
+                            production: 'git@github.com:mozilla-partners/repack-manifests.git'
+                            staging: 'git@github.com:moz-releng-automation-stage/repack-manifests.git'
+                    esr60:
+                        by-release-level:
+                            production: 'git@github.com:mozilla-partners/esr-repack-manifests.git'
+                            staging: 'git@github.com:moz-releng-automation-stage/esr-repack-manifests.git'
+    release-eme-free-repack:
+        by-release-product:
+            default: null
+            firefox:
+                by-release-type:
+                    default: null
+                    beta|release.*:
+                        by-release-level:
+                            production: 'git@github.com:mozilla-partners/mozilla-EME-free-manifest.git'
+                            staging: 'git@github.com:moz-releng-automation-stage/mozilla-EME-free-manifest.git'

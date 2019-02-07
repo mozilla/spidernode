@@ -40,7 +40,7 @@ bool InitLibraries(JSContext* cx) {
         .setSourceIsLazy(false)                                               \
         .setFile(id##_name)                                                   \
         .setLine(1)                                                           \
-        .setColumn(0, 0)                                                      \
+        .setColumn(0)                                                         \
         .forceAsync = true;                                                   \
     JS::RootedValue value(cx);                                                \
     if (!JS::Evaluate(cx, options,                                            \

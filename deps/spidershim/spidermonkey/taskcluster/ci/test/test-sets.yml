@@ -1,0 +1,426 @@
+# Each key in this file specifies a set of tests to run.  Different test sets
+# may, for example, be bound to different test platforms.
+#
+# Note that set does not depend on the tree; tree-dependent job selection
+# should be performed in the target task selection phase of task-graph
+# generation.
+#
+# A test set has a name, and a list of tests that it contains.
+#
+# Test names given here reference tests.yml.
+
+##
+# Universal tests
+#
+# Tests that run just about everywhere; common-tests is the shared core, with
+# a few add-on test sets that are included or omitted on some platforms.
+
+common-tests:
+    - cppunit
+    - crashtest
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
+    - gtest
+    - jittest
+    - jsreftest
+    - marionette
+    - marionette-headless
+    - mochitest
+    - mochitest-a11y
+    - mochitest-browser-chrome
+    - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-devtools-chrome
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - mochitest-webgl1-ext
+    - reftest
+    - reftest-no-accel
+    - telemetry-tests-client
+    - test-verify
+    - test-verify-gpu
+    - test-verify-wpt
+    - xpcshell
+
+web-platform-tests:
+    - web-platform-tests
+    - web-platform-tests-reftests
+    - web-platform-tests-wdspec
+
+web-platform-tests-headless:
+    - web-platform-tests-headless
+    - web-platform-tests-reftests-headless
+    - web-platform-tests-wdspec-headless
+
+opt-only-tests:
+    - mochitest-valgrind
+
+talos:
+    - talos-bcv
+    - talos-chrome
+    - talos-damp
+    - talos-dromaeojs
+    - talos-g1
+    - talos-g3
+    - talos-g4
+    - talos-g5
+    - talos-other
+    - talos-sessionrestore-many-windows
+    - talos-svgr
+    - talos-tp5o
+    - talos-perf-reftest
+    - talos-perf-reftest-singletons
+    - talos-tp6-stylo-threads
+    - talos-tps
+    # - talos-h1 Bug 1487031 - Disabled for not finding actionable regressions
+    # - talos-h2 Bug 1487031 - Disabled for not finding actionable regressions
+
+talos-ux:
+    - talos-g4
+
+raptor-firefox:
+    - raptor-tp6-1-firefox
+    - raptor-tp6-2-firefox
+    - raptor-tp6-3-firefox
+    - raptor-tp6-4-firefox
+    - raptor-tp6-5-firefox
+    - raptor-tp6-6-firefox
+    - raptor-tp6-7-firefox
+    - raptor-tp6-8-firefox
+    - raptor-tp6-9-firefox
+    - raptor-tp6-10-firefox
+    - raptor-speedometer-firefox
+    - raptor-stylebench-firefox
+    - raptor-motionmark-htmlsuite-firefox
+    - raptor-motionmark-animometer-firefox
+    - raptor-webaudio-firefox
+    - raptor-sunspider-firefox
+    - raptor-wasm-godot-firefox
+
+raptor-profiling:
+    - raptor-tp6-1-firefox-profiling
+    - raptor-tp6-2-firefox-profiling
+    - raptor-tp6-3-firefox-profiling
+    - raptor-tp6-4-firefox-profiling
+    - raptor-tp6-5-firefox-profiling
+    - raptor-tp6-6-firefox-profiling
+    - raptor-speedometer-firefox-profiling
+    - raptor-stylebench-firefox-profiling
+    - raptor-motionmark-htmlsuite-firefox-profiling
+    - raptor-motionmark-animometer-firefox-profiling
+    - raptor-webaudio-firefox-profiling
+    - raptor-sunspider-firefox-profiling
+    - raptor-wasm-godot-firefox-profiling
+
+raptor-chrome:
+    - raptor-tp6-1-chrome
+    - raptor-tp6-2-chrome
+    - raptor-tp6-3-chrome
+    - raptor-tp6-4-chrome
+    - raptor-tp6-5-chrome
+    - raptor-tp6-6-chrome
+    - raptor-tp6-7-chrome
+    - raptor-tp6-8-chrome
+    - raptor-tp6-9-chrome
+    - raptor-tp6-10-chrome
+    - raptor-speedometer-chrome
+    - raptor-stylebench-chrome
+    - raptor-motionmark-htmlsuite-chrome
+    - raptor-motionmark-animometer-chrome
+    - raptor-webaudio-chrome
+    - raptor-sunspider-chrome
+    - raptor-wasm-godot-chrome
+
+# Fetch tasks are only supported on Linux for now,
+# so these need to be separate sets.
+raptor-fetch-firefox:
+    - raptor-unity-webgl-firefox
+    - raptor-wasm-misc-firefox
+    - raptor-wasm-misc-baseline-firefox
+    - raptor-wasm-misc-ion-firefox
+    - raptor-wasm-godot-baseline-firefox
+    - raptor-wasm-godot-ion-firefox
+    - raptor-assorted-dom-firefox
+
+raptor-fetch-profiling:
+    - raptor-unity-webgl-firefox-profiling
+    - raptor-wasm-misc-firefox-profiling
+    - raptor-wasm-misc-baseline-firefox-profiling
+    - raptor-wasm-misc-ion-firefox-profiling
+    - raptor-wasm-godot-baseline-firefox-profiling
+    - raptor-wasm-godot-ion-firefox-profiling
+    - raptor-assorted-dom-firefox-profiling
+
+raptor-fetch-geckoview:
+    - raptor-unity-webgl-geckoview
+
+raptor-fetch-chrome:
+    - raptor-unity-webgl-chrome
+    - raptor-wasm-misc-chrome
+    - raptor-assorted-dom-chrome
+
+awsy:
+    - awsy
+    - awsy-base
+    - awsy-dmd
+    - awsy-base-dmd
+
+awsy-stylo-sequential:
+    - awsy-stylo-sequential
+
+##
+# Limited test sets for specific platforms
+
+linux-qr-tests:
+    - cppunit
+    - crashtest
+    - gtest
+    - jittest
+    - jsreftest
+    - mochitest
+    - mochitest-a11y
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - mochitest-webgl1-ext
+    - reftest
+    - xpcshell
+
+linux-talos-flex:
+    - talos-flex
+
+windows-qr-tests:
+    - crashtest
+    - mochitest
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - mochitest-webgl1-ext
+    - mochitest-webgl2-core
+    - mochitest-webgl2-ext
+    - reftest
+    - web-platform-tests-reftests
+
+ccov-code-coverage-tests:
+    - test-coverage
+    - test-coverage-wpt
+
+windows-reftest-gpu:
+    - reftest-gpu
+
+windows-tests:
+    - cppunit
+    - crashtest
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
+    - gtest
+    - jittest
+    - jsreftest
+    - marionette
+    - marionette-headless
+    - mochitest
+    - mochitest-a11y
+    - mochitest-browser-chrome
+    - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-devtools-chrome
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - mochitest-webgl1-ext
+    - mochitest-webgl2-core
+    - mochitest-webgl2-ext
+    - reftest
+    - reftest-no-accel
+    - test-verify
+    - test-verify-gpu
+    - test-verify-wpt
+    - xpcshell
+
+windows-talos:
+    - talos-bcv
+    - talos-chrome
+    - talos-damp
+    - talos-dromaeojs
+    - talos-g1
+    - talos-g4
+    - talos-g5
+    - talos-other
+    - talos-sessionrestore-many-windows
+    - talos-perf-reftest
+    - talos-perf-reftest-singletons
+    - talos-svgr
+    - talos-tp5o
+    - talos-xperf
+    - talos-tps
+    # - talos-h1 Bug 1487031 - Disabled for not finding actionable regressions
+
+marionette-gpu-tests:
+    - marionette-gpu
+
+macosx64-tests:
+    - cppunit
+    - crashtest
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
+    - gtest
+    - jittest
+    - jsreftest
+    - marionette
+    - marionette-headless
+    - mochitest
+    - mochitest-a11y
+    - mochitest-browser-chrome
+    - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-devtools-chrome
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - mochitest-webgl1-ext
+    - mochitest-webgl2-core
+    # - mochitest-webgl2-ext test timeouts
+    - reftest
+    - test-verify
+    - test-verify-gpu
+    - test-verify-wpt
+    - web-platform-tests
+    - web-platform-tests-reftests
+    - web-platform-tests-wdspec
+    - xpcshell
+
+macosx64-talos:
+    - talos-bcv
+    - talos-chrome
+    - talos-damp
+    - talos-dromaeojs
+    - talos-g1
+    - talos-g4
+    - talos-g5
+    - talos-other
+    - talos-sessionrestore-many-windows
+    - talos-svgr
+    - talos-tp5o
+    - talos-perf-reftest
+    - talos-perf-reftest-singletons
+    - talos-tp6-stylo-threads
+    # - talos-tps # Bug 1453007 times out
+    # - talos-h1 # too long to unpack profile- Bug 1442893
+
+macosx64-qr-tests:
+    - crashtest
+    - reftest
+
+linux32-tests:
+    - cppunit
+    - crashtest
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
+    - gtest
+    - jittest
+    - jsreftest
+    - marionette
+    - mochitest
+    - mochitest-a11y
+    - mochitest-browser-chrome
+    - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-gpu
+    - mochitest-media
+    - mochitest-webgl1-core
+    - reftest
+    - reftest-no-accel
+    - web-platform-tests
+    - web-platform-tests-reftests
+    - web-platform-tests-wdspec
+    - xpcshell
+
+linux32-opt-tests:
+    # mochitest-dt is too slow on linux32/debug
+    - mochitest-devtools-chrome
+
+desktop-screenshot-capture:
+    - browser-screenshots
+
+desktop-instrumentation:
+    - browser-instrumentation
+
+android-common-tests:
+    - cppunit
+    - crashtest
+    - geckoview-junit
+    # - jittest # not ready yet: bug 1098508
+    - jsreftest
+    - marionette
+    - mochitest
+    - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-gpu
+    - mochitest-media
+    # - mochitest-webgl1-core
+    # - mochitest-webgl1-ext
+    # - mochitest-webgl2-core
+    # - mochitest-webgl2-ext
+    - reftest
+    - test-verify
+    - xpcshell
+
+android-opt-tests:
+    # Robocop tests often fail on Debug builds
+    - robocop
+
+android-x86-kvm-tests:
+    - crashtest
+    - geckoview-junit
+    - jsreftest
+    # - mochitest
+    # - mochitest-chrome
+    - mochitest-clipboard
+    - mochitest-gpu
+    # - mochitest-media
+    # - mochitest-webgl1-core
+    # - reftest
+    # - test-verify
+    - web-platform-tests
+    - web-platform-tests-reftests
+    # - web-platform-tests-wdspec
+
+android-ccov-tests:
+    - geckoview-junit
+    - robocop
+
+devtools-tests:
+    - mochitest-devtools-chrome
+
+mochitest-headless:
+    - mochitest-plain-headless
+
+android-hw-arm7-opt-unittests:
+    - jittest
+    - mochitest-media
+
+android-hw-arm7-debug-unittests:
+    - mochitest-media
+
+android-hw-aarch64-opt-unittests:
+    - jittest
+
+# Coming soonish!
+android-hw-arm7-raptor:
+    - raptor-speedometer-geckoview
+
+android-hw-aarch64-raptor:
+    - raptor-speedometer-geckoview
+
+android-hw-arm7-raptor-power:
+    - raptor-speedometer-geckoview-power
+
+android-hw-aarch64-raptor-power:
+    - raptor-speedometer-geckoview-power
+
+android-hw-arm7-raptor-nightly:
+    - raptor-speedometer-fennec
+
+android-hw-aarch64-raptor-nightly:
+    - raptor-speedometer-fennec
