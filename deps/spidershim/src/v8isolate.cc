@@ -588,7 +588,7 @@ Local<Object> Isolate::GetHiddenGlobal() {
     // only used in those cases.
     static const JSClassOps cOps = {
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook};
     static const JSClass globalClass = {
       "HiddenGlobalObject",
       // SpiderMonkey allocates JSCLASS_GLOBAL_APPLICATION_SLOTS (5) reserved slots

@@ -172,6 +172,7 @@ const JSClassOps objectTemplateClassOps = {
   nullptr, // getProperty
   nullptr, // setProperty
   nullptr, // enumerate
+  nullptr, // newEnumerate
   nullptr, // resolve
   nullptr, // mayResolve
   ObjectTemplateFinalize,
@@ -1242,7 +1243,7 @@ ObjectTemplate::InstanceClass* ObjectTemplate::GetInstanceClass(ObjectType objec
   if (HasEnumeratorProp<Name>(obj) ||
       HasEnumeratorProp<String>(obj) ||
       HasEnumeratorProp<uint32_t>(obj)) {
-    instanceClass->ModifyObjectOps().enumerate = EnumeratorOp;
+    instanceClass->ModifyClassOps().newEnumerate = EnumeratorOp;
   }
 
   JS::Value callAsFunctionHandler =

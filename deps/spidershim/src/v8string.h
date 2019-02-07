@@ -40,16 +40,14 @@ struct ExternalStringFinalizerBase : JSStringFinalizer {
 struct ExternalStringFinalizer
     : ExternalStringFinalizerBase<ExternalStringFinalizer> {
   ExternalStringFinalizer(String::ExternalStringResourceBase* resource);
-  static void FinalizeExternalString(JS::Zone* zone,
-                                     const JSStringFinalizer* fin,
+  static void FinalizeExternalString(const JSStringFinalizer* fin,
                                      char16_t* chars);
 };
 
 struct ExternalOneByteStringFinalizer
     : ExternalStringFinalizerBase<ExternalOneByteStringFinalizer> {
   ExternalOneByteStringFinalizer(String::ExternalStringResourceBase* resource);
-  static void FinalizeExternalString(JS::Zone* zone,
-                                     const JSStringFinalizer* fin,
+  static void FinalizeExternalString(const JSStringFinalizer* fin,
                                      char16_t* chars);
 };
 
