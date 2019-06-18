@@ -1,3 +1,5 @@
+Note: this project has been archived, as development has stalled, and it isn't being actively maintained, nor used.
+
 SpiderNode: Node.js on SpiderMonkey
 ===
 This project is a port of Node.js on top of SpiderMonkey, the JavaScript engine in Firefox. We're still in the very early stages of the port, and a lot of work remains to be done before Node works.
